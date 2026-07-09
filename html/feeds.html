@@ -10,7 +10,8 @@
 
     body { font-family: Arial, sans-serif; max-width: 800px; margin: 2rem auto; padding: 0 1.5rem; color: #1a1a1a; line-height: 1.6; }
     h1 { color: #232D4B; }
-    h2 { color: #232D4B; margin-top: 2rem; }
+    h2 { color: #232D4B; margin-top: 2.5rem; border-bottom: 2px solid #232D4B; padding-bottom: 0.25rem; }
+    h3 { color: #232D4B; margin-top: 1.75rem; }
     code, pre { background: #f0f0f0; border-radius: 4px; font-family: monospace; }
     code { padding: 2px 6px; }
     pre { padding: 1rem; overflow-x: auto; white-space: pre-wrap; word-break: break-all; }
@@ -22,6 +23,20 @@
     th, td { border: 1px solid #ccc; padding: 0.5rem 0.75rem; text-align: left; }
     th { background: #232D4B; color: #fff; }
     tr:nth-child(even) { background: #f8f8f8; }
+    .disclaimer {
+      background: #fff8e6;
+      border-left: 4px solid #E57200;
+      padding: 0.6rem 1rem;
+      border-radius: 0 4px 4px 0;
+      font-size: 0.9rem;
+      margin-top: 1rem;
+    }
+
+    /* Lower-priority reference section */
+    .reference-section { opacity: 0.85; }
+    .reference-section h2 { color: #666; border-bottom-color: #ccc; }
+    .reference-divider { margin-top: 3rem; border: none; border-top: 1px dashed #bbb; }
+    .reference-label { color: #888; font-size: 0.85rem; text-transform: uppercase; letter-spacing: 0.04em; margin-top: 0.5rem; }
 
     /* Sign preview */
     #sign-outer {
@@ -49,14 +64,6 @@
       will-change: transform;
       padding-left: 100%;
     }
-    .disclaimer {
-      background: #fff8e6;
-      border-left: 4px solid #E57200;
-      padding: 0.6rem 1rem;
-      border-radius: 0 4px 4px 0;
-      font-size: 0.9rem;
-      margin-top: 1rem;
-    }
     #preview-controls { margin-top: 0.75rem; display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap; }
     #preview-status { color: #555; font-size: 0.9rem; font-style: italic; }
     #preview-stop { width: 70px; font-size: 1rem; padding: 3px 6px; }
@@ -67,123 +74,43 @@
 
   <h1>Bus Arrival Feeds</h1>
   <p>
-    The UTS Operations Dashboard provides real-time bus arrival predictions for any stop on the system
-    in two feed formats: <a href="#rss">RSS 2.0</a> for digital signage devices such as NovaNex LED displays,
-    and <a href="#cap">CAP 1.2</a> for alerting platforms such as Rave and Alertus.
+    Real-time bus arrival predictions for any stop, in two formats: <a href="#cap">CAP 1.2</a> for alerting
+    platforms such as Rave and Alertus, and <a href="#rss">RSS 2.0</a> for digital signage devices such as
+    NovaNex LED displays.
   </p>
 
+  <h2 id="create-code">Step 1: Create a Feed Code</h2>
   <div class="disclaimer">
-    <strong>Note:</strong> TransLoc stop IDs can change without notice. New signage should use the
-    <strong>code-based feed URL</strong> below instead of a raw stop ID &mdash; ops staff can then repoint a code
-    to a new stop ID at <a href="/feed-codes">/feed-codes</a> (dispatcher login required) without touching the
+    <strong>Do this first.</strong> TransLoc stop IDs can change without notice, and sometimes represent one
+    physical stop as separate IDs per route. Both feed formats below use a short, stable <strong>code</strong>
+    instead of a raw stop ID, so ops staff can repoint a code to a new stop ID later without touching the
     signage device or redeploying the dashboard.
   </div>
+  <div class="step"><strong>1</strong> Go to <a href="https://uva.transloc.com/" target="_blank">uva.transloc.com</a> and click the stop you need on the map.</div>
+  <div class="step"><strong>2</strong> The stop ID appears in the URL, e.g. <code>https://uva.transloc.com/stops/<strong>26</strong></code> &rarr; stop ID <strong>26</strong>. A code can map to more than one stop ID if TransLoc splits one physical stop into per-route IDs &mdash; arrivals from every mapped ID are merged into a single feed.</div>
+  <div class="step"><strong>3</strong> Go to <a href="/feed-codes">/feed-codes</a> (dispatcher login required) and add a short code (e.g. <code>NGPG</code> for North Grounds Parking Garage, <code>JPA</code> for Jefferson Park Ave @ West Complex), the stop ID(s) from step 2, and an optional label.</div>
+  <div class="step"><strong>4</strong> Use that code in the CAP or RSS feed URL for your device instead of a raw stop ID. If TransLoc renumbers the stop later, repoint the code at <a href="/feed-codes">/feed-codes</a> and the signage URL never has to change.</div>
 
-  <h2 id="rss">Feed URL (recommended — by code)</h2>
-  <div class="feed-url">https://utsopsdashboard.com/api/rss/stop_arrivals/<strong>{code}</strong></div>
-  <p>
-    Replace <code>{code}</code> with a short code configured at <a href="/feed-codes">/feed-codes</a>, e.g.
-    <code>NGPG</code> for North Grounds Parking Garage or <code>JPA</code> for Jefferson Park Ave @ West Complex.
-    The feed updates every 15 seconds on the server; configure your device to poll at least once per minute.
-    A code can map to more than one TransLoc stop ID &mdash; useful since TransLoc sometimes represents one
-    physical stop as separate IDs per route. Arrivals from all mapped IDs are merged into a single feed.
-  </p>
-
-  <h2>Legacy Feed URL (by raw stop ID)</h2>
-  <div class="feed-url">https://utsopsdashboard.com/api/rss/stop_arrivals?stopID=<strong>{stopID}</strong></div>
-  <p>
-    Still supported for existing signage. Replace <code>{stopID}</code> with the numeric TransLoc stop ID.
-    Because raw stop IDs can change, prefer the code-based URL above for anything newly deployed.
-  </p>
-
-  <h2>How to Find a Stop ID</h2>
-  <div class="step"><strong>1</strong> Go to <a href="https://uva.transloc.com/" target="_blank">uva.transloc.com</a></div>
-  <div class="step"><strong>2</strong> Click on the bus stop you need on the map.</div>
-  <div class="step"><strong>3</strong> The stop ID appears in the URL, for example:<br>
-    <code>https://uva.transloc.com/stops/<strong>26</strong></code><br>
-    In this case the stop ID is <strong>26</strong>.
-  </div>
-  <div class="step"><strong>4</strong> Set (or update) a code for it at <a href="/feed-codes">/feed-codes</a> so signage
-    URLs never need to change again, even if TransLoc renumbers the stop.
-  </div>
-
-  <h2>Service Alerts</h2>
-  <p>
-    Active system notices (created by dispatch at <code>/admin</code>) targeting a stop &mdash; or set to apply
-    system-wide &mdash; show up automatically in that stop's feed. Each notice uses its short-form text (falling
-    back to the full home page message if none was set). When an alert is active, both feeds combine the alert
-    text and every route's arrivals into a single message, rather than a standalone alert entry &mdash; a sign
-    cycling between separate items could otherwise show the alert alone with no arrival context, or skip past it.
-    The RSS feed leads with the alert text, ahead of arrivals; the CAP feed appends the alert text after arrivals.
-    Notice severity does not change the feed's CAP severity/urgency fields (always Minor/Expected) &mdash; this
-    feed is routine bus-arrival signage and should never be mistaken for the university's actual emergency feed.
-  </p>
-
-  <h2>Example</h2>
-  <p>Feed for <strong>Massie Rd @ JPJ South Lot</strong> (stop 26):</p>
-  <div class="feed-url">https://utsopsdashboard.com/api/rss/stop_arrivals?stopID=26</div>
-  <p>This produces an RSS feed like:</p>
-  <pre>&lt;?xml version="1.0" encoding="UTF-8"?&gt;
-&lt;rss version="2.0"&gt;
-  &lt;channel&gt;
-    &lt;title&gt;Bus Arrivals - Massie Rd @ JPJ South Lot&lt;/title&gt;
-    &lt;ttl&gt;1&lt;/ttl&gt;
-    &lt;item&gt;
-      &lt;title&gt;Silver:0m&lt;/title&gt;
-      &lt;description&gt;Next arrivals: 0m, 8m&lt;/description&gt;
-    &lt;/item&gt;
-    &lt;item&gt;
-      &lt;title&gt;Gold:3m&lt;/title&gt;
-      &lt;description&gt;Next arrivals: 3m, 10m, 18m, 24m&lt;/description&gt;
-    &lt;/item&gt;
-  &lt;/channel&gt;
-&lt;/rss&gt;</pre>
-
-  <h2>Feed Structure</h2>
+  <h3>Common Stop IDs</h3>
   <table>
-    <tr><th>Field</th><th>Description</th></tr>
-    <tr><td><code>&lt;title&gt;</code> (channel)</td><td>Stop name, e.g. "Bus Arrivals - Massie Rd @ JPJ South Lot"</td></tr>
-    <tr><td><code>&lt;ttl&gt;</code></td><td>1 (minute) — recommended poll interval</td></tr>
-    <tr><td><code>&lt;item&gt; &lt;title&gt;</code></td><td>Route name and next arrival, no space around the colon, "min" shortened to "m", and an arriving bus shown as "0m" instead of "Due", e.g. "Gold:3m" or "Silver:0m". A trailing "Line"/"Loop" word is dropped from the route name.</td></tr>
-    <tr><td><code>&lt;item&gt; &lt;description&gt;</code></td><td>All upcoming arrivals for that route, e.g. "Next arrivals: 3m, 10m, 18m"</td></tr>
+    <tr><th>Stop</th><th>ID</th><th>CAP URL</th><th>RSS URL</th></tr>
+    <tr><td>Massie Rd @ JPJ South Lot</td><td>26</td><td><a href="/api/cap/stop_arrivals?stopID=26">CAP</a></td><td><a href="/api/rss/stop_arrivals?stopID=26">RSS</a></td></tr>
+    <tr><td>Jefferson Park Ave @ Brandon Ave</td><td>54</td><td><a href="/api/cap/stop_arrivals?stopID=54">CAP</a></td><td><a href="/api/rss/stop_arrivals?stopID=54">RSS</a></td></tr>
+    <tr><td>Jefferson Park Ave @ Cabell Hall</td><td>2</td><td><a href="/api/cap/stop_arrivals?stopID=2">CAP</a></td><td><a href="/api/rss/stop_arrivals?stopID=2">RSS</a></td></tr>
+    <tr><td>Ivy Rd @ Emmet / Ivy Garage (EIG)</td><td>3</td><td><a href="/api/cap/stop_arrivals?stopID=3">CAP</a></td><td><a href="/api/rss/stop_arrivals?stopID=3">RSS</a></td></tr>
+    <tr><td>Emmet St @ Central Grounds Garage</td><td>159</td><td><a href="/api/cap/stop_arrivals?stopID=159">CAP</a></td><td><a href="/api/rss/stop_arrivals?stopID=159">RSS</a></td></tr>
   </table>
-  <p>Items are sorted by soonest arrival. If no buses are scheduled, the feed contains a single item indicating no arrivals.</p>
-  <p>
-    The compact "Route:time,time" format (no spaces, "m" instead of "min", trailing "Line"/"Loop" dropped) is
-    deliberately tight: the sign's word-wrap is pixel-width-based and only breaks on spaces, treating any
-    space-free run of text as one unsplittable unit. Formatting each route with no internal spaces guarantees a
-    single route's own text is never fractured mid-content across a line break. It does not guarantee one route
-    per line &mdash; two short routes can still land on the same line together if both fit, since the wrapper has
-    no concept of "these are different routes," only pixel widths. Multiple routes are joined with a single space
-    rather than a punctuation separator, so nothing renders as stray punctuation if two routes do end up sharing
-    a line. In the compact "Route:time,time" title, if the soonest ETA for a route is already double-digit
-    minutes, any second ETA is dropped &mdash; two double-digit times back to back (e.g. "12m,45m") is wide enough
-    on its own to risk overflowing a line.
-  </p>
+  <p>A few common stops from the live system, by raw stop ID. Use the TransLoc map above to find any stop not listed here.</p>
 
-  <h2>Common Stop IDs</h2>
-  <table>
-    <tr><th>Stop</th><th>ID</th><th>Feed URL</th></tr>
-    <tr><td>Massie Rd @ JPJ South Lot</td><td>26</td><td><a href="/api/rss/stop_arrivals?stopID=26">/api/rss/stop_arrivals?stopID=26</a></td></tr>
-    <tr><td>Jefferson Park Ave @ Brandon Ave</td><td>54</td><td><a href="/api/rss/stop_arrivals?stopID=54">/api/rss/stop_arrivals?stopID=54</a></td></tr>
-    <tr><td>Jefferson Park Ave @ Cabell Hall</td><td>2</td><td><a href="/api/rss/stop_arrivals?stopID=2">/api/rss/stop_arrivals?stopID=2</a></td></tr>
-    <tr><td>Ivy Rd @ Emmet / Ivy Garage (EIG)</td><td>3</td><td><a href="/api/rss/stop_arrivals?stopID=3">/api/rss/stop_arrivals?stopID=3</a></td></tr>
-    <tr><td>Emmet St @ Central Grounds Garage</td><td>159</td><td><a href="/api/rss/stop_arrivals?stopID=159">/api/rss/stop_arrivals?stopID=159</a></td></tr>
-  </table>
-  <p>This table lists a few common stops from the live system. Use the TransLoc map above to find any stop not listed here.</p>
+  <h2 id="cap">CAP Feeds</h2>
 
-  <h2 id="cap">CAP Feed URL (recommended — by code)</h2>
+  <h3>Feed URL</h3>
   <div class="feed-url">https://utsopsdashboard.com/api/cap/stop_arrivals/<strong>{code}</strong></div>
-  <p>Replace <code>{code}</code> with a code configured at <a href="/feed-codes">/feed-codes</a>. The same codes used for the RSS feed apply here. Configure your device to poll at least once per minute.</p>
+  <p>Replace <code>{code}</code> with a code from Step 1. Updates every 15 seconds server-side; poll at least once per minute. Raw stop IDs still work too: <code>/api/cap/stop_arrivals?stopID={stopID}</code>, but prefer the code-based URL for anything newly deployed.</p>
 
-  <h2>Legacy CAP Feed URL (by raw stop ID)</h2>
-  <div class="feed-url">https://utsopsdashboard.com/api/cap/stop_arrivals?stopID=<strong>{stopID}</strong></div>
-  <p>Still supported for existing signage. Replace <code>{stopID}</code> with the numeric TransLoc stop ID.</p>
-
-  <h2>CAP Example</h2>
+  <h3>Example</h3>
   <p>Feed for <strong>Massie Rd @ JPJ South Lot</strong> (stop 26):</p>
   <div class="feed-url">https://utsopsdashboard.com/api/cap/stop_arrivals?stopID=26</div>
-  <p>This produces a CAP feed like:</p>
   <pre>&lt;?xml version="1.0" encoding="UTF-8"?&gt;
 &lt;alert xmlns="urn:oasis:names:tc:emergency:cap:1.2"&gt;
   &lt;identifier&gt;uts-stop-26-20260305T1430Z&lt;/identifier&gt;
@@ -208,38 +135,72 @@
   &lt;/info&gt;
 &lt;/alert&gt;</pre>
 
-  <h2>CAP Feed Structure</h2>
+  <h3>Feed Structure</h3>
   <table>
     <tr><th>Field</th><th>Description</th></tr>
-    <tr><td><code>&lt;identifier&gt;</code></td><td>Stays the same across polls as long as the displayed text hasn't changed; only changes when the arrivals/alert content actually updates, so a CAP client doesn't treat every poll as a brand-new alert</td></tr>
-    <tr><td><code>&lt;info&gt; &lt;effective&gt;</code></td><td>10 seconds before the response is generated (not "now") — guarantees it's already in the past by the time a polling client checks it, avoiding a race against client clock drift/request latency</td></tr>
-    <tr><td><code>&lt;info&gt; &lt;expires&gt;</code></td><td>Two minutes after the response is generated, refreshed on every poll — the alert never goes stale as long as the feed keeps being polled successfully</td></tr>
-    <tr><td><code>&lt;info&gt; &lt;senderName&gt;</code></td><td>Always "UVA Transit"</td></tr>
-    <tr><td><code>&lt;info&gt; &lt;headline&gt;</code></td><td>All routes and next two arrivals, space-separated between routes, comma-separated (no space) between times, an arriving bus shown as "0m" instead of "Due", e.g. "Silver:0m,8m Gold:3m,10m". A trailing "Line"/"Loop" word is dropped from route names.</td></tr>
-    <tr><td><code>&lt;info&gt; &lt;description&gt;</code></td><td>Same as <code>&lt;headline&gt;</code> — duplicated so the sign works regardless of which field is configured to display</td></tr>
-    <tr><td><code>&lt;info&gt; &lt;web&gt;</code></td><td>Link to the live arrivals display for the stop</td></tr>
+    <tr><td><code>&lt;identifier&gt;</code></td><td>Stays the same across polls as long as the displayed text hasn't changed; only changes when arrivals/alert content actually updates, so a CAP client doesn't treat every poll as a brand-new alert</td></tr>
+    <tr><td><code>&lt;effective&gt;</code></td><td>10 seconds before generation time — guarantees it's already in the past by the time a polling client checks it</td></tr>
+    <tr><td><code>&lt;expires&gt;</code></td><td>Two minutes after generation time, refreshed on every poll — never goes stale as long as the feed keeps being polled</td></tr>
+    <tr><td><code>&lt;headline&gt; / &lt;description&gt;</code></td><td>All routes and next two arrivals, e.g. "Silver:0m,8m Gold:3m,10m" — space-separated between routes, comma-separated (no space) between times, "0m" instead of "Due" for an arriving bus, trailing "Line"/"Loop" dropped from route names</td></tr>
+    <tr><td><code>&lt;web&gt;</code></td><td>Link to the live arrivals display for the stop</td></tr>
   </table>
-  <p>The feed always contains a single <code>&lt;info&gt;</code> block. All routes are combined into one message, sorted by soonest arrival. If no buses are scheduled, the message reads "No buses currently scheduled."</p>
-  <p>
-    Same reasoning as the RSS feed: the compact "Route:time,time" format keeps each route as one unsplittable,
-    space-free token, since the OnAlert sign's word-wrap is pixel-width-based and only breaks on spaces. Route
-    ETAs come first in the message, with any active service alert appended after &mdash; the sign paginates in
-    fixed 2-line pages (vertical-hold mode) and only the first page is guaranteed to start cleanly at line 0.
-    Route ETAs need that reliable pagination; the alert is lower-priority supplementary text that can tolerate
-    landing wherever the page-parity falls out after the (variable-length) arrivals. As with RSS, a route's second
-    ETA is dropped whenever the soonest one is already double-digit minutes.
+  <p>One <code>&lt;info&gt;</code> block per feed, all routes combined into a single message, sorted by soonest arrival ("No buses currently scheduled" if none). If an active service alert applies, its text is appended after the arrivals — the sign paginates in fixed 2-line pages and only the first page reliably starts at line 0, so arrivals (the priority content) go first and the alert absorbs whatever page-parity is left over.</p>
+
+  <p style="font-size:0.9rem;color:#555;">
+    <strong>Why the compact "Route:time,time" format?</strong> The sign's word-wrap is pixel-width-based and only
+    breaks on spaces, so each route is packed into one space-free token to guarantee it's never split mid-route
+    across a line break — routes are then joined with a single space. A route's second ETA is dropped whenever
+    the first is already double-digit minutes, since two double-digit times back to back risks overflowing a line.
   </p>
 
-  <h2>CAP Common Stop IDs</h2>
+  <hr class="reference-divider">
+  <p class="reference-label">Additional reference (lower priority)</p>
+
+  <div class="reference-section">
+
+  <h2 id="rss">RSS Feeds</h2>
+
+  <h3>Feed URL</h3>
+  <div class="feed-url">https://utsopsdashboard.com/api/rss/stop_arrivals/<strong>{code}</strong></div>
+  <p>Same codes as CAP. Raw stop IDs still work too: <code>/api/rss/stop_arrivals?stopID={stopID}</code>, but prefer the code-based URL for anything newly deployed.</p>
+
+  <h3>Example</h3>
+  <p>Feed for <strong>Massie Rd @ JPJ South Lot</strong> (stop 26):</p>
+  <div class="feed-url">https://utsopsdashboard.com/api/rss/stop_arrivals?stopID=26</div>
+  <pre>&lt;?xml version="1.0" encoding="UTF-8"?&gt;
+&lt;rss version="2.0"&gt;
+  &lt;channel&gt;
+    &lt;title&gt;Bus Arrivals - Massie Rd @ JPJ South Lot&lt;/title&gt;
+    &lt;ttl&gt;1&lt;/ttl&gt;
+    &lt;item&gt;
+      &lt;title&gt;Silver:0m&lt;/title&gt;
+      &lt;description&gt;Next arrivals: 0m, 8m&lt;/description&gt;
+    &lt;/item&gt;
+    &lt;item&gt;
+      &lt;title&gt;Gold:3m&lt;/title&gt;
+      &lt;description&gt;Next arrivals: 3m, 10m, 18m, 24m&lt;/description&gt;
+    &lt;/item&gt;
+  &lt;/channel&gt;
+&lt;/rss&gt;</pre>
+
+  <h3>Feed Structure</h3>
   <table>
-    <tr><th>Stop</th><th>ID</th><th>Feed URL</th></tr>
-    <tr><td>Massie Rd @ JPJ South Lot</td><td>26</td><td><a href="/api/cap/stop_arrivals?stopID=26">/api/cap/stop_arrivals?stopID=26</a></td></tr>
-    <tr><td>Jefferson Park Ave @ Brandon Ave</td><td>54</td><td><a href="/api/cap/stop_arrivals?stopID=54">/api/cap/stop_arrivals?stopID=54</a></td></tr>
-    <tr><td>Jefferson Park Ave @ Cabell Hall</td><td>2</td><td><a href="/api/cap/stop_arrivals?stopID=2">/api/cap/stop_arrivals?stopID=2</a></td></tr>
-    <tr><td>Ivy Rd @ Emmet / Ivy Garage (EIG)</td><td>3</td><td><a href="/api/cap/stop_arrivals?stopID=3">/api/cap/stop_arrivals?stopID=3</a></td></tr>
-    <tr><td>Emmet St @ Central Grounds Garage</td><td>159</td><td><a href="/api/cap/stop_arrivals?stopID=159">/api/cap/stop_arrivals?stopID=159</a></td></tr>
+    <tr><th>Field</th><th>Description</th></tr>
+    <tr><td><code>&lt;title&gt;</code> (channel)</td><td>Stop name, e.g. "Bus Arrivals - Massie Rd @ JPJ South Lot"</td></tr>
+    <tr><td><code>&lt;ttl&gt;</code></td><td>1 (minute) — recommended poll interval</td></tr>
+    <tr><td><code>&lt;item&gt; &lt;title&gt;</code></td><td>Route name and next arrival, e.g. "Gold:3m" or "Silver:0m" — same compact format as CAP's headline (see above)</td></tr>
+    <tr><td><code>&lt;item&gt; &lt;description&gt;</code></td><td>All upcoming arrivals for that route, e.g. "Next arrivals: 3m, 10m, 18m"</td></tr>
   </table>
-  <p>This table lists a few common stops from the live system. Use the TransLoc map above to find any stop not listed here.</p>
+  <p>One item per route, sorted by soonest arrival (a single "no arrivals" item if none are scheduled). If an active service alert applies, its text leads the feed, ahead of the arrivals — the opposite placement from CAP, since RSS clients aren't known to have the same fixed-page pagination the OnAlert sign does.</p>
+
+  <h2>Service Alerts</h2>
+  <p>
+    Active system notices (created by dispatch at <code>/admin</code>) targeting a stop, or set to apply
+    system-wide, show up automatically in that stop's feed using their short-form text (falling back to the
+    full home page message if none was set). Notice severity does not change the CAP feed's severity/urgency
+    fields (always Minor/Expected) — this is routine bus-arrival signage and should never be mistaken for the
+    university's actual emergency feed.
+  </p>
 
   <h2>Sign Preview</h2>
   <p>Enter a stop ID below to preview live arrival data as it would appear on a destination-sign style display. Data is pulled directly from the RSS feed.</p>
@@ -260,6 +221,8 @@
     <input id="preview-stop" type="number" value="26" min="1">
     <button id="load-btn" onclick="loadStop()">Load</button>
     <span id="preview-status">Loading&hellip;</span>
+  </div>
+
   </div>
 
   <script>
@@ -301,7 +264,7 @@
     window.loadStop = async function () {
       const stopID = document.getElementById('preview-stop').value.trim();
       if (!stopID) return;
-      statusEl.textContent = 'Loading\u2026';
+      statusEl.textContent = 'Loading…';
 
       try {
         const r = await fetch('/api/rss/stop_arrivals?stopID=' + encodeURIComponent(stopID));
