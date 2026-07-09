@@ -94,6 +94,12 @@
       label: 'Driver',
       icon: '/media/driver.svg',
       requiresAuth: true,
+    },
+    {
+      href: '/system-notices',
+      label: 'System Notices',
+      icon: '/media/notices.svg',
+      requiresAuth: true,
     }
   ];
 

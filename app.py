@@ -1610,6 +1610,7 @@ TRANSLOC_TICKER_HTML = _load_html("transloc_ticker.html")
 SITEMAP_HTML = _load_html("sitemap.html")
 FEEDS_HTML = _load_html("feeds.html")
 FEED_CODES_HTML = _load_html("feed-codes.html")
+SYSTEM_NOTICES_HTML = _load_html("system-notices.html")
 ARRIVALSDISPLAY_HTML = _load_html("arrivalsdisplay.html")
 CLOCKDISPLAY_HTML = _load_html("clockdisplay.html")
 SOCDISPLAY_HTML = _load_html("socdisplay.html")
@@ -11884,6 +11885,7 @@ _MEDIA_ASSETS: dict[str, str] = {
     "downed.svg": "image/svg+xml",
     "testmap.svg": "image/svg+xml",
     "transloc.svg": "image/svg+xml",
+    "notices.svg": "image/svg+xml",
     "CATlogo.png": "image/png",
     "apple-touch-icon-120.png": "image/png",
     "apple-touch-icon-152.png": "image/png",
@@ -13506,6 +13508,14 @@ async def feed_codes_page(request: Request):
     _refresh_dispatch_passwords()
     if _has_dispatcher_access(request):
         return HTMLResponse(FEED_CODES_HTML)
+    return _login_redirect(request)
+
+
+@app.get("/system-notices")
+async def system_notices_page(request: Request):
+    _refresh_dispatch_passwords()
+    if _has_dispatcher_access(request):
+        return HTMLResponse(SYSTEM_NOTICES_HTML)
     return _login_redirect(request)
 
 
