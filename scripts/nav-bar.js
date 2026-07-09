@@ -41,12 +41,6 @@
       requiresAuth: true,
     },
     {
-      href: '/dispatcher',
-      label: 'Dispatch',
-      icon: '/media/dispatcher.svg',
-      requiresAuth: true,
-    },
-    {
       href: 'https://uva-uts.transloc.com/secure/dispatch/',
       label: 'TransLōc',
       icon: '/media/transloc.svg',
@@ -59,11 +53,22 @@
       requiresAuth: false,
     },
     {
-      href: 'https://parking.virginia.edu/',
-      label: 'Parking &\nTransportation',
-      icon: '/media/web.svg',
-      requiresAuth: false,
-      guestOnly: true,
+      href: '/dispatcher',
+      label: 'Dispatch',
+      icon: '/media/dispatcher.svg',
+      requiresAuth: true,
+    },
+    {
+      href: '/system-notices',
+      label: 'System Notices',
+      icon: '/media/notices.svg',
+      requiresAuth: true,
+    },
+    {
+      href: '/replay',
+      label: 'Replay',
+      icon: '/media/replay.svg',
+      requiresAuth: true,
     },
     {
       href: '/ridership',
@@ -72,15 +77,16 @@
       requiresAuth: true,
     },
     {
+      href: 'https://parking.virginia.edu/',
+      label: 'Parking &\nTransportation',
+      icon: '/media/web.svg',
+      requiresAuth: false,
+      guestOnly: true,
+    },
+    {
       href: '/headway',
       label: 'Headway',
       icon: '/media/headway.svg',
-      requiresAuth: true,
-    },
-    {
-      href: '/replay',
-      label: 'Replay',
-      icon: '/media/replay.svg',
       requiresAuth: true,
     },
     {
@@ -93,12 +99,6 @@
       href: '/driver',
       label: 'Driver',
       icon: '/media/driver.svg',
-      requiresAuth: true,
-    },
-    {
-      href: '/system-notices',
-      label: 'System Notices',
-      icon: '/media/notices.svg',
       requiresAuth: true,
     },
     {
