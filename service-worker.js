@@ -1,4 +1,4 @@
-const CACHE_NAME = 'uts-ops-v11';
+const CACHE_NAME = 'uts-ops-v12';
 const OFFLINE_URL = '/offline';
 
 const STATIC_ASSETS = [
@@ -73,7 +73,26 @@ self.addEventListener('fetch', (event) => {
     return;
   }
 
-  // Static assets - cache first, fallback to network
+  // JS/CSS - network first, so code changes show up on a normal reload.
+  // Falls back to the cached copy only if the network is unreachable.
+  if (isCodeAsset(url.pathname)) {
+    event.respondWith(
+      fetch(request)
+        .then((response) => {
+          if (response.ok) {
+            const responseClone = response.clone();
+            caches.open(CACHE_NAME).then((cache) => {
+              cache.put(request, responseClone);
+            });
+          }
+          return response;
+        })
+        .catch(() => caches.match(request))
+    );
+    return;
+  }
+
+  // Other static assets (fonts/images) - cache first, fallback to network
   event.respondWith(
     caches.match(request).then((cachedResponse) => {
       if (cachedResponse) {
@@ -93,10 +112,12 @@ self.addEventListener('fetch', (event) => {
   );
 });
 
+function isCodeAsset(pathname) {
+  return pathname.endsWith('.js') || pathname.endsWith('.css');
+}
+
 function isStaticAsset(pathname) {
   return (
-    pathname.endsWith('.js') ||
-    pathname.endsWith('.css') ||
     pathname.endsWith('.ttf') ||
     pathname.endsWith('.woff') ||
     pathname.endsWith('.woff2') ||
