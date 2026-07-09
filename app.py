@@ -12114,6 +12114,11 @@ async def duck_config_js():
     return _serve_js_asset("duck-config.js")
 
 
+@app.get("/scripts/sign-fonts.js", include_in_schema=False)
+async def sign_fonts_js():
+    return _serve_js_asset("sign-fonts.js")
+
+
 @app.get("/kioskmap.css", include_in_schema=False)
 async def kioskmap_css():
     return _serve_css_asset("kioskmap.css")
@@ -13726,8 +13731,12 @@ async def delete_system_notice(request: Request, notice_id: str):
 
 @app.get("/v1/feed-codes")
 async def list_feed_codes(request: Request):
-    """List code -> {stop_id, name} mappings used by /api/rss|cap/stop_arrivals/{code}."""
-    _require_dispatcher_access(request)
+    """List code -> {stop_id, name} mappings used by /api/rss|cap/stop_arrivals/{code}.
+
+    Public read: these codes are already discoverable by anyone who has a signage
+    device's configured feed URL, so there's nothing to protect by hiding the list.
+    Creating/editing/deleting codes still requires dispatcher auth below.
+    """
     return {"codes": _load_feed_codes()}
 
 

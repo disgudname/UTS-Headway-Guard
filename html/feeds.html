@@ -6,8 +6,6 @@
   <title>Bus Arrival Feeds - UTS</title>
   <script defer src="/nav-bar.js"></script>
   <style>
-    @font-face { font-family: 'Luminator'; src: url('/fonts/luminator-4x7s.otf'); }
-
     body { font-family: Arial, sans-serif; max-width: 800px; margin: 2rem auto; padding: 0 1.5rem; color: #1a1a1a; line-height: 1.6; }
     h1 { color: #232D4B; }
     h2 { color: #232D4B; margin-top: 2.5rem; border-bottom: 2px solid #232D4B; padding-bottom: 0.25rem; }
@@ -43,30 +41,23 @@
       background: #0d0d0d;
       border: 5px solid #444;
       border-radius: 6px;
-      padding: 10px 0;
+      padding: 14px 16px;
       overflow: hidden;
       max-width: 100%;
+      text-align: center;
       box-shadow: inset 0 0 10px #000, 0 3px 8px rgba(0,0,0,0.4);
     }
-    #sign-viewport {
-      overflow: hidden;
-      white-space: nowrap;
-      height: 2.4rem;
-      display: flex;
-      align-items: center;
-    }
-    #sign-text {
+    #sign-canvas {
       display: inline-block;
-      font-family: 'Luminator', monospace;
-      font-size: 2rem;
-      color: #FF8C00;
-      white-space: nowrap;
-      will-change: transform;
-      padding-left: 100%;
+      image-rendering: pixelated;
+      image-rendering: crisp-edges;
+      max-width: 100%;
+      height: auto;
     }
     #preview-controls { margin-top: 0.75rem; display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap; }
     #preview-status { color: #555; font-size: 0.9rem; font-style: italic; }
     #preview-stop { width: 70px; font-size: 1rem; padding: 3px 6px; }
+    #preview-style { font-size: 0.95rem; padding: 3px 6px; }
     #load-btn { font-size: 1rem; padding: 4px 12px; cursor: pointer; }
   </style>
 </head>
@@ -90,6 +81,14 @@
   <div class="step"><strong>2</strong> The stop ID appears in the URL, e.g. <code>https://uva.transloc.com/stops/<strong>26</strong></code> &rarr; stop ID <strong>26</strong>. A code can map to more than one stop ID if TransLoc splits one physical stop into per-route IDs &mdash; arrivals from every mapped ID are merged into a single feed.</div>
   <div class="step"><strong>3</strong> Go to <a href="/feed-codes">/feed-codes</a> (dispatcher login required) and add a short code (e.g. <code>NGPG</code> for North Grounds Parking Garage, <code>JPA</code> for Jefferson Park Ave @ West Complex), the stop ID(s) from step 2, and an optional label.</div>
   <div class="step"><strong>4</strong> Use that code in the CAP or RSS feed URL for your device instead of a raw stop ID. If TransLoc renumbers the stop later, repoint the code at <a href="/feed-codes">/feed-codes</a> and the signage URL never has to change.</div>
+  <p style="font-size:0.9rem;color:#555;">Don't have dispatcher login access to create a code yourself? Contact Pat Cox (<code>phc6j</code>) and a feed can be set up for your stop.</p>
+
+  <h3 id="current-feeds">Currently Configured Feed Codes</h3>
+  <table id="feed-codes-table">
+    <tr><th>Code</th><th>Name</th><th>Stop ID(s)</th><th>CAP</th><th>RSS</th></tr>
+  </table>
+  <p id="feed-codes-empty" style="display:none;">No feed codes configured yet.</p>
+  <p style="font-size:0.9rem;color:#555;">Every code currently in use, pulled live from <a href="/feed-codes">/feed-codes</a>. Safe to browse &mdash; these codes are already visible to anyone who has a signage device's configured feed URL.</p>
 
   <h3>Common Stop IDs</h3>
   <table>
@@ -203,63 +202,277 @@
   </p>
 
   <h2>Sign Preview</h2>
-  <p>Enter a stop ID below to preview live arrival data as it would appear on a destination-sign style display. Data is pulled directly from the RSS feed.</p>
+  <p>
+    Enter a stop ID below to preview live arrival data on a pixel-accurate simulation of the Novanex OnAlert
+    LED sign: the real 96&times;16 dot matrix, the manufacturer's own glyph bitmaps, pixel-width word-wrap,
+    and <code>vertical-hold</code>'s fixed two-line pagination.
+  </p>
 
   <div class="disclaimer">
-    <strong>Note:</strong> Arrival times shown are live data from the RSS feed. The visual appearance — font, scroll speed, color, and layout — is illustrative; the actual sign configuration will depend on how UVA Safety &amp; Security programs the display.
+    <strong>Note:</strong> Arrival text is live data pulled from the stop's CAP feed. Wrapping and pagination
+    follow Novanex's documented sign behavior; exact scroll speed and hold duration aren't published by the
+    manufacturer, so those specific timings are close approximations. The glyph bitmaps were hand-modeled
+    against real reference photos/demos as closely as possible, not sourced from Novanex directly &mdash; most
+    characters are confirmed, but a few (the asterisk in particular) are best guesses for glyphs that never
+    showed up in available reference material.
   </div>
 
   <br>
   <div id="sign-outer">
-    <div id="sign-viewport">
-      <span id="sign-text"></span>
-    </div>
+    <canvas id="sign-canvas"></canvas>
   </div>
 
   <div id="preview-controls">
     <label for="preview-stop">Stop ID:</label>
     <input id="preview-stop" type="number" value="26" min="1">
+    <label for="preview-style">Style:</label>
+    <select id="preview-style">
+      <option value="vertical-hold" selected>vertical-hold (pause two lines)</option>
+      <option value="vertical">vertical (fast scroll)</option>
+      <option value="vertical-slow">vertical-slow</option>
+    </select>
     <button id="load-btn" onclick="loadStop()">Load</button>
     <span id="preview-status">Loading&hellip;</span>
   </div>
 
   </div>
 
+  <script src="/scripts/sign-fonts.js"></script>
   <script>
   (function () {
-    const textEl = document.getElementById('sign-text');
-    const viewport = document.getElementById('sign-viewport');
+    // Renders the sign's 96x16 LED matrix per SIGN_BEHAVIOR_SPEC.md, using the
+    // exact glyph bitmaps from sign_fonts_export.json (window.SIGN_FONTS).
+    const COLS = 96, ROWS = 16;
+    const DOT = 5, GAP = 1, CELL = DOT + GAP;
+
+    const canvas = document.getElementById('sign-canvas');
+    const ctx = canvas.getContext('2d');
     const statusEl = document.getElementById('preview-status');
+    const styleSelect = document.getElementById('preview-style');
 
-    let posX = 0;       // current offset in px, starting just off right edge
-    let textWidth = 0;
-    let lastTs = null;
-    const SPEED = 80;   // px per second
+    const dpr = window.devicePixelRatio || 1;
+    canvas.style.width = (COLS * CELL) + 'px';
+    canvas.width = COLS * CELL * dpr;
+    canvas.height = ROWS * CELL * dpr;
+    ctx.scale(dpr, dpr);
 
-    function scroll(ts) {
-      if (lastTs !== null) {
-        posX -= SPEED * (ts - lastTs) / 1000;
-      }
-      lastTs = ts;
+    const COLORS = {
+      red:    { on: '#ff2a1a', off: '#3a0d09' },
+      yellow: { on: '#ffcf1a', off: '#3a2f0a' },
+      green:  { on: '#33ff55', off: '#0b3314' },
+    };
 
-      // Reset once the text has fully scrolled off the left
-      if (posX < -textWidth) {
-        posX = viewport.offsetWidth;
-      }
+    function zeros(n) { return new Uint8Array(n); }
 
-      textEl.style.transform = 'translateX(' + Math.round(posX) + 'px)';
-      textEl.style.paddingLeft = '0';
-      requestAnimationFrame(scroll);
+    // Case-sensitive lookup with fallback to uppercase, then the placeholder block.
+    function glyphRows(font, ch) {
+      const table = SIGN_FONTS[font];
+      if (table[ch]) return table[ch];
+      const upper = ch.toUpperCase();
+      if (table[upper]) return table[upper];
+      return SIGN_FONTS.unknownPlaceholder;
     }
 
-    function setText(text) {
-      textEl.textContent = text;
-      // Measure after paint so width is accurate
-      requestAnimationFrame(function () {
-        textWidth = textEl.offsetWidth;
-        posX = viewport.offsetWidth;
-      });
+    function glyphWidth(font, ch) {
+      return glyphRows(font, ch)[0].length;
     }
+
+    // 2px gap between characters, per spec.
+    function textWidthPx(font, text) {
+      let w = 0;
+      for (let i = 0; i < text.length; i++) {
+        w += glyphWidth(font, text[i]);
+        if (i < text.length - 1) w += 2;
+      }
+      return w;
+    }
+
+    // Strip CR/LF to a space, collapse doubled quotes to a literal ", convert
+    // remaining " to ', never force uppercase (case is preserved as-authored).
+    function sanitize(text) {
+      text = text.replace(/\r\n|\r|\n/g, ' ');
+      text = text.replace(/""|''/g, '\uFFFF');
+      text = text.replace(/"/g, "'");
+      text = text.replace(/\uFFFF/g, '"');
+      return text.slice(0, 3162);
+    }
+
+    // Pixel-width-accurate greedy word-wrap. A single word wider than maxWidth
+    // on its own is hard-broken at the widest prefix that still fits.
+    function wrapText(font, text, maxWidth) {
+      const words = text.split(' ').filter(Boolean);
+      const lines = [];
+      let current = '';
+      for (const word of words) {
+        const candidate = current ? current + ' ' + word : word;
+        if (textWidthPx(font, candidate) <= maxWidth) {
+          current = candidate;
+          continue;
+        }
+        if (current) lines.push(current);
+        if (textWidthPx(font, word) <= maxWidth) {
+          current = word;
+          continue;
+        }
+        let piece = '';
+        for (const ch of word) {
+          const test = piece + ch;
+          if (textWidthPx(font, test) <= maxWidth) {
+            piece = test;
+          } else {
+            if (piece) lines.push(piece);
+            piece = ch;
+          }
+        }
+        current = piece;
+      }
+      if (current) lines.push(current);
+      return lines.length ? lines : [''];
+    }
+
+    // Top-aligned bitmap for one line; height follows the tallest glyph used
+    // (matters for the clock font's descending lowercase 'p').
+    function renderLineBitmap(font, line) {
+      const width = textWidthPx(font, line);
+      let height = 1;
+      for (const ch of line) height = Math.max(height, glyphRows(font, ch).length);
+      const startX = Math.max(0, Math.floor((COLS - width) / 2));
+      const rows = Array.from({ length: height }, () => zeros(COLS));
+      let x = startX;
+      for (const ch of line) {
+        const glyph = glyphRows(font, ch);
+        const w = glyph[0].length;
+        for (let r = 0; r < glyph.length; r++) {
+          const rowStr = glyph[r];
+          for (let c = 0; c < w; c++) {
+            const px = x + c;
+            if (px >= 0 && px < COLS && rowStr[c] === '1') rows[r][px] = 1;
+          }
+        }
+        x += w + 2;
+      }
+      return rows;
+    }
+
+    // Stacks word-wrapped lines 8 rows apart (7px glyph + 1px gap) and pads to
+    // a multiple of 16 rows (one vertical-hold "page" = two lines), so paging
+    // and the loop-around both land cleanly on page boundaries.
+    function buildRaster(font, lines, color) {
+      const raster = [];
+      for (const line of lines) {
+        const bmp = renderLineBitmap(font, line);
+        for (let r = 0; r < 7; r++) raster.push({ bits: bmp[r] || zeros(COLS), color });
+        raster.push({ bits: zeros(COLS), color }); // inter-line gap row
+      }
+      while (raster.length === 0 || raster.length % 16 !== 0) raster.push({ bits: zeros(COLS), color });
+      return raster;
+    }
+
+    function draw(rows) {
+      ctx.fillStyle = '#0d0d0d';
+      ctx.fillRect(0, 0, COLS * CELL, ROWS * CELL);
+      for (let r = 0; r < ROWS; r++) {
+        const row = rows[r];
+        const bits = row ? row.bits : zeros(COLS);
+        const palette = COLORS[(row && row.color) || 'red'];
+        for (let c = 0; c < COLS; c++) {
+          ctx.fillStyle = bits[c] ? palette.on : palette.off;
+          ctx.beginPath();
+          ctx.arc(c * CELL + DOT / 2, r * CELL + DOT / 2, DOT / 2, 0, Math.PI * 2);
+          ctx.fill();
+        }
+      }
+    }
+
+    let raf = null;
+    let anim = null;
+
+    function stopAnim() {
+      if (raf) cancelAnimationFrame(raf);
+      raf = null;
+      anim = null;
+    }
+
+    // Unified scroller for vertical / vertical-slow (continuous 1-row steps)
+    // and vertical-hold (16-row jumps with a 2s hold between pages) — all three
+    // just walk the same circular raster at a different cadence.
+    function playScroll(raster, mode) {
+      stopAnim();
+      const total = raster.length;
+      const state = {
+        scrollRow: 0,
+        subStep: 0,
+        nextStepAt: performance.now() + (mode === 'vertical-hold' ? 2000 : 0),
+        stepMs: mode === 'vertical' ? 40 : mode === 'vertical-slow' ? 100 : 65,
+      };
+      anim = state;
+      let needsDraw = true;
+
+      function frame(now) {
+        if (now >= state.nextStepAt) {
+          if (mode === 'vertical-hold' && total <= 16) {
+            // Only one page — nothing to jump to, so just keep holding it.
+            state.nextStepAt = now + 2000;
+          } else {
+            state.scrollRow = (state.scrollRow + 1) % total;
+            needsDraw = true;
+            if (mode === 'vertical-hold') {
+              state.subStep++;
+              if (state.subStep >= 16) {
+                state.subStep = 0;
+                state.nextStepAt = now + 2000; // hold on the settled page
+              } else {
+                state.nextStepAt = now + state.stepMs; // mid-jump between pages
+              }
+            } else {
+              state.nextStepAt = now + state.stepMs;
+            }
+          }
+        }
+        if (needsDraw) {
+          const view = [];
+          for (let v = 0; v < ROWS; v++) view.push(raster[(state.scrollRow + v) % total]);
+          draw(view);
+          needsDraw = false;
+        }
+        raf = requestAnimationFrame(frame);
+      }
+      raf = requestAnimationFrame(frame);
+    }
+
+    // Idle screen: clock font time (green) over normal font date (red), both
+    // pixel-width centered, per spec's "H:MM  am/pm" / "Ddd Mmm DD" formats.
+    function showIdle() {
+      stopAnim();
+      const now = new Date();
+      let hour = now.getHours();
+      const meridiem = hour >= 12 ? 'pm' : 'am';
+      hour = hour % 12; if (hour === 0) hour = 12;
+      const minutes = String(now.getMinutes()).padStart(2, '0');
+      const timeText = hour + ':' + minutes + '  ' + meridiem;
+
+      const days = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+      const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+      const dateText = days[now.getDay()] + ' ' + months[now.getMonth()] + ' ' + String(now.getDate()).padStart(2, '0');
+
+      const topBmp = renderLineBitmap('clock', timeText);
+      const botBmp = renderLineBitmap('normal', dateText);
+      const rows = [];
+      for (let r = 0; r < 8; r++) rows.push({ bits: topBmp[r] || zeros(COLS), color: 'green' });
+      for (let r = 0; r < 8; r++) rows.push({ bits: botBmp[r] || zeros(COLS), color: 'red' });
+      draw(rows);
+    }
+
+    function renderMessage(text, style) {
+      const clean = sanitize(text);
+      const font = style === 'vertical-hold' ? 'bold' : 'normal';
+      const lines = wrapText(font, clean, COLS);
+      const raster = buildRaster(font, lines, 'red');
+      playScroll(raster, style);
+    }
+
+    showIdle();
+    setInterval(function () { if (!anim) showIdle(); }, 1000);
 
     window.loadStop = async function () {
       const stopID = document.getElementById('preview-stop').value.trim();
@@ -267,30 +480,69 @@
       statusEl.textContent = 'Loading…';
 
       try {
-        const r = await fetch('/api/rss/stop_arrivals?stopID=' + encodeURIComponent(stopID));
+        const r = await fetch('/api/cap/stop_arrivals?stopID=' + encodeURIComponent(stopID));
         const xmlText = await r.text();
         const doc = new DOMParser().parseFromString(xmlText, 'application/xml');
 
-        // Show stop name from channel title ("Bus Arrivals - {Stop Name}")
-        const chanTitle = doc.querySelector('channel > title');
-        const stopName = chanTitle ? chanTitle.textContent.replace(/^Bus Arrivals\s*-\s*/i, '').trim() : 'Stop ' + stopID;
+        const eventEl = doc.querySelector('info > event');
+        const stopName = eventEl ? eventEl.textContent.replace(/^Bus Arrivals\s*-\s*/i, '').trim() : 'Stop ' + stopID;
+        const headlineEl = doc.querySelector('info > headline');
+        const text = (headlineEl && headlineEl.textContent.trim()) || 'No buses currently scheduled';
+
         statusEl.textContent = stopName;
-
-        // Each <item><title> is already formatted as "Route: time"
-        const items = [...doc.querySelectorAll('item > title')].map(el => el.textContent.trim());
-
-        const text = items.length ? items.join('   -   ') : 'No arrivals currently scheduled';
-        setText(text.toUpperCase());
+        renderMessage(text, styleSelect.value);
       } catch (e) {
-        statusEl.textContent = 'Error loading data.';
+        statusEl.textContent = 'Error loading data — showing idle screen.';
         console.error(e);
+        showIdle();
       }
     };
 
-    // Start animation loop, then load initial data and poll every 60 s
-    requestAnimationFrame(scroll);
+    styleSelect.addEventListener('change', function () {
+      if (statusEl.textContent && statusEl.textContent !== 'Loading…') loadStop();
+    });
+
     loadStop();
     setInterval(loadStop, 60_000);
+  })();
+  </script>
+
+  <script>
+  (async function () {
+    function escapeHtml(s) {
+      return String(s).replace(/[&<>"']/g, function (c) {
+        return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c];
+      });
+    }
+
+    try {
+      const r = await fetch('/v1/feed-codes');
+      const data = await r.json();
+      const codes = data.codes || {};
+      const entries = Object.keys(codes).sort().map(function (code) {
+        return Object.assign({ code: code }, codes[code]);
+      });
+
+      const table = document.getElementById('feed-codes-table');
+      const empty = document.getElementById('feed-codes-empty');
+      if (!entries.length) {
+        empty.style.display = '';
+        return;
+      }
+      for (const e of entries) {
+        const stopIds = (e.stop_ids && e.stop_ids.length ? e.stop_ids : (e.stop_id ? [e.stop_id] : [])).join(', ');
+        const tr = document.createElement('tr');
+        tr.innerHTML =
+          '<td><code>' + escapeHtml(e.code) + '</code></td>' +
+          '<td>' + (e.name ? escapeHtml(e.name) : '<em>(unnamed)</em>') + '</td>' +
+          '<td>' + escapeHtml(stopIds) + '</td>' +
+          '<td><a href="/api/cap/stop_arrivals/' + encodeURIComponent(e.code) + '">CAP</a></td>' +
+          '<td><a href="/api/rss/stop_arrivals/' + encodeURIComponent(e.code) + '">RSS</a></td>';
+        table.appendChild(tr);
+      }
+    } catch (e) {
+      console.error('Failed to load feed codes', e);
+    }
   })();
   </script>
 
