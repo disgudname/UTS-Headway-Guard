@@ -10795,6 +10795,16 @@ async def transloc_stop_arrivals(
     return await _proxy_transloc_get(url, params=params, base_url=base_url)
 
 
+def _simplify_route_name(route_desc: str) -> str:
+    """Collapse any "Orientation - Day N AM/PM — To ..." route name down to just
+    "Orientation" for signage feeds. The full names (e.g. "Orientation - Day 1 AM — To
+    Dorms & Central Grounds") reliably wrap to a second line on the physical hardware,
+    which disrupts the sign's pagination — see the CAP feed pagination note above."""
+    if route_desc.lower().startswith("orientation"):
+        return "Orientation"
+    return route_desc
+
+
 def _expand_solo_eta(labels: List[str]) -> List[str]:
     """When a route has only one upcoming ETA, spell out "minutes" instead of "min" (e.g.
     "25minutes") for extra length to help the sign's line wrap land favorably. A route with
@@ -10855,7 +10865,7 @@ async def _rss_feed_response(
     route_first_seconds: Dict[str, float] = {}
     if isinstance(data, list):
         for entry in data:
-            route_desc = (entry.get("RouteDescription") or "Bus").strip().rstrip(".")
+            route_desc = _simplify_route_name((entry.get("RouteDescription") or "Bus").strip().rstrip("."))
             for t in entry.get("Times") or []:
                 label = _arrival_label(t)
                 if not label:
@@ -11031,7 +11041,7 @@ async def _cap_feed_response(
     route_first_seconds: Dict[str, float] = {}
     if isinstance(data, list):
         for entry in data:
-            route_desc = (entry.get("RouteDescription") or "Bus").strip().rstrip(".")
+            route_desc = _simplify_route_name((entry.get("RouteDescription") or "Bus").strip().rstrip("."))
             for t in entry.get("Times") or []:
                 label = _arrival_label(t)
                 if not label:
