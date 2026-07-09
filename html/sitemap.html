@@ -5,9 +5,11 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>UTS Operations Dashboard Sitemap</title>
   <style>
-    body { font-family: Arial, sans-serif; margin: 2rem; color: #1a1a1a; }
+    body { font-family: Arial, sans-serif; margin: 2rem; color: #1a1a1a; max-width: 720px; }
     h1 { margin-bottom: 0.5rem; }
+    h2 { margin-top: 2.5rem; margin-bottom: 0.25rem; color: #232D4B; border-bottom: 1px solid #ddd; padding-bottom: 0.25rem; }
     p { margin-top: 0; color: #444; }
+    p.section-note { margin: 0.25rem 0 0.75rem; font-size: 0.9rem; color: #777; }
     ul { line-height: 1.6; }
     a { color: #0b63ce; text-decoration: none; }
     a:hover { text-decoration: underline; }
@@ -15,53 +17,84 @@
 </head>
 <body>
   <h1>UTS Operations Dashboard Sitemap</h1>
-  <p>Quick links to the primary pages served by this app.</p>
+  <p>Every page served by this app, organized by who it's for. Most staff pages are also reachable through the nav bar, the <a href="/config">Config</a> hub, or the <a href="/tools">Tools</a> hub &mdash; this page exists as a full backstop.</p>
+
+  <h2>Home &amp; Staff Nav</h2>
   <ul>
     <li><a href="/">Landing</a></li>
     <li><a href="/login">Login</a></li>
-    <li><a href="/map">Map</a></li>
-    <li><a href="/radar">Radar</a></li>
-    <li><a href="/vdot-cams">Traffic Cameras (VA, WV)</a></li>
-    <li><a href="/eink-block">E-ink Block</a></li>
-    <li><a href="/testmap">Test Map</a></li>
-    <li><a href="/overlap-demo">Overlap Renderer Demo</a></li>
-    <li><a href="/kioskmap">Kiosk Map</a></li>
-    <li><a href="/cattestmap">CAT Test Map</a></li>
-    <li><a href="/madmap">MAD Map</a></li>
-    <li><a href="/metromap">Metro Map</a></li>
-    <li><a href="/debug">Debug</a></li>
-    <li><a href="/admin">Admin</a></li>
-    <li><a href="/buses">Buses</a></li>
-    <li><a href="/servicecrew">Service Crew</a></li>
-    <li><a href="/driver">Driver</a></li>
+    <li><a href="/map">Live Map</a></li>
     <li><a href="/dispatcher">Dispatcher</a></li>
-    <li><a href="/downed">Downed</a></li>
-    <li><a href="/repairsscreen">Repairs Screen</a></li>
-    <li><a href="/apicalls">API Calls</a></li>
-    <li><a href="/repairs">Repairs</a></li>
-    <li><a href="/repairsexport">Repairs Export</a></li>
+    <li><a href="/driver">Driver</a></li>
     <li><a href="/ridership">Ridership</a></li>
     <li><a href="/headway">Headway</a></li>
-    <li><a href="/headway-diagnostics">Headway Diagnostics</a></li>
+    <li><a href="/replay">Replay</a></li>
+    <li><a href="/downed">Downed Vehicles</a></li>
+    <li><a href="/system-notices">System Notices Editor</a></li>
+  </ul>
+
+  <h2>Config Tools</h2>
+  <p class="section-note">Editors for the config that shapes what the rest of the dashboard shows. Hub: <a href="/config">/config</a></p>
+  <ul>
+    <li><a href="/feed-codes">Feed Codes Editor</a></li>
+    <li><a href="/stop-approach">Stop Approach Editor</a></li>
+    <li><a href="/van-colors">Van Colors</a></li>
+    <li><a href="/presence">User Presence</a></li>
+    <li><a href="/duck-config">DUCK Config Editor</a></li>
+    <li><a href="/admin">System Internals (secrets, env vars, push test)</a></li>
+  </ul>
+
+  <h2>Maintenance / Shop</h2>
+  <ul>
+    <li><a href="/repairs">Maintenance Tickets</a></li>
+    <li><a href="/repairsexport">Repairs Export (CSV)</a></li>
+  </ul>
+
+  <h2>Ops Tools</h2>
+  <p class="section-note">Diagnostic and monitoring tools. Hub: <a href="/tools">/tools</a></p>
+  <ul>
+    <li><a href="/radar">Radar Sweep</a></li>
     <li><a href="/route-analysis">Route Analysis</a></li>
     <li><a href="/fullbus">Full Bus Tracker</a></li>
-    <li><a href="/presence">User Presence (admin)</a></li>
-    <li><a href="/stop-approach">Stop Approach Editor (admin)</a></li>
-    <li><a href="/feed-codes">Feed Codes Editor (admin)</a></li>
-    <li><a href="/system-notices">System Notices Editor (admin)</a></li>
-    <li><a href="/duck-config">DUCK Config Editor</a></li>
-    <li><a href="/transloc_ticker">TransLoc Ticker</a></li>
+    <li><a href="/vandispatch">Van Dispatch</a></li>
+    <li><a href="/incidents">PulsePoint Incidents</a></li>
+    <li><a href="/apicalls">API Calls</a></li>
+    <li><a href="/buses">Bus Overview</a></li>
+    <li><a href="/vdot-cams">Traffic Cameras (VA, MD, TN, AR, WV)</a></li>
+    <li><a href="/headway-diagnostics">Headway Diagnostics</a></li>
+  </ul>
+
+  <h2>Public Feeds &amp; Docs</h2>
+  <ul>
+    <li><a href="/feeds">Bus Arrival Feeds (RSS/CAP docs)</a></li>
     <li><a href="/arrivalsdisplay">Arrivals Display</a></li>
-    <li><a href="/feeds">Bus Arrival Feeds</a></li>
+  </ul>
+
+  <h2>Signage / Kiosk (bookmarked directly on hardware, not meant for browsing)</h2>
+  <ul>
+    <li><a href="/eink-block">E-ink Block</a></li>
     <li><a href="/clockdisplay">Clock Display</a></li>
     <li><a href="/socdisplay">SOC Display</a></li>
     <li><a href="/statussignage">Status Signage</a></li>
-    <li><a href="/replay">Replay</a></li>
-    <li><a href="/ips">IPS</a></li>
-    <li><a href="/offline">Offline</a></li>
-    <li><a href="/incidents">Incidents (PulsePoint)</a></li>
-    <li><a href="/vandispatch">Van Dispatch</a></li>
-    <li><a href="/van-colors">Van Colors (admin)</a></li>
+    <li><a href="/transloc_ticker">TransLoc Ticker</a></li>
+    <li><a href="/kioskmap">Kiosk Map</a></li>
+    <li><a href="/servicecrew">Service Crew Display</a></li>
+    <li><a href="/repairsscreen">Repairs Screen (shop floor display)</a></li>
+  </ul>
+
+  <h2>Dev / Test / Legacy (kept for reference, not linked elsewhere)</h2>
+  <ul>
+    <li><a href="/testmap">Test Map</a> &mdash; dead as a standalone page; still embedded as an iframe inside the Service Crew display</li>
+    <li><a href="/cattestmap">CAT Test Map</a> &mdash; dead</li>
+    <li><a href="/madmap">MAD Map</a> &mdash; dead; pulls every agency that contracts with TransLoc</li>
+    <li><a href="/metromap">Metro Map</a> &mdash; dead; DC Metro-style render of the UVA route map, never finished</li>
+    <li><a href="/ips">IPS</a> &mdash; dead, purpose unclear</li>
+    <li><a href="/debug">Debug</a></li>
+    <li><a href="/testmap-minimal">Test Map Minimal</a></li>
+    <li><a href="/overlap-demo">Overlap Renderer Demo</a></li>
+    <li><a href="/dispatcher-demo">Dispatcher Demo</a></li>
+    <li><a href="/tomtom-popup-demo">TomTom Popup Demo</a></li>
+    <li><a href="/incident-icon-preview">Incident Icon Preview</a></li>
   </ul>
 </body>
 </html>

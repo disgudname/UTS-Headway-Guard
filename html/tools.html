@@ -1,0 +1,83 @@
+<!doctype html>
+<html>
+<head>
+<link rel="icon" type="image/png" href="/media/favicon.ico" />
+<link rel="apple-touch-icon" sizes="120x120" href="/media/apple-touch-icon-120.png" />
+<link rel="apple-touch-icon" sizes="152x152" href="/media/apple-touch-icon-152.png" />
+<link rel="apple-touch-icon" sizes="180x180" href="/media/apple-touch-icon-180.png" />
+<link rel="manifest" href="/manifest.json">
+<meta name="theme-color" content="#E57200">
+<meta charset="utf-8" />
+<title>Ops Tools - UTS Operations Dashboard</title>
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<script defer src="/nav-bar.js"></script>
+<link rel="preload" href="FGDC.ttf" as="font" type="font/ttf" crossorigin />
+<style>
+  @font-face{font-family:'FGDC';src:url('FGDC.ttf') format('truetype');font-weight:normal;font-style:normal;}
+  :root{--bg:#232D4B;--bg-dark:#1A2140;--ink:#FFFFFF;--muted:#9fb0c9;--accent:#E57200;--panel:rgba(26,33,64,0.72);--panel-border:rgba(229,114,0,0.4);}
+  body{margin:0;min-height:100vh;background:radial-gradient(circle at top left,rgba(229,114,0,0.18),transparent 40%),linear-gradient(160deg,var(--bg) 0%,var(--bg-dark) 60%,#11162a 100%);color:var(--ink);font:16px/1.45 'FGDC',sans-serif;display:flex;flex-direction:column;align-items:center;padding:48px 20px;box-sizing:border-box;}
+  header{display:flex;flex-direction:column;align-items:center;gap:12px;margin-bottom:32px;text-align:center;}
+  header::after{content:"";display:block;width:80px;height:4px;background:var(--accent);border-radius:999px;}
+  .title{font-size:28px;letter-spacing:0.04em;text-transform:uppercase;}
+  .subtitle{color:var(--muted);font-size:14px;max-width:480px;}
+  .main-content{width:100%;max-width:760px;display:flex;flex-direction:column;align-items:stretch;}
+  .container{display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:24px;width:100%;}
+  .card{border-radius:18px;background:var(--panel);border:1px solid var(--panel-border);box-shadow:0 18px 35px rgba(0,0,0,0.25);display:flex;flex-direction:column;align-items:center;justify-content:center;text-decoration:none;color:var(--ink);position:relative;overflow:hidden;padding:26px 12px;transition:transform 0.2s ease,box-shadow 0.2s ease,border-color 0.2s ease;backdrop-filter:blur(8px);}
+  .card::before{content:"";position:absolute;inset:auto auto 0 0;height:4px;width:100%;background:linear-gradient(90deg,rgba(229,114,0,0.8),rgba(229,114,0,0));opacity:0;transition:opacity 0.2s ease;}
+  .card:hover{transform:translateY(-6px);box-shadow:0 24px 45px rgba(0,0,0,0.35);border-color:rgba(229,114,0,0.7);}
+  .card:hover::before{opacity:1;}
+  .card div{font-size:17px;letter-spacing:0.02em;text-align:center;}
+  .card small{display:block;margin-top:6px;color:var(--muted);font-size:12px;letter-spacing:0.01em;}
+  .footer-link{margin-top:36px;text-align:center;}
+  .footer-link a{color:var(--muted);text-decoration:none;font-size:13px;}
+  .footer-link a:hover{color:var(--ink);}
+  .credit{position:fixed;bottom:12px;right:16px;font-size:12px;color:var(--muted);text-shadow:0 2px 6px rgba(0,0,0,0.25);}
+  @media(max-width:600px){
+    body{padding:24px 16px 32px;}
+    header{margin-bottom:24px;}
+    .main-content{max-width:420px;}
+    .container{grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:16px;}
+    .credit{position:static;margin-top:32px;text-align:center;}
+  }
+</style>
+</head>
+<body>
+<header>
+  <div class="title">Ops Tools</div>
+  <div class="subtitle">Diagnostic and monitoring tools that don't fit on the main map.</div>
+</header>
+<div class="main-content">
+<div class="container">
+  <a class="card" href="/radar">
+    <div>Radar<small>GPS fix sweep view</small></div>
+  </a>
+  <a class="card" href="/route-analysis">
+    <div>Route Analysis<small>Route timing &amp; performance</small></div>
+  </a>
+  <a class="card" href="/fullbus">
+    <div>Full Bus Tracker<small>All vehicles, unfiltered</small></div>
+  </a>
+  <a class="card" href="/vandispatch">
+    <div>Van Dispatch<small>On-demand van assignments</small></div>
+  </a>
+  <a class="card" href="/incidents">
+    <div>PulsePoint Incidents<small>Nearby emergency incidents</small></div>
+  </a>
+  <a class="card" href="/apicalls">
+    <div>API Calls<small>External API call monitor</small></div>
+  </a>
+  <a class="card" href="/buses">
+    <div>Bus Overview<small>Fleet status table</small></div>
+  </a>
+  <a class="card" href="/vdot-cams">
+    <div>Traffic Cameras<small>VA / MD / TN / AR / WV feeds</small></div>
+  </a>
+  <a class="card" href="/headway-diagnostics">
+    <div>Headway Diagnostics<small>Arrival/departure event debugging</small></div>
+  </a>
+</div>
+</div>
+<div class="footer-link"><a href="/sitemap">Full page sitemap &rarr;</a></div>
+<div class="credit">proof of concept created by pat cox • phc6j@virginia.edu</div>
+</body>
+</html>

@@ -1627,6 +1627,8 @@ LOGIN_HTML = _load_html("login.html")
 REPAIRS_HTML = _load_html("repairs.html")
 REPAIRS_SCREEN_HTML = _load_html("repairsscreen.html")
 REPAIRS_EXPORT_HTML = _load_html("repairsexport.html")
+CONFIG_HUB_HTML = _load_html("config.html")
+TOOLS_HUB_HTML = _load_html("tools.html")
 HEADWAY_HTML = _load_html("headway.html")
 HEADWAY_DIAGNOSTICS_HTML = _load_html("headway_diagnostics.html")
 ROUTE_ANALYSIS_HTML = _load_html("route-analysis.html")
@@ -11886,6 +11888,8 @@ _MEDIA_ASSETS: dict[str, str] = {
     "testmap.svg": "image/svg+xml",
     "transloc.svg": "image/svg+xml",
     "notices.svg": "image/svg+xml",
+    "config.svg": "image/svg+xml",
+    "tools.svg": "image/svg+xml",
     "CATlogo.png": "image/png",
     "apple-touch-icon-120.png": "image/png",
     "apple-touch-icon-152.png": "image/png",
@@ -13535,6 +13539,26 @@ async def admin_page(request: Request):
     _refresh_dispatch_passwords()
     if _has_dispatcher_access(request):
         return HTMLResponse(ADMIN_HTML)
+    return _login_redirect(request)
+
+# ---------------------------
+# CONFIG TOOLS HUB
+# ---------------------------
+@app.get("/config")
+async def config_hub_page(request: Request):
+    _refresh_dispatch_passwords()
+    if _has_dispatcher_access(request):
+        return HTMLResponse(CONFIG_HUB_HTML)
+    return _login_redirect(request)
+
+# ---------------------------
+# OPS TOOLS HUB
+# ---------------------------
+@app.get("/tools")
+async def tools_hub_page(request: Request):
+    _refresh_dispatch_passwords()
+    if _has_dispatcher_access(request):
+        return HTMLResponse(TOOLS_HUB_HTML)
     return _login_redirect(request)
 
 # ---------------------------

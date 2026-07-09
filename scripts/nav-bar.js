@@ -100,6 +100,18 @@
       label: 'System Notices',
       icon: '/media/notices.svg',
       requiresAuth: true,
+    },
+    {
+      href: '/config',
+      label: 'Config',
+      icon: '/media/config.svg',
+      requiresAuth: true,
+    },
+    {
+      href: '/tools',
+      label: 'Tools',
+      icon: '/media/tools.svg',
+      requiresAuth: true,
     }
   ];
 
