@@ -10889,8 +10889,8 @@ async def _rss_feed_response(
     if active_notices:
         alert_text = " ".join(text for _, text in active_notices)
         if not sorted_routes:
-            arrivals_summary = "No buses currently scheduled."
-            title_tail = "No arrivals currently scheduled"
+            arrivals_summary = "No ETAs to display."
+            title_tail = "No ETAs to display."
         else:
             arrivals_summary = " ".join(
                 f"{route_desc} {','.join(labels)}" for route_desc, labels in sorted_routes
@@ -10905,8 +10905,8 @@ async def _rss_feed_response(
         ET.SubElement(item, "pubDate").text = pub_date
     elif not sorted_routes:
         item = ET.SubElement(channel, "item")
-        ET.SubElement(item, "title").text = "No arrivals currently scheduled"
-        ET.SubElement(item, "description").text = "No buses are scheduled at this stop right now."
+        ET.SubElement(item, "title").text = "No ETAs to display."
+        ET.SubElement(item, "description").text = "No ETAs to display."
         ET.SubElement(item, "link").text = arrivals_link
         ET.SubElement(item, "guid", isPermaLink="false").text = f"uts-stop-{guid_key}-none"
         ET.SubElement(item, "pubDate").text = pub_date
@@ -11057,7 +11057,7 @@ async def _cap_feed_response(
                 break
 
     if not sorted_routes:
-        arrivals_text = "No buses currently scheduled."
+        arrivals_text = "No ETAs to display."
     else:
         arrivals_text = " ".join(
             f"{route_desc} {','.join(labels)}" for route_desc, labels in sorted_routes
