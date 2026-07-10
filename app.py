@@ -1706,6 +1706,7 @@ NOT_FOUND_HTML = _load_html("404.html")
 RADAR_HTML = _load_html("radar.html")
 EINK_BLOCK_HTML = _load_html("eink-block.html")
 STOP_APPROACH_HTML = _load_html("stop-approach.html")
+COUNTDOWN_HTML = _load_html("countdown.html")
 DUCK_CONFIG_HTML = _load_html("duck-config.html")
 DOWNED_HTML = _load_html("downed.html")
 IPS_HTML = _load_html("ips.html")
@@ -12259,6 +12260,16 @@ async def push_notifications_js():
     return _serve_js_asset("push-notifications.js")
 
 
+@app.get("/scripts/countdown.js", include_in_schema=False)
+async def countdown_js():
+    return _serve_js_asset("countdown.js")
+
+
+@app.get("/fonts/mta-sign.bdf", include_in_schema=False)
+async def mta_sign_bdf():
+    return FileResponse(FONT_DIR / "mta-sign.bdf", media_type="text/plain; charset=iso-8859-1")
+
+
 @app.get("/vehicle_log/{log_name}", include_in_schema=False)
 async def vehicle_log_file(log_name: str):
     if not re.fullmatch(r"\d{8}_(?:\d{2}\.jsonl|routes\.json)", log_name):
@@ -12358,6 +12369,10 @@ async def radar_page():
 @app.get("/eink-block")
 async def eink_block_page():
     return HTMLResponse(EINK_BLOCK_HTML)
+
+@app.get("/countdown")
+async def countdown_page():
+    return HTMLResponse(COUNTDOWN_HTML)
 
 @app.get("/vdot-cams")
 async def vdot_cams_page():
