@@ -437,6 +437,91 @@ def _resolve_feed_code(code: str) -> Dict[str, Any]:
 
 
 # ---------------------------
+# Route Destinations (admin-curated "next landmark ahead" labels for loop routes)
+# ---------------------------
+# UTS routes are all loops in TransLoc — there's no point-to-point direction/destination
+# concept in the data (confirmed against Gold Line RouteIDs 56/57: both start and end at
+# the same Runk/Hereford-area terminus; the two RouteIDs are schedule variants, not
+# opposite directions). So "destination" text for an arrival can't be derived automatically
+# — it has to be a human picking which stops along a route's loop count as a rider-facing
+# landmark ("Hereford", "Barracks", ...), keyed here per RouteStopID (not physical StopID)
+# since a physical stop can in principle be visited more than once per loop, while
+# RouteStopID is unique per position in a given RouteID's Stops[] sequence.
+ROUTE_DESTINATIONS_PATH = PRIMARY_DATA_DIR / "route_destinations.json"
+
+def _load_route_destinations() -> Dict[str, Dict[str, str]]:
+    """Load RouteID -> {RouteStopID: short label} destination mapping used by
+    /v1/transloc/stop_arrivals. Edited at /route-destinations."""
+    try:
+        if ROUTE_DESTINATIONS_PATH.exists():
+            data = json.loads(ROUTE_DESTINATIONS_PATH.read_text())
+            if isinstance(data, dict):
+                routes = data.get("routes", {})
+                if isinstance(routes, dict):
+                    return routes
+    except (json.JSONDecodeError, OSError) as exc:
+        print(f"[route-destinations] failed to load route_destinations.json: {exc}")
+    return {}
+
+def _save_route_destinations(routes: Dict[str, Dict[str, str]]) -> None:
+    ROUTE_DESTINATIONS_PATH.parent.mkdir(parents=True, exist_ok=True)
+    ROUTE_DESTINATIONS_PATH.write_text(
+        json.dumps({
+            "routes": routes,
+            "updated_at": datetime.now(timezone.utc).isoformat(),
+        }, indent=2)
+    )
+
+def _ordered_route_stops(route_id: Any, routes_raw: Optional[List[Dict[str, Any]]] = None) -> List[Dict[str, Any]]:
+    """Return one RouteID's Stops list (from GetRoutesForMapWithScheduleWithEncodedLine,
+    cached as state.routes_raw) sorted by its real travel order, normalized to
+    {route_stop_id, order, description}."""
+    if routes_raw is None:
+        routes_raw = list(getattr(state, "routes_raw", []) or [])
+    rid_str = str(route_id)
+    for r in routes_raw:
+        if not isinstance(r, dict) or str(r.get("RouteID")) != rid_str:
+            continue
+        out: List[Dict[str, Any]] = []
+        for s in r.get("Stops") or []:
+            rsid = s.get("RouteStopID") if s.get("RouteStopID") is not None else s.get("RouteStopId")
+            if rsid is None:
+                continue
+            out.append({
+                "route_stop_id": str(rsid),
+                "order": s.get("Order") or 0,
+                "description": s.get("Description") or s.get("SignVerbiage") or s.get("Line1") or "",
+            })
+        out.sort(key=lambda x: x["order"])
+        return out
+    return []
+
+def _next_destination_label(route_id: Any, route_stop_id: Any) -> Optional[str]:
+    """Walk forward from route_stop_id through its route's loop (wrapping past the
+    last stop back to the first) and return the label of the next stop an admin has
+    tagged as a destination at /route-destinations, or None if none is configured."""
+    if route_id is None or route_stop_id is None:
+        return None
+    labels = _load_route_destinations().get(str(route_id))
+    if not labels:
+        return None
+    ordered = _ordered_route_stops(route_id)
+    if not ordered:
+        return None
+    rsid_str = str(route_stop_id)
+    start_idx = next((i for i, s in enumerate(ordered) if s["route_stop_id"] == rsid_str), None)
+    if start_idx is None:
+        return None
+    n = len(ordered)
+    for step in range(1, n + 1):
+        candidate = ordered[(start_idx + step) % n]
+        label = labels.get(candidate["route_stop_id"])
+        if label:
+            return label
+    return None
+
+
+# ---------------------------
 # System Notices (admin-managed alerts for index.html)
 # ---------------------------
 SYSTEM_NOTICES_PATH = PRIMARY_DATA_DIR / "system_notices.json"
@@ -1610,6 +1695,7 @@ TRANSLOC_TICKER_HTML = _load_html("transloc_ticker.html")
 SITEMAP_HTML = _load_html("sitemap.html")
 FEEDS_HTML = _load_html("feeds.html")
 FEED_CODES_HTML = _load_html("feed-codes.html")
+ROUTE_DESTINATIONS_HTML = _load_html("route-destinations.html")
 SYSTEM_NOTICES_HTML = _load_html("system-notices.html")
 ARRIVALSDISPLAY_HTML = _load_html("arrivalsdisplay.html")
 CLOCKDISPLAY_HTML = _load_html("clockdisplay.html")
@@ -10792,7 +10878,21 @@ async def transloc_stop_arrivals(
         params["stopIDs"] = stopIDs
     if stops:
         params["stops"] = stops
-    return await _proxy_transloc_get(url, params=params, base_url=base_url)
+    data = await _proxy_transloc_get(url, params=params, base_url=base_url)
+    # Purely additive: attach a "Destination" field (admin-curated "next landmark
+    # ahead" label, see /route-destinations) to each entry without touching any
+    # existing TransLoc field, so callers already reading this raw passthrough
+    # (e.g. arrivalsdisplay.html) are unaffected if they don't look for it.
+    if isinstance(data, list):
+        for entry in data:
+            if not isinstance(entry, dict):
+                continue
+            route_id = entry.get("RouteID") if entry.get("RouteID") is not None else entry.get("RouteId")
+            route_stop_id = (
+                entry.get("RouteStopID") if entry.get("RouteStopID") is not None else entry.get("RouteStopId")
+            )
+            entry["Destination"] = _next_destination_label(route_id, route_stop_id)
+    return data
 
 
 def _simplify_route_name(route_desc: str) -> str:
@@ -13530,6 +13630,14 @@ async def feed_codes_page(request: Request):
     return _login_redirect(request)
 
 
+@app.get("/route-destinations")
+async def route_destinations_page(request: Request):
+    _refresh_dispatch_passwords()
+    if _has_dispatcher_access(request):
+        return HTMLResponse(ROUTE_DESTINATIONS_HTML)
+    return _login_redirect(request)
+
+
 @app.get("/system-notices")
 async def system_notices_page(request: Request):
     _refresh_dispatch_passwords()
@@ -13795,6 +13903,80 @@ async def delete_feed_code(request: Request, code: str):
         raise HTTPException(status_code=404, detail="code not found")
     del codes[key]
     _save_feed_codes(codes)
+    return {"deleted": True}
+
+
+@app.get("/v1/route-destinations")
+async def list_route_destinations(request: Request):
+    """List every currently known route with its ordered stop sequence and any
+    admin-configured destination labels, for the /route-destinations editor."""
+    _require_dispatcher_access(request)
+    routes_raw = list(getattr(state, "routes_raw", []) or [])
+    saved = _load_route_destinations()
+    routes_out: List[Dict[str, Any]] = []
+    seen_ids: set = set()
+    for r in routes_raw:
+        if not isinstance(r, dict):
+            continue
+        rid = r.get("RouteID")
+        if rid is None or rid in seen_ids:
+            continue
+        seen_ids.add(rid)
+        rid_str = str(rid)
+        color = r.get("MapLineColor") or r.get("Color") or r.get("RouteColor") or "888888"
+        if color and not str(color).startswith("#"):
+            color = f"#{color}"
+        name = r.get("Description") or f"Route {rid}"
+        info = (r.get("InfoText") or "").strip()
+        label = f"{name} — {info}" if info else name
+        destinations = saved.get(rid_str, {})
+        stops = [
+            {
+                "route_stop_id": s["route_stop_id"],
+                "order": s["order"],
+                "description": s["description"],
+                "destination_label": destinations.get(s["route_stop_id"]),
+            }
+            for s in _ordered_route_stops(rid, routes_raw)
+        ]
+        routes_out.append({
+            "route_id": rid,
+            "name": name,
+            "label": label,
+            "color": color,
+            "stops": stops,
+        })
+    routes_out.sort(key=lambda r: (r["name"], r["route_id"]))
+    return {"routes": routes_out}
+
+
+@app.put("/v1/route-destinations/{route_id}/{route_stop_id}")
+async def set_route_destination(request: Request, route_id: str, route_stop_id: str):
+    """Tag one stop along a route's loop as a rider-facing destination landmark.
+    Body: {label}. label is free text (e.g. "Hereford") since the real stop name
+    (e.g. "Hereford Dr @ Runk Dining Hall") is usually too long for signage."""
+    _require_dispatcher_access(request)
+    body = await request.json()
+    label = str(body.get("label", "")).strip()
+    if not label:
+        raise HTTPException(status_code=400, detail="label is required")
+    if len(label) > 40:
+        raise HTTPException(status_code=400, detail="label must be 40 characters or fewer")
+    routes = _load_route_destinations()
+    routes.setdefault(route_id, {})[route_stop_id] = label
+    _save_route_destinations(routes)
+    return {"route_id": route_id, "route_stop_id": route_stop_id, "label": label}
+
+
+@app.delete("/v1/route-destinations/{route_id}/{route_stop_id}")
+async def clear_route_destination(request: Request, route_id: str, route_stop_id: str):
+    _require_dispatcher_access(request)
+    routes = _load_route_destinations()
+    if route_id in routes and route_stop_id in routes[route_id]:
+        del routes[route_id][route_stop_id]
+        if not routes[route_id]:
+            del routes[route_id]
+        _save_route_destinations(routes)
     return {"deleted": True}
 
 

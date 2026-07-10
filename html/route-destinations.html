@@ -1,0 +1,257 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Route Destinations - UTS Operations Dashboard</title>
+  <link rel="icon" type="image/png" href="/media/favicon.ico" />
+  <link rel="apple-touch-icon" sizes="120x120" href="/media/apple-touch-icon-120.png" />
+  <link rel="apple-touch-icon" sizes="152x152" href="/media/apple-touch-icon-152.png" />
+  <link rel="apple-touch-icon" sizes="180x180" href="/media/apple-touch-icon-180.png" />
+  <script defer src="/nav-bar.js"></script>
+  <style>
+    body { font-family: Arial, sans-serif; max-width: 720px; margin: 2rem auto; padding: 0 1.5rem; color: #1a1a1a; line-height: 1.6; }
+    h1 { color: #232D4B; margin-bottom: 0.25rem; }
+    .subtitle { color: #555; margin-top: 0; }
+    code { background: #f0f0f0; border-radius: 4px; font-family: monospace; padding: 2px 6px; }
+    select { font-size: 1rem; padding: 6px 10px; margin: 0.5rem 0 1.25rem; max-width: 100%; }
+    #status { margin: 0.5rem 0 1rem; font-size: 0.9rem; color: #555; min-height: 1.2em; }
+    #status.error { color: #b91c1c; }
+    button { font-size: 0.85rem; padding: 4px 10px; cursor: pointer; border-radius: 4px; border: none; }
+    .primary { background: #232D4B; color: #fff; }
+    .danger { background: #b91c1c; color: #fff; margin-left: 0.4rem; }
+
+    .timeline { display: flex; flex-direction: column; }
+    .stop-row { display: flex; align-items: stretch; position: relative; }
+    .dot-col { width: 40px; flex: none; position: relative; display: flex; align-items: center; justify-content: center; }
+    .dot-col::before, .dot-col::after {
+      content: ''; position: absolute; left: 50%; width: 4px; margin-left: -2px;
+      background: var(--route-color, #888);
+    }
+    .dot-col::before { top: 0; bottom: 50%; }
+    .dot-col::after { top: 50%; bottom: 0; }
+    .stop-row:first-child .dot-col::before { display: none; }
+    .stop-row:last-child .dot-col::after { display: none; }
+
+    .dot {
+      width: 14px; height: 14px; border-radius: 50%; cursor: pointer; z-index: 1;
+      background: var(--route-color, #888);
+      box-shadow: 0 0 0 2px #fff, 0 0 0 3px var(--route-color, #888);
+      transition: width .12s ease, height .12s ease;
+    }
+    .dot.is-destination {
+      width: 26px; height: 26px;
+      box-shadow: 0 0 0 2px #fff, 0 0 0 4px var(--route-color, #888);
+    }
+
+    .stop-info { flex: 1; padding: 0.55rem 0 0.55rem 0.75rem; min-width: 0; }
+    .stop-name { font-size: 0.95rem; }
+    .stop-dest-label {
+      display: inline-block; margin-top: 2px; font-size: 0.78rem; font-weight: bold;
+      color: #fff; background: var(--route-color, #888); border-radius: 10px; padding: 1px 9px;
+    }
+    .dest-editor { display: none; margin-top: 0.4rem; }
+    .dest-editor.open { display: flex; gap: 0.4rem; flex-wrap: wrap; align-items: center; }
+    .dest-editor input[type="text"] { font-size: 0.9rem; padding: 4px 8px; width: 200px; max-width: 60vw; }
+
+    .back-link { display: inline-block; margin-top: 1.5rem; color: #0b63ce; }
+  </style>
+</head>
+<body>
+
+  <h1>Route Destinations</h1>
+  <p class="subtitle">
+    UTS routes are loops — TransLoc has no direction/destination concept, so any
+    "heading to&hellip;" text has to be picked by hand. Click a stop below to mark it as a
+    destination landmark and give it a short label (the real stop name is usually too long
+    for signage). <code>/v1/transloc/stop_arrivals</code> then labels every arrival with the
+    <em>next</em> marked landmark ahead on that route's loop, wrapping around when needed.
+  </p>
+
+  <select id="route-select"></select>
+  <div id="status"></div>
+
+  <div class="timeline" id="timeline"></div>
+
+  <a class="back-link" href="/sitemap">&larr; Back to sitemap</a>
+
+  <script>
+  (function () {
+    const routeSelect = document.getElementById('route-select');
+    const timelineEl = document.getElementById('timeline');
+    const statusEl = document.getElementById('status');
+    let routesData = [];
+    let activeRouteId = null;
+
+    function setStatus(msg, isError) {
+      statusEl.textContent = msg || '';
+      statusEl.classList.toggle('error', !!isError);
+    }
+
+    function currentRoute() {
+      return routesData.find((r) => String(r.route_id) === String(activeRouteId));
+    }
+
+    function closeEditors() {
+      document.querySelectorAll('.dest-editor.open').forEach((el) => el.classList.remove('open'));
+    }
+
+    function renderTimeline() {
+      const route = currentRoute();
+      timelineEl.innerHTML = '';
+      if (!route) return;
+      timelineEl.style.setProperty('--route-color', route.color || '#888');
+
+      route.stops.forEach((stop) => {
+        const row = document.createElement('div');
+        row.className = 'stop-row';
+
+        const dotCol = document.createElement('div');
+        dotCol.className = 'dot-col';
+        const dot = document.createElement('div');
+        dot.className = 'dot' + (stop.destination_label ? ' is-destination' : '');
+        dot.title = stop.destination_label
+          ? ('Destination: ' + stop.destination_label + ' (click to edit)')
+          : 'Click to mark as a destination stop';
+        dotCol.appendChild(dot);
+        row.appendChild(dotCol);
+
+        const info = document.createElement('div');
+        info.className = 'stop-info';
+
+        const nameEl = document.createElement('div');
+        nameEl.className = 'stop-name';
+        nameEl.textContent = stop.description || ('Stop ' + stop.route_stop_id);
+        info.appendChild(nameEl);
+
+        if (stop.destination_label) {
+          const labelEl = document.createElement('span');
+          labelEl.className = 'stop-dest-label';
+          labelEl.textContent = stop.destination_label;
+          info.appendChild(labelEl);
+        }
+
+        const editor = document.createElement('div');
+        editor.className = 'dest-editor';
+        const input = document.createElement('input');
+        input.type = 'text';
+        input.maxLength = 40;
+        input.placeholder = 'Short label, e.g. Hereford';
+        input.value = stop.destination_label || '';
+        const saveBtn = document.createElement('button');
+        saveBtn.className = 'primary';
+        saveBtn.textContent = 'Save';
+        saveBtn.onclick = () => saveDestination(route.route_id, stop.route_stop_id, input.value.trim());
+        input.addEventListener('keydown', (e) => {
+          if (e.key === 'Enter') saveBtn.click();
+        });
+        editor.appendChild(input);
+        editor.appendChild(saveBtn);
+        if (stop.destination_label) {
+          const removeBtn = document.createElement('button');
+          removeBtn.className = 'danger';
+          removeBtn.textContent = 'Remove';
+          removeBtn.onclick = () => clearDestination(route.route_id, stop.route_stop_id);
+          editor.appendChild(removeBtn);
+        }
+        info.appendChild(editor);
+
+        dot.onclick = () => {
+          const wasOpen = editor.classList.contains('open');
+          closeEditors();
+          if (!wasOpen) {
+            editor.classList.add('open');
+            input.focus();
+          }
+        };
+
+        row.appendChild(info);
+        timelineEl.appendChild(row);
+      });
+    }
+
+    async function loadRoutes(preserveSelection) {
+      setStatus('Loading…');
+      try {
+        const r = await fetch('/v1/route-destinations', { cache: 'no-store' });
+        if (r.status === 401) {
+          window.location.href = '/login?return=' + encodeURIComponent(window.location.pathname);
+          return;
+        }
+        if (!r.ok) throw new Error('HTTP ' + r.status);
+        const data = await r.json();
+        routesData = data.routes || [];
+
+        const keep = preserveSelection ? activeRouteId : null;
+        routeSelect.innerHTML = '';
+        routesData.forEach((route) => {
+          const opt = document.createElement('option');
+          opt.value = route.route_id;
+          opt.textContent = route.label + ' (#' + route.route_id + ')';
+          routeSelect.appendChild(opt);
+        });
+
+        if (!routesData.length) {
+          setStatus('No routes currently available — check back once vehicles are running.');
+          activeRouteId = null;
+          renderTimeline();
+          return;
+        }
+
+        activeRouteId = (keep && routesData.some((r) => String(r.route_id) === String(keep)))
+          ? keep
+          : routesData[0].route_id;
+        routeSelect.value = activeRouteId;
+        setStatus('');
+        renderTimeline();
+      } catch (e) {
+        setStatus('Failed to load routes: ' + e.message, true);
+      }
+    }
+
+    async function saveDestination(routeId, routeStopId, label) {
+      if (!label) { setStatus('Enter a short label first.', true); return; }
+      setStatus('Saving…');
+      try {
+        const r = await fetch(`/v1/route-destinations/${routeId}/${routeStopId}`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ label }),
+        });
+        if (!r.ok) {
+          const body = await r.json().catch(() => ({}));
+          throw new Error(body.detail || ('HTTP ' + r.status));
+        }
+        setStatus('Saved.');
+        await loadRoutes(true);
+      } catch (e) {
+        setStatus('Failed to save: ' + e.message, true);
+      }
+    }
+
+    async function clearDestination(routeId, routeStopId) {
+      setStatus('Removing…');
+      try {
+        const r = await fetch(`/v1/route-destinations/${routeId}/${routeStopId}`, { method: 'DELETE' });
+        if (!r.ok) {
+          const body = await r.json().catch(() => ({}));
+          throw new Error(body.detail || ('HTTP ' + r.status));
+        }
+        setStatus('Removed.');
+        await loadRoutes(true);
+      } catch (e) {
+        setStatus('Failed to remove: ' + e.message, true);
+      }
+    }
+
+    routeSelect.addEventListener('change', () => {
+      activeRouteId = routeSelect.value;
+      renderTimeline();
+    });
+
+    loadRoutes(false);
+  })();
+  </script>
+
+</body>
+</html>
