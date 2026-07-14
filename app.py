@@ -11028,8 +11028,20 @@ _CAT_DESTINATION_EXPANSIONS = {
     "FSQ": "Fashion Square",
 }
 
+# Same, but for the RSS/CAP feeds specifically, where "Fashion Square" tacked onto a
+# route abbreviation (e.g. "9-Fashion Square") runs long for signage — "Fashion Sq" is
+# short enough while still being more legible than the bare "FSQ" code.
+_CAT_DESTINATION_EXPANSIONS_COMPACT = {
+    **_CAT_DESTINATION_EXPANSIONS,
+    "FSQ": "Fashion Sq",
+}
 
-def _cat_pattern_headsign(pattern_name: str, route_abbr: Optional[str] = None) -> str:
+
+def _cat_pattern_headsign(
+    pattern_name: str,
+    route_abbr: Optional[str] = None,
+    expansions: Dict[str, str] = _CAT_DESTINATION_EXPANSIONS,
+) -> str:
     """Extract the destination from a CAT pattern name. Names follow
     "{RouteAbbr}{VariantLetters?} {waypoint1}[/{waypoint2}[/...]]" — e.g.
     "7A BRSC/UVA Health/Downtown", or "TA Downtown" for the Trolley (route abbreviation
@@ -11039,12 +11051,13 @@ def _cat_pattern_headsign(pattern_name: str, route_abbr: Optional[str] = None) -
     code into the destination; the last "/"-delimited segment is then taken as the
     destination. A few of CAT's own location abbreviations are spelled out in full
     afterward, since riders unfamiliar with CAT-internal shorthand won't know what
-    "BRSC" or "FSQ" mean."""
+    "BRSC" or "FSQ" mean — callers with tighter space (see
+    _CAT_DESTINATION_EXPANSIONS_COMPACT) can pass a shorter expansion table."""
     name = pattern_name.strip()
     if route_abbr:
         name = re.sub(rf"^{re.escape(route_abbr)}[A-Za-z]*\s+", "", name, count=1)
     headsign = name.rsplit("/", 1)[-1].strip() if "/" in name else name.strip()
-    for abbr, full in _CAT_DESTINATION_EXPANSIONS.items():
+    for abbr, full in expansions.items():
         headsign = re.sub(rf"\b{abbr}\b", full, headsign)
     return headsign
 
@@ -11088,7 +11101,9 @@ async def _cat_arrivals(stop_ids: List[str]) -> Tuple[List[Tuple[str, float]], O
                 pattern_name = pattern_names.get(pattern_id) if pattern_id else None
                 direction = eta.get("Direction") or eta.get("direction")
                 if pattern_name:
-                    destination = _cat_pattern_headsign(pattern_name, info.get("RouteAbbreviation"))
+                    destination = _cat_pattern_headsign(
+                        pattern_name, info.get("RouteAbbreviation"), _CAT_DESTINATION_EXPANSIONS_COMPACT
+                    )
                 elif direction:
                     destination = direction
                 else:
