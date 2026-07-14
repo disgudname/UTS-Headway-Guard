@@ -250,7 +250,8 @@
     x += 3;
 
     var pillPadX = 3;
-    var textW = textWidth(font, arrival.routeName);
+    var routeLabel = arrival.routeName.toUpperCase();
+    var textW = textWidth(font, routeLabel);
     var pillW = textW + pillPadX * 2;
     var pillY = rowTop + Math.floor((ROW_HEIGHT - PILL_HEIGHT) / 2) + 1;
 
@@ -260,7 +261,7 @@
     var pillTopPad = Math.floor((PILL_HEIGHT - PILL_FONT_CAP_HEIGHT) / 2);
     var pillBaseline = pillY + pillTopPad + PILL_FONT_CAP_HEIGHT - 1;
     var contrast = contrastTextColor(arrival.colorHex);
-    drawText(canvas, font, x + pillPadX, pillBaseline, contrast, arrival.routeName);
+    drawText(canvas, font, x + pillPadX, pillBaseline, contrast, routeLabel);
     x += pillW;
 
     if (arrival.destination) {
