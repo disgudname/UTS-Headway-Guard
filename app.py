@@ -10996,12 +10996,9 @@ async def _transloc_arrivals(
     return arrivals, stop_name
 
 
-async def _get_cat_route_name_map() -> Dict[str, str]:
-    routes = await _get_cat_routes()
+async def _get_cat_route_info_map() -> Dict[str, Dict[str, Any]]:
     return {
-        str(r["RouteID"]): (r.get("RouteName") or f"Route {r['RouteID']}")
-        for r in routes
-        if r.get("RouteID") is not None
+        str(r["RouteID"]): r for r in await _get_cat_routes() if r.get("RouteID") is not None
     }
 
 
@@ -11046,18 +11043,19 @@ def _cat_pattern_headsign(pattern_name: str) -> str:
 
 async def _cat_arrivals(stop_ids: List[str]) -> Tuple[List[Tuple[str, float]], Optional[str]]:
     """Fetch CAT (Charlottesville Area Transit) arrivals for one or more stop IDs, in the
-    same (route_desc, seconds_until_arrival) shape as _transloc_arrivals. Each arrival's
-    scheduleNumber resolves (via _pattern_id_from_schedule_number) to a get_patterns entry
-    whose name is a real headsign/destination (e.g. "Downtown", "Willoughby") — unlike
-    TransLoc's all-loop UTS routes (see the route_destinations.json comment above), which
-    have no destination concept at all and need an admin-curated mapping. Falls back to
-    the generic Direction ("Inbound"/"Outbound") if a pattern can't be resolved."""
+    same (route_desc, seconds_until_arrival) shape as _transloc_arrivals. route_desc is
+    "{RouteAbbreviation}-{Destination}" with no spaces around the dash (e.g. "7-Downtown"),
+    where Destination resolves (via _pattern_id_from_schedule_number) to a get_patterns
+    entry's real headsign — unlike TransLoc's all-loop UTS routes (see the
+    route_destinations.json comment above), which have no destination concept at all and
+    need an admin-curated mapping. Falls back to the generic Direction
+    ("Inbound"/"Outbound") if a pattern can't be resolved."""
     if not stop_ids:
         return [], None
     results = await asyncio.gather(
         *(_get_cat_stop_etas(sid) for sid in stop_ids), return_exceptions=True
     )
-    route_names = await _get_cat_route_name_map()
+    route_info = await _get_cat_route_info_map()
     pattern_names = await _get_cat_pattern_name_map()
 
     stop_name: Optional[str] = None
@@ -11070,17 +11068,24 @@ async def _cat_arrivals(stop_ids: List[str]) -> Tuple[List[Tuple[str, float]], O
                 stop_name = stop_entry.get("stopName") or stop_entry.get("StopName")
             for eta in stop_entry.get("enRoute") or stop_entry.get("EnRoute") or []:
                 route_id = eta.get("RouteID") or eta.get("routeID")
-                route_name = route_names.get(str(route_id)) or eta.get("RouteName") or f"Route {route_id}"
+                info = route_info.get(str(route_id)) or {}
+                route_abbr = (
+                    info.get("RouteAbbreviation")
+                    or info.get("RouteName")
+                    or eta.get("RouteName")
+                    or f"Route {route_id}"
+                )
                 schedule_number = eta.get("ScheduleNumber") or eta.get("scheduleNumber")
                 pattern_id = _pattern_id_from_schedule_number(schedule_number)
                 pattern_name = pattern_names.get(pattern_id) if pattern_id else None
                 direction = eta.get("Direction") or eta.get("direction")
                 if pattern_name:
-                    route_desc = f"{route_name} ({_cat_pattern_headsign(pattern_name)})"
+                    destination = _cat_pattern_headsign(pattern_name)
                 elif direction:
-                    route_desc = f"{route_name} ({direction})"
+                    destination = direction
                 else:
-                    route_desc = route_name
+                    destination = None
+                route_desc = f"{route_abbr}-{destination}" if destination else route_abbr
                 minutes = eta.get("Minutes")
                 if minutes is None:
                     minutes = eta.get("minutes")
@@ -11104,9 +11109,7 @@ async def _cat_transloc_shaped_arrivals(cat_stop_ids: List[str]) -> List[Dict[st
     results = await asyncio.gather(
         *(_get_cat_stop_etas(sid) for sid in cat_stop_ids), return_exceptions=True
     )
-    route_info = {
-        str(r["RouteID"]): r for r in await _get_cat_routes() if r.get("RouteID") is not None
-    }
+    route_info = await _get_cat_route_info_map()
     pattern_names = await _get_cat_pattern_name_map()
 
     groups: Dict[Tuple[str, str], Dict[str, Any]] = {}
