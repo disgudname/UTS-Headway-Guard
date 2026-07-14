@@ -27,6 +27,15 @@
   var BLINK_PERIOD_MS = 500;
   var TICK_MS = 200;
 
+  // Real MTA countdown clocks show one pinned next-arrival plus a rotating set of the
+  // next 5 after it (6 total) -- see "Tailoring information design for NYC Subway
+  // countdown clocks" (https://www.adamfishercox.com/writing/countdown-clocks-for-the-mta/):
+  // "the next upcoming train on the first line, and rotates the second line through the
+  // following five trains to arrive." Capping here keeps a merged multi-route stop
+  // (especially one mixing UTS + CAT arrivals via a feed code) from ballooning the
+  // rotation list well past what the real hardware this sign emulates ever shows.
+  var MAX_ARRIVALS = 6;
+
   var TEXT_COLOR = [0, 255, 170];
   var URGENT_COLOR = [255, 0, 0];
 
@@ -254,7 +263,7 @@
     arrivals.sort(function (a, b) {
       return a.seconds - b.seconds;
     });
-    return arrivals;
+    return arrivals.slice(0, MAX_ARRIVALS);
   }
 
   // Drops a trailing " Line" or " Loop" word from a route name, e.g.

@@ -64,6 +64,7 @@ This document provides comprehensive guidance for AI assistants working with the
 │   ├── stop-approach.html      # Stop approach config editor
 │   ├── feeds.html              # RSS/CAP arrival feed documentation
 │   ├── feed-codes.html         # Feed code editor (admin)
+│   ├── countdown.html          # Browser NYC-subway-style countdown sign
 │   └── sitemap.html            # Navigation sitemap
 ├── scripts/                    # Frontend JavaScript modules
 │   ├── markers.js              # Map marker rendering
@@ -73,12 +74,13 @@ This document provides comprehensive guidance for AI assistants working with the
 │   ├── nav-bar.js              # Navigation component
 │   ├── stop-approach.js        # Stop approach editor
 │   ├── testmap.js              # Test map utilities
+│   ├── countdown.js            # Countdown sign renderer (see Countdown Sign section)
 │   └── acceptance.sh           # End-to-end test script
 ├── css/                        # Stylesheets
 │   ├── testmap.css
 │   ├── kioskmap.css
 │   └── stop-approach.css
-├── fonts/                      # Custom fonts
+├── fonts/                      # Custom fonts (incl. mta-sign.bdf for /countdown)
 ├── media/                      # Media assets
 ├── examples/                   # Sample API payloads for testing
 └── tests/                      # Python test suite
@@ -631,7 +633,52 @@ TransLoc sometimes represents a single physical stop as separate IDs per route (
 ID per direction/line serving the same shelter). Arrivals from every mapped ID are merged
 into one feed, deduped by route + arrival time.
 
+`stop_ids` may also freely mix in CAT (Charlottesville Area Transit) stop IDs alongside
+TransLoc ones — there's no separate per-code source field. `_is_cat_stop_id()` in `app.py`
+routes each ID automatically: CAT stop IDs are always exactly 5 digits (confirmed against
+the full `/v1/testmap/cat/stops` list, range 10472–21080); TransLoc's are shorter.
+`_mixed_route_labels()` (used by the RSS/CAP builders) and `/v1/transloc/stop_arrivals`
+(used by `/countdown` and other raw-passthrough consumers) both split a mixed list, fetch
+both upstream APIs concurrently, and merge the results. CAT arrivals resolve a real
+destination (not just generic Inbound/Outbound) via `_cat_pattern_headsign()`: each
+arrival's `scheduleNumber` (e.g. `"14:44:00-27"`) encodes a `get_patterns` ID (`27`) after
+the last `-`; that pattern's `name` (e.g. `"7A BRSC/UVA Health/Downtown"`) has its leading
+`"{RouteAbbr}{Variant} "` token stripped (route abbreviation + a letter variant code —
+same convention as GTFS-style trip variants, e.g. Trolley's `"TA Downtown"` is abbreviation
+`"T"` + variant `"A"`), then the last `"/"`-delimited segment is taken as the destination.
+A couple of CAT's own location abbreviations are spelled out for riders (`BRSC`/`BRCS` →
+"Barracks", `FSQ` → "Fashion Square", or "Fashion Sq" in the RSS/CAP feeds specifically,
+where it's appended to a route abbreviation with no space — see
+`_CAT_DESTINATION_EXPANSIONS_COMPACT`).
+
 **UI editor:** `/feed-codes` (dispatcher auth required)
+
+### Countdown Sign (`/countdown`)
+
+A browser-rendered, NYC-subway-style LED countdown sign (`html/countdown.html` +
+`scripts/countdown.js`), drawing onto a virtual 256×32 LED grid using the BDF font at
+`fonts/mta-sign.bdf`. Configured via query string: `?code=` (a `/feed-codes` code,
+preferred — resolves via `/v1/feed-codes` client-side, and can mix TransLoc + CAT stop
+IDs, see above) or `?stopIDs=` (raw, comma-separated, legacy/TransLoc-only), plus
+`?poll=` (fetch interval, default 15000ms) and `?page=` (bottom-row rotation duration,
+default 4000ms). Arrivals are fetched from `/v1/transloc/stop_arrivals`, which — despite
+the URL — also serves CAT arrivals for any CAT-shaped IDs in the request (see above).
+
+**ETA cap:** real MTA platform countdown clocks show one pinned next-arrival plus rotate
+the second line through the next 5 after it (6 total) — see ["Tailoring information
+design for NYC Subway countdown
+clocks"](https://www.adamfishercox.com/writing/countdown-clocks-for-the-mta/): "the next
+upcoming train on the first line, and rotates the second line through the following five
+trains to arrive." `normalize()` in `countdown.js` caps the sorted arrivals list at
+`MAX_ARRIVALS = 6` to match — important because a stop code merging several UTS and CAT
+routes can otherwise produce far more upcoming arrivals than the real hardware this sign
+emulates would ever display at once.
+
+**Pill rendering:** route pills are sized/centered off the font glyphs' true ink bounding
+box (`textInkBounds()`), not their advance width — `fonts/mta-sign.bdf`'s glyphs have
+built-in trailing whitespace baked into their advance width (for normal letter-spacing),
+which left pill text looking shifted left when sized off `textWidth()` (the advance-width
+sum) instead.
 
 ### Adding External API Integration
 
