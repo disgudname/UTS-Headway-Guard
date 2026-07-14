@@ -10025,6 +10025,13 @@ def _trim_cat_stop_etas(payload: Any) -> List[Dict[str, Any]]:
                         "EquipmentID": eta.get("equipmentID")
                         or eta.get("EquipmentID")
                         or eta.get("equipmentId"),
+                        # "HH:MM:SS-<patternID>" — the trailing segment after the last "-"
+                        # is a literal get_patterns id (confirmed against live data), which
+                        # is how a specific arrival's actual headsign/destination (e.g.
+                        # "7A BRSC/UVA Health/Downtown") can be resolved — Direction alone
+                        # is only ever "Inbound"/"Outbound". See _pattern_id_from_schedule_number.
+                        "ScheduleNumber": eta.get("scheduleNumber") or eta.get("ScheduleNumber"),
+                        "scheduleNumber": eta.get("scheduleNumber") or eta.get("ScheduleNumber"),
                     }
                 )
         result.append(
@@ -10873,20 +10880,45 @@ async def transloc_stop_arrivals(
     stops: Optional[str] = Query(None, description="Alias for stopIDs"),
     base_url: Optional[str] = Query(None),
 ):
-    url = build_transloc_url(base_url, "GetStopArrivalTimes")
-    params: Dict[str, Any] = {"APIKey": TRANSLOC_KEY}
-    if stopIDs:
-        params["stopIDs"] = stopIDs
-    if stops:
-        params["stops"] = stops
-    data = await _proxy_transloc_get(url, params=params, base_url=base_url)
+    """Also accepts CAT (Charlottesville Area Transit) stop IDs mixed in with TransLoc
+    stop IDs (see _is_cat_stop_id) — CAT arrivals are reshaped into the same
+    {RouteDescription, Color, Destination, Times} shape TransLoc returns, so callers like
+    /countdown that resolve a feed code's (possibly mixed) stop_ids don't need to care
+    which upstream API each ID actually belongs to."""
+    raw_ids = [s.strip() for s in (stopIDs or stops or "").split(",") if s.strip()]
+    cat_ids = [s for s in raw_ids if _is_cat_stop_id(s)]
+
+    if not cat_ids:
+        url = build_transloc_url(base_url, "GetStopArrivalTimes")
+        params: Dict[str, Any] = {"APIKey": TRANSLOC_KEY}
+        if stopIDs:
+            params["stopIDs"] = stopIDs
+        if stops:
+            params["stops"] = stops
+        data = await _proxy_transloc_get(url, params=params, base_url=base_url)
+    else:
+        transloc_ids = [s for s in raw_ids if s not in cat_ids]
+        data = []
+        if transloc_ids:
+            url = build_transloc_url(base_url, "GetStopArrivalTimes")
+            params = {"APIKey": TRANSLOC_KEY, "stopIDs": ",".join(transloc_ids)}
+            fetched = await _proxy_transloc_get(url, params=params, base_url=base_url)
+            if isinstance(fetched, list):
+                data.extend(fetched)
+        data.extend(await _cat_transloc_shaped_arrivals(cat_ids))
+
     # Purely additive: attach a "Destination" field (admin-curated "next landmark
     # ahead" label, see /route-destinations) to each entry without touching any
     # existing TransLoc field, so callers already reading this raw passthrough
-    # (e.g. arrivalsdisplay.html) are unaffected if they don't look for it.
+    # (e.g. arrivalsdisplay.html) are unaffected if they don't look for it. CAT-sourced
+    # entries already carry their own real Destination (a headsign resolved from
+    # get_patterns, or Inbound/Outbound as a fallback — see _cat_transloc_shaped_arrivals)
+    # and have no RouteStopID, so this loop naturally skips over them.
     if isinstance(data, list):
         for entry in data:
             if not isinstance(entry, dict):
+                continue
+            if entry.get("RouteStopID") is None and entry.get("RouteStopId") is None:
                 continue
             route_id = entry.get("RouteID") if entry.get("RouteID") is not None else entry.get("RouteId")
             route_stop_id = (
@@ -10973,19 +11005,50 @@ async def _get_cat_route_name_map() -> Dict[str, str]:
     }
 
 
+async def _get_cat_pattern_name_map() -> Dict[str, str]:
+    patterns = await _get_cat_patterns()
+    result: Dict[str, str] = {}
+    for p in patterns:
+        pid = p.get("PatternID") or p.get("patternID") or p.get("id") or p.get("Id")
+        name = p.get("name") or p.get("Name")
+        if pid is not None and name:
+            result[str(pid)] = name
+    return result
+
+
+def _pattern_id_from_schedule_number(schedule_number: Optional[str]) -> Optional[str]:
+    """CAT's scheduleNumber looks like "14:44:00-27" — the segment after the last "-" is
+    a literal get_patterns id (confirmed against live data: scheduleNumber "14:44:00-27"
+    on a RouteID 7 arrival matches pattern 27, "7A BRSC/UVA Health/Downtown", routes:[7])."""
+    if not schedule_number or "-" not in schedule_number:
+        return None
+    return schedule_number.rsplit("-", 1)[-1].strip() or None
+
+
+def _cat_pattern_headsign(pattern_name: str) -> str:
+    """Extract the trailing destination segment from a CAT pattern name, e.g.
+    "7A BRSC/UVA Health/Downtown" -> "Downtown". Patterns without a "/"-delimited chain
+    (e.g. "7C BRSC") have no separate destination to peel off, so use the name as-is."""
+    if "/" in pattern_name:
+        return pattern_name.rsplit("/", 1)[-1].strip()
+    return pattern_name.strip()
+
+
 async def _cat_arrivals(stop_ids: List[str]) -> Tuple[List[Tuple[str, float]], Optional[str]]:
     """Fetch CAT (Charlottesville Area Transit) arrivals for one or more stop IDs, in the
-    same (route_desc, seconds_until_arrival) shape as _transloc_arrivals. CAT's ETA feed
-    already reports a Direction ("Inbound"/"Outbound") per arrival, unlike TransLoc's
-    all-loop UTS routes (see the route_destinations.json comment above) which have no
-    direction concept at all — so no admin-curated destination mapping is needed here,
-    the route name plus direction is folded straight into route_desc."""
+    same (route_desc, seconds_until_arrival) shape as _transloc_arrivals. Each arrival's
+    scheduleNumber resolves (via _pattern_id_from_schedule_number) to a get_patterns entry
+    whose name is a real headsign/destination (e.g. "Downtown", "Willoughby") — unlike
+    TransLoc's all-loop UTS routes (see the route_destinations.json comment above), which
+    have no destination concept at all and need an admin-curated mapping. Falls back to
+    the generic Direction ("Inbound"/"Outbound") if a pattern can't be resolved."""
     if not stop_ids:
         return [], None
     results = await asyncio.gather(
         *(_get_cat_stop_etas(sid) for sid in stop_ids), return_exceptions=True
     )
     route_names = await _get_cat_route_name_map()
+    pattern_names = await _get_cat_pattern_name_map()
 
     stop_name: Optional[str] = None
     arrivals: List[Tuple[str, float]] = []
@@ -10998,8 +11061,16 @@ async def _cat_arrivals(stop_ids: List[str]) -> Tuple[List[Tuple[str, float]], O
             for eta in stop_entry.get("enRoute") or stop_entry.get("EnRoute") or []:
                 route_id = eta.get("RouteID") or eta.get("routeID")
                 route_name = route_names.get(str(route_id)) or eta.get("RouteName") or f"Route {route_id}"
+                schedule_number = eta.get("ScheduleNumber") or eta.get("scheduleNumber")
+                pattern_id = _pattern_id_from_schedule_number(schedule_number)
+                pattern_name = pattern_names.get(pattern_id) if pattern_id else None
                 direction = eta.get("Direction") or eta.get("direction")
-                route_desc = f"{route_name} ({direction})" if direction else route_name
+                if pattern_name:
+                    route_desc = f"{route_name} ({_cat_pattern_headsign(pattern_name)})"
+                elif direction:
+                    route_desc = f"{route_name} ({direction})"
+                else:
+                    route_desc = route_name
                 minutes = eta.get("Minutes")
                 if minutes is None:
                     minutes = eta.get("minutes")
@@ -11008,6 +11079,67 @@ async def _cat_arrivals(stop_ids: List[str]) -> Tuple[List[Tuple[str, float]], O
                 arrivals.append((route_desc, max(float(minutes), 0.0) * 60.0))
 
     return arrivals, stop_name
+
+
+async def _cat_transloc_shaped_arrivals(cat_stop_ids: List[str]) -> List[Dict[str, Any]]:
+    """Fetch CAT arrivals for one or more CAT stop IDs and reshape them into the same
+    {RouteDescription, Color, Destination, Times: [{Text, Seconds, IsArriving}]} shape
+    TransLoc's GetStopArrivalTimes returns, for consumers (e.g. /countdown via
+    /v1/transloc/stop_arrivals) that expect that shape regardless of upstream source.
+    Groups by (route, destination) rather than route alone, since a CAT route can have
+    more than one branch/headsign and each should render as its own row rather than
+    being collapsed under one Destination."""
+    if not cat_stop_ids:
+        return []
+    results = await asyncio.gather(
+        *(_get_cat_stop_etas(sid) for sid in cat_stop_ids), return_exceptions=True
+    )
+    route_info = {
+        str(r["RouteID"]): r for r in await _get_cat_routes() if r.get("RouteID") is not None
+    }
+    pattern_names = await _get_cat_pattern_name_map()
+
+    groups: Dict[Tuple[str, str], Dict[str, Any]] = {}
+    for result in results:
+        if isinstance(result, BaseException) or not isinstance(result, list):
+            continue
+        for stop_entry in result:
+            for eta in stop_entry.get("enRoute") or stop_entry.get("EnRoute") or []:
+                route_id = eta.get("RouteID") or eta.get("routeID")
+                info = route_info.get(str(route_id)) or {}
+                route_label = info.get("RouteAbbreviation") or info.get("RouteName") or f"Route {route_id}"
+                color = info.get("Color") or "#808080"
+
+                schedule_number = eta.get("ScheduleNumber") or eta.get("scheduleNumber")
+                pattern_id = _pattern_id_from_schedule_number(schedule_number)
+                pattern_name = pattern_names.get(pattern_id) if pattern_id else None
+                direction = eta.get("Direction") or eta.get("direction")
+                destination = _cat_pattern_headsign(pattern_name) if pattern_name else (direction or "")
+
+                minutes = eta.get("Minutes")
+                if minutes is None:
+                    minutes = eta.get("minutes")
+                if minutes is None:
+                    continue
+                seconds = max(float(minutes), 0.0) * 60.0
+                is_arriving = seconds <= 0
+
+                key = (str(route_id), destination)
+                if key not in groups:
+                    groups[key] = {
+                        "RouteID": route_id,
+                        "RouteDescription": route_label,
+                        "Color": color,
+                        "Destination": destination,
+                        "Times": [],
+                    }
+                groups[key]["Times"].append({
+                    "Text": "Arriving" if is_arriving else f"{math.ceil(seconds / 60)} min",
+                    "Seconds": seconds,
+                    "IsArriving": is_arriving,
+                })
+
+    return list(groups.values())
 
 
 def _group_arrivals(
