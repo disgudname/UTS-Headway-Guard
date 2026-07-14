@@ -10915,19 +10915,23 @@ def _expand_solo_eta(labels: List[str]) -> List[str]:
     return labels
 
 
-async def _rss_feed_response(
-    request: Request,
-    stop_ids: List[str],
-    base_url: Optional[str] = None,
-    *,
-    feed_key: Optional[str] = None,
-    display_name: Optional[str] = None,
-) -> Response:
-    """Build an RSS 2.0 feed of upcoming bus arrivals for one or more resolved TransLoc stop IDs.
+def _is_cat_stop_id(stop_id: str) -> bool:
+    """CAT (Charlottesville Area Transit) stop IDs are always exactly 5 digits (confirmed
+    against the full /v1/testmap/cat/stops list, range 10472-21080); UTS/TransLoc stop IDs
+    are shorter. This lets a single feed code mix stop IDs from both APIs in one `stop_ids`
+    list with no separate per-code source field — each ID is routed to the right upstream
+    API automatically."""
+    return stop_id.isdigit() and len(stop_id) == 5
 
-    Multiple stop_ids are merged into a single feed — TransLoc sometimes represents the
-    same physical stop as separate IDs per route, so a feed code can point at several.
-    """
+
+async def _transloc_arrivals(
+    stop_ids: List[str], base_url: Optional[str]
+) -> Tuple[List[Tuple[str, float]], Optional[str]]:
+    """Fetch TransLoc arrivals for one or more stop IDs, as a flat list of
+    (route_desc, seconds_until_arrival), plus the raw TransLoc stop name (from
+    StopDescription, not any admin-set display name)."""
+    if not stop_ids:
+        return [], None
     joined_ids = ",".join(stop_ids)
     url = build_transloc_url(base_url, "GetStopArrivalTimes")
     params: Dict[str, Any] = {"APIKey": TRANSLOC_KEY, "stopIDs": joined_ids}
@@ -10936,47 +10940,140 @@ async def _rss_feed_response(
     except HTTPException:
         data = []
 
-    site_root = str(request.base_url).rstrip("/")
-    now = datetime.now(timezone.utc)
-    pub_date = now.strftime("%a, %d %b %Y %H:%M:%S +0000")
-
-    # Pull stop name from the first entry that has one, unless an admin-set name was given
-    stop_name = display_name or f"Stop {joined_ids}"
-    if not display_name and isinstance(data, list):
+    stop_name: Optional[str] = None
+    if isinstance(data, list):
         for entry in data:
             raw = (entry.get("StopDescription") or "").strip()
             if raw:
                 stop_name = raw
                 break
 
-    def _arrival_label(t: Dict[str, Any]) -> str:
-        if t.get("IsArriving") or (t.get("Text") or "").strip().lower() == "arriving":
-            return "0min"
-        seconds = t.get("Seconds")
-        if seconds is None:
-            return ""
-        mins = math.ceil(seconds / 60)
-        if mins <= 0:
-            return "0min"
-        return f"{mins}min"
-
-    # Group arrivals by route; keep insertion order (data is already sorted). Entries from
-    # multiple merged stop IDs may report the same route, so dedupe identical labels.
-    route_labels: Dict[str, List[str]] = {}
-    route_first_seconds: Dict[str, float] = {}
+    arrivals: List[Tuple[str, float]] = []
     if isinstance(data, list):
         for entry in data:
             route_desc = _simplify_route_name((entry.get("RouteDescription") or "Bus").strip().rstrip("."))
             for t in entry.get("Times") or []:
-                label = _arrival_label(t)
-                if not label:
+                if t.get("IsArriving") or (t.get("Text") or "").strip().lower() == "arriving":
+                    arrivals.append((route_desc, 0.0))
                     continue
-                if route_desc not in route_labels:
-                    route_labels[route_desc] = []
-                    secs = t.get("Seconds") or 0
-                    route_first_seconds[route_desc] = secs if not t.get("IsArriving") else 0
-                if label not in route_labels[route_desc]:
-                    route_labels[route_desc].append(label)
+                seconds = t.get("Seconds")
+                if seconds is None:
+                    continue
+                arrivals.append((route_desc, max(float(seconds), 0.0)))
+
+    return arrivals, stop_name
+
+
+async def _get_cat_route_name_map() -> Dict[str, str]:
+    routes = await _get_cat_routes()
+    return {
+        str(r["RouteID"]): (r.get("RouteName") or f"Route {r['RouteID']}")
+        for r in routes
+        if r.get("RouteID") is not None
+    }
+
+
+async def _cat_arrivals(stop_ids: List[str]) -> Tuple[List[Tuple[str, float]], Optional[str]]:
+    """Fetch CAT (Charlottesville Area Transit) arrivals for one or more stop IDs, in the
+    same (route_desc, seconds_until_arrival) shape as _transloc_arrivals. CAT's ETA feed
+    already reports a Direction ("Inbound"/"Outbound") per arrival, unlike TransLoc's
+    all-loop UTS routes (see the route_destinations.json comment above) which have no
+    direction concept at all — so no admin-curated destination mapping is needed here,
+    the route name plus direction is folded straight into route_desc."""
+    if not stop_ids:
+        return [], None
+    results = await asyncio.gather(
+        *(_get_cat_stop_etas(sid) for sid in stop_ids), return_exceptions=True
+    )
+    route_names = await _get_cat_route_name_map()
+
+    stop_name: Optional[str] = None
+    arrivals: List[Tuple[str, float]] = []
+    for result in results:
+        if isinstance(result, BaseException) or not isinstance(result, list):
+            continue
+        for stop_entry in result:
+            if not stop_name:
+                stop_name = stop_entry.get("stopName") or stop_entry.get("StopName")
+            for eta in stop_entry.get("enRoute") or stop_entry.get("EnRoute") or []:
+                route_id = eta.get("RouteID") or eta.get("routeID")
+                route_name = route_names.get(str(route_id)) or eta.get("RouteName") or f"Route {route_id}"
+                direction = eta.get("Direction") or eta.get("direction")
+                route_desc = f"{route_name} ({direction})" if direction else route_name
+                minutes = eta.get("Minutes")
+                if minutes is None:
+                    minutes = eta.get("minutes")
+                if minutes is None:
+                    continue
+                arrivals.append((route_desc, max(float(minutes), 0.0) * 60.0))
+
+    return arrivals, stop_name
+
+
+def _group_arrivals(
+    arrivals: List[Tuple[str, float]], *, max_per_route: Optional[int] = None
+) -> Tuple[Dict[str, List[str]], Dict[str, float]]:
+    """Group a flat (route_desc, seconds_until_arrival) list into {route_desc: [labels]}
+    plus {route_desc: first_seconds}, deduping identical labels and capping at
+    max_per_route per route. Shared by TransLoc- and CAT-sourced arrivals so a route's
+    ETAs behave identically regardless of origin, including feed codes that mix both."""
+    route_labels: Dict[str, List[str]] = {}
+    route_first_seconds: Dict[str, float] = {}
+    for route_desc, seconds in arrivals:
+        label = "0min" if seconds <= 0 else f"{math.ceil(seconds / 60)}min"
+        if route_desc not in route_labels:
+            route_labels[route_desc] = []
+            route_first_seconds[route_desc] = seconds
+        else:
+            route_first_seconds[route_desc] = min(route_first_seconds[route_desc], seconds)
+        if max_per_route is not None and len(route_labels[route_desc]) >= max_per_route:
+            continue
+        if label not in route_labels[route_desc]:
+            route_labels[route_desc].append(label)
+    return route_labels, route_first_seconds
+
+
+async def _mixed_route_labels(
+    stop_ids: List[str], base_url: Optional[str], *, max_per_route: Optional[int] = None
+) -> Tuple[Dict[str, List[str]], Dict[str, float], Optional[str]]:
+    """Split stop_ids into CAT vs TransLoc (see _is_cat_stop_id) and fetch+merge arrivals
+    from whichever APIs are actually needed, so a single feed code can freely mix stop IDs
+    from both systems."""
+    cat_ids = [s for s in stop_ids if _is_cat_stop_id(s)]
+    transloc_ids = [s for s in stop_ids if not _is_cat_stop_id(s)]
+    (transloc_arrivals, transloc_stop_name), (cat_arrivals, cat_stop_name) = await asyncio.gather(
+        _transloc_arrivals(transloc_ids, base_url),
+        _cat_arrivals(cat_ids),
+    )
+    route_labels, route_first_seconds = _group_arrivals(
+        transloc_arrivals + cat_arrivals, max_per_route=max_per_route
+    )
+    return route_labels, route_first_seconds, transloc_stop_name or cat_stop_name
+
+
+async def _rss_feed_response(
+    request: Request,
+    stop_ids: List[str],
+    base_url: Optional[str] = None,
+    *,
+    feed_key: Optional[str] = None,
+    display_name: Optional[str] = None,
+) -> Response:
+    """Build an RSS 2.0 feed of upcoming bus arrivals for one or more resolved stop IDs.
+
+    Multiple stop_ids are merged into a single feed — TransLoc sometimes represents the
+    same physical stop as separate IDs per route, so a feed code can point at several.
+    stop_ids may freely mix TransLoc and CAT stop IDs (see _is_cat_stop_id); each is
+    routed to the right upstream API automatically.
+    """
+    joined_ids = ",".join(stop_ids)
+    site_root = str(request.base_url).rstrip("/")
+    now = datetime.now(timezone.utc)
+    pub_date = now.strftime("%a, %d %b %Y %H:%M:%S +0000")
+
+    route_labels, route_first_seconds, stop_name_from_data = await _mixed_route_labels(stop_ids, base_url)
+
+    stop_name = display_name or stop_name_from_data or f"Stop {joined_ids}"
 
     # Sort routes by soonest arrival
     route_labels = {route: _expand_solo_eta(labels) for route, labels in route_labels.items()}
@@ -11098,72 +11195,40 @@ async def _cap_feed_response(
     feed_key: Optional[str] = None,
     display_name: Optional[str] = None,
 ) -> Response:
-    """Build a CAP 1.2 feed of upcoming bus arrivals for one or more resolved TransLoc stop IDs.
+    """Build a CAP 1.2 feed of upcoming bus arrivals for one or more resolved stop IDs.
 
     Multiple stop_ids are merged into a single feed — TransLoc sometimes represents the
     same physical stop as separate IDs per route, so a feed code can point at several.
+    stop_ids may freely mix TransLoc and CAT stop IDs (see _is_cat_stop_id); each is
+    routed to the right upstream API automatically.
     """
     joined_ids = ",".join(stop_ids)
-    url = build_transloc_url(base_url, "GetStopArrivalTimes")
-    params: Dict[str, Any] = {"APIKey": TRANSLOC_KEY, "stopIDs": joined_ids}
-    try:
-        data = await _proxy_transloc_get(url, params=params, base_url=base_url)
-    except HTTPException:
-        data = []
-
     now = datetime.now(timezone.utc)
     site_root = str(request.base_url).rstrip("/").replace("http://", "https://", 1)
 
-    # Track the raw TransLoc-provided name separately from the displayed name, since an
-    # admin-set display_name may not match any single stop entry's StopDescription.
-    stop_name_from_data: Optional[str] = None
-    if isinstance(data, list):
-        for entry in data:
-            raw = (entry.get("StopDescription") or "").strip()
-            if raw:
-                stop_name_from_data = raw
-                break
+    route_labels, route_first_seconds, stop_name_from_data = await _mixed_route_labels(
+        stop_ids, base_url, max_per_route=2
+    )
     stop_name = display_name or stop_name_from_data or f"Stop {joined_ids}"
-
-    def _arrival_label(t: Dict[str, Any]) -> str:
-        if t.get("IsArriving") or (t.get("Text") or "").strip().lower() == "arriving":
-            return "0min"
-        seconds = t.get("Seconds")
-        if seconds is None:
-            return ""
-        mins = math.ceil(seconds / 60)
-        if mins <= 0:
-            return "0min"
-        return f"{mins}min"
-
-    # Group arrivals by route; cap at 2 ETAs per route. Entries from multiple merged stop
-    # IDs may report the same route, so dedupe identical labels before applying the cap.
-    route_labels: Dict[str, List[str]] = {}
-    route_first_seconds: Dict[str, float] = {}
-    if isinstance(data, list):
-        for entry in data:
-            route_desc = _simplify_route_name((entry.get("RouteDescription") or "Bus").strip().rstrip("."))
-            for t in entry.get("Times") or []:
-                label = _arrival_label(t)
-                if not label:
-                    continue
-                if route_desc not in route_labels:
-                    route_labels[route_desc] = []
-                    secs = t.get("Seconds") or 0
-                    route_first_seconds[route_desc] = secs if not t.get("IsArriving") else 0
-                if len(route_labels[route_desc]) < 2 and label not in route_labels[route_desc]:
-                    route_labels[route_desc].append(label)
 
     route_labels = {route: _expand_solo_eta(labels) for route, labels in route_labels.items()}
     sorted_routes = sorted(route_labels.items(), key=lambda kv: route_first_seconds.get(kv[0], 0))
 
     arrivals_link = f"{site_root}/arrivalsdisplay?stopid={joined_ids}"
 
-    # Look up stop coordinates from cached state, matching against TransLoc's own naming
-    # rather than the (possibly admin-overridden) display name.
+    # Look up stop coordinates. CAT stop_ids can be matched directly against the CAT
+    # stops list; TransLoc has no per-ID lookup here, so fall back to matching its own
+    # StopDescription against the cached route/stop state.
     stop_lat: Optional[float] = None
     stop_lon: Optional[float] = None
-    if stop_name_from_data:
+    cat_ids = [s for s in stop_ids if _is_cat_stop_id(s)]
+    if cat_ids:
+        for s in await _get_cat_stops():
+            if str(s.get("StopID")) in cat_ids:
+                stop_lat = _coerce_float(s.get("Latitude"))
+                stop_lon = _coerce_float(s.get("Longitude"))
+                break
+    if stop_lat is None and stop_name_from_data:
         for _s in state.stops:
             if (_s.get("Name") or _s.get("Description") or "").strip() == stop_name_from_data:
                 stop_lat = _coerce_float(_s.get("Latitude"))
@@ -13879,7 +13944,9 @@ async def upsert_feed_code(request: Request):
 
     stop_ids may be a list (["40", "113"]) or a comma-separated string ("40,113").
     A single legacy `stop_id` field is also accepted. Multiple IDs let one code cover
-    a physical stop that TransLoc has split into separate IDs per route.
+    a physical stop that TransLoc has split into separate IDs per route — and stop_ids
+    may freely mix TransLoc and CAT (Charlottesville Area Transit) stop IDs in one code;
+    each is routed to the right upstream API automatically (see _is_cat_stop_id).
     """
     _require_dispatcher_access(request)
     body = await request.json()

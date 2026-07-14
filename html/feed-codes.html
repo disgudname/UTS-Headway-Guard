@@ -35,12 +35,17 @@
   <h1>Feed Codes</h1>
   <p class="subtitle">
     Maps a stable code (used in <code>/api/rss/stop_arrivals/{code}</code> and
-    <code>/api/cap/stop_arrivals/{code}</code>) to the current TransLoc stop ID(s).
-    Edit the stop ID(s) here whenever TransLoc renumbers a stop &mdash; no redeploy needed,
-    and any signage already pointed at the code will pick up the change immediately.
-    Enter more than one ID, comma-separated (e.g. <code>40, 113</code>), when TransLoc
-    represents one physical stop as separate IDs per route &mdash; arrivals from all of
-    them are merged into a single feed.
+    <code>/api/cap/stop_arrivals/{code}</code>) to the current stop ID(s). Edit the stop
+    ID(s) here whenever a stop gets renumbered &mdash; no redeploy needed, and any
+    signage already pointed at the code will pick up the change immediately. Enter more
+    than one ID, comma-separated (e.g. <code>40, 113</code>), when the same physical stop
+    is split into separate IDs per route &mdash; arrivals from all of them are merged
+    into a single feed. You can freely mix UTS (TransLoc) and CAT (Charlottesville Area
+    Transit) stop IDs in the same code &mdash; CAT stop IDs are always exactly 5 digits,
+    so each one is detected and routed to the right system automatically. CAT stops
+    already report a real direction ("Inbound"/"Outbound") per arrival, so CAT arrivals
+    show <code>RouteName (Direction)</code> automatically, with no destination
+    configuration needed.
   </p>
 
   <table>
@@ -57,7 +62,7 @@
     <tbody>
       <tr id="add-row">
         <td><input type="text" id="new-code" placeholder="e.g. NGPG" maxlength="20"></td>
-        <td><input type="text" id="new-stop-id" placeholder="e.g. 66 or 40, 113"></td>
+        <td><input type="text" id="new-stop-id" placeholder="e.g. 66 or 40, 113, 19002"></td>
         <td><input type="text" id="new-name" placeholder="e.g. North Grounds Parking Garage"></td>
         <td colspan="2"><button class="primary" id="add-btn">Add code</button></td>
       </tr>

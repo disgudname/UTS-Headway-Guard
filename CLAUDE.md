@@ -318,12 +318,15 @@ fly secrets set TRANSLOC_KEY=xxx W2W_KEY=yyy
 {
   "codes": {
     "NGPG": {"stop_ids": ["66"], "name": "North Grounds Parking Garage"},
-    "JPA": {"stop_ids": ["40", "113"], "name": "Jefferson Park Ave @ West Complex"}
+    "JPA": {"stop_ids": ["40", "113"], "name": "Jefferson Park Ave @ West Complex"},
+    "DTC": {"stop_ids": ["40", "19002"], "name": "Downtown Transit Center"}
   },
   "updated_at": "2026-07-07T00:00:00+00:00"
 }
 ```
-Maps a stable code to one or more current TransLoc stop IDs for the RSS/CAP arrival feeds (see [Managing Feed Codes](#managing-feed-codes)). Since TransLoc stop IDs can change — and sometimes represents one physical stop as separate IDs per route — signage should be pointed at `/api/rss|cap/stop_arrivals/{code}` rather than a raw `?stopID=`, so ops can repoint a code (including adding/removing merged IDs) without redeploying. A legacy singular `stop_id` key is still read for entries saved before multi-ID support existed.
+Maps a stable code to one or more current stop IDs for the RSS/CAP arrival feeds (see [Managing Feed Codes](#managing-feed-codes)). Since TransLoc stop IDs can change — and sometimes represents one physical stop as separate IDs per route — signage should be pointed at `/api/rss|cap/stop_arrivals/{code}` rather than a raw `?stopID=`, so ops can repoint a code (including adding/removing merged IDs) without redeploying. A legacy singular `stop_id` key is still read for entries saved before multi-ID support existed.
+
+`stop_ids` may freely mix UTS (TransLoc) and CAT (Charlottesville Area Transit) stop IDs in the same code, as in the `DTC` example above — there's no separate per-code source field. Each ID is routed to the right upstream API automatically by `_is_cat_stop_id()`: CAT stop IDs are always exactly 5 digits (confirmed against the full `/v1/testmap/cat/stops` list, range 10472–21080), while TransLoc's are shorter. `_mixed_route_labels()` splits the list, fetches both APIs concurrently, and merges the results into one feed. Unlike UTS routes, which are all loops with no direction concept (see the `route_destinations.json` note above), CAT's `get_stop_etas` response includes a real `Direction` ("Inbound"/"Outbound") per arrival, so CAT arrivals are labeled `"{RouteName} ({Direction})"` directly from the API — no per-stop destination curation is needed or supported for CAT.
 
 **`/data/system_notices.json`** (not checked into the repo — lives in the persistent volume, edited via `/admin`):
 ```json
