@@ -230,6 +230,14 @@
     return arrivals;
   }
 
+  // Drops a trailing " Line" or " Loop" word from a route name, e.g.
+  // "Purple Line" -> "Purple", but leaves names like "Night Pilot" alone
+  // since "Pilot" isn't one of those words.
+  function shortRouteLabel(name) {
+    var m = name.match(/^(.*\S)\s+(?:line|loop)$/i);
+    return m ? m[1] : name;
+  }
+
   // ---------------------------------------------------------------------
   // Layout (mirrors shared/layout.py)
   // ---------------------------------------------------------------------
@@ -250,7 +258,7 @@
     x += 3;
 
     var pillPadX = 3;
-    var routeLabel = arrival.routeName.toUpperCase();
+    var routeLabel = shortRouteLabel(arrival.routeName).toUpperCase();
     var textW = textWidth(font, routeLabel);
     var pillW = textW + pillPadX * 2;
     var pillY = rowTop + Math.floor((ROW_HEIGHT - PILL_HEIGHT) / 2) + 1;
