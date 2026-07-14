@@ -11025,13 +11025,23 @@ def _pattern_id_from_schedule_number(schedule_number: Optional[str]) -> Optional
     return schedule_number.rsplit("-", 1)[-1].strip() or None
 
 
+_CAT_DESTINATION_EXPANSIONS = {
+    "BRSC": "Barracks",
+    "BRCS": "Barracks",  # typo variant that also appears in CAT's own pattern names
+    "FSQ": "Fashion Square",
+}
+
+
 def _cat_pattern_headsign(pattern_name: str) -> str:
     """Extract the trailing destination segment from a CAT pattern name, e.g.
     "7A BRSC/UVA Health/Downtown" -> "Downtown". Patterns without a "/"-delimited chain
-    (e.g. "7C BRSC") have no separate destination to peel off, so use the name as-is."""
-    if "/" in pattern_name:
-        return pattern_name.rsplit("/", 1)[-1].strip()
-    return pattern_name.strip()
+    (e.g. "7C BRSC") have no separate destination to peel off, so use the name as-is.
+    A few of CAT's own location abbreviations are spelled out in full afterward, since
+    riders unfamiliar with CAT-internal shorthand won't know what "BRSC" or "FSQ" mean."""
+    headsign = pattern_name.rsplit("/", 1)[-1].strip() if "/" in pattern_name else pattern_name.strip()
+    for abbr, full in _CAT_DESTINATION_EXPANSIONS.items():
+        headsign = re.sub(rf"\b{abbr}\b", full, headsign)
+    return headsign
 
 
 async def _cat_arrivals(stop_ids: List[str]) -> Tuple[List[Tuple[str, float]], Optional[str]]:

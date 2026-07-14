@@ -122,6 +122,33 @@
     return w;
   }
 
+  // Returns the true lit-pixel bounding box of `text` (left/right relative to the
+  // draw-origin cursor, plus width), as opposed to textWidth()'s advance-width sum.
+  // The font's glyphs carry built-in trailing space for letter-spacing in running text
+  // (e.g. digits are BBX width 6 at DWIDTH 8 — 2px of blank space baked onto the right),
+  // so sizing/centering a pill off textWidth() leaves the visible ink looking shifted
+  // left. Centering off the ink bounds instead fixes that regardless of label length.
+  function textInkBounds(font, text) {
+    var cursor = 0;
+    var left = null, right = null;
+    for (var i = 0; i < text.length; i += 1) {
+      var glyph = font.glyphs[text.charCodeAt(i)];
+      if (!glyph) {
+        cursor += font.defaultAdvance;
+        continue;
+      }
+      if (glyph.bbw > 0) {
+        var glyphLeft = cursor + glyph.bbxoff;
+        var glyphRight = glyphLeft + glyph.bbw;
+        if (left === null || glyphLeft < left) left = glyphLeft;
+        if (right === null || glyphRight > right) right = glyphRight;
+      }
+      cursor += glyph.dwidth;
+    }
+    if (left === null) { left = 0; right = 0; }
+    return { left: left, right: right, width: right - left };
+  }
+
   // Draws with baseline at row y. Returns total advance width.
   function drawText(canvas, font, x, y, color, text) {
     var cursor = x;
@@ -259,8 +286,8 @@
 
     var pillPadX = 3;
     var routeLabel = shortRouteLabel(arrival.routeName).toUpperCase();
-    var textW = textWidth(font, routeLabel);
-    var pillW = textW + pillPadX * 2;
+    var ink = textInkBounds(font, routeLabel);
+    var pillW = ink.width + pillPadX * 2;
     var pillY = rowTop + Math.floor((ROW_HEIGHT - PILL_HEIGHT) / 2) + 1;
 
     var rgb = hexToRgb(arrival.colorHex);
@@ -269,7 +296,9 @@
     var pillTopPad = Math.floor((PILL_HEIGHT - PILL_FONT_CAP_HEIGHT) / 2);
     var pillBaseline = pillY + pillTopPad + PILL_FONT_CAP_HEIGHT - 1;
     var contrast = contrastTextColor(arrival.colorHex);
-    drawText(canvas, font, x + pillPadX, pillBaseline, contrast, routeLabel);
+    // Shift the draw-origin by -ink.left so the label's leftmost lit pixel lands
+    // exactly pillPadX in from the pill's edge, regardless of the glyph's own bearing.
+    drawText(canvas, font, x + pillPadX - ink.left, pillBaseline, contrast, routeLabel);
     x += pillW;
 
     if (arrival.destination) {
