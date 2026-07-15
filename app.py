@@ -9815,6 +9815,14 @@ def _trim_cat_patterns(payload: Any) -> List[Dict[str, Any]]:
             normalized.setdefault("DecodedLine", decoded)
             normalized.setdefault("DecodedPath", decoded)
 
+        # Ordered list of stop IDs along this pattern's path — used to tell a stop that's
+        # merely along the way from one that's this pattern's actual terminus (see
+        # _get_cat_pattern_terminal_stops).
+        stop_ids = entry.get("stopIDs") or entry.get("stopIds") or entry.get("StopIDs")
+        if stop_ids is not None:
+            normalized.setdefault("stopIDs", stop_ids)
+            normalized.setdefault("StopIDs", stop_ids)
+
         result.append(normalized)
     return result
 
@@ -11013,6 +11021,23 @@ async def _get_cat_pattern_name_map() -> Dict[str, str]:
     return result
 
 
+async def _get_cat_pattern_terminal_stops() -> Dict[str, str]:
+    """Map pattern_id -> the stop ID it terminates at (the last entry in the pattern's
+    ordered stopIDs). An arrival whose own stop IS that pattern's terminus is a bus
+    ending its run right there — e.g. stop 13265 ("BRSC at Arlington Southbound") is
+    literally the last stop of pattern 17 ("5A FSQ/BRCS"), so showing "Barracks" as that
+    arrival's destination while standing at Barracks is meaningless. This is purely
+    ID-based (no name matching): callers compare an eta's own StopID against this map."""
+    patterns = await _get_cat_patterns()
+    result: Dict[str, str] = {}
+    for p in patterns:
+        pid = p.get("PatternID") or p.get("patternID") or p.get("id") or p.get("Id")
+        stop_ids = p.get("stopIDs") or p.get("StopIDs")
+        if pid is not None and stop_ids:
+            result[str(pid)] = str(stop_ids[-1])
+    return result
+
+
 def _pattern_id_from_schedule_number(schedule_number: Optional[str]) -> Optional[str]:
     """CAT's scheduleNumber looks like "14:44:00-27" — the segment after the last "-" is
     a literal get_patterns id (confirmed against live data: scheduleNumber "14:44:00-27"
@@ -11078,6 +11103,7 @@ async def _cat_arrivals(stop_ids: List[str]) -> Tuple[List[Tuple[str, float]], O
     )
     route_info = await _get_cat_route_info_map()
     pattern_names = await _get_cat_pattern_name_map()
+    pattern_terminal_stops = await _get_cat_pattern_terminal_stops()
 
     stop_name: Optional[str] = None
     arrivals: List[Tuple[str, float]] = []
@@ -11099,8 +11125,15 @@ async def _cat_arrivals(stop_ids: List[str]) -> Tuple[List[Tuple[str, float]], O
                 schedule_number = eta.get("ScheduleNumber") or eta.get("scheduleNumber")
                 pattern_id = _pattern_id_from_schedule_number(schedule_number)
                 pattern_name = pattern_names.get(pattern_id) if pattern_id else None
+                # An arrival whose own stop is its pattern's terminus is a bus ending its
+                # run right here -- e.g. showing "5-Barracks" while standing at the
+                # Barracks stop is meaningless, so treat it like no pattern resolved.
+                eta_stop_id = str(eta.get("StopID") or eta.get("stopID") or "")
+                is_terminal_here = (
+                    pattern_id is not None and pattern_terminal_stops.get(pattern_id) == eta_stop_id
+                )
                 direction = eta.get("Direction") or eta.get("direction")
-                if pattern_name:
+                if pattern_name and not is_terminal_here:
                     destination = _cat_pattern_headsign(
                         pattern_name, info.get("RouteAbbreviation"), _CAT_DESTINATION_EXPANSIONS_COMPACT
                     )
@@ -11134,6 +11167,7 @@ async def _cat_transloc_shaped_arrivals(cat_stop_ids: List[str]) -> List[Dict[st
     )
     route_info = await _get_cat_route_info_map()
     pattern_names = await _get_cat_pattern_name_map()
+    pattern_terminal_stops = await _get_cat_pattern_terminal_stops()
 
     groups: Dict[Tuple[str, str], Dict[str, Any]] = {}
     for result in results:
@@ -11149,10 +11183,16 @@ async def _cat_transloc_shaped_arrivals(cat_stop_ids: List[str]) -> List[Dict[st
                 schedule_number = eta.get("ScheduleNumber") or eta.get("scheduleNumber")
                 pattern_id = _pattern_id_from_schedule_number(schedule_number)
                 pattern_name = pattern_names.get(pattern_id) if pattern_id else None
+                # See the matching comment in _cat_arrivals: a bus terminating at this
+                # exact stop shouldn't show that same stop as its "destination".
+                eta_stop_id = str(eta.get("StopID") or eta.get("stopID") or "")
+                is_terminal_here = (
+                    pattern_id is not None and pattern_terminal_stops.get(pattern_id) == eta_stop_id
+                )
                 direction = eta.get("Direction") or eta.get("direction")
                 destination = (
                     _cat_pattern_headsign(pattern_name, info.get("RouteAbbreviation"))
-                    if pattern_name
+                    if pattern_name and not is_terminal_here
                     else (direction or "")
                 )
 
