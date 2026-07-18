@@ -11016,6 +11016,32 @@ async def transloc_stop_arrivals_by_code(
     return await transloc_stop_arrivals(stopIDs=",".join(entry["stop_ids"]), base_url=base_url)
 
 
+@app.get("/v1/transloc/stop_alert")
+async def transloc_stop_alert(
+    stopIDs: Optional[str] = Query(None, description="Comma-separated stop IDs"),
+):
+    """Active service-alert text (if any) targeting the given stop IDs, in the same
+    short-form sanitized shape used by the RSS/CAP feeds (_active_notice_texts) -- for
+    JSON-consuming clients like /countdown and the Countdown Clock Pi driver that render
+    their own scrolling-alert line rather than parsing RSS/CAP XML. Multiple concurrently
+    active notices are joined with a space into one string, same as the RSS/CAP feeds."""
+    raw_ids = [s.strip() for s in (stopIDs or "").split(",") if s.strip()]
+    active_notices = _active_notice_texts(raw_ids)
+    alert_text = " ".join(text for _, text in active_notices) if active_notices else None
+    return {"alert": alert_text}
+
+
+@app.get("/v1/transloc/stop_alert/{code}")
+async def transloc_stop_alert_by_code(code: str):
+    """Same as /v1/transloc/stop_alert, keyed by a stable feed code instead of raw stop
+    IDs -- see /v1/transloc/stop_arrivals/{code} for why.
+
+    Example: /v1/transloc/stop_alert/NGPG
+    """
+    entry = _resolve_feed_code(code)
+    return await transloc_stop_alert(stopIDs=",".join(entry["stop_ids"]))
+
+
 def _simplify_route_name(route_desc: str) -> str:
     """Collapse any "Orientation - Day N AM/PM — To ..." route name down to just
     "Orientation" for signage feeds. The full names (e.g. "Orientation - Day 1 AM — To

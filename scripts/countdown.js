@@ -39,6 +39,33 @@
   var TEXT_COLOR = [0, 255, 170];
   var URGENT_COLOR = [255, 0, 0];
 
+  // Orange/amber, matching the real NYC countdown clocks' scrolling service-alert line --
+  // their signs are single-color amber/yellow LED displays, so this isn't a special
+  // "alert" accent color distinct from some other "normal" color; it's just what all text
+  // on those signs looks like, used here specifically for the alert line to read as a
+  // clear departure from this sign's own cyan-green arrival rows.
+  var ALERT_COLOR = [255, 140, 0];
+  var ALERT_SCROLL_SPEED_PX_S = 30;
+  var ALERT_TOKEN_GAP = 4; // px between scrolling tokens (both plain words and pills)
+
+  // Route colors as of 2026-07-18, pulled from live TransLoc route data and hardcoded
+  // here rather than derived from the current arrivals list: UTS route colors rarely
+  // change, and this needs to resolve a route name mentioned in alert text even when
+  // that route has no active arrival at this particular stop right now. Keys are the
+  // same short/uppercased form shortRouteLabel() produces, matching the pill labels
+  // already shown on arrival rows -- update this table if UTS repaints a route.
+  var KNOWN_ROUTE_COLORS = {
+    "GOLD": "#ffdd00",
+    "GREEN": "#0c8103",
+    "ORANGE": "#ff7300",
+    "SILVER": "#5f6367",
+    "PURPLE": "#662c90",
+    "NIGHT PILOT": "#232d48",
+  };
+  var MAX_ROUTE_PHRASE_WORDS = Math.max.apply(null, Object.keys(KNOWN_ROUTE_COLORS).map(function (k) {
+    return k.split(" ").length;
+  }));
+
   function qp(name, def) {
     var params = new URLSearchParams(window.location.search);
     return params.has(name) ? params.get(name) : def;
@@ -282,19 +309,54 @@
     return Math.max(1, nArrivals - 1);
   }
 
+  // Shared by every row (arrival rows and the scrolling alert line) so their text and
+  // pills all sit at the identical vertical position. Shifted 2px above a naive vertical
+  // center: the deepest descenders (g/p/q/j drop 3px below baseline) would otherwise
+  // land exactly 1px past the bottom edge of the canvas on the second row (rowTop +
+  // ROW_HEIGHT == canvas height there, leaving zero margin) and get silently clipped by
+  // setPixel's bounds check. A 1px shift alone fixes the clipping but leaves the
+  // descender's tip flush against the very last row with no breathing room; the extra
+  // 1px gives it a visible 1px margin instead. This still costs no headroom at the top --
+  // every glyph's ascent still clears rowTop, even the tallest (!) at exactly row 0.
+  function rowTopPad() {
+    return Math.max(0, Math.floor((ROW_HEIGHT - ROW_FONT_CAP_HEIGHT) / 2)) - 2;
+  }
+
+  var PILL_PAD_X = 3;
+
+  function pillWidth(font, text) {
+    var ink = textInkBounds(font, text);
+    return ink.width + PILL_PAD_X * 2;
+  }
+
+  // Draws a route-color pill with its top-left at (x, y) and returns its width. Shared
+  // by arrival rows and the scrolling alert line so a route name renders identically in
+  // both places.
+  function drawPill(canvas, font, x, y, text, colorHex) {
+    var ink = textInkBounds(font, text);
+    var pillW = ink.width + PILL_PAD_X * 2;
+
+    var rgb = hexToRgb(colorHex);
+    fillRoundedRect(canvas, x, y, pillW, PILL_HEIGHT, Math.floor(PILL_HEIGHT / 2), rgb);
+
+    var pillTopPad = Math.floor((PILL_HEIGHT - PILL_FONT_CAP_HEIGHT) / 2);
+    var pillBaseline = y + pillTopPad + PILL_FONT_CAP_HEIGHT - 1;
+    var contrast = contrastTextColor(colorHex);
+    // Shift the draw-origin by -ink.left so the label's leftmost lit pixel lands
+    // exactly PILL_PAD_X in from the pill's edge, regardless of the glyph's own bearing.
+    drawText(canvas, font, x + PILL_PAD_X - ink.left, pillBaseline, contrast, text);
+    return pillW;
+  }
+
   function drawRow(canvas, font, rowTop, rank, arrival, blinkOn) {
     var urgent = isUrgent(arrival);
-    // Shifted 2px above a naive vertical center: the deepest descenders (g/p/q/j
-    // drop 3px below baseline) would otherwise land exactly 1px past the bottom
-    // edge of the canvas on the second row (rowTop + ROW_HEIGHT == canvas height
-    // there, leaving zero margin) and get silently clipped by setPixel's bounds
-    // check. A 1px shift alone fixes the clipping but leaves the descender's tip
-    // flush against the very last row with no breathing room; the extra 1px
-    // gives it a visible 1px margin instead. This still costs no headroom at the
-    // top -- every glyph's ascent still clears rowTop, even the tallest (!) at
-    // exactly row 0.
-    var topPad = Math.max(0, Math.floor((ROW_HEIGHT - ROW_FONT_CAP_HEIGHT) / 2)) - 2;
+    var topPad = rowTopPad();
     var baseline = rowTop + topPad + ROW_FONT_CAP_HEIGHT;
+    // PILL_HEIGHT is exactly 2px taller than ROW_FONT_CAP_HEIGHT, so deriving pillY
+    // from the same topPad as the row's text baseline (rather than independently off
+    // ROW_HEIGHT) puts the pill 1px above and 1px below the row's own cap-height text,
+    // and keeps the two in sync if topPad/baseline ever shifts again.
+    var pillY = rowTop + topPad;
 
     var x = 2;
     var label = rank + ".";
@@ -302,26 +364,8 @@
     x += drawText(canvas, font, x, baseline, labelColor, label);
     x += 3;
 
-    var pillPadX = 3;
     var routeLabel = shortRouteLabel(arrival.routeName).toUpperCase();
-    var ink = textInkBounds(font, routeLabel);
-    var pillW = ink.width + pillPadX * 2;
-    // PILL_HEIGHT is exactly 2px taller than ROW_FONT_CAP_HEIGHT, so deriving pillY
-    // from the same topPad as the row's text baseline (rather than independently off
-    // ROW_HEIGHT) puts the pill 1px above and 1px below the row's own cap-height text,
-    // and keeps the two in sync if topPad/baseline ever shifts again.
-    var pillY = rowTop + topPad;
-
-    var rgb = hexToRgb(arrival.colorHex);
-    fillRoundedRect(canvas, x, pillY, pillW, PILL_HEIGHT, Math.floor(PILL_HEIGHT / 2), rgb);
-
-    var pillTopPad = Math.floor((PILL_HEIGHT - PILL_FONT_CAP_HEIGHT) / 2);
-    var pillBaseline = pillY + pillTopPad + PILL_FONT_CAP_HEIGHT - 1;
-    var contrast = contrastTextColor(arrival.colorHex);
-    // Shift the draw-origin by -ink.left so the label's leftmost lit pixel lands
-    // exactly pillPadX in from the pill's edge, regardless of the glyph's own bearing.
-    drawText(canvas, font, x + pillPadX - ink.left, pillBaseline, contrast, routeLabel);
-    x += pillW;
+    x += drawPill(canvas, font, x, pillY, routeLabel, arrival.colorHex);
 
     if (arrival.destination) {
       x += 4;
@@ -338,7 +382,84 @@
     }
   }
 
-  function renderPage(canvas, font, arrivals, pageIndex, nowMs) {
+  // Splits alert text into a list of {type:"text", value} and {type:"pill", value,
+  // colorHex} segments, greedily matching runs of ALL-CAPS words against known route
+  // names (see KNOWN_ROUTE_COLORS) -- longest match wins, e.g. "NIGHT PILOT" matches as
+  // one pill rather than "NIGHT" and "PILOT" as two unmatched words. Matching requires
+  // the words in the alert text to already be all-caps, so an admin signals a route
+  // bullet by writing the route name in caps, and ordinary capitalized text in the
+  // message isn't accidentally swallowed.
+  function tokenizeAlert(text) {
+    var words = text.split(" ").filter(function (w) { return w.length > 0; });
+    var segments = [];
+    var i = 0;
+    var n = words.length;
+    while (i < n) {
+      var matched = null;
+      for (var span = Math.min(MAX_ROUTE_PHRASE_WORDS, n - i); span >= 1; span -= 1) {
+        var phraseWords = words.slice(i, i + span);
+        var allCaps = phraseWords.every(function (w) { return /^[A-Z]+$/.test(w); });
+        if (!allCaps) continue;
+        var phrase = phraseWords.join(" ");
+        if (Object.prototype.hasOwnProperty.call(KNOWN_ROUTE_COLORS, phrase)) {
+          matched = { phrase: phrase, span: span };
+          break;
+        }
+      }
+      if (matched) {
+        segments.push({ type: "pill", value: matched.phrase, colorHex: KNOWN_ROUTE_COLORS[matched.phrase] });
+        i += matched.span;
+      } else {
+        segments.push({ type: "text", value: words[i] });
+        i += 1;
+      }
+    }
+    return segments;
+  }
+
+  function segmentWidth(font, seg) {
+    return seg.type === "pill" ? pillWidth(font, seg.value) : textWidth(font, seg.value);
+  }
+
+  // Renders `text` as a single continuous strip scrolling right-to-left across rowTop's
+  // row, replacing the normal rotating second line while a service alert is active --
+  // mirrors the real NYC countdown clocks' behavior of taking over the second line with
+  // scrolling alert text. Route names written in ALL CAPS within the text (see
+  // tokenizeAlert/KNOWN_ROUTE_COLORS) render as the same colored pills used on arrival
+  // rows instead of plain text, mirroring the real signs' colored line bullets.
+  function drawScrollingAlert(canvas, font, rowTop, text, nowMs) {
+    var segments = tokenizeAlert(text);
+    if (!segments.length) return;
+
+    var topPad = rowTopPad();
+    var baseline = rowTop + topPad + ROW_FONT_CAP_HEIGHT;
+    var pillY = rowTop + topPad;
+
+    var widths = segments.map(function (seg) { return segmentWidth(font, seg); });
+    var stripWidth = widths.reduce(function (a, b) { return a + b; }, 0) + ALERT_TOKEN_GAP * segments.length;
+
+    // Scrolls from just off the right edge to fully off the left edge, then loops.
+    // Adding canvas.width to the cycle gives a breather of blank space before the text
+    // repeats, rather than the strip immediately chasing its own tail.
+    var cycleWidth = stripWidth + canvas.width;
+    var offset = Math.floor((nowMs / 1000 * ALERT_SCROLL_SPEED_PX_S) % cycleWidth);
+    var x = canvas.width - offset;
+
+    for (var i = 0; i < segments.length; i += 1) {
+      var seg = segments[i];
+      var w = widths[i];
+      if (x + w >= 0 && x <= canvas.width) {
+        if (seg.type === "pill") {
+          drawPill(canvas, font, x, pillY, seg.value, seg.colorHex);
+        } else {
+          drawText(canvas, font, x, baseline, ALERT_COLOR, seg.value);
+        }
+      }
+      x += w + ALERT_TOKEN_GAP;
+    }
+  }
+
+  function renderPage(canvas, font, arrivals, pageIndex, nowMs, alertText) {
     canvas.clear();
 
     if (!arrivals.length) {
@@ -350,6 +471,11 @@
     var blinkOn = Math.floor(nowMs / BLINK_PERIOD_MS) % 2 === 0;
 
     drawRow(canvas, font, 0, 1, arrivals[0], blinkOn);
+
+    if (alertText) {
+      drawScrollingAlert(canvas, font, ROW_HEIGHT, alertText, nowMs);
+      return;
+    }
 
     var remaining = arrivals.slice(1);
     if (remaining.length) {
@@ -466,6 +592,32 @@
       .catch(onError);
   }
 
+  // Derives the matching /v1/transloc/stop_alert(/{code} or ?stopIDs=...) URL from the
+  // arrivals URL by swapping the path segment -- both endpoints accept the same /{code}
+  // or ?stopIDs= form, so this is a straightforward substring replace.
+  function fetchAlert(onDone) {
+    var arrivalsUrl = resolveArrivalsUrl();
+    if (!arrivalsUrl) {
+      onDone(null);
+      return;
+    }
+    var alertUrl = arrivalsUrl.replace("stop_arrivals", "stop_alert");
+    fetch(alertUrl)
+      .then(function (r) {
+        if (!r.ok) throw new Error("HTTP " + r.status);
+        return r.json();
+      })
+      .then(function (data) {
+        onDone((data && data.alert) || null);
+      })
+      .catch(function (err) {
+        // Swallowed, not surfaced via onError: a broken alert fetch shouldn't affect
+        // the arrivals display -- the sign just shows no alert that poll.
+        console.error("[countdown] alert fetch failed, ignoring", err);
+        onDone(null);
+      });
+  }
+
   // ---------------------------------------------------------------------
   // Main loop (mirrors driver/app.py's CountdownApp)
   // ---------------------------------------------------------------------
@@ -480,6 +632,7 @@
 
     var state = {
       arrivals: [],
+      alert: null,
       page: 0,
       lastFetch: -Infinity,
       lastPageChange: -Infinity,
@@ -496,6 +649,9 @@
           console.error("[countdown] fetch failed, keeping last known data", err);
         }
       );
+      fetchAlert(function (alert) {
+        state.alert = alert;
+      });
     }
 
     function tick() {
@@ -515,7 +671,7 @@
       }
       if (state.page >= totalPages) state.page = 0;
 
-      renderPage(vc, state.font, state.arrivals, state.page, now);
+      renderPage(vc, state.font, state.arrivals, state.page, now, state.alert);
       renderer.draw();
     }
 
