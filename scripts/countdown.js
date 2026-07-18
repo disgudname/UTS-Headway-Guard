@@ -306,7 +306,11 @@
     var routeLabel = shortRouteLabel(arrival.routeName).toUpperCase();
     var ink = textInkBounds(font, routeLabel);
     var pillW = ink.width + pillPadX * 2;
-    var pillY = rowTop + Math.floor((ROW_HEIGHT - PILL_HEIGHT) / 2) + 1;
+    // PILL_HEIGHT is exactly 2px taller than ROW_FONT_CAP_HEIGHT, so deriving pillY
+    // from the same topPad as the row's text baseline (rather than independently off
+    // ROW_HEIGHT) puts the pill 1px above and 1px below the row's own cap-height text,
+    // and keeps the two in sync if topPad/baseline ever shifts again.
+    var pillY = rowTop + topPad;
 
     var rgb = hexToRgb(arrival.colorHex);
     fillRoundedRect(canvas, x, pillY, pillW, PILL_HEIGHT, Math.floor(PILL_HEIGHT / 2), rgb);
