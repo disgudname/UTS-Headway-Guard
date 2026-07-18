@@ -331,17 +331,43 @@
 
   var PILL_PAD_X = 3;
 
-  function pillWidth(font, text) {
+  var catPillMinWidthCache = null;
+
+  function naturalPillWidth(font, text) {
     var ink = textInkBounds(font, text);
     return ink.width + PILL_PAD_X * 2;
   }
 
+  // Pill width floor so every CAT route pill (RouteAbbreviation is at most 2 characters
+  // -- confirmed against live /v1/testmap/cat/routes: single digits 2-9, "10", "11", and
+  // "T") renders at one consistent size instead of varying with how many digits the
+  // label happens to have. Computed from a 2-digit label rather than a hardcoded pixel
+  // count, so it stays correct if the font ever changes -- digits are uniform width in
+  // mta-sign.bdf (6px ink each), so any pair measures the same, and a 2-digit pair
+  // (13px) is wider than "T" alone (8px), so it's the correct max. Has no effect on UTS
+  // route pills (GOLD, NIGHT PILOT, ...), which are always longer than 2 characters and
+  // so already exceed this floor.
+  function catPillMinWidth(font) {
+    if (catPillMinWidthCache === null) {
+      catPillMinWidthCache = naturalPillWidth(font, "00");
+    }
+    return catPillMinWidthCache;
+  }
+
+  function pillWidth(font, text) {
+    return Math.max(naturalPillWidth(font, text), catPillMinWidth(font));
+  }
+
   // Draws a route-color pill with its top-left at (x, y) and returns its width. Shared
   // by arrival rows and the scrolling alert line so a route name renders identically in
-  // both places.
+  // both places. Width is floored at catPillMinWidth() so short CAT labels don't render
+  // as visibly smaller pills than each other; the label is centered within any extra
+  // width from that floor rather than left-packed against the padding.
   function drawPill(canvas, font, x, y, text, colorHex) {
     var ink = textInkBounds(font, text);
-    var pillW = ink.width + PILL_PAD_X * 2;
+    var naturalW = ink.width + PILL_PAD_X * 2;
+    var pillW = Math.max(naturalW, catPillMinWidth(font));
+    var extra = pillW - naturalW;
 
     var rgb = hexToRgb(colorHex);
     fillRoundedRect(canvas, x, y, pillW, PILL_HEIGHT, Math.floor(PILL_HEIGHT / 2), rgb);
@@ -349,9 +375,10 @@
     var pillTopPad = Math.floor((PILL_HEIGHT - PILL_FONT_CAP_HEIGHT) / 2);
     var pillBaseline = y + pillTopPad + PILL_FONT_CAP_HEIGHT - 1;
     var contrast = contrastTextColor(colorHex);
-    // Shift the draw-origin by -ink.left so the label's leftmost lit pixel lands
-    // exactly PILL_PAD_X in from the pill's edge, regardless of the glyph's own bearing.
-    drawText(canvas, font, x + PILL_PAD_X - ink.left, pillBaseline, contrast, text);
+    // Shift the draw-origin by -ink.left so the label's leftmost lit pixel lands exactly
+    // PILL_PAD_X + extra/2 in from the pill's edge, regardless of the glyph's own bearing.
+    var textX = x + PILL_PAD_X + Math.floor(extra / 2) - ink.left;
+    drawText(canvas, font, textX, pillBaseline, contrast, text);
     return pillW;
   }
 
