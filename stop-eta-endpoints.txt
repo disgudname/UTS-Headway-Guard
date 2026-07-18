@@ -39,6 +39,21 @@ Example:
   /v1/transloc/stop_arrivals/NGPG
 
 
+GET /v1/transloc/stop_alert
+GET /v1/transloc/stop_alert/{code}
+--------------------------------------
+Active service-alert text (if any) targeting the given stop IDs/code, in
+the same short-form sanitized shape the RSS/CAP feeds already use
+(_active_notice_texts). Response: {"alert": "text..."} or {"alert": null}
+if nothing's active. Multiple concurrently active notices are joined with
+a space into one string. For JSON clients (e.g. /countdown, the Countdown
+Clock Pi driver) that render their own scrolling alert line instead of
+parsing RSS/CAP XML.
+
+Example:
+  /v1/transloc/stop_alert/NGPG
+
+
 GET /v1/transloc/vehicle_route_stop_estimates
 ---------------------------------------------
 Returns ETA estimates for specific vehicles to upcoming stops.

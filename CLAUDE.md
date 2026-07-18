@@ -393,6 +393,7 @@ Admin-managed alerts (`/v1/system-notices` CRUD). `target_scope` is `"all"` (sys
 - `GET /api/rss/stop_arrivals/{code}` / `GET /api/cap/stop_arrivals/{code}` - RSS 2.0 / CAP 1.2 arrival feeds for signage, keyed by a feed code managed at `/feed-codes`
 - `GET /api/rss/stop_arrivals?stopID=` / `GET /api/cap/stop_arrivals?stopID=` - same feeds, legacy raw-stop-ID form
 - `GET /v1/transloc/stop_arrivals/{code}` - raw TransLoc-shaped JSON arrivals (same shape as `/v1/transloc/stop_arrivals`), keyed by a feed code instead of raw stop IDs; used by `/countdown` and the standalone Countdown Clock Pi driver so a code repoint at `/feed-codes` takes effect without redeploying the client
+- `GET /v1/transloc/stop_alert?stopIDs=` / `GET /v1/transloc/stop_alert/{code}` - `{"alert": text | null}`, the same short-form sanitized service-alert text the RSS/CAP feeds use, for JSON clients like `/countdown` that render their own scrolling alert line instead of parsing RSS/CAP XML
 - `GET /v1/feed-codes` - list the code → stop ID mapping (public; `/feeds` shows this list); `POST /v1/feed-codes`, `DELETE /v1/feed-codes/{code}` - create/edit/delete a code (dispatcher auth required)
 - `GET /v1/system-notices` - active system notices (add `all=true` + dispatcher auth for every notice, including inactive/staff-only); `POST /v1/system-notices`, `PUT /v1/system-notices/{id}`, `DELETE /v1/system-notices/{id}` - manage notices, including `short_message` and `target_scope`/`target_stop_ids` (dispatcher auth required)
 
@@ -690,6 +691,23 @@ box (`textInkBounds()`), not their advance width — `fonts/mta-sign.bdf`'s glyp
 built-in trailing whitespace baked into their advance width (for normal letter-spacing),
 which left pill text looking shifted left when sized off `textWidth()` (the advance-width
 sum) instead.
+
+**Service alerts:** while a stop's active system notice targets this feed (see System
+Notices above), the sign's second row is replaced entirely by a horizontally scrolling
+alert line — mirroring the real NYC countdown clocks, whose second line goes fully
+scrolling-orange rather than staying in its normal rotation when an alert is active. Text
+comes from `GET /v1/transloc/stop_alert(?stopIDs=|/{code})`, which wraps the same
+short-form sanitized alert text the RSS/CAP feeds already use (`_active_notice_texts()`)
+in JSON so a JSON-consuming client doesn't need to parse XML. Route names written in ALL
+CAPS within the alert text (`GOLD`, `GREEN`, `ORANGE`, `SILVER`, `PURPLE`, `NIGHT PILOT`)
+render as the same colored pills used on arrival rows — `tokenizeAlert()` in
+`countdown.js` (mirrored by `_tokenize_alert()` in the Countdown Clock's
+`shared/layout.py`) greedily matches runs of all-caps words against a hardcoded
+`KNOWN_ROUTE_COLORS` table (pulled from live TransLoc route colors, not derived from the
+current arrivals list, since an alert can reference a route with no active arrival at
+this particular stop). Matching requires the words to already be uppercase in the source
+text, so an admin opts into a route bullet by writing the name in caps, and ordinary
+alert prose isn't accidentally swallowed as a pill.
 
 ### Adding External API Integration
 
