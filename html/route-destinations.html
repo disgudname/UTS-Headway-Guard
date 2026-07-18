@@ -21,6 +21,13 @@
     .primary { background: #232D4B; color: #fff; }
     .danger { background: #b91c1c; color: #fff; margin-left: 0.4rem; }
 
+    .tabs { display: flex; gap: 0.5rem; margin: 1rem 0 1.25rem; }
+    .tab-btn {
+      font-size: 0.9rem; padding: 6px 14px; border-radius: 6px; border: 1px solid #ccc;
+      background: #f5f5f5; color: #333; cursor: pointer;
+    }
+    .tab-btn.active { background: #232D4B; color: #fff; border-color: #232D4B; }
+
     .timeline { display: flex; flex-direction: column; }
     .stop-row { display: flex; align-items: stretch; position: relative; }
     .dot-col { width: 40px; flex: none; position: relative; display: flex; align-items: center; justify-content: center; }
@@ -60,12 +67,28 @@
 <body>
 
   <h1>Route Destinations</h1>
-  <p class="subtitle">
+
+  <div class="tabs">
+    <button type="button" class="tab-btn active" id="tab-uts">UTS Routes</button>
+    <button type="button" class="tab-btn" id="tab-cat">CAT Stops</button>
+  </div>
+
+  <p class="subtitle" id="subtitle-uts">
     UTS routes are loops — TransLoc has no direction/destination concept, so any
     "heading to&hellip;" text has to be picked by hand. Click a stop below to mark it as a
     destination landmark and give it a short label (the real stop name is usually too long
     for signage). <code>/v1/transloc/stop_arrivals</code> then labels every arrival with the
     <em>next</em> marked landmark ahead on that route's loop, wrapping around when needed.
+  </p>
+  <p class="subtitle" id="subtitle-cat" style="display: none;">
+    CAT already resolves a real destination automatically from each route's pattern data,
+    so tagging is optional here — use it to override a pattern's raw headsign with a
+    friendlier rider-facing label, e.g. marking a stop as "Hospital" or "Willoughby". Pick a
+    pattern below to walk its actual stop sequence and tag any stop along it. Landmarks are
+    tied to the physical stop, not the pattern, so a label you set here shows up in every
+    other pattern that happens to pass through the same stop. Patterns are point-to-point
+    (not loops like UTS), so the label only applies to stops <em>after</em> the tagged one —
+    it doesn't wrap around.
   </p>
 
   <select id="route-select"></select>
@@ -80,16 +103,52 @@
     const routeSelect = document.getElementById('route-select');
     const timelineEl = document.getElementById('timeline');
     const statusEl = document.getElementById('status');
-    let routesData = [];
-    let activeRouteId = null;
+    const tabUts = document.getElementById('tab-uts');
+    const tabCat = document.getElementById('tab-cat');
+    const subtitleUts = document.getElementById('subtitle-uts');
+    const subtitleCat = document.getElementById('subtitle-cat');
+
+    // Mode config abstracts over the one structural difference between the two tabs:
+    // UTS destinations are keyed per RouteID+RouteStopID (a physical stop can be visited
+    // more than once per loop), while CAT landmarks are keyed by plain StopID (a landmark
+    // is a property of the physical stop, not of which pattern reaches it) -- so CAT's
+    // save/clear URLs don't need a route/pattern segment at all.
+    const modes = {
+      uts: {
+        listUrl: '/v1/route-destinations',
+        itemsKey: 'routes',
+        stopIdKey: 'route_stop_id',
+        placeholder: 'Short label, e.g. Hereford',
+        saveUrl: (item, stopId) => `/v1/route-destinations/${item.route_id}/${stopId}`,
+      },
+      cat: {
+        listUrl: '/v1/cat-route-destinations',
+        itemsKey: 'patterns',
+        stopIdKey: 'stop_id',
+        placeholder: 'Short label, e.g. Hospital',
+        saveUrl: (item, stopId) => `/v1/cat-route-destinations/${stopId}`,
+      },
+    };
+
+    let activeMode = 'uts';
+    let itemsData = [];
+    let activeItemId = null;
+
+    function currentConfig() {
+      return modes[activeMode];
+    }
+
+    function itemId(item) {
+      return activeMode === 'uts' ? item.route_id : item.pattern_id;
+    }
 
     function setStatus(msg, isError) {
       statusEl.textContent = msg || '';
       statusEl.classList.toggle('error', !!isError);
     }
 
-    function currentRoute() {
-      return routesData.find((r) => String(r.route_id) === String(activeRouteId));
+    function currentItem() {
+      return itemsData.find((item) => String(itemId(item)) === String(activeItemId));
     }
 
     function closeEditors() {
@@ -97,12 +156,14 @@
     }
 
     function renderTimeline() {
-      const route = currentRoute();
+      const item = currentItem();
+      const config = currentConfig();
       timelineEl.innerHTML = '';
-      if (!route) return;
-      timelineEl.style.setProperty('--route-color', route.color || '#888');
+      if (!item) return;
+      timelineEl.style.setProperty('--route-color', item.color || '#888');
 
-      route.stops.forEach((stop) => {
+      item.stops.forEach((stop) => {
+        const stopId = stop[config.stopIdKey];
         const row = document.createElement('div');
         row.className = 'stop-row';
 
@@ -121,7 +182,7 @@
 
         const nameEl = document.createElement('div');
         nameEl.className = 'stop-name';
-        nameEl.textContent = stop.description || ('Stop ' + stop.route_stop_id);
+        nameEl.textContent = stop.description || ('Stop ' + stopId);
         info.appendChild(nameEl);
 
         if (stop.destination_label) {
@@ -136,12 +197,12 @@
         const input = document.createElement('input');
         input.type = 'text';
         input.maxLength = 40;
-        input.placeholder = 'Short label, e.g. Hereford';
+        input.placeholder = config.placeholder;
         input.value = stop.destination_label || '';
         const saveBtn = document.createElement('button');
         saveBtn.className = 'primary';
         saveBtn.textContent = 'Save';
-        saveBtn.onclick = () => saveDestination(route.route_id, stop.route_stop_id, input.value.trim());
+        saveBtn.onclick = () => saveDestination(item, stopId, input.value.trim());
         input.addEventListener('keydown', (e) => {
           if (e.key === 'Enter') saveBtn.click();
         });
@@ -151,7 +212,7 @@
           const removeBtn = document.createElement('button');
           removeBtn.className = 'danger';
           removeBtn.textContent = 'Remove';
-          removeBtn.onclick = () => clearDestination(route.route_id, stop.route_stop_id);
+          removeBtn.onclick = () => clearDestination(item, stopId);
           editor.appendChild(removeBtn);
         }
         info.appendChild(editor);
@@ -170,50 +231,54 @@
       });
     }
 
-    async function loadRoutes(preserveSelection) {
+    async function loadItems(preserveSelection) {
+      const config = currentConfig();
       setStatus('Loading…');
       try {
-        const r = await fetch('/v1/route-destinations', { cache: 'no-store' });
+        const r = await fetch(config.listUrl, { cache: 'no-store' });
         if (r.status === 401) {
           window.location.href = '/login?return=' + encodeURIComponent(window.location.pathname);
           return;
         }
         if (!r.ok) throw new Error('HTTP ' + r.status);
         const data = await r.json();
-        routesData = data.routes || [];
+        itemsData = data[config.itemsKey] || [];
 
-        const keep = preserveSelection ? activeRouteId : null;
+        const keep = preserveSelection ? activeItemId : null;
         routeSelect.innerHTML = '';
-        routesData.forEach((route) => {
+        itemsData.forEach((item) => {
           const opt = document.createElement('option');
-          opt.value = route.route_id;
-          opt.textContent = route.label + ' (#' + route.route_id + ')';
+          const id = itemId(item);
+          opt.value = id;
+          opt.textContent = item.label + ' (#' + id + ')';
           routeSelect.appendChild(opt);
         });
 
-        if (!routesData.length) {
-          setStatus('No routes currently available — check back once vehicles are running.');
-          activeRouteId = null;
+        if (!itemsData.length) {
+          setStatus(activeMode === 'uts'
+            ? 'No routes currently available — check back once vehicles are running.'
+            : 'No CAT patterns currently available — check back once vehicles are running.');
+          activeItemId = null;
           renderTimeline();
           return;
         }
 
-        activeRouteId = (keep && routesData.some((r) => String(r.route_id) === String(keep)))
+        activeItemId = (keep && itemsData.some((item) => String(itemId(item)) === String(keep)))
           ? keep
-          : routesData[0].route_id;
-        routeSelect.value = activeRouteId;
+          : itemId(itemsData[0]);
+        routeSelect.value = activeItemId;
         setStatus('');
         renderTimeline();
       } catch (e) {
-        setStatus('Failed to load routes: ' + e.message, true);
+        setStatus('Failed to load: ' + e.message, true);
       }
     }
 
-    async function saveDestination(routeId, routeStopId, label) {
+    async function saveDestination(item, stopId, label) {
       if (!label) { setStatus('Enter a short label first.', true); return; }
       setStatus('Saving…');
       try {
-        const r = await fetch(`/v1/route-destinations/${routeId}/${routeStopId}`, {
+        const r = await fetch(currentConfig().saveUrl(item, stopId), {
           method: 'PUT',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ label }),
@@ -223,33 +288,48 @@
           throw new Error(body.detail || ('HTTP ' + r.status));
         }
         setStatus('Saved.');
-        await loadRoutes(true);
+        await loadItems(true);
       } catch (e) {
         setStatus('Failed to save: ' + e.message, true);
       }
     }
 
-    async function clearDestination(routeId, routeStopId) {
+    async function clearDestination(item, stopId) {
       setStatus('Removing…');
       try {
-        const r = await fetch(`/v1/route-destinations/${routeId}/${routeStopId}`, { method: 'DELETE' });
+        const r = await fetch(currentConfig().saveUrl(item, stopId), { method: 'DELETE' });
         if (!r.ok) {
           const body = await r.json().catch(() => ({}));
           throw new Error(body.detail || ('HTTP ' + r.status));
         }
         setStatus('Removed.');
-        await loadRoutes(true);
+        await loadItems(true);
       } catch (e) {
         setStatus('Failed to remove: ' + e.message, true);
       }
     }
 
+    function switchMode(mode) {
+      if (mode === activeMode) return;
+      activeMode = mode;
+      activeItemId = null;
+      itemsData = [];
+      tabUts.classList.toggle('active', mode === 'uts');
+      tabCat.classList.toggle('active', mode === 'cat');
+      subtitleUts.style.display = mode === 'uts' ? '' : 'none';
+      subtitleCat.style.display = mode === 'cat' ? '' : 'none';
+      loadItems(false);
+    }
+
+    tabUts.addEventListener('click', () => switchMode('uts'));
+    tabCat.addEventListener('click', () => switchMode('cat'));
+
     routeSelect.addEventListener('change', () => {
-      activeRouteId = routeSelect.value;
+      activeItemId = routeSelect.value;
       renderTimeline();
     });
 
-    loadRoutes(false);
+    loadItems(false);
   })();
   </script>
 

@@ -449,28 +449,45 @@ def _resolve_feed_code(code: str) -> Dict[str, Any]:
 # RouteStopID is unique per position in a given RouteID's Stops[] sequence.
 ROUTE_DESTINATIONS_PATH = PRIMARY_DATA_DIR / "route_destinations.json"
 
-def _load_route_destinations() -> Dict[str, Dict[str, str]]:
-    """Load RouteID -> {RouteStopID: short label} destination mapping used by
-    /v1/transloc/stop_arrivals. Edited at /route-destinations."""
+def _load_route_destinations_data() -> Dict[str, Any]:
+    """Load the raw route_destinations.json dict (both the UTS "routes" mapping and the
+    CAT "cat_stops" mapping live in this one file, sharing an admin page)."""
     try:
         if ROUTE_DESTINATIONS_PATH.exists():
             data = json.loads(ROUTE_DESTINATIONS_PATH.read_text())
             if isinstance(data, dict):
-                routes = data.get("routes", {})
-                if isinstance(routes, dict):
-                    return routes
+                return data
     except (json.JSONDecodeError, OSError) as exc:
         print(f"[route-destinations] failed to load route_destinations.json: {exc}")
     return {}
 
+def _load_route_destinations() -> Dict[str, Dict[str, str]]:
+    """Load RouteID -> {RouteStopID: short label} destination mapping used by
+    /v1/transloc/stop_arrivals. Edited at /route-destinations."""
+    routes = _load_route_destinations_data().get("routes", {})
+    return routes if isinstance(routes, dict) else {}
+
 def _save_route_destinations(routes: Dict[str, Dict[str, str]]) -> None:
+    data = _load_route_destinations_data()
+    data["routes"] = routes
+    data["updated_at"] = datetime.now(timezone.utc).isoformat()
     ROUTE_DESTINATIONS_PATH.parent.mkdir(parents=True, exist_ok=True)
-    ROUTE_DESTINATIONS_PATH.write_text(
-        json.dumps({
-            "routes": routes,
-            "updated_at": datetime.now(timezone.utc).isoformat(),
-        }, indent=2)
-    )
+    ROUTE_DESTINATIONS_PATH.write_text(json.dumps(data, indent=2))
+
+def _load_cat_stop_landmarks() -> Dict[str, str]:
+    """Load CAT StopID -> short landmark label (e.g. "Hospital", "Willoughby") used by
+    _next_cat_destination_label. Edited at /route-destinations' CAT tab. Unlike UTS's
+    per-RouteID+RouteStopID keying, this is keyed by plain physical CAT StopID: a
+    landmark's name is a property of the stop itself, not of which pattern reaches it."""
+    stops = _load_route_destinations_data().get("cat_stops", {})
+    return stops if isinstance(stops, dict) else {}
+
+def _save_cat_stop_landmarks(stops: Dict[str, str]) -> None:
+    data = _load_route_destinations_data()
+    data["cat_stops"] = stops
+    data["updated_at"] = datetime.now(timezone.utc).isoformat()
+    ROUTE_DESTINATIONS_PATH.parent.mkdir(parents=True, exist_ok=True)
+    ROUTE_DESTINATIONS_PATH.write_text(json.dumps(data, indent=2))
 
 def _ordered_route_stops(route_id: Any, routes_raw: Optional[List[Dict[str, Any]]] = None) -> List[Dict[str, Any]]:
     """Return one RouteID's Stops list (from GetRoutesForMapWithScheduleWithEncodedLine,
@@ -516,6 +533,35 @@ def _next_destination_label(route_id: Any, route_stop_id: Any) -> Optional[str]:
     for step in range(1, n + 1):
         candidate = ordered[(start_idx + step) % n]
         label = labels.get(candidate["route_stop_id"])
+        if label:
+            return label
+    return None
+
+
+def _next_cat_destination_label(
+    pattern_id: Optional[str],
+    stop_id: Optional[str],
+    pattern_stop_sequences: Dict[str, List[str]],
+    landmarks: Dict[str, str],
+) -> Optional[str]:
+    """CAT equivalent of _next_destination_label. Walk forward from stop_id through
+    pattern_id's ordered stop sequence and return the label of the next stop an admin
+    has tagged as a landmark at /route-destinations, or None if none is configured
+    ahead. CAT patterns are point-to-point runs with a real terminus (unlike UTS's
+    all-loop routes), so this does not wrap around -- reaching the end of the sequence
+    with no tagged stop just means no manual override applies, and callers fall back to
+    the automatic pattern-headsign/Direction destination."""
+    if not landmarks or pattern_id is None or stop_id is None:
+        return None
+    sequence = pattern_stop_sequences.get(str(pattern_id))
+    if not sequence:
+        return None
+    stop_id_str = str(stop_id)
+    if stop_id_str not in sequence:
+        return None
+    start_idx = sequence.index(stop_id_str)
+    for candidate in sequence[start_idx + 1 :]:
+        label = landmarks.get(candidate)
         if label:
             return label
     return None
@@ -11037,6 +11083,20 @@ async def _get_cat_pattern_name_map() -> Dict[str, str]:
     return result
 
 
+async def _get_cat_pattern_stop_sequences() -> Dict[str, List[str]]:
+    """Map pattern_id -> its ordered list of stop IDs (as strings). Used both to find a
+    pattern's terminus (_get_cat_pattern_terminal_stops) and to walk forward for a
+    manually-tagged landmark stop (_next_cat_destination_label)."""
+    patterns = await _get_cat_patterns()
+    result: Dict[str, List[str]] = {}
+    for p in patterns:
+        pid = p.get("PatternID") or p.get("patternID") or p.get("id") or p.get("Id")
+        stop_ids = p.get("stopIDs") or p.get("StopIDs")
+        if pid is not None and stop_ids:
+            result[str(pid)] = [str(s) for s in stop_ids]
+    return result
+
+
 async def _get_cat_pattern_terminal_stops() -> Dict[str, str]:
     """Map pattern_id -> the stop ID it terminates at (the last entry in the pattern's
     ordered stopIDs). An arrival whose own stop IS that pattern's terminus is a bus
@@ -11044,14 +11104,8 @@ async def _get_cat_pattern_terminal_stops() -> Dict[str, str]:
     literally the last stop of pattern 17 ("5A FSQ/BRCS"), so showing "Barracks" as that
     arrival's destination while standing at Barracks is meaningless. This is purely
     ID-based (no name matching): callers compare an eta's own StopID against this map."""
-    patterns = await _get_cat_patterns()
-    result: Dict[str, str] = {}
-    for p in patterns:
-        pid = p.get("PatternID") or p.get("patternID") or p.get("id") or p.get("Id")
-        stop_ids = p.get("stopIDs") or p.get("StopIDs")
-        if pid is not None and stop_ids:
-            result[str(pid)] = str(stop_ids[-1])
-    return result
+    sequences = await _get_cat_pattern_stop_sequences()
+    return {pid: seq[-1] for pid, seq in sequences.items() if seq}
 
 
 def _pattern_id_from_schedule_number(schedule_number: Optional[str]) -> Optional[str]:
@@ -11108,10 +11162,13 @@ async def _cat_arrivals(stop_ids: List[str]) -> Tuple[List[Tuple[str, float]], O
     same (route_desc, seconds_until_arrival) shape as _transloc_arrivals. route_desc is
     "{RouteAbbreviation}-{Destination}" with no spaces around the dash (e.g. "7-Downtown"),
     where Destination resolves (via _pattern_id_from_schedule_number) to a get_patterns
-    entry's real headsign — unlike TransLoc's all-loop UTS routes (see the
+    entry's real headsign, unlike TransLoc's all-loop UTS routes (see the
     route_destinations.json comment above), which have no destination concept at all and
-    need an admin-curated mapping. Falls back to the generic Direction
-    ("Inbound"/"Outbound") if a pattern can't be resolved."""
+    need an admin-curated mapping. An admin can still override this automatic headsign
+    per physical stop at /route-destinations' CAT tab (_next_cat_destination_label) —
+    e.g. tagging a stop as "Hospital" takes priority over the raw pattern headsign for
+    any arrival whose pattern passes that stop next. Falls back to the generic Direction
+    ("Inbound"/"Outbound") if neither a manual tag nor a pattern can be resolved."""
     if not stop_ids:
         return [], None
     results = await asyncio.gather(
@@ -11120,6 +11177,8 @@ async def _cat_arrivals(stop_ids: List[str]) -> Tuple[List[Tuple[str, float]], O
     route_info = await _get_cat_route_info_map()
     pattern_names = await _get_cat_pattern_name_map()
     pattern_terminal_stops = await _get_cat_pattern_terminal_stops()
+    pattern_stop_sequences = await _get_cat_pattern_stop_sequences()
+    cat_stop_landmarks = _load_cat_stop_landmarks()
 
     stop_name: Optional[str] = None
     arrivals: List[Tuple[str, float]] = []
@@ -11148,8 +11207,13 @@ async def _cat_arrivals(stop_ids: List[str]) -> Tuple[List[Tuple[str, float]], O
                 is_terminal_here = (
                     pattern_id is not None and pattern_terminal_stops.get(pattern_id) == eta_stop_id
                 )
+                manual_destination = _next_cat_destination_label(
+                    pattern_id, eta_stop_id, pattern_stop_sequences, cat_stop_landmarks
+                )
                 direction = eta.get("Direction") or eta.get("direction")
-                if pattern_name and not is_terminal_here:
+                if manual_destination:
+                    destination = manual_destination
+                elif pattern_name and not is_terminal_here:
                     destination = _cat_pattern_headsign(
                         pattern_name, info.get("RouteAbbreviation"), _CAT_DESTINATION_EXPANSIONS_COMPACT
                     )
@@ -11184,6 +11248,8 @@ async def _cat_transloc_shaped_arrivals(cat_stop_ids: List[str]) -> List[Dict[st
     route_info = await _get_cat_route_info_map()
     pattern_names = await _get_cat_pattern_name_map()
     pattern_terminal_stops = await _get_cat_pattern_terminal_stops()
+    pattern_stop_sequences = await _get_cat_pattern_stop_sequences()
+    cat_stop_landmarks = _load_cat_stop_landmarks()
 
     groups: Dict[Tuple[str, str], Dict[str, Any]] = {}
     for result in results:
@@ -11205,12 +11271,16 @@ async def _cat_transloc_shaped_arrivals(cat_stop_ids: List[str]) -> List[Dict[st
                 is_terminal_here = (
                     pattern_id is not None and pattern_terminal_stops.get(pattern_id) == eta_stop_id
                 )
-                direction = eta.get("Direction") or eta.get("direction")
-                destination = (
-                    _cat_pattern_headsign(pattern_name, info.get("RouteAbbreviation"))
-                    if pattern_name and not is_terminal_here
-                    else (direction or "")
+                manual_destination = _next_cat_destination_label(
+                    pattern_id, eta_stop_id, pattern_stop_sequences, cat_stop_landmarks
                 )
+                direction = eta.get("Direction") or eta.get("direction")
+                if manual_destination:
+                    destination = manual_destination
+                elif pattern_name and not is_terminal_here:
+                    destination = _cat_pattern_headsign(pattern_name, info.get("RouteAbbreviation"))
+                else:
+                    destination = direction or ""
 
                 minutes = eta.get("Minutes")
                 if minutes is None:
@@ -14287,6 +14357,88 @@ async def clear_route_destination(request: Request, route_id: str, route_stop_id
         if not routes[route_id]:
             del routes[route_id]
         _save_route_destinations(routes)
+    return {"deleted": True}
+
+
+@app.get("/v1/cat-route-destinations")
+async def list_cat_route_destinations(request: Request):
+    """List every currently known CAT pattern with its ordered stop sequence and any
+    admin-configured landmark labels, for the /route-destinations editor's CAT tab.
+    Landmarks are stop-keyed (see _next_cat_destination_label), so tagging a physical
+    stop once shows that label in every pattern's timeline that happens to pass through
+    it, unlike UTS's per-RouteID+RouteStopID keying."""
+    _require_dispatcher_access(request)
+    patterns = await _get_cat_patterns()
+    route_info = await _get_cat_route_info_map()
+    stops = await _get_cat_stops()
+    stop_name_map = {
+        str(s["StopID"]): s.get("StopName") for s in stops if s.get("StopID") is not None
+    }
+    landmarks = _load_cat_stop_landmarks()
+
+    patterns_out: List[Dict[str, Any]] = []
+    for p in patterns:
+        pid = p.get("PatternID") or p.get("patternID") or p.get("id") or p.get("Id")
+        stop_ids = p.get("stopIDs") or p.get("StopIDs")
+        if pid is None or not stop_ids:
+            continue
+        route_id = p.get("RouteID") or p.get("routeID")
+        info = route_info.get(str(route_id)) or {}
+        color = info.get("Color") or "#808080"
+        if color and not str(color).startswith("#"):
+            color = f"#{color}"
+        route_abbr = info.get("RouteAbbreviation") or info.get("RouteName") or ""
+        pattern_name = p.get("name") or p.get("Name") or f"Pattern {pid}"
+        label = f"{route_abbr} — {pattern_name}" if route_abbr else pattern_name
+
+        stops_out = []
+        for sid in stop_ids:
+            sid_str = str(sid)
+            stops_out.append({
+                "stop_id": sid_str,
+                "description": stop_name_map.get(sid_str) or f"Stop {sid_str}",
+                "destination_label": landmarks.get(sid_str),
+            })
+
+        patterns_out.append({
+            "pattern_id": str(pid),
+            "route_id": str(route_id) if route_id is not None else None,
+            "name": pattern_name,
+            "label": label,
+            "color": color,
+            "stops": stops_out,
+        })
+
+    patterns_out.sort(key=lambda p: (p["label"], p["pattern_id"]))
+    return {"patterns": patterns_out}
+
+
+@app.put("/v1/cat-route-destinations/{stop_id}")
+async def set_cat_route_destination(request: Request, stop_id: str):
+    """Tag one CAT stop as a rider-facing destination landmark (e.g. "Hospital",
+    "Willoughby"). Body: {label}. Unlike UTS (keyed per RouteID+RouteStopID), this is
+    keyed by plain CAT StopID since the landmark is a property of the physical stop, not
+    of which pattern happens to pass through it."""
+    _require_dispatcher_access(request)
+    body = await request.json()
+    label = str(body.get("label", "")).strip()
+    if not label:
+        raise HTTPException(status_code=400, detail="label is required")
+    if len(label) > 40:
+        raise HTTPException(status_code=400, detail="label must be 40 characters or fewer")
+    stops = _load_cat_stop_landmarks()
+    stops[stop_id] = label
+    _save_cat_stop_landmarks(stops)
+    return {"stop_id": stop_id, "label": label}
+
+
+@app.delete("/v1/cat-route-destinations/{stop_id}")
+async def clear_cat_route_destination(request: Request, stop_id: str):
+    _require_dispatcher_access(request)
+    stops = _load_cat_stop_landmarks()
+    if stop_id in stops:
+        del stops[stop_id]
+        _save_cat_stop_landmarks(stops)
     return {"deleted": True}
 
 
