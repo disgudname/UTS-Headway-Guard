@@ -25,7 +25,6 @@
   var PILL_HEIGHT = 13;
   var PILL_FONT_CAP_HEIGHT = 11;
   var BLINK_PERIOD_MS = 500;
-  var TICK_MS = 200;
 
   // Real MTA countdown clocks show one pinned next-arrival plus a rotating set of the
   // next 5 after it (6 total) -- see "Tailoring information design for NYC Subway
@@ -47,6 +46,14 @@
   var ALERT_COLOR = [255, 140, 0];
   var ALERT_SCROLL_SPEED_PX_S = 30;
   var ALERT_TOKEN_GAP = 4; // px between scrolling tokens (both plain words and pills)
+
+  // The alert used to take over the second row for as long as it stayed active --
+  // which, for a notice active for hours, meant the second row never showed any other
+  // upcoming arrival that whole time. Instead it now appears once per
+  // ALERT_INTERVAL_MS, for exactly as long as one full scroll pass takes (see
+  // alertPhase), then steps aside so the normal arrival rotation gets the rest of the
+  // minute.
+  var ALERT_INTERVAL_MS = 60000;
 
   // Route colors as of 2026-07-18, pulled from live TransLoc route data and hardcoded
   // here rather than derived from the current arrivals list: UTS route colors rarely
@@ -427,7 +434,32 @@
   // scrolling alert text. Route names written in ALL CAPS within the text (see
   // tokenizeAlert/KNOWN_ROUTE_COLORS) render as the same colored pills used on arrival
   // rows instead of plain text, mirroring the real signs' colored line bullets.
-  function drawScrollingAlert(canvas, font, rowTop, text, nowMs) {
+  function alertCycleWidthMs(canvasWidth, segments, widths) {
+    var stripWidth = widths.reduce(function (a, b) { return a + b; }, 0) + ALERT_TOKEN_GAP * segments.length;
+    // Adding canvasWidth to the cycle gives a breather of blank space before the text
+    // repeats, rather than the strip immediately chasing its own tail.
+    var cycleWidthPx = stripWidth + canvasWidth;
+    return (cycleWidthPx / ALERT_SCROLL_SPEED_PX_S) * 1000;
+  }
+
+  // Returns the elapsed ms into the current alert display if the alert should be
+  // showing right now, else null. The alert appears once every ALERT_INTERVAL_MS, for
+  // exactly as long as one full scroll pass of the text takes -- long enough to read the
+  // whole message once, then it steps aside so the second row goes back to cycling
+  // through other upcoming arrivals rather than staying pinned to the alert (and hiding
+  // all other arrival data) for as long as the notice is active.
+  function alertPhase(canvasWidth, font, alertText, nowMs) {
+    if (!alertText) return null;
+    var segments = tokenizeAlert(alertText);
+    if (!segments.length) return null;
+    var widths = segments.map(function (seg) { return segmentWidth(font, seg); });
+    var displayDurationMs = alertCycleWidthMs(canvasWidth, segments, widths);
+
+    var phase = nowMs % ALERT_INTERVAL_MS;
+    return phase < displayDurationMs ? phase : null;
+  }
+
+  function drawScrollingAlert(canvas, font, rowTop, text, elapsedMs) {
     var segments = tokenizeAlert(text);
     if (!segments.length) return;
 
@@ -436,13 +468,11 @@
     var pillY = rowTop + topPad;
 
     var widths = segments.map(function (seg) { return segmentWidth(font, seg); });
-    var stripWidth = widths.reduce(function (a, b) { return a + b; }, 0) + ALERT_TOKEN_GAP * segments.length;
 
-    // Scrolls from just off the right edge to fully off the left edge, then loops.
-    // Adding canvas.width to the cycle gives a breather of blank space before the text
-    // repeats, rather than the strip immediately chasing its own tail.
-    var cycleWidth = stripWidth + canvas.width;
-    var offset = Math.floor((nowMs / 1000 * ALERT_SCROLL_SPEED_PX_S) % cycleWidth);
+    // elapsedMs is already bounded to one cycle by alertPhase, so this scrolls from
+    // just off the right edge to fully off the left edge exactly once per display, no
+    // wraparound needed here.
+    var offset = Math.floor((elapsedMs / 1000) * ALERT_SCROLL_SPEED_PX_S);
     var x = canvas.width - offset;
 
     for (var i = 0; i < segments.length; i += 1) {
@@ -472,8 +502,9 @@
 
     drawRow(canvas, font, 0, 1, arrivals[0], blinkOn);
 
-    if (alertText) {
-      drawScrollingAlert(canvas, font, ROW_HEIGHT, alertText, nowMs);
+    var phase = alertPhase(canvas.width, font, alertText, nowMs);
+    if (phase !== null) {
+      drawScrollingAlert(canvas, font, ROW_HEIGHT, alertText, phase);
       return;
     }
 
@@ -533,22 +564,39 @@
     this.el.height = Math.round(cssH * dpr);
     this.ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
   };
+  // Batches every lit "LED" sharing the exact same color into one Path2D and fills it
+  // with a single fill() call, instead of one beginPath()/arc()/fill() sequence per
+  // pixel. With 256x32 = 8192 LEDs, calling fill() per-pixel every frame was the
+  // dominant cost and made horizontal scrolling look choppy/laggy -- there are only ever
+  // a handful of distinct colors on screen at once (TEXT_COLOR, URGENT_COLOR,
+  // ALERT_COLOR, UNLIT_COLOR, and a few route pill colors), so grouping by color
+  // collapses thousands of fill() calls down to a handful.
   LedRenderer.prototype.draw = function () {
     var ctx = this.ctx;
     var scale = this.scale;
     var radius = Math.max(1, scale / 2 - 1);
     ctx.fillStyle = "#000000";
     ctx.fillRect(0, 0, this.vc.width * scale, this.vc.height * scale);
+
+    var paths = {};
     for (var y = 0; y < this.vc.height; y += 1) {
       for (var x = 0; x < this.vc.width; x += 1) {
         var rgb = this.vc.getPixel(x, y);
         var isOff = rgb[0] === 0 && rgb[1] === 0 && rgb[2] === 0;
         var color = isOff ? UNLIT_COLOR : rgb;
-        ctx.beginPath();
-        ctx.fillStyle = "rgb(" + color[0] + "," + color[1] + "," + color[2] + ")";
-        ctx.arc(x * scale + scale / 2, y * scale + scale / 2, radius, 0, Math.PI * 2);
-        ctx.fill();
+        var key = color[0] + "," + color[1] + "," + color[2];
+        var path = paths[key];
+        if (!path) {
+          path = new Path2D();
+          paths[key] = path;
+        }
+        path.moveTo(x * scale + scale / 2 + radius, y * scale + scale / 2);
+        path.arc(x * scale + scale / 2, y * scale + scale / 2, radius, 0, Math.PI * 2);
       }
+    }
+    for (var key in paths) {
+      ctx.fillStyle = "rgb(" + key + ")";
+      ctx.fill(paths[key]);
     }
   };
 
@@ -673,6 +721,13 @@
 
       renderPage(vc, state.font, state.arrivals, state.page, now, state.alert);
       renderer.draw();
+
+      // requestAnimationFrame instead of a fixed setInterval -- polling/page-rotation
+      // timing above is still governed by pollIntervalMs/pageDurationMs regardless of
+      // frame rate, but the scrolling alert line needs to redraw as often as the
+      // display can manage to look smooth, and rAF syncs to the browser's actual
+      // refresh rate instead of an arbitrary fixed interval.
+      requestAnimationFrame(tick);
     }
 
     fetch("/fonts/mta-sign.bdf")
@@ -681,7 +736,6 @@
         state.font = parseBdf(text);
         refetch(Date.now());
         tick();
-        setInterval(tick, TICK_MS);
       })
       .catch(function (err) {
         console.error("[countdown] failed to load font", err);
