@@ -61,6 +61,12 @@
     .dest-editor.open { display: flex; gap: 0.4rem; flex-wrap: wrap; align-items: center; }
     .dest-editor input[type="text"] { font-size: 0.9rem; padding: 4px 8px; width: 200px; max-width: 60vw; }
 
+    .terminus-block {
+      margin-top: 0.6rem; padding: 0.6rem 0.75rem; border-radius: 6px;
+      background: #f5f0ff; border: 1px dashed #7c5cbf;
+    }
+    .terminus-header { font-size: 0.8rem; color: #5a3d99; margin-bottom: 0.35rem; font-weight: bold; }
+
     .back-link { display: inline-block; margin-top: 1.5rem; color: #0b63ce; }
   </style>
 </head>
@@ -88,7 +94,11 @@
     tied to the physical stop, not the pattern, so a label you set here shows up in every
     other pattern that happens to pass through the same stop. Patterns are point-to-point
     (not loops like UTS), so the label only applies to stops <em>after</em> the tagged one —
-    it doesn't wrap around.
+    it doesn't wrap around. The very last stop of a pattern's timeline is a special case:
+    a bus ending its run there has no "next stop" to point to, so it gets its own separate
+    terminus label instead (shown at the bottom of that pattern's timeline) — keyed to the
+    pattern rather than the stop, since the same physical terminus can send different
+    patterns off in different directions afterward.
   </p>
 
   <select id="route-select"></select>
@@ -226,6 +236,54 @@
           }
         };
 
+        // A pattern's terminus is just whichever stop is last in its own timeline, so
+        // this only ever shows up once, on that last row -- no separate list needed.
+        // It's a distinct per-pattern tag (see /v1/cat-pattern-terminus), not the
+        // per-stop landmark above: the same physical terminus stop can send different
+        // patterns' vehicles off in different directions afterward.
+        if (activeMode === 'cat' && stop === item.stops[item.stops.length - 1]) {
+          const terminusBlock = document.createElement('div');
+          terminusBlock.className = 'terminus-block';
+
+          const header = document.createElement('div');
+          header.className = 'terminus-header';
+          header.textContent = 'This pattern ends here — when a bus terminates at this stop:';
+          terminusBlock.appendChild(header);
+
+          if (item.terminus_label) {
+            const labelEl = document.createElement('span');
+            labelEl.className = 'stop-dest-label';
+            labelEl.textContent = item.terminus_label;
+            terminusBlock.appendChild(labelEl);
+          }
+
+          const tEditor = document.createElement('div');
+          tEditor.className = 'dest-editor open';
+          const tInput = document.createElement('input');
+          tInput.type = 'text';
+          tInput.maxLength = 40;
+          tInput.placeholder = 'e.g. Fashion Square';
+          tInput.value = item.terminus_label || '';
+          const tSaveBtn = document.createElement('button');
+          tSaveBtn.className = 'primary';
+          tSaveBtn.textContent = 'Save';
+          tSaveBtn.onclick = () => saveTerminus(item, tInput.value.trim());
+          tInput.addEventListener('keydown', (e) => {
+            if (e.key === 'Enter') tSaveBtn.click();
+          });
+          tEditor.appendChild(tInput);
+          tEditor.appendChild(tSaveBtn);
+          if (item.terminus_label) {
+            const tRemoveBtn = document.createElement('button');
+            tRemoveBtn.className = 'danger';
+            tRemoveBtn.textContent = 'Remove';
+            tRemoveBtn.onclick = () => clearTerminus(item);
+            tEditor.appendChild(tRemoveBtn);
+          }
+          terminusBlock.appendChild(tEditor);
+          info.appendChild(terminusBlock);
+        }
+
         row.appendChild(info);
         timelineEl.appendChild(row);
       });
@@ -298,6 +356,41 @@
       setStatus('Removing…');
       try {
         const r = await fetch(currentConfig().saveUrl(item, stopId), { method: 'DELETE' });
+        if (!r.ok) {
+          const body = await r.json().catch(() => ({}));
+          throw new Error(body.detail || ('HTTP ' + r.status));
+        }
+        setStatus('Removed.');
+        await loadItems(true);
+      } catch (e) {
+        setStatus('Failed to remove: ' + e.message, true);
+      }
+    }
+
+    async function saveTerminus(item, label) {
+      if (!label) { setStatus('Enter a short label first.', true); return; }
+      setStatus('Saving…');
+      try {
+        const r = await fetch(`/v1/cat-pattern-terminus/${item.pattern_id}`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ label }),
+        });
+        if (!r.ok) {
+          const body = await r.json().catch(() => ({}));
+          throw new Error(body.detail || ('HTTP ' + r.status));
+        }
+        setStatus('Saved.');
+        await loadItems(true);
+      } catch (e) {
+        setStatus('Failed to save: ' + e.message, true);
+      }
+    }
+
+    async function clearTerminus(item) {
+      setStatus('Removing…');
+      try {
+        const r = await fetch(`/v1/cat-pattern-terminus/${item.pattern_id}`, { method: 'DELETE' });
         if (!r.ok) {
           const body = await r.json().catch(() => ({}));
           throw new Error(body.detail || ('HTTP ' + r.status));

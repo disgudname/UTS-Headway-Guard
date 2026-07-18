@@ -489,6 +489,24 @@ def _save_cat_stop_landmarks(stops: Dict[str, str]) -> None:
     ROUTE_DESTINATIONS_PATH.parent.mkdir(parents=True, exist_ok=True)
     ROUTE_DESTINATIONS_PATH.write_text(json.dumps(data, indent=2))
 
+def _load_cat_pattern_termini() -> Dict[str, str]:
+    """Load CAT PatternID -> short label to show when an arrival's own stop is that
+    pattern's terminus (e.g. pattern 17, "5A FSQ/BRCS", ends at the same physical stop
+    -- 13265, "BRSC at Arlington Southbound" -- that pattern 34 ("7C BRSC") also ends at,
+    but the two patterns' vehicles head off in different directions afterward, so this
+    can't be keyed by stop like _load_cat_stop_landmarks: it's a property of the specific
+    pattern's terminus, not of the physical stop). Edited at /route-destinations' CAT tab,
+    on the last row of a pattern's timeline."""
+    termini = _load_route_destinations_data().get("cat_pattern_termini", {})
+    return termini if isinstance(termini, dict) else {}
+
+def _save_cat_pattern_termini(termini: Dict[str, str]) -> None:
+    data = _load_route_destinations_data()
+    data["cat_pattern_termini"] = termini
+    data["updated_at"] = datetime.now(timezone.utc).isoformat()
+    ROUTE_DESTINATIONS_PATH.parent.mkdir(parents=True, exist_ok=True)
+    ROUTE_DESTINATIONS_PATH.write_text(json.dumps(data, indent=2))
+
 def _ordered_route_stops(route_id: Any, routes_raw: Optional[List[Dict[str, Any]]] = None) -> List[Dict[str, Any]]:
     """Return one RouteID's Stops list (from GetRoutesForMapWithScheduleWithEncodedLine,
     cached as state.routes_raw) sorted by its real travel order, normalized to
@@ -11167,8 +11185,13 @@ async def _cat_arrivals(stop_ids: List[str]) -> Tuple[List[Tuple[str, float]], O
     need an admin-curated mapping. An admin can still override this automatic headsign
     per physical stop at /route-destinations' CAT tab (_next_cat_destination_label) —
     e.g. tagging a stop as "Hospital" takes priority over the raw pattern headsign for
-    any arrival whose pattern passes that stop next. Falls back to the generic Direction
-    ("Inbound"/"Outbound") if neither a manual tag nor a pattern can be resolved."""
+    any arrival whose pattern passes that stop next. An arrival whose own stop is its
+    pattern's terminus gets neither of those (there's nothing "next" past the end of the
+    line) — an admin can tag that specific pattern's terminus instead
+    (_load_cat_pattern_termini), since the same physical terminus stop can send different
+    patterns off in different directions afterward (e.g. one pattern continues toward
+    Fashion Square, another toward UVA Health, from the very same stop). Falls back to
+    the generic Direction ("Inbound"/"Outbound") if nothing else resolves."""
     if not stop_ids:
         return [], None
     results = await asyncio.gather(
@@ -11179,6 +11202,7 @@ async def _cat_arrivals(stop_ids: List[str]) -> Tuple[List[Tuple[str, float]], O
     pattern_terminal_stops = await _get_cat_pattern_terminal_stops()
     pattern_stop_sequences = await _get_cat_pattern_stop_sequences()
     cat_stop_landmarks = _load_cat_stop_landmarks()
+    cat_pattern_termini = _load_cat_pattern_termini()
 
     stop_name: Optional[str] = None
     arrivals: List[Tuple[str, float]] = []
@@ -11207,12 +11231,21 @@ async def _cat_arrivals(stop_ids: List[str]) -> Tuple[List[Tuple[str, float]], O
                 is_terminal_here = (
                     pattern_id is not None and pattern_terminal_stops.get(pattern_id) == eta_stop_id
                 )
+                # A pattern's terminus is a single fixed stop, but the same physical stop
+                # can be the terminus of several patterns whose vehicles then head off in
+                # different directions (see _load_cat_pattern_termini) -- so this is keyed
+                # by pattern, not stop, unlike the forward-landmark walk below.
+                terminus_label = (
+                    cat_pattern_termini.get(pattern_id) if is_terminal_here and pattern_id else None
+                )
                 manual_destination = _next_cat_destination_label(
                     pattern_id, eta_stop_id, pattern_stop_sequences, cat_stop_landmarks
                 )
                 direction = eta.get("Direction") or eta.get("direction")
                 if manual_destination:
                     destination = manual_destination
+                elif terminus_label:
+                    destination = terminus_label
                 elif pattern_name and not is_terminal_here:
                     destination = _cat_pattern_headsign(
                         pattern_name, info.get("RouteAbbreviation"), _CAT_DESTINATION_EXPANSIONS_COMPACT
@@ -11250,6 +11283,7 @@ async def _cat_transloc_shaped_arrivals(cat_stop_ids: List[str]) -> List[Dict[st
     pattern_terminal_stops = await _get_cat_pattern_terminal_stops()
     pattern_stop_sequences = await _get_cat_pattern_stop_sequences()
     cat_stop_landmarks = _load_cat_stop_landmarks()
+    cat_pattern_termini = _load_cat_pattern_termini()
 
     groups: Dict[Tuple[str, str], Dict[str, Any]] = {}
     for result in results:
@@ -11271,12 +11305,20 @@ async def _cat_transloc_shaped_arrivals(cat_stop_ids: List[str]) -> List[Dict[st
                 is_terminal_here = (
                     pattern_id is not None and pattern_terminal_stops.get(pattern_id) == eta_stop_id
                 )
+                # See the matching comment in _cat_arrivals: keyed by pattern, not stop,
+                # since the same physical terminus stop can send different patterns'
+                # vehicles off in different directions afterward.
+                terminus_label = (
+                    cat_pattern_termini.get(pattern_id) if is_terminal_here and pattern_id else None
+                )
                 manual_destination = _next_cat_destination_label(
                     pattern_id, eta_stop_id, pattern_stop_sequences, cat_stop_landmarks
                 )
                 direction = eta.get("Direction") or eta.get("direction")
                 if manual_destination:
                     destination = manual_destination
+                elif terminus_label:
+                    destination = terminus_label
                 elif pattern_name and not is_terminal_here:
                     destination = _cat_pattern_headsign(pattern_name, info.get("RouteAbbreviation"))
                 else:
@@ -14366,7 +14408,9 @@ async def list_cat_route_destinations(request: Request):
     admin-configured landmark labels, for the /route-destinations editor's CAT tab.
     Landmarks are stop-keyed (see _next_cat_destination_label), so tagging a physical
     stop once shows that label in every pattern's timeline that happens to pass through
-    it, unlike UTS's per-RouteID+RouteStopID keying."""
+    it, unlike UTS's per-RouteID+RouteStopID keying. Each pattern's last stop also
+    carries a separate pattern-keyed terminus_label (see _load_cat_pattern_termini),
+    used only when an arrival's own stop is that specific pattern's terminus."""
     _require_dispatcher_access(request)
     patterns = await _get_cat_patterns()
     route_info = await _get_cat_route_info_map()
@@ -14375,6 +14419,7 @@ async def list_cat_route_destinations(request: Request):
         str(s["StopID"]): s.get("StopName") for s in stops if s.get("StopID") is not None
     }
     landmarks = _load_cat_stop_landmarks()
+    termini = _load_cat_pattern_termini()
 
     patterns_out: List[Dict[str, Any]] = []
     for p in patterns:
@@ -14382,6 +14427,7 @@ async def list_cat_route_destinations(request: Request):
         stop_ids = p.get("stopIDs") or p.get("StopIDs")
         if pid is None or not stop_ids:
             continue
+        pid_str = str(pid)
         route_id = p.get("RouteID") or p.get("routeID")
         info = route_info.get(str(route_id)) or {}
         color = info.get("Color") or "#808080"
@@ -14401,11 +14447,12 @@ async def list_cat_route_destinations(request: Request):
             })
 
         patterns_out.append({
-            "pattern_id": str(pid),
+            "pattern_id": pid_str,
             "route_id": str(route_id) if route_id is not None else None,
             "name": pattern_name,
             "label": label,
             "color": color,
+            "terminus_label": termini.get(pid_str),
             "stops": stops_out,
         })
 
@@ -14439,6 +14486,35 @@ async def clear_cat_route_destination(request: Request, stop_id: str):
     if stop_id in stops:
         del stops[stop_id]
         _save_cat_stop_landmarks(stops)
+    return {"deleted": True}
+
+
+@app.put("/v1/cat-pattern-terminus/{pattern_id}")
+async def set_cat_pattern_terminus(request: Request, pattern_id: str):
+    """Tag what to show when an arrival's own stop is this specific pattern's terminus
+    (e.g. "Fashion Square"). Body: {label}. Keyed by PatternID rather than StopID (see
+    _load_cat_pattern_termini) since the same physical terminus stop can send different
+    patterns' vehicles off in different directions afterward."""
+    _require_dispatcher_access(request)
+    body = await request.json()
+    label = str(body.get("label", "")).strip()
+    if not label:
+        raise HTTPException(status_code=400, detail="label is required")
+    if len(label) > 40:
+        raise HTTPException(status_code=400, detail="label must be 40 characters or fewer")
+    termini = _load_cat_pattern_termini()
+    termini[pattern_id] = label
+    _save_cat_pattern_termini(termini)
+    return {"pattern_id": pattern_id, "label": label}
+
+
+@app.delete("/v1/cat-pattern-terminus/{pattern_id}")
+async def clear_cat_pattern_terminus(request: Request, pattern_id: str):
+    _require_dispatcher_access(request)
+    termini = _load_cat_pattern_termini()
+    if pattern_id in termini:
+        del termini[pattern_id]
+        _save_cat_pattern_termini(termini)
     return {"deleted": True}
 
 
