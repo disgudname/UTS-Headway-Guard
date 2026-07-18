@@ -492,9 +492,19 @@
   function renderPage(canvas, font, arrivals, pageIndex, nowMs, alertText) {
     canvas.clear();
 
+    // Computed once up front (rather than inside each branch below) so a service alert
+    // still gets a chance to show on row 2 even with zero arrivals -- an alert (e.g.
+    // "route detoured, no service today") is often most useful exactly when there's
+    // nothing else to show, so it shouldn't be skipped just because the early "no
+    // arrivals" return happens before row 2 would otherwise be considered.
+    var phase = alertPhase(canvas.width, font, alertText, nowMs);
+
     if (!arrivals.length) {
-      var baseline = ROW_HEIGHT + ROW_FONT_CAP_HEIGHT;
-      drawText(canvas, font, 2, baseline, TEXT_COLOR, "No arrivals");
+      var baseline = rowTopPad() + ROW_FONT_CAP_HEIGHT;
+      drawText(canvas, font, 2, baseline, TEXT_COLOR, "No ETAs to display.");
+      if (phase !== null) {
+        drawScrollingAlert(canvas, font, ROW_HEIGHT, alertText, phase);
+      }
       return;
     }
 
@@ -502,7 +512,6 @@
 
     drawRow(canvas, font, 0, 1, arrivals[0], blinkOn);
 
-    var phase = alertPhase(canvas.width, font, alertText, nowMs);
     if (phase !== null) {
       drawScrollingAlert(canvas, font, ROW_HEIGHT, alertText, phase);
       return;
