@@ -387,6 +387,7 @@ Admin-managed alerts (`/v1/system-notices` CRUD). `target_scope` is `"all"` (sys
 - `GET /api/amtrak` - Train positions
 - `GET /api/rss/stop_arrivals/{code}` / `GET /api/cap/stop_arrivals/{code}` - RSS 2.0 / CAP 1.2 arrival feeds for signage, keyed by a feed code managed at `/feed-codes`
 - `GET /api/rss/stop_arrivals?stopID=` / `GET /api/cap/stop_arrivals?stopID=` - same feeds, legacy raw-stop-ID form
+- `GET /v1/transloc/stop_arrivals/{code}` - raw TransLoc-shaped JSON arrivals (same shape as `/v1/transloc/stop_arrivals`), keyed by a feed code instead of raw stop IDs; used by `/countdown` and the standalone Countdown Clock Pi driver so a code repoint at `/feed-codes` takes effect without redeploying the client
 - `GET /v1/feed-codes` - list the code → stop ID mapping (public; `/feeds` shows this list); `POST /v1/feed-codes`, `DELETE /v1/feed-codes/{code}` - create/edit/delete a code (dispatcher auth required)
 - `GET /v1/system-notices` - active system notices (add `all=true` + dispatcher auth for every notice, including inactive/staff-only); `POST /v1/system-notices`, `PUT /v1/system-notices/{id}`, `DELETE /v1/system-notices/{id}` - manage notices, including `short_message` and `target_scope`/`target_stop_ids` (dispatcher auth required)
 
@@ -658,11 +659,16 @@ where it's appended to a route abbreviation with no space — see
 A browser-rendered, NYC-subway-style LED countdown sign (`html/countdown.html` +
 `scripts/countdown.js`), drawing onto a virtual 256×32 LED grid using the BDF font at
 `fonts/mta-sign.bdf`. Configured via query string: `?code=` (a `/feed-codes` code,
-preferred — resolves via `/v1/feed-codes` client-side, and can mix TransLoc + CAT stop
-IDs, see above) or `?stopIDs=` (raw, comma-separated, legacy/TransLoc-only), plus
-`?poll=` (fetch interval, default 15000ms) and `?page=` (bottom-row rotation duration,
-default 4000ms). Arrivals are fetched from `/v1/transloc/stop_arrivals`, which — despite
-the URL — also serves CAT arrivals for any CAT-shaped IDs in the request (see above).
+preferred — resolved server-side on every poll via `/v1/transloc/stop_arrivals/{code}`,
+and can mix TransLoc + CAT stop IDs, see above) or `?stopIDs=` (raw, comma-separated,
+legacy/TransLoc-only, fetched from `/v1/transloc/stop_arrivals?stopIDs=`), plus `?poll=`
+(fetch interval, default 15000ms) and `?page=` (bottom-row rotation duration, default
+4000ms). Either endpoint — despite the URL — also serves CAT arrivals for any CAT-shaped
+IDs resolved into the request (see above). Resolving by code server-side on every poll
+(rather than resolving `?code=` to stop IDs once client-side, as earlier versions did)
+means a code repointed at `/feed-codes` takes effect on this sign's very next poll, no
+page reload needed — the same endpoint also backs the standalone Countdown Clock Pi
+driver, keeping that driver's own client-side logic minimal.
 
 **ETA cap:** real MTA platform countdown clocks show one pinned next-arrival plus rotate
 the second line through the next 5 after it (6 total) — see ["Tailoring information

@@ -10936,6 +10936,22 @@ async def transloc_stop_arrivals(
     return data
 
 
+@app.get("/v1/transloc/stop_arrivals/{code}")
+async def transloc_stop_arrivals_by_code(
+    code: str,
+    base_url: Optional[str] = Query(None),
+):
+    """Same raw arrivals shape as /v1/transloc/stop_arrivals, keyed by a stable feed
+    code (see /feed-codes) instead of raw stop IDs. Lets a JSON-consuming client (e.g.
+    /countdown, or the Countdown Clock Pi driver) repoint at a renumbered/merged stop
+    by editing /feed-codes instead of redeploying.
+
+    Example: /v1/transloc/stop_arrivals/NGPG
+    """
+    entry = _resolve_feed_code(code)
+    return await transloc_stop_arrivals(stopIDs=",".join(entry["stop_ids"]), base_url=base_url)
+
+
 def _simplify_route_name(route_desc: str) -> str:
     """Collapse any "Orientation - Day N AM/PM — To ..." route name down to just
     "Orientation" for signage feeds. The full names (e.g. "Orientation - Day 1 AM — To

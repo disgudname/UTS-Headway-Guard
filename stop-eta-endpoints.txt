@@ -25,6 +25,20 @@ Contains arrival predictions with route info, vehicle info, and ETAs.
 Cache TTL: 15 seconds (TRANSLOC_ARRIVALS_TTL_S)
 
 
+GET /v1/transloc/stop_arrivals/{code}
+--------------------------------------
+Same response shape as /v1/transloc/stop_arrivals, keyed by a stable feed
+code (e.g. NGPG, managed at /feed-codes) instead of raw stop IDs. Resolves
+the code to its current stop_ids server-side on every request, so JSON
+clients (e.g. /countdown, the Countdown Clock Pi driver) can repoint at a
+renumbered/merged stop by editing /feed-codes instead of reconfiguring or
+redeploying the client. Prefer this over the raw stopIDs= form for any new
+JSON-consuming client.
+
+Example:
+  /v1/transloc/stop_arrivals/NGPG
+
+
 GET /v1/transloc/vehicle_route_stop_estimates
 ---------------------------------------------
 Returns ETA estimates for specific vehicles to upcoming stops.

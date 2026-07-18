@@ -417,43 +417,32 @@
   // Data fetching
   // ---------------------------------------------------------------------
 
-  function resolveStopIds(onDone) {
+  // Resolves straight to a URL rather than pre-fetching stop IDs client-side: the
+  // code-keyed endpoint (/v1/transloc/stop_arrivals/{code}) resolves the code to its
+  // current stop_ids server-side on every poll, so a code repointed at /feed-codes
+  // takes effect immediately without reloading this page, and there's no separate
+  // /v1/feed-codes round trip to do it.
+  function resolveArrivalsUrl() {
     var code = qp("code", null);
     var stopIDsParam = qp("stopIDs", null) || qp("stopIds", null);
 
     if (stopIDsParam) {
-      onDone(stopIDsParam.split(",").map(function (s) { return s.trim(); }).filter(Boolean));
-      return;
+      return "/v1/transloc/stop_arrivals?stopIDs=" + encodeURIComponent(stopIDsParam);
     }
     if (code) {
-      fetch("/v1/feed-codes")
-        .then(function (r) { return r.json(); })
-        .then(function (data) {
-          var entry = (data.codes || {})[code.toUpperCase()];
-          if (!entry) {
-            console.error("[countdown] unknown feed code:", code);
-            onDone([]);
-            return;
-          }
-          var ids = entry.stop_ids || (entry.stop_id ? [entry.stop_id] : []);
-          onDone(ids);
-        })
-        .catch(function (err) {
-          console.error("[countdown] failed to resolve feed code", err);
-          onDone([]);
-        });
-      return;
+      return "/v1/transloc/stop_arrivals/" + encodeURIComponent(code.trim());
     }
-    console.error("[countdown] no ?code= or ?stopIDs= given");
-    onDone([]);
+    return null;
   }
 
-  function fetchArrivals(stopIds, onDone, onError) {
-    if (!stopIds.length) {
+  function fetchArrivals(onDone, onError) {
+    var url = resolveArrivalsUrl();
+    if (!url) {
+      console.error("[countdown] no ?code= or ?stopIDs= given");
       onDone([]);
       return;
     }
-    fetch("/v1/transloc/stop_arrivals?stopIDs=" + encodeURIComponent(stopIds.join(",")))
+    fetch(url)
       .then(function (r) {
         if (!r.ok) throw new Error("HTTP " + r.status);
         return r.json();
@@ -477,7 +466,6 @@
     var renderer = new LedRenderer(canvasEl, vc);
 
     var state = {
-      stopIds: [],
       arrivals: [],
       page: 0,
       lastFetch: -Infinity,
@@ -488,7 +476,6 @@
     function refetch(now) {
       state.lastFetch = now;
       fetchArrivals(
-        state.stopIds,
         function (arrivals) {
           state.arrivals = arrivals;
         },
@@ -523,12 +510,9 @@
       .then(function (r) { return r.text(); })
       .then(function (text) {
         state.font = parseBdf(text);
-        resolveStopIds(function (stopIds) {
-          state.stopIds = stopIds;
-          refetch(Date.now());
-          tick();
-          setInterval(tick, TICK_MS);
-        });
+        refetch(Date.now());
+        tick();
+        setInterval(tick, TICK_MS);
       })
       .catch(function (err) {
         console.error("[countdown] failed to load font", err);
