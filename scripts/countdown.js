@@ -341,15 +341,17 @@
   // Pill width floor so every CAT route pill (RouteAbbreviation is at most 2 characters
   // -- confirmed against live /v1/testmap/cat/routes: single digits 2-9, "10", "11", and
   // "T") renders at one consistent size instead of varying with how many digits the
-  // label happens to have. Computed from a 2-digit label rather than a hardcoded pixel
-  // count, so it stays correct if the font ever changes -- digits are uniform width in
-  // mta-sign.bdf (6px ink each), so any pair measures the same, and a 2-digit pair
-  // (13px) is wider than "T" alone (8px), so it's the correct max. Has no effect on UTS
-  // route pills (GOLD, NIGHT PILOT, ...), which are always longer than 2 characters and
-  // so already exceed this floor.
+  // label happens to have. Computed from "10" -- the actual widest real CAT label --
+  // rather than a hardcoded pixel count, so it stays correct if the font ever changes.
+  // Not computed from a generic same-width digit pair like "00": every real 2-digit CAT
+  // abbreviation ("10", "11") includes digit 1, which was redesigned narrower than the
+  // other digits (see mta-sign.bdf), so "10" is genuinely narrower than a same-digit
+  // pair would be -- using "00" here would floor pills wider than any label that will
+  // actually appear. Has no effect on UTS route pills (GOLD, NIGHT PILOT, ...), which
+  // are always longer than 2 characters and so already exceed this floor.
   function catPillMinWidth(font) {
     if (catPillMinWidthCache === null) {
-      catPillMinWidthCache = naturalPillWidth(font, "00");
+      catPillMinWidthCache = naturalPillWidth(font, "10");
     }
     return catPillMinWidthCache;
   }
@@ -382,6 +384,16 @@
     return pillW;
   }
 
+  // Fixed column width for the rank-number digit before the ".", sized to a normal
+  // digit's advance width. Digits 0/2-9 all share this width, but "1" was redesigned
+  // narrower (see mta-sign.bdf) -- without a fixed column, "1." would advance less than
+  // "2."/"3."/etc. and throw the pill/destination/ETA that follows out of horizontal
+  // alignment between the pinned top row and whichever rank is showing on the rotating
+  // second row. Measured from "2" (not "1") so it stays the normal width regardless.
+  function rankDigitColumnWidth(font) {
+    return textWidth(font, "2");
+  }
+
   function drawRow(canvas, font, rowTop, rank, arrival, blinkOn) {
     var urgent = isUrgent(arrival);
     var topPad = rowTopPad();
@@ -393,9 +405,10 @@
     var pillY = rowTop + topPad;
 
     var x = 2;
-    var label = rank + ".";
     var labelColor = urgent ? URGENT_COLOR : TEXT_COLOR;
-    x += drawText(canvas, font, x, baseline, labelColor, label);
+    drawText(canvas, font, x, baseline, labelColor, String(rank));
+    x += rankDigitColumnWidth(font);
+    x += drawText(canvas, font, x, baseline, labelColor, ".");
     x += 3;
 
     var routeLabel = shortRouteLabel(arrival.routeName).toUpperCase();
