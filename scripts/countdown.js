@@ -284,13 +284,16 @@
 
   function drawRow(canvas, font, rowTop, rank, arrival, blinkOn) {
     var urgent = isUrgent(arrival);
-    // Shifted 1px above a naive vertical center: the deepest descenders (g/p/q/j
+    // Shifted 2px above a naive vertical center: the deepest descenders (g/p/q/j
     // drop 3px below baseline) would otherwise land exactly 1px past the bottom
     // edge of the canvas on the second row (rowTop + ROW_HEIGHT == canvas height
     // there, leaving zero margin) and get silently clipped by setPixel's bounds
-    // check. This shift costs no headroom at the top -- every glyph's ascent
-    // still clears rowTop with room to spare.
-    var topPad = Math.max(0, Math.floor((ROW_HEIGHT - ROW_FONT_CAP_HEIGHT) / 2)) - 1;
+    // check. A 1px shift alone fixes the clipping but leaves the descender's tip
+    // flush against the very last row with no breathing room; the extra 1px
+    // gives it a visible 1px margin instead. This still costs no headroom at the
+    // top -- every glyph's ascent still clears rowTop, even the tallest (!) at
+    // exactly row 0.
+    var topPad = Math.max(0, Math.floor((ROW_HEIGHT - ROW_FONT_CAP_HEIGHT) / 2)) - 2;
     var baseline = rowTop + topPad + ROW_FONT_CAP_HEIGHT;
 
     var x = 2;
