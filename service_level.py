@@ -32,10 +32,18 @@ MONTH_ABBREV_TO_NUM = {
     "jul": 7, "aug": 8, "sep": 9, "oct": 10, "nov": 11, "dec": 12,
 }
 
-# Header text variations for column identification
+# Header text variations for column identification.
+# UVA renamed the visible "University Transit Service" column header to "UVA Transit"
+# at some point without changing the underlying Drupal field machine name
+# ("field-university-transit-service", still used as the <th>/<td> id/class) - match
+# both the historical and current label text.
 HEADER_SERVICE_DATE = "service date"
-HEADER_UTS = "university transit service"
+HEADER_UTS_VARIANTS = ("university transit service", "uva transit")
 HEADER_NOTES = "notes"
+
+# Fallback signal if the visible header text changes again: the Drupal field's machine
+# name embedded in the <th> id/class has stayed stable across the known renaming above.
+HEADER_UTS_FIELD_MARKER = "university-transit-service"
 
 
 @dataclass
@@ -146,12 +154,35 @@ def find_column_indices(headers: list) -> Tuple[Optional[int], Optional[int], Op
         header_lower = header.lower().strip()
         if HEADER_SERVICE_DATE in header_lower:
             date_idx = i
-        elif HEADER_UTS in header_lower:
+        elif any(variant in header_lower for variant in HEADER_UTS_VARIANTS):
             uts_idx = i
         elif HEADER_NOTES in header_lower:
             notes_idx = i
 
     return date_idx, uts_idx, notes_idx
+
+
+def find_uts_column_by_field_marker(header_cells: list) -> Optional[int]:
+    """
+    Fallback UTS column lookup for when the visible header text doesn't match any
+    known variant (e.g. UVA renames the label again). Drupal's views-field machine
+    name (HEADER_UTS_FIELD_MARKER) is embedded in the header cell's id/class and has
+    stayed stable across the one renaming seen so far ("University Transit Service" ->
+    "UVA Transit").
+
+    Args:
+        header_cells: List of BeautifulSoup <th> Tag objects
+
+    Returns:
+        Index of the matching column, or None if not found
+    """
+    for i, cell in enumerate(header_cells):
+        cell_id = (cell.get("id") or "") if hasattr(cell, "get") else ""
+        cell_classes = " ".join(cell.get("class") or []) if hasattr(cell, "get") else ""
+        combined = f"{cell_id} {cell_classes}".lower()
+        if HEADER_UTS_FIELD_MARKER in combined:
+            return i
+    return None
 
 
 def extract_cell_text(cell) -> str:
@@ -229,8 +260,12 @@ def parse_service_schedule(
         if not header_row:
             continue
 
-        headers = [th.get_text(strip=True) for th in header_row.find_all("th")]
+        header_cells = header_row.find_all("th")
+        headers = [th.get_text(strip=True) for th in header_cells]
         date_idx, uts_idx, notes_idx = find_column_indices(headers)
+
+        if uts_idx is None:
+            uts_idx = find_uts_column_by_field_marker(header_cells)
 
         if date_idx is None or uts_idx is None:
             continue
@@ -296,6 +331,7 @@ __all__ = [
     "get_service_date",
     "parse_date_cell",
     "find_column_indices",
+    "find_uts_column_by_field_marker",
     "extract_cell_text",
     "compute_row_hash",
     "parse_service_schedule",

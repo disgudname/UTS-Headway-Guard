@@ -14,12 +14,15 @@ import pytest
 from datetime import date, datetime, time, timedelta
 from zoneinfo import ZoneInfo
 
+from bs4 import BeautifulSoup
+
 from service_level import (
     SERVICE_SCHEDULE_URL,
     ServiceLevelResult,
     get_service_date,
     parse_date_cell,
     find_column_indices,
+    find_uts_column_by_field_marker,
     extract_cell_text,
     compute_row_hash,
     parse_service_schedule,
@@ -193,6 +196,54 @@ class TestFindColumnIndices:
         assert date_idx is None
         assert uts_idx is None
         assert notes_idx == 1
+
+    def test_renamed_uva_transit_header(self):
+        """UVA renamed the visible column header to 'UVA Transit' (2026-07) without
+        changing the underlying field; this must still resolve via HEADER_UTS_VARIANTS."""
+        headers = [
+            "Service Date",
+            "UVA Transit",
+            "UVA Ride",
+            "Night Pilot",
+            "UVA FlexRide",
+            "Notes",
+        ]
+        date_idx, uts_idx, notes_idx = find_column_indices(headers)
+        assert date_idx == 0
+        assert uts_idx == 1
+        assert notes_idx == 5
+
+
+class TestFindUtsColumnByFieldMarker:
+    """Tests for the id/class-based fallback UTS column lookup."""
+
+    def test_matches_on_id(self):
+        soup = BeautifulSoup(
+            '<tr><th>Service Date</th>'
+            '<th id="view-field-university-transit-service-table-column">Some New Label</th>'
+            '<th>Notes</th></tr>',
+            "lxml",
+        )
+        header_cells = soup.find_all("th")
+        assert find_uts_column_by_field_marker(header_cells) == 1
+
+    def test_matches_on_class(self):
+        soup = BeautifulSoup(
+            '<tr><th>Service Date</th>'
+            '<th class="views-field views-field-field-university-transit-service">Renamed Again</th>'
+            '<th>Notes</th></tr>',
+            "lxml",
+        )
+        header_cells = soup.find_all("th")
+        assert find_uts_column_by_field_marker(header_cells) == 1
+
+    def test_no_match_returns_none(self):
+        soup = BeautifulSoup(
+            '<tr><th>Service Date</th><th>Unrelated</th><th>Notes</th></tr>',
+            "lxml",
+        )
+        header_cells = soup.find_all("th")
+        assert find_uts_column_by_field_marker(header_cells) is None
 
 
 class TestComputeRowHash:
