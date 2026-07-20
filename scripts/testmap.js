@@ -3573,6 +3573,11 @@ TM.registerVisibilityResumeHandler(() => {
       const catStopEtaRequests = new Map();
       let catActiveVehicleTooltip = null;
       const catRoutesById = new Map();
+      // CAT's get_routes service reliably returns an empty list in practice, so route
+      // name/color metadata is derived from get_patterns instead (each pattern embeds
+      // its own routes/routeNames/color). catRoutesById stays authoritative when
+      // get_routes ever does return data; this map only fills the gaps.
+      const catRoutePatternRouteInfo = new Map();
       const catStopsById = new Map();
       const CAT_OUT_OF_SERVICE_ROUTE_KEY = '__CAT_OUT_OF_SERVICE__';
       const CAT_OUT_OF_SERVICE_NUMERIC_ROUTE_ID = 777;
@@ -9968,22 +9973,25 @@ TM.registerVisibilityResumeHandler(() => {
         const activeCatRouteKeysSet = catOverlayEnabled
           ? (catActiveRouteKeys instanceof Set ? new Set(catActiveRouteKeys) : new Set())
           : new Set();
+        // Unlike UTS routes (always listed, with a "No buses currently assigned" note),
+        // CAT's route list is restricted to routes with a bus actually on it right now -
+        // CAT's route catalog is large and mostly irrelevant to what's live at any moment.
         const catRouteRenderData = catRoutesList.map(route => {
           const key = catRouteKey(route.idKey);
           if (!key || key === CAT_OUT_OF_SERVICE_ROUTE_KEY) {
             return null;
           }
-          const checked = getCatRouteSelectionState(key, activeCatRouteKeysSet);
           const hasActiveVehicle = activeCatRouteKeysSet.has(key);
+          if (!hasActiveVehicle) {
+            return null;
+          }
+          const checked = getCatRouteSelectionState(key, activeCatRouteKeysSet);
           const displayNameRaw = (route.displayName || route.shortName || route.longName || key || '').trim();
           const displayName = displayNameRaw || `Route ${key}`;
           const longName = typeof route.longName === 'string' ? route.longName.trim() : '';
           const detailLines = [];
           if (longName && longName.toUpperCase() !== displayName.toUpperCase()) {
             detailLines.push(longName);
-          }
-          if (!hasActiveVehicle) {
-            detailLines.push('No buses currently assigned');
           }
           const color = route.color || CAT_VEHICLE_MARKER_DEFAULT_COLOR;
           return {
@@ -17602,7 +17610,7 @@ TM.registerVisibilityResumeHandler(() => {
 
       function getUniqueCatRoutes() {
           const unique = new Map();
-          catRoutesById.forEach(route => {
+          const addRoute = route => {
               if (!route || typeof route !== 'object') {
                   return;
               }
@@ -17615,7 +17623,11 @@ TM.registerVisibilityResumeHandler(() => {
                   return;
               }
               unique.set(key, route);
-          });
+          };
+          // catRoutesById (from get_routes) takes priority when populated; patterns fill
+          // in any route get_routes didn't report (see deriveCatRouteInfoFromPatterns).
+          catRoutesById.forEach(addRoute);
+          catRoutePatternRouteInfo.forEach(addRoute);
           return Array.from(unique.values());
       }
 
@@ -17974,6 +17986,26 @@ TM.registerVisibilityResumeHandler(() => {
               .forEach(list => {
                   list.forEach(value => routeCandidates.push(value));
               });
+
+          // CAT's get_patterns response carries a routeNames array positionally parallel
+          // to routes (e.g. routes:[1], routeNames:["1 PVCC/Woolen Mills"]) - this is the
+          // only reliable source of a real route display name, since get_routes itself
+          // returns an empty list from CAT's API.
+          const routeNamesByKey = new Map();
+          [['routes', 'routeNames'], ['Routes', 'RouteNames']].forEach(([idsKey, namesKey]) => {
+              const ids = entry[idsKey];
+              const names = entry[namesKey];
+              if (Array.isArray(ids) && Array.isArray(names) && ids.length === names.length) {
+                  ids.forEach((idValue, idx) => {
+                      const key = catRouteKey(idValue);
+                      const name = toNonEmptyString(names[idx]);
+                      if (key && key !== CAT_OUT_OF_SERVICE_ROUTE_KEY && name && !routeNamesByKey.has(key)) {
+                          routeNamesByKey.set(key, name);
+                      }
+                  });
+              }
+          });
+
           [
               entry.routeID,
               entry.RouteID,
@@ -18033,6 +18065,7 @@ TM.registerVisibilityResumeHandler(() => {
               extId: extIdText,
               name: nameText,
               routeKeys: Array.from(uniqueRouteKeys.values()),
+              routeNamesByKey,
               latLngs: coordinates.latLngs,
               color: colorValue || '',
               encoded: coordinates.encoded || ''
@@ -18397,6 +18430,51 @@ TM.registerVisibilityResumeHandler(() => {
           }
       }
 
+      // CAT's get_routes service returns an empty route list in practice (confirmed
+      // against the live public feed), which otherwise leaves catRoutesById empty and
+      // makes both the Route Controls panel's CAT section and CAT stop marker coloring
+      // (collectStopMarkerColors -> getCatRouteColor) fall back to a near-black default.
+      // get_patterns embeds real per-route color + name data on every pattern, so it's
+      // used here as a fallback source of route metadata.
+      function deriveCatRouteInfoFromPatterns(patterns) {
+          const derived = new Map();
+          if (!Array.isArray(patterns)) {
+              return derived;
+          }
+          patterns.forEach(pattern => {
+              if (!pattern || !Array.isArray(pattern.routeKeys)) {
+                  return;
+              }
+              const color = sanitizeCssColor(pattern.color) || '';
+              pattern.routeKeys.forEach(routeKey => {
+                  if (!routeKey || routeKey === CAT_OUT_OF_SERVICE_ROUTE_KEY) {
+                      return;
+                  }
+                  const longName = pattern.routeNamesByKey instanceof Map
+                      ? (pattern.routeNamesByKey.get(routeKey) || '')
+                      : '';
+                  const numericId = Number(routeKey);
+                  const existing = derived.get(routeKey) || {
+                      id: Number.isFinite(numericId) ? numericId : null,
+                      idKey: routeKey,
+                      color: '',
+                      shortName: '',
+                      longName: '',
+                      displayName: ''
+                  };
+                  if (!existing.color && color) {
+                      existing.color = color;
+                  }
+                  if (!existing.longName && longName) {
+                      existing.longName = longName;
+                  }
+                  existing.displayName = existing.shortName || existing.longName || `Route ${routeKey}`;
+                  derived.set(routeKey, existing);
+              });
+          });
+          return derived;
+      }
+
       async function fetchCatRoutePatterns(force = false) {
           if (!catOverlayEnabled && !force) {
               return catRoutePatternsCache.slice();
@@ -18450,9 +18528,19 @@ TM.registerVisibilityResumeHandler(() => {
                   catRoutesFitToView = false;
               }
 
+              const derivedRouteInfo = deriveCatRouteInfoFromPatterns(patterns);
+              catRoutePatternRouteInfo.clear();
+              derivedRouteInfo.forEach((info, key) => {
+                  catRoutePatternRouteInfo.set(key, info);
+              });
+
               catRoutePatternsLastFetchTime = now;
               catRoutePatternsCache = patterns;
               renderCatRoutes();
+              if (catOverlayEnabled) {
+                  updateRouteSelector(activeRoutes);
+                  renderBusStops(stopDataCache);
+              }
               return patterns;
           } catch (error) {
               console.error('Failed to fetch CAT route patterns:', error);
@@ -18629,9 +18717,15 @@ TM.registerVisibilityResumeHandler(() => {
           if (catRoutesById.has(key)) {
               return catRoutesById.get(key);
           }
+          if (catRoutePatternRouteInfo.has(key)) {
+              return catRoutePatternRouteInfo.get(key);
+          }
           if (Number.isFinite(Number(routeKey))) {
               const numericKey = `${Number(routeKey)}`;
-              return catRoutesById.get(numericKey) || null;
+              if (catRoutesById.has(numericKey)) {
+                  return catRoutesById.get(numericKey);
+              }
+              return catRoutePatternRouteInfo.get(numericKey) || null;
           }
           return null;
       }
