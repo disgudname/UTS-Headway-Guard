@@ -2,7 +2,7 @@
  * Push Notifications Bell Icon Component
  *
  * Adds a floating bell button that allows users to subscribe/unsubscribe
- * from Web Push notifications for UTS service alerts.
+ * from Web Push notifications for UVATransit service alerts.
  */
 (function() {
   'use strict';

@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Route Destinations - UTS Operations Dashboard</title>
+  <title>Route Destinations - UVATransit Operations Dashboard</title>
   <link rel="icon" type="image/png" href="/media/favicon.ico" />
   <link rel="apple-touch-icon" sizes="120x120" href="/media/apple-touch-icon-120.png" />
   <link rel="apple-touch-icon" sizes="152x152" href="/media/apple-touch-icon-152.png" />
@@ -75,12 +75,12 @@
   <h1>Route Destinations</h1>
 
   <div class="tabs">
-    <button type="button" class="tab-btn active" id="tab-uts">UTS Routes</button>
+    <button type="button" class="tab-btn active" id="tab-uts">UVATransit Routes</button>
     <button type="button" class="tab-btn" id="tab-cat">CAT Stops</button>
   </div>
 
   <p class="subtitle" id="subtitle-uts">
-    UTS routes are loops — TransLoc has no direction/destination concept, so any
+    UVATransit routes are loops — TransLoc has no direction/destination concept, so any
     "heading to&hellip;" text has to be picked by hand. Click a stop below to mark it as a
     destination landmark and give it a short label (the real stop name is usually too long
     for signage). <code>/v1/transloc/stop_arrivals</code> then labels every arrival with the
@@ -93,7 +93,7 @@
     pattern below to walk its actual stop sequence and tag any stop along it. Landmarks are
     tied to the physical stop, not the pattern, so a label you set here shows up in every
     other pattern that happens to pass through the same stop. Patterns are point-to-point
-    (not loops like UTS), so the label only applies to stops <em>after</em> the tagged one —
+    (not loops like UVATransit), so the label only applies to stops <em>after</em> the tagged one —
     it doesn't wrap around. The very last stop of a pattern's timeline is a special case:
     a bus ending its run there has no "next stop" to point to, so it gets its own separate
     terminus label instead (shown at the bottom of that pattern's timeline) — keyed to the

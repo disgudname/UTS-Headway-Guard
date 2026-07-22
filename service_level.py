@@ -1,5 +1,5 @@
 """
-UTS Service Level Scraper
+UVATransit Service Level Scraper
 
 Scrapes the official UVA Parking & Transportation service schedule page
 to determine the current service level for University Transit Service (UTS).

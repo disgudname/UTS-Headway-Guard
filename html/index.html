@@ -8,7 +8,7 @@
 <link rel="manifest" href="/manifest.json">
 <meta name="theme-color" content="#E57200">
 <meta charset="utf-8" />
-<title>UTS Operations Dashboard</title>
+<title>UVATransit Operations Dashboard</title>
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 <script>
 (function () {
@@ -110,12 +110,12 @@
 <div class="auth-container">
   <div class="auth-row">
     <a href="https://github.com/disgudname/UTS-Headway-Guard" class="github-link" target="_blank" rel="noopener" data-requires-auth>GitHub</a>
-    <button type="button" class="auth-button" id="auth-button">UTS Staff Access</button>
+    <button type="button" class="auth-button" id="auth-button">UVATransit Staff Access</button>
   </div>
   <div class="auth-secret" id="auth-secret" hidden></div>
 </div>
 <header>
-  <div class="title">UTS Operations Dashboard</div>
+  <div class="title">UVATransit Operations Dashboard</div>
 </header>
 <div class="service-level" id="service-level"></div>
 <div class="main-content">
@@ -223,7 +223,7 @@
           authSecret.hidden = true;
         }
       } else {
-        authButton.textContent = 'UTS Staff Access';
+        authButton.textContent = 'UVATransit Staff Access';
         authSecret.hidden = true;
       }
       applyAccessRestrictions();

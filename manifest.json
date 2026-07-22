@@ -1,7 +1,7 @@
 {
-  "name": "UTS Operations Dashboard",
-  "short_name": "UTS Ops",
-  "description": "Real-time transit operations management for University Transit Service",
+  "name": "UVATransit Operations Dashboard",
+  "short_name": "UVATransit Ops",
+  "description": "Real-time transit operations management for UVATransit",
   "start_url": "/",
   "display": "standalone",
   "background_color": "#232D4B",

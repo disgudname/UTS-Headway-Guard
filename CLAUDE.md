@@ -1,10 +1,10 @@
-# CLAUDE.md - AI Assistant Guide for UTS Operations Dashboard
+# CLAUDE.md - AI Assistant Guide for UVATransit Operations Dashboard
 
-This document provides comprehensive guidance for AI assistants working with the UTS Operations Dashboard codebase.
+This document provides comprehensive guidance for AI assistants working with the UVATransit Operations Dashboard codebase.
 
 ## Project Overview
 
-**UTS Operations Dashboard** is a real-time transit operations management system for the University Transit Service at UVA. The system combines:
+**UVATransit Operations Dashboard** is a real-time transit operations management system for UVATransit at UVA. The system combines:
 
 - **FastAPI backend** (Python) - Polls live vehicle/schedule data, manages headway tracking, provides SSE streams
 - **Node.js/Express service** - Disk-backed maintenance ticketing system with JSONL event sourcing
@@ -896,5 +896,5 @@ This indicates the headway tracking system is under active refinement. Be cautio
 
 ---
 
-**Last updated:** 2025-12-07
+**Last updated:** 2026-07-22
 **For questions:** Consult AGENTS.md and README.md

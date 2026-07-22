@@ -2,7 +2,7 @@
 
 ## What is Spare?
 
-Spare is the software platform UTS has contracted to coordinate UVA FlexRide, our new in-house paratransit service (previously operated under the DART — Demand and Response Transportation — name). Drivers use a Spare app on department-provided tablets to receive trip assignments, navigate to passengers, and mark pickups and dropoffs complete. Riders (or staff booking on their behalf) request trips through Spare's system.
+Spare is the software platform UVATransit has contracted to coordinate UVA FlexRide, our new in-house paratransit service (previously operated under the DART — Demand and Response Transportation — name). Drivers use a Spare app on department-provided tablets to receive trip assignments, navigate to passengers, and mark pickups and dropoffs complete. Riders (or staff booking on their behalf) request trips through Spare's system.
 
 Spare also exposes an **API** — a structured data feed that allows other software systems to read information from Spare and send instructions back to it. Think of it like a two-way pipe: we can pull live data out of Spare to display on our operations dashboard, and we can push actions back in (like cancelling a trip or reassigning a driver) without anyone having to log into Spare's own interface.
 
@@ -31,7 +31,7 @@ We can see which drivers are on shift right now, what vehicle each is driving, h
 
 ## What We're Building
 
-We are currently developing three new pages in the UTS Operations Dashboard specifically for FlexRide dispatch. All three require a dispatcher login — the same credentials already used for existing dispatcher tools.
+We are currently developing three new pages in the UVATransit Operations Dashboard specifically for FlexRide dispatch. All three require a dispatcher login — the same credentials already used for existing dispatcher tools.
 
 ### Van Dispatch (main page)
 
@@ -95,7 +95,7 @@ Because DART/FlexRide is not yet operational, live testing — confirming that v
 
 ## What If On-Demand Moves to Spare Too?
 
-UTS currently operates an overnight on-demand van service on a separate system. There is a possibility that this service could also migrate to Spare in the future. If that happens, the FlexRide dispatcher tools described above would extend to cover **both** services in the same interface — no separate screens, no additional development work needed.
+UVATransit currently operates an overnight on-demand van service on a separate system. There is a possibility that this service could also migrate to Spare in the future. If that happens, the FlexRide dispatcher tools described above would extend to cover **both** services in the same interface — no separate screens, no additional development work needed.
 
 In practice that would mean:
 

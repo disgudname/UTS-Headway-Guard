@@ -9691,7 +9691,7 @@ TM.registerVisibilityResumeHandler(() => {
         if (catPriorityMode) {
           otherServicesButtons.push(
             `<button type="button" id="utsToggleButton" class="pill-button cat-toggle-button${utsOverlayEnabled ? ' is-active' : ''}" aria-pressed="${utsOverlayEnabled ? 'true' : 'false'}" onclick="toggleUtsOverlay()">
-              UTS<span class="toggle-indicator">${utsOverlayEnabled ? 'On' : 'Off'}</span>
+              UVATransit<span class="toggle-indicator">${utsOverlayEnabled ? 'On' : 'Off'}</span>
             </button>`
           );
         } else if (catOverlayAvailable) {
@@ -10864,7 +10864,7 @@ TM.registerVisibilityResumeHandler(() => {
         qrWrap.target = '_blank';
         qrWrap.rel = 'noopener noreferrer';
         qrWrap.className = 'legend-qr-wrap';
-        qrWrap.setAttribute('aria-label', 'Open UTS Operations Dashboard');
+        qrWrap.setAttribute('aria-label', 'Open UVATransit Operations Dashboard');
         qrWrap.innerHTML = KIOSK_QR_SVG;
 
         const text = document.createElement('div');

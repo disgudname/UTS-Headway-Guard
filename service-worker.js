@@ -140,7 +140,7 @@ self.addEventListener('push', (event) => {
     payload = event.data.json();
   } catch (e) {
     payload = {
-      title: 'UTS Service Alert',
+      title: 'UVATransit Service Alert',
       body: event.data.text()
     };
   }
@@ -158,7 +158,7 @@ self.addEventListener('push', (event) => {
   };
 
   event.waitUntil(
-    self.registration.showNotification(payload.title || 'UTS Service Alert', options)
+    self.registration.showNotification(payload.title || 'UVATransit Service Alert', options)
   );
 });
 

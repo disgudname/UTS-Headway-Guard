@@ -1,10 +1,10 @@
 """
-UTS Operations Dashboard Service — Dispatcher API (FastAPI skeleton)
+UVATransit Operations Dashboard Service — Dispatcher API (FastAPI skeleton)
 
 Purpose
 =======
 Proxy TransLoc data sources, enrich the feed with safety context, and surface
-operations dashboards for UVA's University Transit Service.
+operations dashboards for UVA's UVATransit service.
 
 Key features in this skeleton
 -----------------------------
@@ -1639,7 +1639,7 @@ def project_vehicle_to_route(v: Vehicle, route: Route, prev_idx: Optional[int] =
 # ---------------------------
 # App & state
 # ---------------------------
-app = FastAPI(title="UTS Operations Dashboard")
+app = FastAPI(title="UVATransit Operations Dashboard")
 
 
 @app.on_event("startup")
@@ -2737,7 +2737,7 @@ async def opensky_track_proxy(request: Request, icao24: Optional[str] = None):
                 OPENSKY_TRACK_URL,
                 params={"icao24": icao24, "time": 0},
                 timeout=10,
-                headers={"User-Agent": "UTS-OpsBoard/1.0"},
+                headers={"User-Agent": "UVATransit-OpsBoard/1.0"},
             )
             record_api_call("GET", OPENSKY_TRACK_URL, upstream_resp.status_code)
     except httpx.HTTPError as exc:
@@ -2842,7 +2842,7 @@ async def opensky_positions_proxy(
                 OPENSKY_STATES_URL,
                 params=bbox,
                 timeout=15,
-                headers={"User-Agent": "UTS-OpsBoard/1.0"},
+                headers={"User-Agent": "UVATransit-OpsBoard/1.0"},
             )
             record_api_call("GET", OPENSKY_STATES_URL, upstream_resp.status_code)
     except httpx.HTTPError as exc:
@@ -2890,7 +2890,7 @@ async def adsbfi_aircraft_proxy(request: Request, icao24: Optional[str] = None):
             upstream_resp = await client.get(
                 url,
                 timeout=10,
-                headers={"User-Agent": "UTS-OpsBoard/1.0"},
+                headers={"User-Agent": "UVATransit-OpsBoard/1.0"},
             )
             record_api_call("GET", url, upstream_resp.status_code)
     except httpx.HTTPError as exc:
@@ -6300,7 +6300,7 @@ async def startup():
                             continue
                         new_alerts.append({
                             "id": alert_id,
-                            "title": "UTS Service Alert",
+                            "title": "UVATransit Service Alert",
                             "body": message[:200],
                             "icon": "/media/icon-192.png",
                             "tag": f"alert-{alert_id}",
@@ -11683,13 +11683,13 @@ async def _cap_feed_response(
     ET.SubElement(info, "certainty").text = "Observed"
     ET.SubElement(info, "effective").text = effective_str
     ET.SubElement(info, "expires").text = expires_str
-    ET.SubElement(info, "senderName").text = "UVA Transit"
+    ET.SubElement(info, "senderName").text = "UVATransit"
     ET.SubElement(info, "headline").text = message_text
     ET.SubElement(info, "description").text = message_text
-    ET.SubElement(info, "instruction").text = "Check the arrivals display or UVA Transit app for updates."
+    ET.SubElement(info, "instruction").text = "Check the arrivals display or UVATransit app for updates."
     ET.SubElement(info, "web").text = arrivals_link
-    ET.SubElement(info, "contact").text = "UVA Transit - parking.virginia.edu"
-    _add_cap_area(info, f"{stop_name} - UVA Transit Service Area")
+    ET.SubElement(info, "contact").text = "UVATransit - parking.virginia.edu"
+    _add_cap_area(info, f"{stop_name} - UVATransit Service Area")
 
     xml_body = ET.tostring(alert, encoding="unicode")
     xml_bytes = ('<?xml version="1.0" encoding="UTF-8"?>\n' + xml_body).encode("utf-8")
@@ -11905,7 +11905,7 @@ async def anti_bunching_status(request: Request):
 
 
 # ---------------------------
-# REST: UTS Service Level
+# REST: UVATransit Service Level
 # ---------------------------
 
 # Use curl_cffi with browser impersonation to bypass TLS fingerprinting
@@ -12028,7 +12028,7 @@ async def _fetch_service_level(bypass_cache: bool = False) -> ServiceLevelResult
 
 @app.get("/v1/uts/service_level")
 async def uts_service_level(request: Request):
-    """Get the current UTS service level.
+    """Get the current UVATransit service level.
 
     Public endpoint.
 
@@ -12042,7 +12042,7 @@ async def uts_service_level(request: Request):
 
 @app.post("/v1/uts/service_level/refresh")
 async def uts_service_level_refresh(request: Request):
-    """Force refresh the UTS service level from the source page.
+    """Force refresh the UVATransit service level from the source page.
 
     Requires dispatcher authentication.
     Bypasses cache and re-scrapes the service schedule.
@@ -12412,9 +12412,9 @@ async def radar_wav():
     return FileResponse(MEDIA_DIR / "radar.wav", media_type="audio/wav")
 
 
-@app.get("/UTSShield.png", include_in_schema=False)
-async def headwayguard_icon():
-    return FileResponse(MEDIA_DIR / "UTSShield.png", media_type="image/png")
+@app.get("/UVATransitShield.png", include_in_schema=False)
+async def uvatransit_shield_icon():
+    return FileResponse(MEDIA_DIR / "UVATransitShield.png", media_type="image/png")
 
 
 _MEDIA_ASSETS: dict[str, str] = {
@@ -15129,7 +15129,7 @@ async def push_test(request: Request):
         return {"sent": 0, "total": 0, "message": "No subscribers"}
     from pywebpush import webpush, WebPushException
     payload = {
-        "title": "UTS Test Notification",
+        "title": "UVATransit Test Notification",
         "body": message[:200],
         "icon": "/media/icon-192.png",
         "tag": f"test-{int(datetime.now(timezone.utc).timestamp())}",

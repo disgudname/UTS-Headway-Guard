@@ -8,7 +8,7 @@
 
 ## Context
 
-The existing `map.html` / `testmap.js` stack is bus-first. Vans and on-demand rides exist there but are secondary: rides are only visible by clicking specific markers, there's no flat ride list, and there are no dispatch actions. As UTS moves to in-house paratransit (and eventually migrates on-demand off TransLoc onto Spare), a dedicated van dispatch interface is needed.
+The existing `map.html` / `testmap.js` stack is bus-first. Vans and on-demand rides exist there but are secondary: rides are only visible by clicking specific markers, there's no flat ride list, and there are no dispatch actions. As UVATransit moves to in-house paratransit (and eventually migrates on-demand off TransLoc onto Spare), a dedicated van dispatch interface is needed.
 
 The full Spare OpenAPI spec is saved at `spare_openapi_spec.json` for reference during implementation.
 
@@ -70,7 +70,7 @@ Live docs: https://developers.sparelabs.com/docs/public/2bf42f837bf82-spare-open
 All requests: `Authorization: Bearer <SPARE_API_KEY>` header. Key lives in Spare org admin settings.
 
 ### Base URLs
-- US (likely UTS): `https://api.us.sparelabs.com/v1`
+- US (likely UVATransit): `https://api.us.sparelabs.com/v1`
 - US2: `https://api.us2.sparelabs.com/v1`
 
 ### Webhooks
@@ -307,7 +307,7 @@ Break reasons are configured per-org (which ones are active, whether they feed i
 | Rider | `riderBiohazard`, `riderDisorderly`, `riderMedical`, `riderNonpayment`, `doorToDoor` |
 | General | `other` |
 
-The `createIncidentCase` flag on a reason config means certain break reasons (e.g. `vehicleAccident`, `riderMedical`) can automatically open a case in **Spare Engage** — a separate CRM/incident management add-on within Spare's product suite (not part of core dispatch). Whether this does anything useful depends on whether UTS's Spare contract includes Engage. Worth asking the Spare rep — it could be valuable for paratransit compliance/documentation, but it's out of scope for the dashboard work either way.
+The `createIncidentCase` flag on a reason config means certain break reasons (e.g. `vehicleAccident`, `riderMedical`) can automatically open a case in **Spare Engage** — a separate CRM/incident management add-on within Spare's product suite (not part of core dispatch). Whether this does anything useful depends on whether UVATransit's Spare contract includes Engage. Worth asking the Spare rep — it could be valuable for paratransit compliance/documentation, but it's out of scope for the dashboard work either way.
 
 #### Dashboard integration notes
 - The Van Dispatch page should add a **"Schedule Break"** action to the duty row in the shift roster — opens a small form with length, time window, and reason
