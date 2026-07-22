@@ -12729,17 +12729,6 @@ async def landing_page():
     return HTMLResponse(LANDING_HTML)
 
 
-@app.get("/index-redesign-demo", include_in_schema=False)
-async def index_redesign_demo():
-    """Departure-board redesign concept for the landing page.
-
-    Design exploration only, not linked from any nav/sitemap — read
-    html/index-redesign-demo.html directly from disk each request so edits
-    show up without a server restart.
-    """
-    return FileResponse(BASE_DIR / "html" / "index-redesign-demo.html")
-
-
 # ---------------------------
 # PWA SUPPORT
 # ---------------------------
