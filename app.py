@@ -12729,6 +12729,17 @@ async def landing_page():
     return HTMLResponse(LANDING_HTML)
 
 
+@app.get("/index-redesign-demo", include_in_schema=False)
+async def index_redesign_demo():
+    """Departure-board redesign concept for the landing page.
+
+    Design exploration only, not linked from any nav/sitemap — read
+    html/index-redesign-demo.html directly from disk each request so edits
+    show up without a server restart.
+    """
+    return FileResponse(BASE_DIR / "html" / "index-redesign-demo.html")
+
+
 # ---------------------------
 # PWA SUPPORT
 # ---------------------------
@@ -14926,10 +14937,44 @@ async def index_init(request: Request):
             print(f"[landing] failed to fetch service level: {exc}")
             return {"service_level": "UNKNOWN"}
 
+    async def fetch_vehicle_count():
+        # Buses: dedupe by Name (same convention as /v1/roster/vehicles) and
+        # only count non-stale fixes, matching STALE_FIX_S used everywhere else.
+        async with state.lock:
+            raw = state.vehicles_raw.copy() if state.vehicles_raw else []
+        seen: set[str] = set()
+        bus_count = 0
+        for v in raw:
+            name = str(v.get("Name") or "-")
+            if name in seen:
+                continue
+            seen.add(name)
+            age = v.get("Seconds")
+            if age is not None and age <= STALE_FIX_S:
+                bus_count += 1
+
+        # On-demand: merged into the same total so the public number never
+        # isolates on-demand activity. Only the count leaves this function —
+        # per-vehicle position/driver/rider details must never reach an
+        # unauthenticated response.
+        ondemand_count = 0
+        try:
+            client: Optional[OnDemandClient] = getattr(app.state, "ondemand_client", None)
+            if client is not None:
+                ondemand_data = await _collect_ondemand_data(client)
+                ondemand_vehicles = ondemand_data.get("vehicles") if isinstance(ondemand_data, dict) else None
+                if isinstance(ondemand_vehicles, list):
+                    ondemand_count = len(ondemand_vehicles)
+        except Exception as exc:
+            print(f"[landing] failed to fetch ondemand vehicle count: {exc}")
+
+        return bus_count + ondemand_count
+
     # Run async fetches in parallel
-    alerts_result, service_level_result = await asyncio.gather(
+    alerts_result, service_level_result, vehicle_count_result = await asyncio.gather(
         fetch_alerts(),
         fetch_service_level(),
+        fetch_vehicle_count(),
     )
 
     # Get system notices (sync, but depends on auth status)
@@ -14952,6 +14997,7 @@ async def index_init(request: Request):
         "alerts": alerts_result,
         "notices": notices,
         "service_level": service_level_result,
+        "vehicle_count": vehicle_count_result,
         "approach_check": {"missing": approach_missing},
     }
 
