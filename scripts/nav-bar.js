@@ -33,17 +33,15 @@
 
   const mobileQuery = window.matchMedia('(max-width: 768px)');
 
+  // Ordered by actual usage frequency (same priority established for the
+  // index page's manifest: Live Map + Dispatch most used, then Replay +
+  // TransLōc, then the rest). Home stays first as the universal way back
+  // to the hub, ahead of the priority-ranked tools.
   const links = [
     {
       href: '/',
       label: 'Home',
       icon: '/media/home.svg',
-      requiresAuth: true,
-    },
-    {
-      href: 'https://uva-uts.transloc.com/secure/dispatch/',
-      label: 'TransLōc',
-      icon: '/media/transloc.svg',
       requiresAuth: true,
     },
     {
@@ -59,21 +57,15 @@
       requiresAuth: true,
     },
     {
-      href: '/system-notices',
-      label: 'System Notices',
-      icon: '/media/notices.svg',
-      requiresAuth: true,
-    },
-    {
       href: '/replay',
       label: 'Replay',
       icon: '/media/replay.svg',
       requiresAuth: true,
     },
     {
-      href: '/ridership',
-      label: 'Ridership',
-      icon: '/media/ridership.svg',
+      href: 'https://uva-uts.transloc.com/secure/dispatch/',
+      label: 'TransLōc',
+      icon: '/media/transloc.svg',
       requiresAuth: true,
     },
     {
@@ -96,9 +88,21 @@
       requiresAuth: true,
     },
     {
+      href: '/ridership',
+      label: 'Ridership',
+      icon: '/media/ridership.svg',
+      requiresAuth: true,
+    },
+    {
       href: '/driver',
       label: 'Driver',
       icon: '/media/driver.svg',
+      requiresAuth: true,
+    },
+    {
+      href: '/system-notices',
+      label: 'System Notices',
+      icon: '/media/notices.svg',
       requiresAuth: true,
     },
     {
@@ -120,6 +124,11 @@
     @font-face{
       font-family:'FGDC';
       src:url('/fonts/FGDC.ttf') format('truetype');
+      font-display:swap;
+    }
+    @font-face{
+      font-family:'Luminator';
+      src:url('/fonts/luminator-4x7s.otf') format('opentype');
       font-display:swap;
     }
     :root{
@@ -202,6 +211,7 @@
       flex-direction:column;
       gap:6px;
       align-items:center;
+      font-family:'Luminator' !important;
       font-size:12px;
       color:rgba(255,255,255,0.82);
       text-transform:uppercase;
@@ -209,8 +219,10 @@
     }
     #${NAV_ID} .hg-nav__auth-secret{
       display:block;
+      font-family:'Luminator' !important;
       font-size:15px;
       letter-spacing:0.12em;
+      text-transform:uppercase;
       color:#FFFFFF;
     }
     #${NAV_ID} .hg-nav__auth-logout,
@@ -218,6 +230,8 @@
       border-radius:999px;
       color:inherit;
       font:inherit;
+      font-family:'Luminator' !important;
+      text-transform:uppercase;
       cursor:pointer;
       transition:background-color 0.2s ease,border-color 0.2s ease,box-shadow 0.2s ease;
       border:1px solid rgba(255,255,255,0.2);
@@ -266,12 +280,14 @@
       letter-spacing:0.12em;
     }
     #${NAV_ID} .hg-nav__auth-login-hint{
+      font-family:'FGDC' !important;
       font-size:11px;
       letter-spacing:0.04em;
       text-transform:none;
       color:rgba(35,45,75,0.85);
     }
     #${NAV_ID} .hg-nav__auth-login-description{
+      font-family:'FGDC' !important;
       font-size:11px;
       letter-spacing:0.04em;
       text-transform:none;
@@ -286,6 +302,8 @@
       align-items:center;
       justify-content:center;
       color:inherit;
+      padding-bottom:6px;
+      border-bottom:1px dashed rgba(255,255,255,0.22);
     }
     #${NAV_ID} .hg-nav__icon-img{
       width:32px;
