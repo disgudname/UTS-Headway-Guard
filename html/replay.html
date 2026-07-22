@@ -116,6 +116,13 @@
       touch-action: manipulation;
       user-select: none;
     }
+    .bus-label-icon {
+      pointer-events: none !important;
+      background: transparent !important;
+      border: none !important;
+      box-shadow: none !important;
+      padding: 0 !important;
+    }
     .bus-marker__svg {
       display: block;
       width: 100%;
@@ -982,7 +989,38 @@
     const BUS_MARKER_CENTER_RING_ID = 'center_ring';
     let BUS_MARKER_SVG_TEXT = null;
     let BUS_MARKER_SVG_LOAD_PROMISE = null;
-    const BUS_MARKER_LABEL_FONT_FAMILY = 'FGDC, sans-serif';
+    // Mirrors ACTIVE_MAP_FONT_STACK from scripts/testmap-core.js: FGDC is used everywhere
+    // except iOS, where it's swapped for a system font stack (kept self-contained here
+    // rather than pulling in testmap-core.js just for this one constant).
+    const DEFAULT_MAP_FONT_STACK = 'FGDC, sans-serif';
+    const IOS_MAP_FONT_STACK = "system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif";
+    function detectIOSPlatform() {
+        if (typeof navigator !== 'object' || navigator === null) {
+            return false;
+        }
+        const userAgent = typeof navigator.userAgent === 'string' ? navigator.userAgent : '';
+        const platform = typeof navigator.platform === 'string' ? navigator.platform : '';
+        const maxTouchPoints = typeof navigator.maxTouchPoints === 'number' ? navigator.maxTouchPoints : 0;
+        if (/iPad|iPhone|iPod/i.test(userAgent) || /iPad|iPhone|iPod/i.test(platform)) {
+            return true;
+        }
+        if (platform === 'MacIntel' && maxTouchPoints > 1) {
+            return true;
+        }
+        if (typeof navigator.userAgentData === 'object' && navigator.userAgentData !== null) {
+            try {
+                const brands = Array.isArray(navigator.userAgentData.brands) ? navigator.userAgentData.brands : [];
+                if (brands.some(brand => typeof brand.brand === 'string' && /iOS/i.test(brand.brand))) {
+                    return true;
+                }
+            } catch (error) {
+                // Ignore structured UA parsing failures
+            }
+        }
+        return false;
+    }
+    const ACTIVE_MAP_FONT_STACK = detectIOSPlatform() ? IOS_MAP_FONT_STACK : DEFAULT_MAP_FONT_STACK;
+    const BUS_MARKER_LABEL_FONT_FAMILY = ACTIVE_MAP_FONT_STACK;
     const BUS_MARKER_LABEL_MIN_FONT_PX = 10;
 
     const SPEED_BUBBLE_BASE_FONT_PX = 12;
@@ -1010,7 +1048,7 @@
     const BLOCK_BUBBLE_MIN_HEIGHT = 20;
     const BLOCK_BUBBLE_CORNER_RADIUS = 10;
     const BLOCK_BUBBLE_FRAME_INSET = 5;
-    const LABEL_BASE_STROKE_WIDTH = 3;
+    const LABEL_BASE_STROKE_WIDTH = 2.5;
 
     const MIN_HEADING_DISTANCE_METERS = 2;
     const MIN_POSITION_UPDATE_METERS = 0.5;
@@ -2278,14 +2316,20 @@
           const horizontalPadding = SPEED_BUBBLE_HORIZONTAL_PADDING * safeScale;
           const verticalPadding = SPEED_BUBBLE_VERTICAL_PADDING * safeScale;
           const textWidth = measureLabelTextWidth(label, fontSize);
-          const width = Math.max(SPEED_BUBBLE_MIN_WIDTH * safeScale, textWidth + horizontalPadding * 2);
-          const height = Math.max(SPEED_BUBBLE_MIN_HEIGHT * safeScale, fontSize + verticalPadding * 2);
+          const rectWidth = Math.max(SPEED_BUBBLE_MIN_WIDTH * safeScale, textWidth + horizontalPadding * 2);
+          const rectHeight = Math.max(SPEED_BUBBLE_MIN_HEIGHT * safeScale, fontSize + verticalPadding * 2);
           const radius = SPEED_BUBBLE_CORNER_RADIUS * safeScale;
           const strokeWidth = Math.max(1, LABEL_BASE_STROKE_WIDTH * safeScale);
-          const svgWidth = roundToTwoDecimals(width);
-          const svgHeight = roundToTwoDecimals(height);
+          // Stroke padding = full stroke width for outside-aligned appearance (like Illustrator outside stroke)
+          const strokePadding = strokeWidth;
+          const svgWidth = roundToTwoDecimals(rectWidth + strokeWidth * 2);
+          const svgHeight = roundToTwoDecimals(rectHeight + strokeWidth * 2);
           const radiusRounded = roundToTwoDecimals(radius);
           const strokeWidthRounded = roundToTwoDecimals(strokeWidth);
+          const rectX = roundToTwoDecimals(strokePadding);
+          const rectY = roundToTwoDecimals(strokePadding);
+          const rectWidthRounded = roundToTwoDecimals(rectWidth);
+          const rectHeightRounded = roundToTwoDecimals(rectHeight);
           const textX = roundToTwoDecimals(svgWidth / 2);
           const baselineShift = fontSize * LABEL_TEXT_VERTICAL_ADJUSTMENT_RATIO;
           const textY = roundToTwoDecimals(svgHeight / 2 + baselineShift);
@@ -2293,15 +2337,15 @@
           const leaderOffset = roundToTwoDecimals(computeLabelLeaderOffset(safeScale, headingDeg, 'below'));
           const anchorY = -leaderOffset;
           const svg = `
-              <svg width="${svgWidth}" height="${svgHeight}" viewBox="0 0 ${svgWidth} ${svgHeight}" xmlns="http://www.w3.org/2000/svg">
+              <svg width="${svgWidth}" height="${svgHeight}" viewBox="0 0 ${svgWidth} ${svgHeight}" xmlns="http://www.w3.org/2000/svg" style="pointer-events: none;">
                   <g>
-                      <rect x="0" y="0" width="${svgWidth}" height="${svgHeight}" rx="${radiusRounded}" ry="${radiusRounded}" fill="${fillColor}" stroke="white" stroke-width="${strokeWidthRounded}" />
-                      <text x="${textX}" y="${textY}" dominant-baseline="middle" alignment-baseline="middle" text-anchor="middle" font-size="${roundToTwoDecimals(fontSize)}" font-weight="bold" fill="${textColor}" font-family="FGDC">${escapeHtml(label)}</text>
+                      <rect x="${rectX}" y="${rectY}" width="${rectWidthRounded}" height="${rectHeightRounded}" rx="${radiusRounded}" ry="${radiusRounded}" fill="${fillColor}" stroke="white" stroke-width="${strokeWidthRounded}" />
+                      <text x="${textX}" y="${textY}" dominant-baseline="middle" alignment-baseline="middle" text-anchor="middle" font-size="${roundToTwoDecimals(fontSize)}" font-weight="bold" fill="${textColor}" font-family="${BUS_MARKER_LABEL_FONT_FAMILY}">${escapeHtml(label)}</text>
                   </g>
               </svg>`;
           return L.divIcon({
               html: svg,
-              className: '',
+              className: 'leaflet-div-icon bus-label-icon',
               iconSize: [svgWidth, svgHeight],
               iconAnchor: [anchorX, anchorY]
           });
@@ -2323,13 +2367,17 @@
           const textWidth = measureLabelTextWidth(name, fontSize);
           const rectWidth = Math.max(NAME_BUBBLE_MIN_WIDTH * safeScale, textWidth + horizontalPadding * 2);
           const rectHeight = Math.max(NAME_BUBBLE_MIN_HEIGHT * safeScale, fontSize + verticalPadding * 2);
-          const svgWidth = roundToTwoDecimals(rectWidth);
-          const svgHeight = roundToTwoDecimals(rectHeight + frameInset * 2);
           const radius = NAME_BUBBLE_CORNER_RADIUS * safeScale;
           const strokeWidth = Math.max(1, LABEL_BASE_STROKE_WIDTH * safeScale);
+          // Stroke padding = full stroke width for outside-aligned appearance (like Illustrator outside stroke)
+          const strokePadding = strokeWidth;
+          const svgWidth = roundToTwoDecimals(rectWidth + strokeWidth * 2);
+          const svgHeight = roundToTwoDecimals(rectHeight + frameInset * 2 + strokeWidth);
           const radiusRounded = roundToTwoDecimals(radius);
           const strokeWidthRounded = roundToTwoDecimals(strokeWidth);
-          const rectY = roundToTwoDecimals(frameInset);
+          const rectX = roundToTwoDecimals(strokePadding);
+          const rectY = roundToTwoDecimals(frameInset + strokeWidth / 2);
+          const rectWidthRounded = roundToTwoDecimals(rectWidth);
           const rectHeightRounded = roundToTwoDecimals(rectHeight);
           const textX = roundToTwoDecimals(svgWidth / 2);
           const baselineShift = fontSize * LABEL_TEXT_VERTICAL_ADJUSTMENT_RATIO;
@@ -2340,15 +2388,15 @@
           const textColor = computeBusMarkerGlyphColor(fillColor);
           const fontSizeRounded = roundToTwoDecimals(fontSize);
           const svg = `
-              <svg width="${svgWidth}" height="${svgHeight}" viewBox="0 0 ${svgWidth} ${svgHeight}" xmlns="http://www.w3.org/2000/svg">
+              <svg width="${svgWidth}" height="${svgHeight}" viewBox="0 0 ${svgWidth} ${svgHeight}" xmlns="http://www.w3.org/2000/svg" style="pointer-events: none;">
                   <g>
-                      <rect x="0" y="${rectY}" width="${svgWidth}" height="${rectHeightRounded}" rx="${radiusRounded}" ry="${radiusRounded}" fill="${fillColor}" stroke="white" stroke-width="${strokeWidthRounded}" />
-                      <text x="${textX}" y="${textY}" dominant-baseline="middle" alignment-baseline="middle" text-anchor="middle" font-size="${fontSizeRounded}" font-weight="bold" fill="${textColor}" font-family="FGDC">${escapeHtml(name)}</text>
+                      <rect x="${rectX}" y="${rectY}" width="${rectWidthRounded}" height="${rectHeightRounded}" rx="${radiusRounded}" ry="${radiusRounded}" fill="${fillColor}" stroke="white" stroke-width="${strokeWidthRounded}" />
+                      <text x="${textX}" y="${textY}" dominant-baseline="middle" alignment-baseline="middle" text-anchor="middle" font-size="${fontSizeRounded}" font-weight="bold" fill="${textColor}" font-family="${BUS_MARKER_LABEL_FONT_FAMILY}">${escapeHtml(name)}</text>
                   </g>
               </svg>`;
           return L.divIcon({
               html: svg,
-              className: '',
+              className: 'leaflet-div-icon bus-label-icon',
               iconSize: [svgWidth, svgHeight],
               iconAnchor: [anchorX, anchorY]
           });
@@ -2370,13 +2418,17 @@
           const textWidth = measureLabelTextWidth(name, fontSize);
           const rectWidth = Math.max(BLOCK_BUBBLE_MIN_WIDTH * safeScale, textWidth + horizontalPadding * 2);
           const rectHeight = Math.max(BLOCK_BUBBLE_MIN_HEIGHT * safeScale, fontSize + verticalPadding * 2);
-          const svgWidth = roundToTwoDecimals(rectWidth);
-          const svgHeight = roundToTwoDecimals(rectHeight + frameInset * 2);
           const radius = BLOCK_BUBBLE_CORNER_RADIUS * safeScale;
           const strokeWidth = Math.max(1, LABEL_BASE_STROKE_WIDTH * safeScale);
+          // Stroke padding = full stroke width for outside-aligned appearance (like Illustrator outside stroke)
+          const strokePadding = strokeWidth;
+          const svgWidth = roundToTwoDecimals(rectWidth + strokeWidth * 2);
+          const svgHeight = roundToTwoDecimals(rectHeight + frameInset * 2 + strokeWidth);
           const radiusRounded = roundToTwoDecimals(radius);
           const strokeWidthRounded = roundToTwoDecimals(strokeWidth);
-          const rectY = roundToTwoDecimals(frameInset);
+          const rectX = roundToTwoDecimals(strokePadding);
+          const rectY = roundToTwoDecimals(frameInset + strokeWidth / 2);
+          const rectWidthRounded = roundToTwoDecimals(rectWidth);
           const rectHeightRounded = roundToTwoDecimals(rectHeight);
           const textX = roundToTwoDecimals(svgWidth / 2);
           const baselineShift = fontSize * LABEL_TEXT_VERTICAL_ADJUSTMENT_RATIO;
@@ -2387,15 +2439,15 @@
           const textColor = computeBusMarkerGlyphColor(fillColor);
           const fontSizeRounded = roundToTwoDecimals(fontSize);
           const svg = `
-              <svg width="${svgWidth}" height="${svgHeight}" viewBox="0 0 ${svgWidth} ${svgHeight}" xmlns="http://www.w3.org/2000/svg">
+              <svg width="${svgWidth}" height="${svgHeight}" viewBox="0 0 ${svgWidth} ${svgHeight}" xmlns="http://www.w3.org/2000/svg" style="pointer-events: none;">
                   <g>
-                      <rect x="0" y="${rectY}" width="${svgWidth}" height="${rectHeightRounded}" rx="${radiusRounded}" ry="${radiusRounded}" fill="${fillColor}" stroke="white" stroke-width="${strokeWidthRounded}" />
-                      <text x="${textX}" y="${textY}" dominant-baseline="middle" alignment-baseline="middle" text-anchor="middle" font-size="${fontSizeRounded}" font-weight="bold" fill="${textColor}" font-family="FGDC">${escapeHtml(name)}</text>
+                      <rect x="${rectX}" y="${rectY}" width="${rectWidthRounded}" height="${rectHeightRounded}" rx="${radiusRounded}" ry="${radiusRounded}" fill="${fillColor}" stroke="white" stroke-width="${strokeWidthRounded}" />
+                      <text x="${textX}" y="${textY}" dominant-baseline="middle" alignment-baseline="middle" text-anchor="middle" font-size="${fontSizeRounded}" font-weight="bold" fill="${textColor}" font-family="${BUS_MARKER_LABEL_FONT_FAMILY}">${escapeHtml(name)}</text>
                   </g>
               </svg>`;
           return L.divIcon({
               html: svg,
-              className: '',
+              className: 'leaflet-div-icon bus-label-icon',
               iconSize: [svgWidth, svgHeight],
               iconAnchor: [anchorX, anchorY]
           });
@@ -2524,21 +2576,24 @@
       }
 
       function contrastBW(hex) {
-          if (typeof hex !== 'string' || hex.trim().length === 0) {
-              return '#FFFFFF';
-          }
-          let normalized = hex.trim().replace(/^#/, '');
+          if (typeof hex !== 'string') return '#ffffff';
+          const normalized = hex.replace('#', '');
+          if (normalized.length !== 6 && normalized.length !== 3) return '#ffffff';
+          let r, g, b;
           if (normalized.length === 3) {
-              normalized = normalized.split('').map(ch => ch + ch).join('');
+              r = parseInt(normalized[0] + normalized[0], 16);
+              g = parseInt(normalized[1] + normalized[1], 16);
+              b = parseInt(normalized[2] + normalized[2], 16);
+          } else {
+              r = parseInt(normalized.substring(0, 2), 16);
+              g = parseInt(normalized.substring(2, 4), 16);
+              b = parseInt(normalized.substring(4, 6), 16);
           }
-          if (normalized.length !== 6 || /[^0-9a-fA-F]/.test(normalized)) {
-              return '#FFFFFF';
-          }
-          const r = parseInt(normalized.substring(0, 2), 16) / 255;
-          const g = parseInt(normalized.substring(2, 4), 16) / 255;
-          const b = parseInt(normalized.substring(4, 6), 16) / 255;
-          const L = 0.2126 * r + 0.7152 * g + 0.0722 * b;
-          return L > 0.55 ? '#000000' : '#FFFFFF';
+          // YIQ formula for perceived brightness
+          // Threshold raised from 128 to 150 for better contrast on medium-brightness
+          // colors like orange (#FF7300 has YIQ ~144)
+          const yiq = (r * 299 + g * 587 + b * 114) / 1000;
+          return yiq >= 150 ? '#000000' : '#ffffff';
       }
 
       async function loadBusSVG() {
