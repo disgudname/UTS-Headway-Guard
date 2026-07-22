@@ -37,36 +37,51 @@
   // index page's manifest: Live Map + Dispatch most used, then Replay +
   // TransLōc, then the rest). Home stays first as the universal way back
   // to the hub, ahead of the priority-ranked tools.
+  // tier mirrors the index page's manifest hierarchy (primary = most used,
+  // sized biggest; secondary = also frequent; tertiary = everything else,
+  // smaller and dimmer). chip mirrors the manifest's numbered chips -- Home
+  // is a universal utility link outside that ranking, so it's untiered and
+  // unnumbered. Dispatch/Parking share chip "02" since they're mutually
+  // exclusive (auth-only vs guest-only), same as the index manifest.
   const links = [
     {
       href: '/',
       label: 'Home',
       icon: '/media/home.svg',
       requiresAuth: true,
+      tier: 'tertiary',
     },
     {
       href: '/map',
       label: 'Live Map',
       icon: '/media/map.svg',
       requiresAuth: false,
+      tier: 'primary',
+      chip: '01',
     },
     {
       href: '/dispatcher',
       label: 'Dispatch',
       icon: '/media/dispatcher.svg',
       requiresAuth: true,
+      tier: 'primary',
+      chip: '02',
     },
     {
       href: '/replay',
       label: 'Replay',
       icon: '/media/replay.svg',
       requiresAuth: true,
+      tier: 'secondary',
+      chip: '03',
     },
     {
       href: 'https://uva-uts.transloc.com/secure/dispatch/',
       label: 'TransLōc',
       icon: '/media/transloc.svg',
       requiresAuth: true,
+      tier: 'secondary',
+      chip: '04',
     },
     {
       href: 'https://parking.virginia.edu/',
@@ -74,48 +89,64 @@
       icon: '/media/web.svg',
       requiresAuth: false,
       guestOnly: true,
+      tier: 'primary',
+      chip: '02',
     },
     {
       href: '/headway',
       label: 'Headway',
       icon: '/media/headway.svg',
       requiresAuth: true,
+      tier: 'tertiary',
+      chip: '05',
     },
     {
       href: '/downed',
       label: 'Downed Vehicles',
       icon: '/media/downed.svg',
       requiresAuth: true,
+      tier: 'tertiary',
+      chip: '06',
     },
     {
       href: '/ridership',
       label: 'Ridership',
       icon: '/media/ridership.svg',
       requiresAuth: true,
+      tier: 'tertiary',
+      chip: '07',
     },
     {
       href: '/driver',
       label: 'Driver',
       icon: '/media/driver.svg',
       requiresAuth: true,
+      tier: 'tertiary',
+      chip: '08',
     },
     {
       href: '/system-notices',
       label: 'System Notices',
       icon: '/media/notices.svg',
       requiresAuth: true,
+      tier: 'tertiary',
+      chip: '09',
     },
     {
       href: '/config',
       label: 'Config',
       icon: '/media/config.svg',
       requiresAuth: true,
+      tier: 'tertiary',
+      chip: '10',
     },
     {
       href: '/tools',
       label: 'Tools',
       icon: '/media/tools.svg',
       requiresAuth: true,
+      tier: 'tertiary',
+      chip: '11',
     }
   ];
 
@@ -190,7 +221,28 @@
       text-align:center;
       padding:10px 6px;
       box-sizing:border-box;
+      position:relative;
     }
+    #${NAV_ID} .hg-nav__chip{
+      position:absolute;
+      top:5px;
+      left:8px;
+      font-family:'Luminator' !important;
+      font-size:9px;
+      letter-spacing:0.04em;
+      color:rgba(255,255,255,0.32);
+    }
+    /* Tiered sizing mirrors the index manifest's hierarchy: primary
+       (most used) biggest and brightest, secondary medium, tertiary
+       (everything else, including Home) smallest and dimmest. */
+    #${NAV_ID} .hg-nav__link--primary{
+      background:rgba(229,114,0,0.10);
+      border-color:rgba(229,114,0,0.3);
+    }
+    #${NAV_ID} .hg-nav__link--primary .hg-nav__label{font-weight:700;}
+    #${NAV_ID} .hg-nav__link--secondary .hg-nav__label{font-weight:600;}
+    #${NAV_ID} .hg-nav__link--tertiary .hg-nav__icon-img{width:26px;height:26px;opacity:0.85;}
+    #${NAV_ID} .hg-nav__link--tertiary .hg-nav__label{font-size:11px;font-weight:500;opacity:0.75;}
     #${NAV_ID} .hg-nav__auth{
       flex:0 0 auto;
       color:inherit;
@@ -485,6 +537,15 @@
   links.forEach(link => {
     const anchor = document.createElement('a');
     anchor.href = link.href;
+    anchor.classList.add('hg-nav__link--' + (link.tier || 'tertiary'));
+
+    if (link.chip) {
+      const chip = document.createElement('span');
+      chip.className = 'hg-nav__chip';
+      chip.textContent = link.chip;
+      chip.setAttribute('aria-hidden', 'true');
+      anchor.appendChild(chip);
+    }
 
     const icon = document.createElement('span');
     icon.className = 'hg-nav__icon';
