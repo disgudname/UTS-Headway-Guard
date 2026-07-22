@@ -12414,7 +12414,11 @@ async def radar_wav():
 
 @app.get("/UVATransitShield.png", include_in_schema=False)
 async def uvatransit_shield_icon():
-    return FileResponse(MEDIA_DIR / "UVATransitShield.png", media_type="image/png")
+    return FileResponse(
+        MEDIA_DIR / "UVATransitShield.png",
+        media_type="image/png",
+        headers={"Cache-Control": "no-cache"},
+    )
 
 
 _MEDIA_ASSETS: dict[str, str] = {
@@ -12457,7 +12461,7 @@ async def media_asset(asset_name: str):
     path = MEDIA_DIR / asset_name
     if not path.exists():
         raise HTTPException(status_code=404, detail="Media asset not found")
-    return FileResponse(path, media_type=media_type)
+    return FileResponse(path, media_type=media_type, headers={"Cache-Control": "no-cache"})
 
 
 def _arrival_sound_files(subdir: Optional[str] = None) -> list[str]:
@@ -12729,12 +12733,20 @@ async def landing_page():
 # ---------------------------
 @app.get("/manifest.json")
 async def manifest():
-    return FileResponse(BASE_DIR / "manifest.json", media_type="application/manifest+json")
+    return FileResponse(
+        BASE_DIR / "manifest.json",
+        media_type="application/manifest+json",
+        headers={"Cache-Control": "no-cache"},
+    )
 
 
 @app.get("/service-worker.js")
 async def service_worker():
-    return FileResponse(BASE_DIR / "service-worker.js", media_type="application/javascript")
+    return FileResponse(
+        BASE_DIR / "service-worker.js",
+        media_type="application/javascript",
+        headers={"Cache-Control": "no-cache"},
+    )
 
 
 @app.get("/offline")
