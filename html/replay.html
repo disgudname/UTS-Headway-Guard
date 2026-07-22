@@ -5215,7 +5215,7 @@
       entry.vehicles.forEach(v => {
         activeRoutesSet.add(v.RouteID || 0);
         activeBusesSet.add(v.VehicleID);
-        const busName = v.Name ? v.Name.slice(0, -2) : '';
+        const busName = v.Name || '';
         if (busName) {
           allBuses[v.VehicleID] = busName;
         }
@@ -5238,7 +5238,7 @@
         const routeID = vehicle.RouteID || 0;
         if (!isRouteSelected(routeID) || !isBusSelected(vehicle.VehicleID)) continue;
         seen.add(vehicle.VehicleID);
-        const busName = vehicle.Name ? vehicle.Name.slice(0, -2) : '';
+        const busName = vehicle.Name || '';
         const pos = [vehicle.Latitude, vehicle.Longitude];
         const state = ensureBusMarkerState(vehicle.VehicleID);
         const routeColor = getRouteColor(routeID) || outOfServiceRouteColor;
