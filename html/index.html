@@ -40,13 +40,26 @@
   header::after{content:"";display:block;width:80px;height:4px;background:var(--accent);border-radius:999px;}
   .title-logo{width:100%;max-width:340px;height:auto;display:block;filter:drop-shadow(0 4px 10px rgba(0,0,0,0.3));}
   .main-content{width:100%;max-width:760px;display:flex;flex-direction:column;align-items:stretch;}
-  .container{display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:24px;width:100%;}
-  .card{border-radius:18px;background:var(--panel);border:1px solid var(--panel-border);box-shadow:0 18px 35px rgba(0,0,0,0.25);display:flex;flex-direction:column;align-items:center;justify-content:center;text-decoration:none;color:var(--ink);position:relative;overflow:hidden;padding:26px 12px;transition:transform 0.2s ease,box-shadow 0.2s ease,border-color 0.2s ease;backdrop-filter:blur(8px);}
-  .card::before{content:"";position:absolute;inset:auto auto 0 0;height:4px;width:100%;background:linear-gradient(90deg,rgba(229,114,0,0.8),rgba(229,114,0,0));opacity:0;transition:opacity 0.2s ease;}
-  .card:hover{transform:translateY(-6px);box-shadow:0 24px 45px rgba(0,0,0,0.35);border-color:rgba(229,114,0,0.7);}
-  .card:hover::before{opacity:1;}
-  .card .card__icon{width:64px;height:64px;margin-bottom:12px;display:block;filter:drop-shadow(0 6px 8px rgba(0,0,0,0.35));}
-  .card div{font-size:17px;letter-spacing:0.02em;}
+  .tile{border-radius:18px;background:var(--panel);border:1px solid var(--panel-border);box-shadow:0 18px 35px rgba(0,0,0,0.25);display:flex;flex-direction:column;align-items:center;justify-content:center;text-decoration:none;color:var(--ink);position:relative;overflow:hidden;transition:transform 0.2s ease,box-shadow 0.2s ease,border-color 0.2s ease;backdrop-filter:blur(8px);}
+  .tile::before{content:"";position:absolute;inset:auto auto 0 0;height:4px;width:100%;background:linear-gradient(90deg,rgba(229,114,0,0.8),rgba(229,114,0,0));opacity:0;transition:opacity 0.2s ease;}
+  .tile:hover{transform:translateY(-6px);box-shadow:0 24px 45px rgba(0,0,0,0.35);border-color:rgba(229,114,0,0.7);}
+  .tile:hover::before{opacity:1;}
+  .tile__icon{display:block;filter:drop-shadow(0 6px 8px rgba(0,0,0,0.35));}
+  .tile__label{text-align:center;letter-spacing:0.02em;}
+  .tools-primary{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,260px));justify-content:center;gap:20px;width:100%;margin-bottom:20px;}
+  .tools-primary .tile{padding:34px 20px;}
+  .tools-primary .tile__icon{width:68px;height:68px;margin-bottom:14px;}
+  .tools-primary .tile__label{font-size:20px;font-weight:700;}
+  .tools-secondary{display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,200px));justify-content:center;gap:16px;width:100%;margin-bottom:28px;}
+  .tools-secondary .tile{padding:22px 16px;}
+  .tools-secondary .tile__icon{width:46px;height:46px;margin-bottom:10px;}
+  .tools-secondary .tile__label{font-size:16px;font-weight:600;}
+  .tools-more__label{font-size:12px;text-transform:uppercase;letter-spacing:0.1em;color:var(--muted);margin-bottom:10px;text-align:center;}
+  .tools-more__grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(104px,130px));justify-content:center;gap:10px;width:100%;}
+  .tools-more__grid .tile{padding:14px 8px;border-radius:14px;}
+  .tools-more__grid .tile__icon{width:28px;height:28px;margin-bottom:6px;opacity:0.9;}
+  .tools-more__grid .tile__label{font-size:12px;font-weight:500;opacity:0.85;}
+  [data-tier].is-empty{display:none;}
   .auth-container{position:fixed;top:16px;left:20px;right:20px;display:flex;flex-direction:column;align-items:flex-end;gap:6px;z-index:10;}
   .auth-row{display:flex;justify-content:space-between;width:100%;}
   .auth-button{background:rgba(17,22,42,0.6);border:1px solid rgba(229,114,0,0.6);border-radius:999px;padding:7px 18px;color:var(--ink);font:inherit;font-size:14px;cursor:pointer;transition:background 0.2s ease,border-color 0.2s ease,box-shadow 0.2s ease;box-shadow:0 8px 16px rgba(0,0,0,0.25);white-space:nowrap;}
@@ -62,7 +75,10 @@
     .auth-row{justify-content:center;gap:12px;}
     header{margin-bottom:24px;}
     .main-content{max-width:420px;}
-    .container{grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:16px;}
+    .tools-primary{grid-template-columns:minmax(0,340px);gap:14px;margin-bottom:14px;}
+    .tools-primary .tile{padding:26px 16px;}
+    .tools-secondary{grid-template-columns:repeat(2,minmax(0,200px));gap:12px;margin-bottom:20px;}
+    .tools-more__grid{grid-template-columns:repeat(3,minmax(0,130px));}
     .credit{position:static;margin-top:32px;text-align:center;}
   }
   /* System Notices */
@@ -121,55 +137,62 @@
 <div class="main-content">
 <div class="system-notices" id="system-notices"></div>
 <div class="service-alerts" id="service-alerts"></div>
-<div class="container">
-  <a class="card" href="https://uva-uts.transloc.com/secure/dispatch/" target="_blank" rel="noopener" data-requires-auth>
-    <img src="/media/transloc.svg" alt="" class="card__icon" />
-    <div>TransLōc</div>
+<div class="tools-primary" data-tier>
+  <a class="tile" href="/map">
+    <img src="/media/map.svg" alt="" class="tile__icon" />
+    <div class="tile__label">Live Map</div>
   </a>
-  <a class="card" href="/map">
-    <img src="/media/map.svg" alt="" class="card__icon" />
-    <div>Live Map</div>
+  <a class="tile" href="/dispatcher" data-requires-auth>
+    <img src="/media/dispatcher.svg" alt="" class="tile__icon" />
+    <div class="tile__label">Dispatch</div>
   </a>
-  <a class="card" href="/dispatcher" data-requires-auth>
-    <img src="/media/dispatcher.svg" alt="" class="card__icon" />
-    <div>Dispatch</div>
+  <a class="tile" href="https://parking.virginia.edu/" target="_blank" rel="noopener" data-guest-only>
+    <img src="/media/web.svg" alt="" class="tile__icon" />
+    <div class="tile__label">Parking & Transportation</div>
   </a>
-  <a class="card" href="/system-notices" data-requires-auth>
-    <img src="/media/notices.svg" alt="" class="card__icon" />
-    <div>System Notices</div>
+</div>
+<div class="tools-secondary" data-tier>
+  <a class="tile" href="/replay" data-requires-auth>
+    <img src="/media/replay.svg" alt="" class="tile__icon" />
+    <div class="tile__label">Replay</div>
   </a>
-  <a class="card" href="/replay" data-requires-auth>
-    <img src="/media/replay.svg" alt="" class="card__icon" />
-    <div>Replay</div>
+  <a class="tile" href="https://uva-uts.transloc.com/secure/dispatch/" target="_blank" rel="noopener" data-requires-auth>
+    <img src="/media/transloc.svg" alt="" class="tile__icon" />
+    <div class="tile__label">TransLōc</div>
   </a>
-  <a class="card" href="/ridership" data-requires-auth>
-    <img src="/media/ridership.svg" alt="" class="card__icon" />
-    <div>Ridership</div>
-  </a>
-  <a class="card" href="https://parking.virginia.edu/" target="_blank" rel="noopener" data-guest-only>
-    <img src="/media/web.svg" alt="" class="card__icon" />
-    <div>Parking & Transportation</div>
-  </a>
-  <a class="card" href="/headway" data-requires-auth>
-    <img src="/media/headway.svg" alt="" class="card__icon" />
-    <div>Headway</div>
-  </a>
-  <a class="card" href="/downed" data-requires-auth>
-    <img src="/media/downed.svg" alt="" class="card__icon" />
-    <div>Downed Vehicles</div>
-  </a>
-  <a class="card" href="/driver" data-requires-auth>
-    <img src="/media/driver.svg" alt="" class="card__icon" />
-    <div>Driver</div>
-  </a>
-  <a class="card" href="/config" data-requires-auth>
-    <img src="/media/config.svg" alt="" class="card__icon" />
-    <div>Config</div>
-  </a>
-  <a class="card" href="/tools" data-requires-auth>
-    <img src="/media/tools.svg" alt="" class="card__icon" />
-    <div>Tools</div>
-  </a>
+</div>
+<div class="tools-more" data-tier>
+  <div class="tools-more__label">More Tools</div>
+  <div class="tools-more__grid">
+    <a class="tile" href="/headway" data-requires-auth>
+      <img src="/media/headway.svg" alt="" class="tile__icon" />
+      <div class="tile__label">Headway</div>
+    </a>
+    <a class="tile" href="/downed" data-requires-auth>
+      <img src="/media/downed.svg" alt="" class="tile__icon" />
+      <div class="tile__label">Downed Vehicles</div>
+    </a>
+    <a class="tile" href="/ridership" data-requires-auth>
+      <img src="/media/ridership.svg" alt="" class="tile__icon" />
+      <div class="tile__label">Ridership</div>
+    </a>
+    <a class="tile" href="/driver" data-requires-auth>
+      <img src="/media/driver.svg" alt="" class="tile__icon" />
+      <div class="tile__label">Driver</div>
+    </a>
+    <a class="tile" href="/system-notices" data-requires-auth>
+      <img src="/media/notices.svg" alt="" class="tile__icon" />
+      <div class="tile__label">System Notices</div>
+    </a>
+    <a class="tile" href="/config" data-requires-auth>
+      <img src="/media/config.svg" alt="" class="tile__icon" />
+      <div class="tile__label">Config</div>
+    </a>
+    <a class="tile" href="/tools" data-requires-auth>
+      <img src="/media/tools.svg" alt="" class="tile__icon" />
+      <div class="tile__label">Tools</div>
+    </a>
+  </div>
 </div>
 </div>
 <div class="credit">proof of concept created by pat cox • phc6j@virginia.edu</div>
@@ -209,6 +232,10 @@
           element.removeAttribute('aria-hidden');
           element.style.removeProperty('display');
         }
+      });
+      document.querySelectorAll('[data-tier]').forEach((tier) => {
+        const hasVisibleTile = Array.from(tier.querySelectorAll('.tile')).some((tile) => !tile.hidden);
+        tier.classList.toggle('is-empty', !hasVisibleTile);
       });
     };
 
