@@ -25,6 +25,7 @@ kill_timeout = "5s"
   PORT = "8080"
   DATA_DIRS = "/data"
   VEH_LOG_DIRS = "/data/vehicle_logs"
+  VEH_LOG_RETENTION_MS = "2419200000"  # 28 days
   SYNC_PEERS = ""
 
 [http_service]
