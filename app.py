@@ -616,17 +616,53 @@ def _notice_target_stop_ids(notice: Dict[str, Any]) -> List[str]:
         return [str(s).strip() for s in raw if str(s).strip()]
     return []
 
+def _notice_target_route_ids(notice: Dict[str, Any]) -> List[str]:
+    raw = notice.get("target_route_ids")
+    if isinstance(raw, list):
+        return [str(r).strip() for r in raw if str(r).strip()]
+    return []
+
+def _route_ids_serving_stops(stop_ids: Sequence[str]) -> Set[str]:
+    """RouteIDs (as strings) of every UTS/TransLoc route serving any of the given stop
+    IDs, per the current cached state.stops (see _build_transloc_stops, which stamps
+    each stop with a "RouteIds" list via _route_membership_from_routes). Used to resolve
+    a notice's target_route_ids against whatever stops a feed/page is actually asking
+    about, so a dispatcher can flag an entire route (e.g. a detour affecting every stop
+    on the Gold Line) without enumerating each stop individually. CAT stops never carry
+    RouteIds here (CAT patterns aren't loaded into state.stops), so route-scoped notices
+    only ever match UTS routes.
+    """
+    wanted = {str(s) for s in stop_ids}
+    if not wanted:
+        return set()
+    result: Set[str] = set()
+    for stop in getattr(state, "stops", None) or []:
+        sid = stop.get("StopID") or stop.get("StopId")
+        if sid is None or str(sid) not in wanted:
+            continue
+        for rid in stop.get("RouteIds") or []:
+            result.add(str(rid))
+    return result
+
 def _notice_applies_to_stops(notice: Dict[str, Any], stop_ids: Sequence[str]) -> bool:
     """Whether a notice targets any of the given TransLoc stop IDs.
 
     scope "all" always applies (system-wide interruption); scope "stops" only applies
     if one of the notice's target_stop_ids overlaps the given stop_ids (a detour or
-    closure affecting specific stops).
+    closure affecting specific stops); scope "route" applies if one of the notice's
+    target_route_ids is served by any of the given stop_ids (see _route_ids_serving_stops)
+    -- lets a dispatcher flag an entire route without enumerating every stop it serves.
     """
-    if (notice.get("target_scope") or "all") != "stops":
-        return True
-    targets = set(_notice_target_stop_ids(notice))
-    return any(str(sid) in targets for sid in stop_ids)
+    scope = notice.get("target_scope") or "all"
+    if scope == "stops":
+        targets = set(_notice_target_stop_ids(notice))
+        return any(str(sid) in targets for sid in stop_ids)
+    if scope == "route":
+        targets = set(_notice_target_route_ids(notice))
+        if not targets:
+            return False
+        return bool(targets & _route_ids_serving_stops(stop_ids))
+    return True
 
 def _get_active_system_notices(
     include_auth_only: bool = False,
@@ -6449,6 +6485,44 @@ async def routes_all():
                 items.append({"id": rid, "name": name, "active": (rid in actives)})
         items.sort(key=lambda x: str(x["name"]))
         return {"routes": items}
+
+
+@app.get("/v1/stops_all")
+async def stops_all():
+    """Combined UTS (TransLoc) + CAT stop directory: [{id, name, source}], deduped by
+    stop ID. Backs searchable-by-name stop pickers in admin UIs (e.g. /system-notices)
+    so staff can type "West Complex" instead of already knowing a raw stop ID."""
+    async with state.lock:
+        uts_stops = list(state.stops or [])
+    items: List[Dict[str, Any]] = []
+    seen: Set[str] = set()
+    for s in uts_stops:
+        sid = s.get("StopID") or s.get("StopId")
+        if sid is None:
+            continue
+        sid = str(sid)
+        if sid in seen:
+            continue
+        seen.add(sid)
+        name = s.get("Name") or s.get("Description") or f"Stop {sid}"
+        items.append({"id": sid, "name": name, "source": "uts"})
+    try:
+        cat_stops = await _get_cat_stops()
+    except Exception as exc:
+        print(f"[stops_all] failed to fetch CAT stops: {exc}")
+        cat_stops = []
+    for s in cat_stops:
+        sid = s.get("StopID")
+        if sid is None:
+            continue
+        sid = str(sid)
+        if sid in seen:
+            continue
+        seen.add(sid)
+        name = s.get("StopName") or f"Stop {sid}"
+        items.append({"id": sid, "name": name, "source": "cat"})
+    items.sort(key=lambda x: str(x["name"]))
+    return {"stops": items}
 
 @app.get("/v1/routes/{route_id}")
 async def route_info(route_id: int):
@@ -14211,24 +14285,42 @@ async def get_system_notices(request: Request, all: bool = Query(False)):
     return {"notices": _get_active_system_notices(include_auth_only=is_authed)}
 
 
-def _parse_target_fields(body: Dict[str, Any]) -> Tuple[str, List[str]]:
-    """Parse target_scope/target_stop_ids from a request body.
+def _parse_target_fields(body: Dict[str, Any]) -> Tuple[str, List[str], List[str]]:
+    """Parse target_scope/target_stop_ids/target_route_ids from a request body.
 
-    Falls back to "all" if scope is "stops" but no stop IDs were given, since an
-    unresolvable "specific stops" target would silently show the notice nowhere.
+    Falls back to "all" if scope is "stops"/"route" but no IDs of the matching kind
+    were given, since an unresolvable target would silently show the notice nowhere.
     """
     scope = body.get("target_scope") or "all"
-    raw_ids = body.get("target_stop_ids")
-    if isinstance(raw_ids, list):
-        stop_ids = [str(s).strip() for s in raw_ids if str(s).strip()]
-    elif raw_ids:
-        stop_ids = [s.strip() for s in str(raw_ids).split(",") if s.strip()]
+
+    raw_stop_ids = body.get("target_stop_ids")
+    if isinstance(raw_stop_ids, list):
+        stop_ids = [str(s).strip() for s in raw_stop_ids if str(s).strip()]
+    elif raw_stop_ids:
+        stop_ids = [s.strip() for s in str(raw_stop_ids).split(",") if s.strip()]
     else:
         stop_ids = []
-    if scope != "stops" or not stop_ids:
+
+    raw_route_ids = body.get("target_route_ids")
+    if isinstance(raw_route_ids, list):
+        route_ids = [str(r).strip() for r in raw_route_ids if str(r).strip()]
+    elif raw_route_ids:
+        route_ids = [r.strip() for r in str(raw_route_ids).split(",") if r.strip()]
+    else:
+        route_ids = []
+
+    if scope not in ("all", "stops", "route"):
         scope = "all"
+    if scope == "stops" and not stop_ids:
+        scope = "all"
+    if scope == "route" and not route_ids:
+        scope = "all"
+    if scope != "stops":
         stop_ids = []
-    return scope, stop_ids
+    if scope != "route":
+        route_ids = []
+
+    return scope, stop_ids, route_ids
 
 
 @app.post("/v1/system-notices")
@@ -14236,7 +14328,7 @@ async def create_system_notice(request: Request):
     """Create a new system notice. Requires auth."""
     _require_dispatcher_access(request)
     body = await request.json()
-    target_scope, target_stop_ids = _parse_target_fields(body)
+    target_scope, target_stop_ids, target_route_ids = _parse_target_fields(body)
     notice = {
         "id": str(uuid.uuid4()),
         "message": body.get("message", "").strip(),
@@ -14245,8 +14337,9 @@ async def create_system_notice(request: Request):
         "start_time": body.get("start_time"),  # ISO8601 string or null
         "end_time": body.get("end_time"),  # ISO8601 string or null
         "auth_only": bool(body.get("auth_only", False)),
-        "target_scope": target_scope,  # "all" or "stops"
+        "target_scope": target_scope,  # "all", "stops", or "route"
         "target_stop_ids": target_stop_ids,  # TransLoc stop IDs, only used when scope is "stops"
+        "target_route_ids": target_route_ids,  # TransLoc route IDs, only used when scope is "route"
         "created_at": datetime.now(timezone.utc).isoformat(),
     }
     if not notice["message"]:
@@ -14280,13 +14373,15 @@ async def update_system_notice(request: Request, notice_id: str):
                 notices[i]["end_time"] = body["end_time"]
             if "auth_only" in body:
                 notices[i]["auth_only"] = bool(body["auth_only"])
-            if "target_scope" in body or "target_stop_ids" in body:
-                target_scope, target_stop_ids = _parse_target_fields({
+            if "target_scope" in body or "target_stop_ids" in body or "target_route_ids" in body:
+                target_scope, target_stop_ids, target_route_ids = _parse_target_fields({
                     "target_scope": body.get("target_scope", notices[i].get("target_scope")),
                     "target_stop_ids": body.get("target_stop_ids", notices[i].get("target_stop_ids")),
+                    "target_route_ids": body.get("target_route_ids", notices[i].get("target_route_ids")),
                 })
                 notices[i]["target_scope"] = target_scope
                 notices[i]["target_stop_ids"] = target_stop_ids
+                notices[i]["target_route_ids"] = target_route_ids
             notices[i]["updated_at"] = datetime.now(timezone.utc).isoformat()
             _save_system_notices(notices)
             return {"notice": notices[i]}

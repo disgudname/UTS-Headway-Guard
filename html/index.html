@@ -746,9 +746,13 @@
         const collapsedClass = isCollapsed ? 'is-collapsed' : '';
         const staffBadge = n.auth_only ? '<span class="alert-row__badge">STAFF ONLY</span>' : '';
         const targetIds = Array.isArray(n.target_stop_ids) ? n.target_stop_ids : [];
-        const targetBadge = (n.target_scope === 'stops' && targetIds.length)
-          ? `<span class="alert-row__badge">Stops: ${escapeHtml(targetIds.join(', '))}</span>`
-          : '';
+        const targetRouteIds = Array.isArray(n.target_route_ids) ? n.target_route_ids : [];
+        let targetBadge = '';
+        if(n.target_scope === 'stops' && targetIds.length){
+          targetBadge = `<span class="alert-row__badge">Stops: ${escapeHtml(targetIds.join(', '))}</span>`;
+        }else if(n.target_scope === 'route' && targetRouteIds.length){
+          targetBadge = `<span class="alert-row__badge">Route-specific</span>`;
+        }
         return `
           <div class="alert-row alert-row--notice-${sev}" data-notice-id="${id}">
             <div class="alert-row__header ${collapsedClass}" onclick="window._toggleSystemNotice('${id}')">

@@ -25,6 +25,12 @@ button{margin-top:12px;padding:10px 14px;border-radius:6px;border:1px solid #2a3
 #preview-controls{margin-top:0.6rem;display:flex;align-items:center;gap:0.5rem;flex-wrap:wrap;}
 #preview-style{font-size:0.9rem;padding:3px 6px;border-radius:4px;border:1px solid #2a3442;background:#10151c;color:#e8eef5;width:auto;}
 #preview-status{color:#9fb0c9;font-size:0.85rem;font-style:italic;}
+
+/* Searchable stop picker */
+.stop-suggestion{padding:6px 8px;cursor:pointer;font-size:13px;}
+.stop-suggestion:hover,.stop-suggestion.is-active{background:#1b2735;}
+.stop-chip{background:#15202b;border:1px solid #2a3442;border-radius:12px;padding:4px 10px;font-size:12px;display:inline-flex;align-items:center;gap:6px;}
+.stop-chip button{margin:0;padding:0;background:none;border:none;color:#ff6b6b;cursor:pointer;font-size:14px;line-height:1;}
 </style>
 <h1>System Notices</h1>
 <p style="color:#9fb0c9;">Create notices to display on the home page, and optionally in the RSS/CAP arrival signage feeds. Set time windows, visibility, and which stops they apply to.</p>
@@ -82,10 +88,19 @@ button{margin-top:12px;padding:10px 14px;border-radius:6px;border:1px solid #2a3
         <select id="noticeTargetScope" style="width:100%;padding:6px;border-radius:4px;border:1px solid #2a3442;background:#10151c;color:#e8eef5;">
           <option value="all">All stops (system-wide)</option>
           <option value="stops">Specific stops</option>
+          <option value="route">Specific route(s)</option>
         </select>
       </label>
-      <label id="noticeTargetStopIdsLabel" style="display:none;">Target Stop IDs
-        <input type="text" id="noticeTargetStopIds" placeholder="e.g. 26, 40, 113">
+      <label id="noticeTargetStopIdsLabel" style="display:none;">Target Stops
+        <div style="position:relative;">
+          <input type="text" id="noticeStopSearch" placeholder="Start typing a stop name..." autocomplete="off">
+          <div id="noticeStopSuggestions" style="display:none;position:absolute;top:100%;left:0;right:0;z-index:20;background:#10151c;border:1px solid #2a3442;border-radius:4px;max-height:220px;overflow-y:auto;margin-top:2px;"></div>
+        </div>
+        <div id="noticeStopChips" style="display:flex;flex-wrap:wrap;gap:6px;margin-top:8px;"></div>
+      </label>
+      <label id="noticeTargetRouteIdsLabel" style="display:none;">Target Route(s)
+        <select id="noticeTargetRouteIds" multiple size="6" style="width:100%;padding:6px;border-radius:4px;border:1px solid #2a3442;background:#10151c;color:#e8eef5;"></select>
+        <span style="font-size:11px;color:#9fb0c9;">Ctrl/Cmd-click to select multiple. Applies everywhere the selected route(s) stop, no need to list stops individually.</span>
       </label>
     </div>
     <div style="display:flex;gap:8px;margin-top:12px;">
@@ -361,18 +376,143 @@ const noticeAuthOnly=document.getElementById('noticeAuthOnly');
 const noticeStartTime=document.getElementById('noticeStartTime');
 const noticeEndTime=document.getElementById('noticeEndTime');
 const noticeTargetScope=document.getElementById('noticeTargetScope');
-const noticeTargetStopIds=document.getElementById('noticeTargetStopIds');
 const noticeTargetStopIdsLabel=document.getElementById('noticeTargetStopIdsLabel');
+const noticeStopSearch=document.getElementById('noticeStopSearch');
+const noticeStopSuggestions=document.getElementById('noticeStopSuggestions');
+const noticeStopChips=document.getElementById('noticeStopChips');
+const noticeTargetRouteIds=document.getElementById('noticeTargetRouteIds');
+const noticeTargetRouteIdsLabel=document.getElementById('noticeTargetRouteIdsLabel');
 const addNoticeBtn=document.getElementById('addNoticeBtn');
 const cancelEditBtn=document.getElementById('cancelEditBtn');
 
+// Route id -> display name, used both to populate the route picker and to render
+// human-readable route names (instead of raw IDs) in the notice list below.
+let routeNamesById = {};
+
+async function loadRouteOptions(){
+  if(!noticeTargetRouteIds) return;
+  try{
+    const resp = await fetch('/v1/routes_all', {cache:'no-store'});
+    if(!resp.ok) throw new Error('Failed to load routes');
+    const data = await resp.json();
+    const routes = Array.isArray(data.routes) ? data.routes : [];
+    routes.sort((a,b) => String(a.name).localeCompare(String(b.name)));
+    routeNamesById = {};
+    noticeTargetRouteIds.innerHTML = routes.map(r => {
+      routeNamesById[String(r.id)] = r.name;
+      const label = r.active ? r.name : `${r.name} (inactive)`;
+      return `<option value="${escapeHtml(String(r.id))}">${escapeHtml(label)}</option>`;
+    }).join('');
+    // Route names may have still been loading when notices first rendered (raw IDs
+    // shown as a "#id" fallback in that case) -- re-render now that names are known.
+    if(cachedNotices.length) renderNotices(cachedNotices);
+  }catch(err){
+    console.error('Failed to load route options', err);
+  }
+}
+
+// Stop id -> display name, populated from the combined UTS+CAT directory so admins can
+// search stops by name ("West Complex") instead of needing to already know a raw stop ID.
+let stopDirectory = [];
+let stopNamesById = {};
+let selectedStopIds = [];
+
+async function loadStopDirectory(){
+  try{
+    const resp = await fetch('/v1/stops_all', {cache:'no-store'});
+    if(!resp.ok) throw new Error('Failed to load stops');
+    const data = await resp.json();
+    stopDirectory = Array.isArray(data.stops) ? data.stops : [];
+    stopNamesById = {};
+    stopDirectory.forEach(s => { stopNamesById[String(s.id)] = s.name; });
+    renderStopChips();
+    if(cachedNotices.length) renderNotices(cachedNotices);
+  }catch(err){
+    console.error('Failed to load stop directory', err);
+  }
+}
+
+function renderStopChips(){
+  if(!noticeStopChips) return;
+  if(!selectedStopIds.length){
+    noticeStopChips.innerHTML = '<span style="color:#9fb0c9;font-size:12px;">No stops selected yet.</span>';
+    return;
+  }
+  noticeStopChips.innerHTML = selectedStopIds.map(id => {
+    const name = stopNamesById[id] || `Stop ${id}`;
+    return `<span class="stop-chip">${escapeHtml(name)}<button type="button" data-remove-stop="${escapeHtml(id)}" title="Remove">&times;</button></span>`;
+  }).join('');
+  noticeStopChips.querySelectorAll('[data-remove-stop]').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const id = btn.getAttribute('data-remove-stop');
+      selectedStopIds = selectedStopIds.filter(x => x !== id);
+      renderStopChips();
+    });
+  });
+}
+
+function selectStop(id){
+  id = String(id);
+  if(!selectedStopIds.includes(id)) selectedStopIds.push(id);
+  renderStopChips();
+  if(noticeStopSearch) noticeStopSearch.value = '';
+  hideStopSuggestions();
+}
+
+function hideStopSuggestions(){
+  if(noticeStopSuggestions){ noticeStopSuggestions.style.display = 'none'; noticeStopSuggestions.innerHTML = ''; }
+}
+
+function renderStopSuggestions(query){
+  if(!noticeStopSuggestions) return;
+  const q = query.trim().toLowerCase();
+  if(!q){ hideStopSuggestions(); return; }
+  const matches = stopDirectory
+    .filter(s => !selectedStopIds.includes(String(s.id)))
+    .filter(s => String(s.name).toLowerCase().includes(q) || String(s.id).toLowerCase().includes(q))
+    .slice(0, 8);
+  if(!matches.length){
+    noticeStopSuggestions.innerHTML = '<div style="padding:6px 8px;color:#9fb0c9;font-size:12px;">No matching stops</div>';
+    noticeStopSuggestions.style.display = 'block';
+    return;
+  }
+  noticeStopSuggestions.innerHTML = matches.map(s =>
+    `<div class="stop-suggestion" data-stop-id="${escapeHtml(String(s.id))}">${escapeHtml(s.name)}${s.source==='cat' ? ' <span style="color:#9fb0c9;font-size:11px;">(CAT)</span>' : ''}</div>`
+  ).join('');
+  noticeStopSuggestions.style.display = 'block';
+  noticeStopSuggestions.querySelectorAll('[data-stop-id]').forEach(el => {
+    el.addEventListener('mousedown', (e) => {
+      e.preventDefault();
+      selectStop(el.getAttribute('data-stop-id'));
+    });
+  });
+}
+
+if(noticeStopSearch){
+  noticeStopSearch.addEventListener('input', () => renderStopSuggestions(noticeStopSearch.value));
+  noticeStopSearch.addEventListener('focus', () => renderStopSuggestions(noticeStopSearch.value));
+  noticeStopSearch.addEventListener('blur', () => setTimeout(hideStopSuggestions, 150));
+  noticeStopSearch.addEventListener('keydown', (e) => {
+    if(e.key === 'Enter'){
+      e.preventDefault();
+      const first = noticeStopSuggestions?.querySelector('[data-stop-id]');
+      if(first) selectStop(first.getAttribute('data-stop-id'));
+    }
+  });
+}
+
 function updateTargetStopIdsVisibility(){
-  if(noticeTargetStopIdsLabel) noticeTargetStopIdsLabel.style.display = (noticeTargetScope?.value==='stops') ? 'block' : 'none';
+  const scope = noticeTargetScope?.value;
+  if(noticeTargetStopIdsLabel) noticeTargetStopIdsLabel.style.display = (scope==='stops') ? 'block' : 'none';
+  if(noticeTargetRouteIdsLabel) noticeTargetRouteIdsLabel.style.display = (scope==='route') ? 'block' : 'none';
 }
 if(noticeTargetScope){
   noticeTargetScope.addEventListener('change', updateTargetStopIdsVisibility);
   updateTargetStopIdsVisibility();
 }
+loadRouteOptions();
+loadStopDirectory();
+renderStopChips();
 
 // Basic LED signage hardware can't reliably render Unicode (emoji, smart quotes, em/en
 // dashes, accented characters) - strip anything outside plain printable ASCII as it's typed,
@@ -423,7 +563,15 @@ function renderNotices(notices){
     const statusBadge=isActive?'<span style="background:#4ecdc4;color:#000;padding:2px 6px;border-radius:4px;font-size:11px;margin-left:8px;">ACTIVE</span>':'<span style="background:#666;color:#fff;padding:2px 6px;border-radius:4px;font-size:11px;margin-left:8px;">INACTIVE</span>';
     const authBadge=n.auth_only?'<span style="background:#3a8ef6;color:#fff;padding:2px 6px;border-radius:4px;font-size:11px;margin-left:4px;">STAFF ONLY</span>':'';
     const targetIds=Array.isArray(n.target_stop_ids)?n.target_stop_ids:[];
-    const targetLabel=(n.target_scope==='stops'&&targetIds.length)?`Stops: ${targetIds.join(', ')}`:'All stops';
+    const targetRouteIds=Array.isArray(n.target_route_ids)?n.target_route_ids:[];
+    let targetLabel='All stops';
+    if(n.target_scope==='stops'&&targetIds.length){
+      const stopNames=targetIds.map(id=>stopNamesById[String(id)]||`Stop ${id}`);
+      targetLabel=`Stops: ${stopNames.join(', ')}`;
+    }else if(n.target_scope==='route'&&targetRouteIds.length){
+      const names=targetRouteIds.map(id=>routeNamesById[String(id)]||`#${id}`);
+      targetLabel=`Route(s): ${names.join(', ')}`;
+    }
     const shortMsg=(n.short_message||'').trim();
     return `
       <div style="border:1px solid #2a3442;border-radius:6px;padding:12px;margin-bottom:8px;border-left:4px solid ${severityColor(n.severity)};" data-notice-id="${n.id}">
@@ -474,8 +622,15 @@ function editNotice(id){
   if(noticeAuthOnly) noticeAuthOnly.checked = Boolean(notice.auth_only);
   if(noticeStartTime) noticeStartTime.value = toLocalDatetimeValue(notice.start_time);
   if(noticeEndTime) noticeEndTime.value = toLocalDatetimeValue(notice.end_time);
-  if(noticeTargetScope) noticeTargetScope.value = notice.target_scope === 'stops' ? 'stops' : 'all';
-  if(noticeTargetStopIds) noticeTargetStopIds.value = Array.isArray(notice.target_stop_ids) ? notice.target_stop_ids.join(', ') : '';
+  const scope = (notice.target_scope === 'stops' || notice.target_scope === 'route') ? notice.target_scope : 'all';
+  if(noticeTargetScope) noticeTargetScope.value = scope;
+  selectedStopIds = (Array.isArray(notice.target_stop_ids) ? notice.target_stop_ids : []).map(String);
+  renderStopChips();
+  if(noticeStopSearch) noticeStopSearch.value = '';
+  if(noticeTargetRouteIds){
+    const selected = new Set((Array.isArray(notice.target_route_ids) ? notice.target_route_ids : []).map(String));
+    Array.from(noticeTargetRouteIds.options).forEach(opt => { opt.selected = selected.has(opt.value); });
+  }
   updateTargetStopIdsVisibility();
   if(addNoticeBtn) addNoticeBtn.textContent = 'Update Notice';
   if(cancelEditBtn) cancelEditBtn.style.display = 'inline-block';
@@ -493,7 +648,11 @@ function cancelEdit(){
   if(noticeStartTime) noticeStartTime.value = '';
   if(noticeEndTime) noticeEndTime.value = '';
   if(noticeTargetScope) noticeTargetScope.value = 'all';
-  if(noticeTargetStopIds) noticeTargetStopIds.value = '';
+  selectedStopIds = [];
+  renderStopChips();
+  if(noticeStopSearch) noticeStopSearch.value = '';
+  hideStopSuggestions();
+  if(noticeTargetRouteIds) Array.from(noticeTargetRouteIds.options).forEach(opt => { opt.selected = false; });
   updateTargetStopIdsVisibility();
   if(addNoticeBtn) addNoticeBtn.textContent = 'Add Notice';
   if(cancelEditBtn) cancelEditBtn.style.display = 'none';
@@ -557,7 +716,8 @@ if(addNoticeBtn){
       start_time:noticeStartTime?.value?new Date(noticeStartTime.value).toISOString():null,
       end_time:noticeEndTime?.value?new Date(noticeEndTime.value).toISOString():null,
       target_scope:noticeTargetScope?.value||'all',
-      target_stop_ids:(noticeTargetStopIds?.value||'').split(',').map(s=>s.trim()).filter(Boolean)
+      target_stop_ids:selectedStopIds.slice(),
+      target_route_ids:noticeTargetRouteIds ? Array.from(noticeTargetRouteIds.selectedOptions).map(o=>o.value) : []
     };
     const isEditing = Boolean(editingNoticeId);
     addNoticeBtn.disabled=true;
