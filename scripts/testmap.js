@@ -14623,6 +14623,28 @@ TM.registerVisibilityResumeHandler(() => {
                       currentStopPopupConfig = config;
                   }
               }
+
+              if (catOverlayEnabled) {
+                  const stopEntries = Array.isArray(config.stopEntries) ? config.stopEntries : [];
+                  const hasBusStopData = stopEntries.some(entry => !Array.isArray(entry?.onDemandStops) || entry.onDemandStops.length === 0);
+                  if (hasBusStopData) {
+                      const catStopIdsToFetch = new Set();
+                      stopEntries.forEach(entry => {
+                          if (!entry || !Array.isArray(entry.catStopIds)) {
+                              return;
+                          }
+                          entry.catStopIds.forEach(value => {
+                              const key = catStopKey(value);
+                              if (key) {
+                                  catStopIdsToFetch.add(key);
+                              }
+                          });
+                      });
+                      if (catStopIdsToFetch.size > 0) {
+                          ensureCatStopEtas(Array.from(catStopIdsToFetch));
+                      }
+                  }
+              }
               return;
           }
           
