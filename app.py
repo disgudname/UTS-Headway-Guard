@@ -6490,14 +6490,31 @@ async def routes_all():
 @app.get("/v1/stops_all")
 async def stops_all():
     """Combined UTS (TransLoc) + CAT stop directory: [{id, name, source}], deduped by
-    stop ID. Backs searchable-by-name stop pickers in admin UIs (e.g. /system-notices)
-    so staff can type "West Complex" instead of already knowing a raw stop ID."""
+    physical stop. Backs searchable-by-name stop pickers in admin UIs (e.g.
+    /system-notices) so staff can type "West Complex" instead of already knowing a raw
+    stop ID.
+
+    For UTS, state.stops entries come from each route's own Stops[] list
+    (GetRoutesForMapWithScheduleWithEncodedLine), which only carries a per-route
+    RouteStopID -- not a real cross-route StopID -- so _build_transloc_stops falls back
+    to keying those entries by RouteStopID. A physical stop served by N routes therefore
+    shows up as N distinct same-named entries here, each with a different (wrong, for
+    this purpose) ID, e.g. "Jefferson Park Ave @ West Complex" as both RouteStopID 681
+    (Orange Line) and 987 (Purple Line). AddressID is the field TransLoc actually keeps
+    stable across a physical stop's per-route registrations (confirmed against the live
+    arrivals feed: GetVehicleRouteStopEstimates' top-level "StopId" -- the ID admins
+    already hand-configure into /feed-codes, e.g. 79 for that same JPA stop -- equals
+    each registration's AddressID, not its RouteStopID). Keying this directory by
+    AddressID instead collapses those same-location duplicates into one pickable entry
+    per physical stop, matching what feed_codes/RSS/CAP already expect. This is scoped
+    to this endpoint only (state.stops itself keeps its existing RouteStopID-based keys,
+    since stop_approach.json/route_destinations.json are already keyed that way)."""
     async with state.lock:
         uts_stops = list(state.stops or [])
     items: List[Dict[str, Any]] = []
     seen: Set[str] = set()
     for s in uts_stops:
-        sid = s.get("StopID") or s.get("StopId")
+        sid = s.get("AddressID") or s.get("AddressId") or s.get("StopID") or s.get("StopId")
         if sid is None:
             continue
         sid = str(sid)
