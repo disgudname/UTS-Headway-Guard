@@ -4926,7 +4926,7 @@ def _build_route_analysis_rows(events: list, stop_id: str) -> list:
         dep_time = None
         if vid:
             dep_times = dep_by_vehicle[vid]
-            idx = bisect.bisect_right(dep_times, arr.timestamp)
+            idx = bisect.bisect_left(dep_times, arr.timestamp)
             if idx < len(dep_times):
                 if (dep_times[idx] - arr.timestamp).total_seconds() <= _ROUTE_ANALYSIS_MAX_GAP_S:
                     dep_time = dep_times[idx]
