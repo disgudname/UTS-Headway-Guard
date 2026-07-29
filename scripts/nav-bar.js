@@ -199,8 +199,8 @@
     }
     #${NAV_ID} .hg-nav__inner{
       display:flex;
-      gap:12px;
-      padding:12px 16px 14px;
+      gap:8px;
+      padding:10px 10px 12px;
       scrollbar-width:none;
       box-sizing:border-box;
     }
@@ -209,26 +209,26 @@
       flex:0 0 auto;
       color:inherit;
       text-decoration:none;
-      font:normal 12px/1.1 'FGDC';
-      border-radius:18px;
+      font:normal 10.5px/1.1 'FGDC';
+      border-radius:14px;
       background:rgba(0,0,0,0.22);
       border:1px solid rgba(255,255,255,0.12);
       display:flex;
       flex-direction:column;
       align-items:center;
       justify-content:center;
-      gap:8px;
+      gap:5px;
       text-align:center;
-      padding:10px 6px;
+      padding:7px 5px;
       box-sizing:border-box;
       position:relative;
     }
     #${NAV_ID} .hg-nav__chip{
       position:absolute;
-      top:5px;
-      left:8px;
+      top:4px;
+      left:6px;
       font-family:'Luminator' !important;
-      font-size:9px;
+      font-size:8px;
       letter-spacing:0.04em;
       color:rgba(255,255,255,0.32);
     }
@@ -241,30 +241,30 @@
     }
     #${NAV_ID} .hg-nav__link--primary .hg-nav__label{font-weight:700;}
     #${NAV_ID} .hg-nav__link--secondary .hg-nav__label{font-weight:600;}
-    #${NAV_ID} .hg-nav__link--tertiary .hg-nav__icon-img{width:26px;height:26px;opacity:0.85;}
-    #${NAV_ID} .hg-nav__link--tertiary .hg-nav__label{font-size:11px;font-weight:500;opacity:0.75;}
+    #${NAV_ID} .hg-nav__link--tertiary .hg-nav__icon-img{width:19px;height:19px;opacity:0.85;}
+    #${NAV_ID} .hg-nav__link--tertiary .hg-nav__label{font-size:9px;font-weight:500;opacity:0.75;}
     #${NAV_ID} .hg-nav__auth{
       flex:0 0 auto;
       color:inherit;
-      border-radius:18px;
+      border-radius:14px;
       background:rgba(0,0,0,0.22);
       border:1px solid rgba(255,255,255,0.12);
       display:flex;
       flex-direction:column;
       align-items:center;
       justify-content:center;
-      gap:10px;
+      gap:7px;
       text-align:center;
-      padding:14px 12px;
+      padding:10px 8px;
       box-sizing:border-box;
     }
     #${NAV_ID} .hg-nav__auth-info{
       display:flex;
       flex-direction:column;
-      gap:6px;
+      gap:4px;
       align-items:center;
       font-family:'Luminator' !important;
-      font-size:12px;
+      font-size:10px;
       color:rgba(255,255,255,0.82);
       text-transform:uppercase;
       letter-spacing:0.08em;
@@ -272,7 +272,7 @@
     #${NAV_ID} .hg-nav__auth-secret{
       display:block;
       font-family:'Luminator' !important;
-      font-size:15px;
+      font-size:12.5px;
       letter-spacing:0.12em;
       text-transform:uppercase;
       color:#FFFFFF;
@@ -290,7 +290,8 @@
     }
     #${NAV_ID} .hg-nav__auth-logout{
       background:rgba(0,0,0,0.25);
-      padding:8px 18px;
+      padding:6px 12px;
+      font-size:11px;
     }
     #${NAV_ID} .hg-nav__auth-logout:hover{
       background:rgba(0,0,0,0.32);
@@ -304,14 +305,14 @@
       background:linear-gradient(135deg,var(--hg-nav-accent),var(--hg-nav-accent));
       color:var(--hg-nav-accent-text);
       font-weight:600;
-      padding:12px 22px 14px;
+      padding:8px 14px 9px;
       text-transform:uppercase;
       letter-spacing:0.08em;
       box-shadow:0 6px 14px rgba(0,0,0,0.25);
       display:flex;
       flex-direction:column;
       align-items:center;
-      gap:6px;
+      gap:4px;
     }
     #${NAV_ID} .hg-nav__auth-login:hover{
       background:linear-gradient(135deg,var(--hg-nav-accent-hover-start),var(--hg-nav-accent-hover-end));
@@ -328,19 +329,19 @@
       box-shadow:none;
     }
     #${NAV_ID} .hg-nav__auth-login-label{
-      font-size:14px;
+      font-size:12px;
       letter-spacing:0.12em;
     }
     #${NAV_ID} .hg-nav__auth-login-hint{
       font-family:'FGDC' !important;
-      font-size:11px;
+      font-size:9.5px;
       letter-spacing:0.04em;
       text-transform:none;
       color:rgba(35,45,75,0.85);
     }
     #${NAV_ID} .hg-nav__auth-login-description{
       font-family:'FGDC' !important;
-      font-size:11px;
+      font-size:9.5px;
       letter-spacing:0.04em;
       text-transform:none;
       color:rgba(255,255,255,0.78);
@@ -354,12 +355,12 @@
       align-items:center;
       justify-content:center;
       color:inherit;
-      padding-bottom:6px;
+      padding-bottom:4px;
       border-bottom:1px dashed rgba(255,255,255,0.22);
     }
     #${NAV_ID} .hg-nav__icon-img{
-      width:32px;
-      height:32px;
+      width:23px;
+      height:23px;
       display:block;
     }
     #${NAV_ID} .hg-nav__label{
@@ -367,7 +368,7 @@
       color:inherit;
       text-decoration:none;
       word-break:keep-all;
-      overflow-wrap:normal;
+      overflow-wrap:break-word;
       white-space:pre-line;
     }
     .hg-nav-spacer-bottom{display:none;}
@@ -410,7 +411,7 @@
         bottom:0;
         left:0;
         width:auto;
-        min-width:96px;
+        min-width:74px;
         border-right:1px solid rgba(255,255,255,0.08);
         box-shadow:6px 0 18px rgba(0,0,0,0.18);
         flex-direction:column;
@@ -419,17 +420,17 @@
       #${NAV_ID} .hg-nav__inner{
         flex-direction:column;
         overflow-y:auto;
-        padding:24px 12px;
+        padding:14px 8px;
         flex:1;
       }
       #${NAV_ID} a{
         width:auto;
-        min-width:72px;
-        padding:16px 12px;
+        min-width:56px;
+        padding:8px 6px;
       }
       #${NAV_ID} .hg-nav__auth{
         width:100%;
-        margin-top:12px;
+        margin-top:8px;
       }
     }
     /* Dark mode: hide outer borders since nav stays navy but page goes dark */
