@@ -12041,56 +12041,69 @@ async def _fetch_service_level(bypass_cache: bool = False) -> ServiceLevelResult
             if cache.last_modified:
                 headers["If-Modified-Since"] = cache.last_modified
 
+        # Retry a few times with a short backoff before giving up -- parking.virginia.edu
+        # sits behind Cloudflare and occasionally 403s transiently (e.g. a bot-management
+        # challenge that clears on the next attempt) even with Chrome TLS impersonation.
+        RETRY_ATTEMPTS = 3
+        RETRY_DELAY_S = 2.0
+
         try:
             if not CURL_CFFI_AVAILABLE:
                 raise ImportError("curl_cffi not available")
 
-            # Use curl_cffi with Chrome impersonation for TLS fingerprint bypass
-            async with CurlAsyncSession() as session:
-                resp = await session.get(
-                    SERVICE_SCHEDULE_URL,
-                    headers=headers if headers else None,
-                    impersonate="chrome",
-                    timeout=20,
-                )
-                record_api_call("GET", SERVICE_SCHEDULE_URL, resp.status_code)
-
-                if resp.status_code == 304:
-                    # Not modified - return cached result if valid for current date
-                    if cache.result and cache.result.service_date == service_date_str:
-                        return cache.result
-                    # Cache is for a different date, need to re-fetch without cache headers
+            last_error_msg = None
+            for attempt in range(RETRY_ATTEMPTS):
+                # Use curl_cffi with Chrome impersonation for TLS fingerprint bypass
+                async with CurlAsyncSession() as session:
                     resp = await session.get(
                         SERVICE_SCHEDULE_URL,
+                        headers=headers if headers else None,
                         impersonate="chrome",
                         timeout=20,
                     )
                     record_api_call("GET", SERVICE_SCHEDULE_URL, resp.status_code)
 
-                if resp.status_code != 200:
-                    error_msg = f"HTTP {resp.status_code} from {SERVICE_SCHEDULE_URL}"
-                    # Return cached value if available for current date
-                    if cache.result and cache.result.service_date == service_date_str:
-                        return cache.result
-                    return ServiceLevelResult(
-                        service_date=service_date_str,
-                        service_level="UNKNOWN",
-                        notes=None,
-                        scraped_at=datetime.now(UVA_TZ).isoformat(),
-                        error=error_msg,
-                    )
+                    if resp.status_code == 304:
+                        # Not modified - return cached result if valid for current date
+                        if cache.result and cache.result.service_date == service_date_str:
+                            return cache.result
+                        # Cache is for a different date, need to re-fetch without cache headers
+                        resp = await session.get(
+                            SERVICE_SCHEDULE_URL,
+                            impersonate="chrome",
+                            timeout=20,
+                        )
+                        record_api_call("GET", SERVICE_SCHEDULE_URL, resp.status_code)
 
-                html = resp.text
-                result = parse_service_schedule(html, service_date)
+                    if resp.status_code != 200:
+                        last_error_msg = f"HTTP {resp.status_code} from {SERVICE_SCHEDULE_URL}"
+                        if attempt < RETRY_ATTEMPTS - 1:
+                            await asyncio.sleep(RETRY_DELAY_S)
+                            continue
+                        break
 
-                # Update cache
-                cache.result = result
-                cache.etag = resp.headers.get("ETag")
-                cache.last_modified = resp.headers.get("Last-Modified")
-                cache.fetched_at = now_ts
-                state.service_level_cache = cache
+                    html = resp.text
+                    result = parse_service_schedule(html, service_date)
 
-                return result
+                    # Update cache
+                    cache.result = result
+                    cache.etag = resp.headers.get("ETag")
+                    cache.last_modified = resp.headers.get("Last-Modified")
+                    cache.fetched_at = now_ts
+                    state.service_level_cache = cache
+
+                    return result
+
+            # All attempts failed - return cached value if available for current date
+            if cache.result and cache.result.service_date == service_date_str:
+                return cache.result
+            return ServiceLevelResult(
+                service_date=service_date_str,
+                service_level="UNKNOWN",
+                notes=None,
+                scraped_at=datetime.now(UVA_TZ).isoformat(),
+                error=last_error_msg,
+            )
 
         except ImportError as exc:
             # curl_cffi not available, fall back to error
