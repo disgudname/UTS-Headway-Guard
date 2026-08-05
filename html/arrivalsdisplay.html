@@ -27,7 +27,8 @@
   h1,h2,p{padding:0 5%;}
 
   .footer { position:fixed; bottom:0; width:100%; height:80px; background:#E57200; color:#fff; display:flex; justify-content:space-between; align-items:center; padding:0 20px; box-sizing:border-box; }
-  .footer-left { font-size:3em; text-align:left; }
+  .footer-left { text-align:left; }
+  .footer-logo { height:50px; width:auto; display:block; }
   .footer-right { text-align:right; font-size:1.2em; }
 
   /* Optional: primer button; harmless if autoplay policy is fixed */
@@ -85,9 +86,15 @@ function updateTicker(msgs){
 }
 
 /* ===================== Data Fetch ===================== */
-async function fetchArrivalTimes(stopID){
+async function fetchArrivalTimes(stop){
   try{
-    const r=await axios.get('/v1/transloc/stop_arrivals',{params:{stopIDs:stopID}});
+    // stop is either {code:'NGPG'} (preferred -- combines multiple stop IDs server-side,
+    // see /feed-codes) or {stopIDs:'40,113'} (legacy raw comma-separated form).
+    const url = stop.code
+      ? `/v1/transloc/stop_arrivals/${encodeURIComponent(stop.code)}`
+      : '/v1/transloc/stop_arrivals';
+    const params = stop.code ? undefined : {stopIDs:stop.stopIDs};
+    const r=await axios.get(url,{params});
     if(r.data&&r.data.length>0){
       const stopName=r.data[0].StopDescription||'Bus Arrival Predictions';
       document.getElementById('stop-name').textContent=stopName.replace(/\(.*\)/,'').trim();
@@ -446,13 +453,23 @@ function updateArrivalTable(data, vc){
       }
     });
 
-    rows.sort((a,b)=>a.minutesUntilArrival-b.minutesUntilArrival);
+    // When multiple stop IDs are combined (see ?code= / /feed-codes) into one board --
+    // e.g. the two "Emmet St @ Emmet / Ivy Garage (Southbound)" stops -- the same
+    // physical bus can be reported once per stop ID. Keep only the soonest ETA per
+    // vehicle so it doesn't render as a duplicate row.
+    const byVehicle=new Map();
+    rows.forEach(r=>{
+      const existing=byVehicle.get(r.vehicleId);
+      if(!existing||r.minutesUntilArrival<existing.minutesUntilArrival){ byVehicle.set(r.vehicleId,r); }
+    });
+    const dedupedRows=Array.from(byVehicle.values());
+    dedupedRows.sort((a,b)=>a.minutesUntilArrival-b.minutesUntilArrival);
 
     // Announcements AFTER full snapshot
-    Announcement.handle(rows);
+    Announcement.handle(dedupedRows);
 
     // Render top 10
-    rows.slice(0,10).forEach(r=>{
+    dedupedRows.slice(0,10).forEach(r=>{
       const textColor=getContrastColor(r.color);
       const capColor=r.capacityPercentage>=62?'#FF0000':'#4CAF50';
       const tr=document.createElement('tr');
@@ -480,15 +497,22 @@ function updateArrivalTable(data, vc){
 /* ===================== Helpers ===================== */
 function getContrastColor(hex){ hex=hex.replace('#',''); const r=parseInt(hex.substring(0,2),16),g=parseInt(hex.substring(2,4),16),b=parseInt(hex.substring(4,6),16); const lum=(0.299*r+0.587*g+0.114*b)/255; return lum>0.565?'black':'white'; }
 
-function getStopIDFromQuery(){
+function getStopFromQuery(){
+  // ?code= (preferred) resolves a /feed-codes entry server-side on every poll, so it can
+  // combine multiple stop IDs into one board -- e.g. the two separate TransLoc IDs both
+  // named "Emmet St @ Emmet / Ivy Garage (Southbound)" -- without hardcoding IDs here.
+  // ?stopid=/?stopID= is the legacy raw form; it already accepts a comma-separated list
+  // since /v1/transloc/stop_arrivals forwards it through as-is.
+  const code=(getParameterByName('code')||'').trim();
+  if(code) return {code};
   const stopParam=(getParameterByName('stopid')||getParameterByName('stopID')||'').trim();
-  return stopParam||null;
+  return stopParam?{stopIDs:stopParam}:null;
 }
 
 function showMissingStopMessage(){
   const body=document.getElementById('arrival-body');
   if(body){
-    body.innerHTML='<tr><td colspan="3" style="color:#fff;text-align:center;padding:15px 0;">Add ?stopid=YOUR_STOP_ID to the URL to load arrivals.</td></tr>';
+    body.innerHTML='<tr><td colspan="3" style="color:#fff;text-align:center;padding:15px 0;">Add ?stopid=YOUR_STOP_ID (or ?code=YOUR_FEED_CODE to combine multiple stops) to the URL to load arrivals.</td></tr>';
   }
   const header=document.getElementById('stop-name');
   if(header){
@@ -497,14 +521,14 @@ function showMissingStopMessage(){
 }
 
 function initStop(){
-  const stop=getStopIDFromQuery();
+  const stop=getStopFromQuery();
   if(!stop){
     showMissingStopMessage();
     return;
   }
-  currentStopID=stop;
-  fetchArrivalTimes(currentStopID);
-  arrivalInterval=setInterval(()=>{ if(currentStopID) fetchArrivalTimes(currentStopID); },30000);
+  currentStopID=stop.code||stop.stopIDs;
+  fetchArrivalTimes(stop);
+  arrivalInterval=setInterval(()=>{ if(currentStopID) fetchArrivalTimes(stop); },30000);
 }
 
 /* ===================== Boot ===================== */
@@ -560,7 +584,7 @@ document.addEventListener('DOMContentLoaded',()=>{
   <div class="ticker-wrap"><div class="ticker" id="alerts-container"></div></div>
 
   <div class="footer">
-    <div class="footer-left">UNIVERSITY TRANSIT SERVICE</div>
+    <div class="footer-left"><img class="footer-logo" src="/media/UVATransitWordmark.png" alt="UVATransit" /></div>
     <div class="footer-right">
       <div>PARKING.VIRGINIA.EDU</div>
       <div>434.924.7711</div>
