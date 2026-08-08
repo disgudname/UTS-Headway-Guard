@@ -3582,6 +3582,19 @@ TM.registerVisibilityResumeHandler(() => {
       const CAT_OUT_OF_SERVICE_ROUTE_KEY = '__CAT_OUT_OF_SERVICE__';
       const CAT_OUT_OF_SERVICE_NUMERIC_ROUTE_ID = 777;
       const kioskModeAllowedCatRouteIds = new Set();
+      // ?catRouteIds=11,10,3 (comma-separated numeric CAT route IDs) lets an embedder
+      // (e.g. /arrivalsdisplay, which already knows which CAT routes are currently
+      // serving its stop) opt a kiosk-mode map into showing just those CAT routes,
+      // without cluttering every kiosk map with CAT's whole citywide network.
+      const catRouteIdsParam = params.get('catRouteIds');
+      if (catRouteIdsParam) {
+        catRouteIdsParam.split(',').forEach(part => {
+          const id = Number(part.trim());
+          if (Number.isFinite(id)) {
+            kioskModeAllowedCatRouteIds.add(id);
+          }
+        });
+      }
       const catRouteSelections = new Map();
       let catActiveRouteKeys = new Set();
       const catVehiclesById = new Map();

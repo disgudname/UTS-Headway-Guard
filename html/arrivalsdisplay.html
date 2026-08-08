@@ -13,8 +13,13 @@
   body { font-family:'FGDC',sans-serif; margin:0; overflow:hidden; background:#232D4B; font-size:1.75em; padding-bottom:5rem; }
   header { position:relative; background:#232D4B; opacity:.9; text-align:center; width:100vw; }
   table { width:100%; margin:0; text-align:center; border-collapse:collapse; table-layout:fixed; }
-  th,td { font-size:1.25em; border:none; text-transform:uppercase; padding:10px 0; margin:0; overflow:hidden; height:50px; width:33%; vertical-align:middle; }
+  th,td { font-size:1.25em; border:none; text-transform:uppercase; padding:10px 0; margin:0; overflow:hidden; height:50px; vertical-align:middle; }
   th { background:#E57200; color:#fff; }
+  #arrival-table th:nth-child(1), #arrival-table td:nth-child(1) { width:26%; }
+  #arrival-table th:nth-child(2), #arrival-table td:nth-child(2) { width:29%; font-size:0.8em; }
+  #arrival-table th:nth-child(3), #arrival-table td:nth-child(3) { width:20%; }
+  #arrival-table th:nth-child(4), #arrival-table td:nth-child(4) { width:25%; }
+  td.destination { color:#fff; white-space:nowrap; text-overflow:ellipsis; overflow:hidden; }
   .capacity-bar-container { width:90%; height:20px; background:#ddd; border-radius:5px; overflow:hidden; position:relative; margin:0 auto; }
   .capacity-bar { height:100%; text-align:right; padding-right:5px; line-height:20px; color:#fff; border-radius:5px; }
 
@@ -86,6 +91,18 @@ function updateTicker(msgs){
 }
 
 /* ===================== Data Fetch ===================== */
+let currentMapCatRouteIds='';
+function updateMapCatRoutes(catRouteIds){
+  // Only touch the iframe's src (which reloads it) when the set of CAT routes actually
+  // being displayed changes, so a routine 30s arrivals poll doesn't reset the embedded
+  // map's pan/zoom on every refresh.
+  const key=Array.from(new Set(catRouteIds)).sort((a,b)=>a-b).join(',');
+  if(key===currentMapCatRouteIds) return;
+  currentMapCatRouteIds=key;
+  const frame=document.getElementById('map-frame');
+  if(!frame) return;
+  frame.src='/map?kioskMode=true&adminMode=false'+(key?`&catRouteIds=${encodeURIComponent(key)}`:'');
+}
 async function fetchArrivalTimes(stop){
   try{
     // stop is either {code:'NGPG'} (preferred -- combines multiple stop IDs server-side,
@@ -99,6 +116,14 @@ async function fetchArrivalTimes(stop){
       const stopName=r.data[0].StopDescription||'Bus Arrival Predictions';
       document.getElementById('stop-name').textContent=stopName.replace(/\(.*\)/,'').trim();
     }
+    // CAT-sourced entries carry no RouteStopID/RouteStopId (see updateArrivalTable) --
+    // same discriminator the backend itself uses (_next_destination_label's guard in
+    // /v1/transloc/stop_arrivals) to tell CAT and TransLoc entries apart.
+    const catRouteIds=(r.data||[])
+      .filter(arr=>arr.Times&&arr.Times.length&&arr.RouteStopID===undefined&&arr.RouteStopId===undefined)
+      .map(arr=>Number(arr.RouteID))
+      .filter(id=>Number.isFinite(id));
+    updateMapCatRoutes(catRouteIds);
     const vc=await fetchVehicleCapacities();
     updateArrivalTable(r.data,vc);
   }catch(e){ console.error("[arrivals] error",e); }
@@ -436,19 +461,23 @@ function updateArrivalTable(data, vc){
     const rows=[];
     data.forEach(arr=>{
       if(arr.Times && arr.Times.length){
-        arr.Times.forEach(t=>{
-          if(t.Seconds!==null && t.VehicleId!==undefined){
-            const cap=vc.find(x=>x.VehicleID===t.VehicleId);
-            if(cap){
-              rows.push({
-                vehicleId: t.VehicleId,
-                routeDescription: arr.RouteDescription==='Night Pilot' ? arr.RouteDescription : (arr.RouteDescription||'N/A').replace(/\.$/, ''),
-                color: arr.Color||'#0072BC',
-                minutesUntilArrival: Math.ceil(t.Seconds/60),
-                capacityPercentage: Math.round(cap.Percentage*100)
-              });
-            }
-          }
+        // CAT-sourced entries (see /v1/transloc/stop_arrivals) carry no VehicleId --
+        // CAT's API exposes ETAs grouped by route+destination, not by individual bus --
+        // and never appear in /v1/transloc/vehicle_capacities (TransLoc-only). Treat
+        // both as optional: fall back to a synthetic per-item key for dedup, and omit
+        // the capacity bar rather than dropping the row entirely.
+        arr.Times.forEach((t,i)=>{
+          if(t.Seconds===null || t.Seconds===undefined) return;
+          const hasVehicleId = t.VehicleId!==undefined;
+          const cap = hasVehicleId ? vc.find(x=>x.VehicleID===t.VehicleId) : null;
+          rows.push({
+            vehicleId: hasVehicleId ? t.VehicleId : `cat:${arr.RouteDescription}|${arr.Destination||''}|${i}`,
+            routeDescription: arr.RouteDescription==='Night Pilot' ? arr.RouteDescription : (arr.RouteDescription||'N/A').replace(/\.$/, ''),
+            destination: arr.Destination||'',
+            color: arr.Color||'#0072BC',
+            minutesUntilArrival: Math.ceil(t.Seconds/60),
+            capacityPercentage: cap ? Math.round(cap.Percentage*100) : null
+          });
         });
       }
     });
@@ -471,7 +500,12 @@ function updateArrivalTable(data, vc){
     // Render top 10
     dedupedRows.slice(0,10).forEach(r=>{
       const textColor=getContrastColor(r.color);
-      const capColor=r.capacityPercentage>=62?'#FF0000':'#4CAF50';
+      // CAT rows have no per-vehicle capacity data (see rows.push above) -- leave the
+      // cell blank rather than rendering a bogus 0%/undefined% bar.
+      const capCell = r.capacityPercentage===null ? '' : (()=>{
+        const capColor=r.capacityPercentage>=62?'#FF0000':'#4CAF50';
+        return `<div class="capacity-bar-container"><div class="capacity-bar" style="width:${r.capacityPercentage}%;background-color:${capColor};"></div></div>`;
+      })();
       const tr=document.createElement('tr');
       tr.innerHTML = `
         <td>
@@ -479,22 +513,20 @@ function updateArrivalTable(data, vc){
             ${r.routeDescription}
           </span>
         </td>
+        <td class="destination">${escapeHtml(r.destination)}</td>
         <td style="color:#fff;">${r.minutesUntilArrival <= 1 ? 'DUE' : r.minutesUntilArrival + ' min'}</td>
-        <td>
-          <div class="capacity-bar-container">
-            <div class="capacity-bar" style="width:${r.capacityPercentage}%;background-color:${capColor};"></div>
-          </div>
-        </td>`;
+        <td>${capCell}</td>`;
       body.appendChild(tr);
     });
   }else{
     const tr=document.createElement('tr');
-    tr.innerHTML='<td colspan="3" style="color:#fff;text-align:center;padding:15px 0;">No upcoming arrivals found.</td>';
+    tr.innerHTML='<td colspan="4" style="color:#fff;text-align:center;padding:15px 0;">No upcoming arrivals found.</td>';
     body.appendChild(tr);
   }
 }
 
 /* ===================== Helpers ===================== */
+function escapeHtml(s){ const d=document.createElement('div'); d.textContent=s||''; return d.innerHTML; }
 function getContrastColor(hex){ hex=hex.replace('#',''); const r=parseInt(hex.substring(0,2),16),g=parseInt(hex.substring(2,4),16),b=parseInt(hex.substring(4,6),16); const lum=(0.299*r+0.587*g+0.114*b)/255; return lum>0.565?'black':'white'; }
 
 function getStopFromQuery(){
@@ -512,7 +544,7 @@ function getStopFromQuery(){
 function showMissingStopMessage(){
   const body=document.getElementById('arrival-body');
   if(body){
-    body.innerHTML='<tr><td colspan="3" style="color:#fff;text-align:center;padding:15px 0;">Add ?stopid=YOUR_STOP_ID (or ?code=YOUR_FEED_CODE to combine multiple stops) to the URL to load arrivals.</td></tr>';
+    body.innerHTML='<tr><td colspan="4" style="color:#fff;text-align:center;padding:15px 0;">Add ?stopid=YOUR_STOP_ID (or ?code=YOUR_FEED_CODE to combine multiple stops) to the URL to load arrivals.</td></tr>';
   }
   const header=document.getElementById('stop-name');
   if(header){
@@ -567,18 +599,19 @@ document.addEventListener('DOMContentLoaded',()=>{
       <thead>
         <tr style="background:#E57200;">
           <th style="color:#fff;">Route</th>
+          <th style="color:#fff;">To</th>
           <th style="color:#fff;">ETA</th>
           <th style="color:#fff;">Capacity</th>
         </tr>
       </thead>
       <tbody id="arrival-body">
-        <tr><td colspan="3" style="height:50px; line-height:50px; text-align:center; padding:15px 0;">Arrival estimates currently unavailable</td></tr>
+        <tr><td colspan="4" style="height:50px; line-height:50px; text-align:center; padding:15px 0;">Arrival estimates currently unavailable</td></tr>
       </tbody>
     </table>
   </div>
 
   <div style="width:50%; height:calc(100vh - 160px); float:right; display:block;">
-    <iframe src="/map?kioskMode=true&adminMode=false" style="width:100%; height:100%; border:none;"></iframe>
+    <iframe id="map-frame" src="/map?kioskMode=true&adminMode=false" style="width:100%; height:100%; border:none;"></iframe>
   </div>
 
   <div class="ticker-wrap"><div class="ticker" id="alerts-container"></div></div>
