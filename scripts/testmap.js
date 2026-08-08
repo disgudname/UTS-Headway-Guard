@@ -7819,6 +7819,10 @@ TM.registerVisibilityResumeHandler(() => {
             if (onDemandRoutingEnabled) {
               refreshOnDemandRoutes(lastOnDemandVehicles);
             }
+            // OnDemand polls on its own independent interval (see startOnDemandPolling),
+            // same as CAT -- recompute the banner here too rather than waiting on the
+            // next UTS poll cycle (see hasAnyActiveVehiclesForKioskStatus).
+            updateKioskStatusMessage({ known: true, hasActiveVehicles: hasAnyActiveVehiclesForKioskStatus() });
             return vehicles;
           } catch (error) {
             console.error('Failed to fetch OnDemand vehicles:', error);
