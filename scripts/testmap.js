@@ -8377,6 +8377,16 @@ TM.registerVisibilityResumeHandler(() => {
         return false;
       }
 
+      // Combines every vehicle source the kiosk status banner should consider -- UTS
+      // (TransLoc), on-demand, and CAT. CAT is polled/rendered on its own independent
+      // cycle (see fetchCatVehicles), so the banner needs to be recomputed from both
+      // places, not just after the UTS vehicle poll.
+      function hasAnyActiveVehiclesForKioskStatus() {
+        return hasAnyActiveRoutes() ||
+          (onDemandVehiclesEnabled && lastOnDemandVehicles.length > 0) ||
+          (catOverlayEnabled && catVehiclesById.size > 0);
+      }
+
       function updateKioskStatusMessage(options = {}) {
         if (!kioskMode && !adminKioskMode) {
           kioskVehicleStatusKnown = false;
@@ -16039,7 +16049,7 @@ TM.registerVisibilityResumeHandler(() => {
 
               activeRoutes = activeRoutesSet;
               updateRouteSelector(activeRoutesSet);
-              updateKioskStatusMessage({ known: true, hasActiveVehicles: activeRoutesSet.size > 0 || (onDemandVehiclesEnabled && lastOnDemandVehicles.length > 0) });
+              updateKioskStatusMessage({ known: true, hasActiveVehicles: hasAnyActiveVehiclesForKioskStatus() });
 
               // Note: Popup data (driver, capacity, ETAs) is now fetched on-demand when user clicks a bus marker
               // This eliminates unnecessary polling and reduces API load
@@ -19595,6 +19605,10 @@ TM.registerVisibilityResumeHandler(() => {
               const payload = await response.json();
               const vehicles = normalizeCatVehicles(payload);
               updateCatVehicleMarkers(vehicles);
+              // CAT is polled independently of the UTS vehicle cycle that normally
+              // drives this banner (see hasAnyActiveVehiclesForKioskStatus), so it needs
+              // its own recompute here rather than waiting on the next UTS poll.
+              updateKioskStatusMessage({ known: true, hasActiveVehicles: hasAnyActiveVehiclesForKioskStatus() });
               return vehicles;
           } catch (error) {
               console.error('Failed to fetch CAT vehicles:', error);
