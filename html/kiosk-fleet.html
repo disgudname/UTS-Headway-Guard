@@ -21,6 +21,8 @@
     tr.stale { background: #fdecea; }
     tr.stale:nth-child(even) { background: #fbdedb; }
     input[type="text"] { font-size: 0.95rem; padding: 4px 6px; width: 100%; box-sizing: border-box; }
+    input[type="text"]:disabled { background: #eee; color: #999; }
+    .hint { display: block; font-size: 0.72rem; color: #999; margin-top: 2px; }
     .mac { font-family: monospace; white-space: nowrap; }
     .actions { white-space: nowrap; }
     button { font-size: 0.9rem; padding: 4px 10px; cursor: pointer; }
@@ -45,19 +47,26 @@
     or redeploy needed, the kiosk picks it up on its next check-in. A device that hasn't
     checked in for over an hour is flagged as stale below.
   </p>
+  <p class="subtitle">
+    For a kiosk that isn't at a bus stop at all (e.g. one displaying a spreadsheet in an
+    office), set a <strong>URL override</strong> instead. When a URL is set, the kiosk
+    loads it directly and ignores the site code entirely &mdash; the site code field is
+    greyed out below to make that precedence clear.
+  </p>
 
   <div id="stale-banner"></div>
 
   <table>
     <thead>
       <tr>
-        <th style="width: 16%">MAC</th>
-        <th style="width: 12%">Site Code</th>
-        <th style="width: 16%">Hostname</th>
-        <th style="width: 14%">RustDesk ID</th>
-        <th style="width: 14%">Image Build</th>
-        <th style="width: 14%">Last Seen</th>
-        <th style="width: 14%">Actions</th>
+        <th style="width: 13%">MAC</th>
+        <th style="width: 10%">Site Code</th>
+        <th style="width: 16%">URL Override</th>
+        <th style="width: 12%">Hostname</th>
+        <th style="width: 11%">RustDesk ID</th>
+        <th style="width: 11%">Image Build</th>
+        <th style="width: 12%">Last Seen</th>
+        <th style="width: 15%">Actions</th>
       </tr>
     </thead>
     <tbody id="rows"></tbody>
@@ -119,7 +128,27 @@
       siteInput.placeholder = 'e.g. NGPG';
       siteInput.value = entry.site_code || '';
       siteTd.appendChild(siteInput);
+      const siteHint = document.createElement('span');
+      siteHint.className = 'hint';
+      siteHint.textContent = 'overridden by URL';
+      siteTd.appendChild(siteHint);
       tr.appendChild(siteTd);
+
+      const urlTd = document.createElement('td');
+      const urlInput = document.createElement('input');
+      urlInput.type = 'text';
+      urlInput.placeholder = 'e.g. https://example.com/sheet';
+      urlInput.value = entry.url || '';
+      urlTd.appendChild(urlInput);
+      tr.appendChild(urlTd);
+
+      function syncOverrideState() {
+        const hasUrl = !!urlInput.value.trim();
+        siteInput.disabled = hasUrl;
+        siteHint.style.display = hasUrl ? 'block' : 'none';
+      }
+      urlInput.addEventListener('input', syncOverrideState);
+      syncOverrideState();
 
       const hostTd = document.createElement('td');
       hostTd.textContent = entry.hostname || '';
@@ -143,7 +172,7 @@
       const saveBtn = document.createElement('button');
       saveBtn.className = 'primary';
       saveBtn.textContent = 'Save';
-      saveBtn.onclick = () => saveSiteCode(mac, siteInput.value.trim());
+      saveBtn.onclick = () => saveDevice(mac, siteInput.value.trim(), urlInput.value.trim());
       const deleteBtn = document.createElement('button');
       deleteBtn.className = 'danger';
       deleteBtn.textContent = 'Remove';
@@ -192,13 +221,13 @@
       }
     }
 
-    async function saveSiteCode(mac, siteCode) {
+    async function saveDevice(mac, siteCode, url) {
       setStatus('Saving…');
       try {
         const r = await fetch('/v1/kiosk-devices/' + encodeURIComponent(mac), {
           method: 'PUT',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ site_code: siteCode || null }),
+          body: JSON.stringify({ site_code: siteCode || null, url: url || null }),
         });
         if (!r.ok) {
           const body = await r.json().catch(() => ({}));

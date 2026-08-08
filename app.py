@@ -14618,7 +14618,10 @@ async def kiosk_checkin(request: Request):
     """Public check-in for chilipie-kiosk-modern Pi devices, polled every ~15s. No auth,
     same trust level as /arrivalsdisplay - the payload carries no site assignment, only
     the device announcing itself. Upserts /data/kiosk_devices.json keyed by MAC and tells
-    the kiosk which site_code (if any) an admin has assigned it at /kiosk-fleet."""
+    the kiosk which site_code (if any) an admin has assigned it at /kiosk-fleet. `url` is
+    a per-device full-URL override for kiosks that aren't at a bus stop at all (e.g. one
+    displaying a spreadsheet in an office) - when set, the kiosk loads it directly and
+    ignores site_code entirely, so a device counts as registered if either is set."""
     body = await request.json()
     mac = str(body.get("mac") or "").strip().upper()
     if not mac:
@@ -14630,11 +14633,16 @@ async def kiosk_checkin(request: Request):
     entry["rustdesk_id"] = str(body.get("rustdesk_id") or "").strip()
     entry["image_build"] = str(body.get("image_build") or "").strip()
     entry.setdefault("site_code", None)
+    entry.setdefault("url", None)
     entry.setdefault("first_seen", now)
     entry["last_seen"] = now
     devices[mac] = entry
     _save_kiosk_devices(devices)
-    return {"registered": bool(entry.get("site_code")), "site_code": entry.get("site_code")}
+    return {
+        "registered": bool(entry.get("site_code")) or bool(entry.get("url")),
+        "site_code": entry.get("site_code"),
+        "url": entry.get("url"),
+    }
 
 
 @app.get("/v1/kiosk-devices")
@@ -14646,26 +14654,37 @@ async def list_kiosk_devices(request: Request):
 
 @app.put("/v1/kiosk-devices/{mac}")
 async def set_kiosk_device_site(request: Request, mac: str):
-    """Assign/clear the site code a kiosk should display. Body: {site_code}. Upserts so
-    a device can be pre-assigned a site code before it has ever checked in."""
+    """Assign/clear the site code and/or full-URL override a kiosk should display.
+    Body: {site_code, url}, both optional - a field is only updated if its key is present
+    in the body, so callers can set one without clobbering the other. Upserts so a
+    device can be pre-assigned before it has ever checked in. `url`, when set, is meant
+    to fully supersede site_code on the kiosk side (see kiosk_checkin)."""
     _require_dispatcher_access(request)
     body = await request.json()
     mac_key = mac.strip().upper()
     if not mac_key:
         raise HTTPException(status_code=400, detail="mac is required")
-    raw_site_code = body.get("site_code")
-    site_code = str(raw_site_code).strip().upper() or None if raw_site_code is not None else None
     devices = _load_kiosk_devices()
     entry = dict(devices.get(mac_key) or {})
     entry.setdefault("hostname", "")
     entry.setdefault("rustdesk_id", "")
     entry.setdefault("image_build", "")
+    entry.setdefault("site_code", None)
+    entry.setdefault("url", None)
     entry.setdefault("first_seen", None)
     entry.setdefault("last_seen", None)
-    entry["site_code"] = site_code
+    if "site_code" in body:
+        raw_site_code = body.get("site_code")
+        entry["site_code"] = str(raw_site_code).strip().upper() or None if raw_site_code is not None else None
+    if "url" in body:
+        raw_url = body.get("url")
+        url = str(raw_url).strip() or None if raw_url is not None else None
+        if url and not (url.startswith("http://") or url.startswith("https://")):
+            raise HTTPException(status_code=400, detail="url must start with http:// or https://")
+        entry["url"] = url
     devices[mac_key] = entry
     _save_kiosk_devices(devices)
-    return {"mac": mac_key, "site_code": site_code}
+    return {"mac": mac_key, "site_code": entry["site_code"], "url": entry["url"]}
 
 
 @app.delete("/v1/kiosk-devices/{mac}")
