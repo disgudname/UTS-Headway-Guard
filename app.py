@@ -11357,7 +11357,20 @@ async def _cat_arrivals(stop_ids: List[str]) -> Tuple[List[Tuple[str, float]], O
     cat_stop_landmarks = _load_cat_stop_landmarks()
     cat_pattern_termini = _load_cat_pattern_termini()
 
-    stop_name: Optional[str] = None
+    # get_stop_etas' own stopName/StopName field comes back null in practice (confirmed
+    # live) -- see the matching comment in _cat_transloc_shaped_arrivals -- so resolve
+    # from get_stops (the static stop list) first and only fall back to the live field
+    # below in case CAT ever starts populating it.
+    cat_stops_for_names = await _get_cat_stops()
+    stop_names_by_id = {
+        str(s.get("StopID")): s.get("StopName")
+        for s in cat_stops_for_names
+        if s.get("StopID") is not None and s.get("StopName")
+    }
+    stop_name: Optional[str] = next(
+        (stop_names_by_id[str(sid)] for sid in stop_ids if str(sid) in stop_names_by_id),
+        None,
+    )
     arrivals: List[Tuple[str, float]] = []
     for result in results:
         if isinstance(result, BaseException) or not isinstance(result, list):
@@ -11438,11 +11451,28 @@ async def _cat_transloc_shaped_arrivals(cat_stop_ids: List[str]) -> List[Dict[st
     cat_stop_landmarks = _load_cat_stop_landmarks()
     cat_pattern_termini = _load_cat_pattern_termini()
 
+    # get_stop_etas' own stopName/StopName field comes back null in practice (confirmed
+    # live), so resolve the name from get_stops (the static stop list, via _get_cat_stops
+    # -- same source list_cat_route_destinations uses) instead, keyed by the specific
+    # stop ID(s) requested rather than whatever the ETA response happens to report.
+    cat_stops = await _get_cat_stops()
+    stop_names_by_id = {
+        str(s.get("StopID")): s.get("StopName")
+        for s in cat_stops
+        if s.get("StopID") is not None and s.get("StopName")
+    }
+    stop_name: Optional[str] = next(
+        (stop_names_by_id[str(sid)] for sid in cat_stop_ids if str(sid) in stop_names_by_id),
+        None,
+    )
+
     groups: Dict[Tuple[str, str], Dict[str, Any]] = {}
     for result in results:
         if isinstance(result, BaseException) or not isinstance(result, list):
             continue
         for stop_entry in result:
+            if not stop_name:
+                stop_name = stop_entry.get("stopName") or stop_entry.get("StopName")
             for eta in stop_entry.get("enRoute") or stop_entry.get("EnRoute") or []:
                 route_id = eta.get("RouteID") or eta.get("routeID")
                 info = route_info.get(str(route_id)) or {}
@@ -11499,6 +11529,16 @@ async def _cat_transloc_shaped_arrivals(cat_stop_ids: List[str]) -> List[Dict[st
                     "Seconds": seconds,
                     "IsArriving": is_arriving,
                 })
+
+    # Attach the resolved stop name to every group -- TransLoc's own GetStopArrivalTimes
+    # entries always carry StopDescription, and callers of the merged
+    # /v1/transloc/stop_arrivals endpoint (e.g. arrivalsdisplay.html's header, which
+    # reads data[0].StopDescription) rely on that being present regardless of whether
+    # the first entry happens to be CAT- or TransLoc-sourced -- a CAT-only feed code
+    # (no TransLoc stop IDs at all) previously had no StopDescription anywhere in its
+    # response, so the header fell back to a generic placeholder.
+    for group in groups.values():
+        group["StopDescription"] = stop_name
 
     return list(groups.values())
 
