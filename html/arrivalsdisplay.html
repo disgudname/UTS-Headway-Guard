@@ -91,17 +91,25 @@ function updateTicker(msgs){
 }
 
 /* ===================== Data Fetch ===================== */
-let currentMapCatRouteIds='';
-function updateMapCatRoutes(catRouteIds){
-  // Only touch the iframe's src (which reloads it) when the set of CAT routes actually
-  // being displayed changes, so a routine 30s arrivals poll doesn't reset the embedded
-  // map's pan/zoom on every refresh.
-  const key=Array.from(new Set(catRouteIds)).sort((a,b)=>a-b).join(',');
-  if(key===currentMapCatRouteIds) return;
-  currentMapCatRouteIds=key;
+let currentMapConfigKey='';
+function updateMapConfig(catRouteIds, center){
+  // Only touch the iframe's src (which reloads it) when what it should show actually
+  // changes, so a routine 30s arrivals poll doesn't reset the embedded map's pan/zoom
+  // on every refresh.
+  const routeKey=Array.from(new Set(catRouteIds)).sort((a,b)=>a-b).join(',');
+  const centerKey=center?`${center.lat.toFixed(6)},${center.lon.toFixed(6)}`:'';
+  const key=routeKey+'|'+centerKey;
+  if(key===currentMapConfigKey) return;
+  currentMapConfigKey=key;
   const frame=document.getElementById('map-frame');
   if(!frame) return;
-  frame.src='/map?kioskMode=true&adminMode=false'+(key?`&catRouteIds=${encodeURIComponent(key)}`:'');
+  let src='/map?kioskMode=true&adminMode=false';
+  if(routeKey) src+=`&catRouteIds=${encodeURIComponent(routeKey)}`;
+  // Only override the map's default center for a CAT-only board (see fetchArrivalTimes)
+  // -- a board mixing in any UVATransit stops keeps the old system-wide view, since it's
+  // meant to show the whole relevant service area, not just one physical stop.
+  if(center) src+=`&centerLat=${center.lat}&centerLon=${center.lon}&centerZoom=17`;
+  frame.src=src;
 }
 async function fetchArrivalTimes(stop){
   try{
@@ -119,11 +127,18 @@ async function fetchArrivalTimes(stop){
     // CAT-sourced entries carry no RouteStopID/RouteStopId (see updateArrivalTable) --
     // same discriminator the backend itself uses (_next_destination_label's guard in
     // /v1/transloc/stop_arrivals) to tell CAT and TransLoc entries apart.
-    const catRouteIds=(r.data||[])
-      .filter(arr=>arr.Times&&arr.Times.length&&arr.RouteStopID===undefined&&arr.RouteStopId===undefined)
-      .map(arr=>Number(arr.RouteID))
-      .filter(id=>Number.isFinite(id));
-    updateMapCatRoutes(catRouteIds);
+    const entriesWithTimes=(r.data||[]).filter(arr=>arr.Times&&arr.Times.length);
+    const catEntries=entriesWithTimes.filter(arr=>arr.RouteStopID===undefined&&arr.RouteStopId===undefined);
+    const catRouteIds=catEntries.map(arr=>Number(arr.RouteID)).filter(id=>Number.isFinite(id));
+    // Only center on the stop when the board is CAT-only (no UVATransit entries mixed
+    // in) -- a mixed board keeps the map's normal system-wide default view.
+    const isCatOnly=entriesWithTimes.length>0 && catEntries.length===entriesWithTimes.length;
+    let center=null;
+    if(isCatOnly){
+      const withCoords=catEntries.find(arr=>Number.isFinite(arr.StopLatitude)&&Number.isFinite(arr.StopLongitude));
+      if(withCoords) center={lat:withCoords.StopLatitude, lon:withCoords.StopLongitude};
+    }
+    updateMapConfig(catRouteIds, center);
     const vc=await fetchVehicleCapacities();
     updateArrivalTable(r.data,vc);
   }catch(e){ console.error("[arrivals] error",e); }

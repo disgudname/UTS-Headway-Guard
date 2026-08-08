@@ -2423,6 +2423,20 @@ TM.registerVisibilityResumeHandler(() => {
           center: [38.03799212281404, -78.50981502838886],
           zoom: 15
       });
+      // ?centerLat=&centerLon=&centerZoom= let an embedder (e.g. /arrivalsdisplay, for a
+      // CAT-only stop far from UVA grounds where the default system-wide view wouldn't
+      // even show the stop) override where the map first centers, without touching the
+      // dispatcher-only recenter behaviors (centerDispatcherMapOnRoutes, the bridge-lock
+      // path) which intentionally keep using INITIAL_MAP_VIEW as their own fallback.
+      const centerLatParam = Number.parseFloat(params.get('centerLat'));
+      const centerLonParam = Number.parseFloat(params.get('centerLon'));
+      const centerZoomParam = Number.parseFloat(params.get('centerZoom'));
+      const EFFECTIVE_MAP_VIEW = (Number.isFinite(centerLatParam) && Number.isFinite(centerLonParam))
+          ? Object.freeze({
+              center: [centerLatParam, centerLonParam],
+              zoom: Number.isFinite(centerZoomParam) ? centerZoomParam : 16
+          })
+          : INITIAL_MAP_VIEW;
       const dispatcherMessageSource = 'dispatcher';
       const dispatcherMessageTypes = Object.freeze({
           focusBus: 'dispatcher:focusBus',
@@ -11820,7 +11834,7 @@ TM.registerVisibilityResumeHandler(() => {
               crs: L.CRS.EPSG3857,
               zoomAnimation: true,
               markerZoomAnimation: true
-          }).setView(INITIAL_MAP_VIEW.center, INITIAL_MAP_VIEW.zoom);
+          }).setView(EFFECTIVE_MAP_VIEW.center, EFFECTIVE_MAP_VIEW.zoom);
           map.on('popupclose', handleDispatcherPopupClosed);
           map.on('click', () => {
               closeCatVehicleTooltip();

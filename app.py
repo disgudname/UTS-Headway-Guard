@@ -11465,6 +11465,21 @@ async def _cat_transloc_shaped_arrivals(cat_stop_ids: List[str]) -> List[Dict[st
         (stop_names_by_id[str(sid)] for sid in cat_stop_ids if str(sid) in stop_names_by_id),
         None,
     )
+    # Coordinates for the first requested stop ID that has them, so a CAT-only
+    # /arrivalsdisplay board can center its embedded map on the actual stop instead of
+    # the map's hardcoded system-wide default (see StopLatitude/StopLongitude below).
+    stop_coords_by_id = {
+        str(s.get("StopID")): (s.get("Latitude"), s.get("Longitude"))
+        for s in cat_stops
+        if s.get("StopID") is not None and s.get("Latitude") is not None and s.get("Longitude") is not None
+    }
+    stop_lat: Optional[float] = None
+    stop_lon: Optional[float] = None
+    for sid in cat_stop_ids:
+        coords = stop_coords_by_id.get(str(sid))
+        if coords:
+            stop_lat, stop_lon = coords
+            break
 
     groups: Dict[Tuple[str, str], Dict[str, Any]] = {}
     for result in results:
@@ -11539,6 +11554,8 @@ async def _cat_transloc_shaped_arrivals(cat_stop_ids: List[str]) -> List[Dict[st
     # response, so the header fell back to a generic placeholder.
     for group in groups.values():
         group["StopDescription"] = stop_name
+        group["StopLatitude"] = stop_lat
+        group["StopLongitude"] = stop_lon
 
     return list(groups.values())
 
