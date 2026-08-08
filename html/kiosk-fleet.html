@@ -1,0 +1,236 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Kiosk Fleet - UVATransit Operations Dashboard</title>
+  <link rel="icon" type="image/png" href="/media/favicon.ico" />
+  <link rel="apple-touch-icon" sizes="120x120" href="/media/apple-touch-icon-120.png" />
+  <link rel="apple-touch-icon" sizes="152x152" href="/media/apple-touch-icon-152.png" />
+  <link rel="apple-touch-icon" sizes="180x180" href="/media/apple-touch-icon-180.png" />
+  <script defer src="/nav-bar.js"></script>
+  <style>
+    body { font-family: Arial, sans-serif; max-width: 1100px; margin: 2rem auto; padding: 0 1.5rem; color: #1a1a1a; line-height: 1.6; }
+    h1 { color: #232D4B; margin-bottom: 0.25rem; }
+    .subtitle { color: #555; margin-top: 0; }
+    code { background: #f0f0f0; border-radius: 4px; font-family: monospace; padding: 2px 6px; }
+    table { border-collapse: collapse; width: 100%; margin-top: 1rem; }
+    th, td { border: 1px solid #ccc; padding: 0.5rem 0.75rem; text-align: left; vertical-align: middle; }
+    th { background: #232D4B; color: #fff; }
+    tr:nth-child(even) { background: #f8f8f8; }
+    tr.stale { background: #fdecea; }
+    tr.stale:nth-child(even) { background: #fbdedb; }
+    input[type="text"] { font-size: 0.95rem; padding: 4px 6px; width: 100%; box-sizing: border-box; }
+    .mac { font-family: monospace; white-space: nowrap; }
+    .actions { white-space: nowrap; }
+    button { font-size: 0.9rem; padding: 4px 10px; cursor: pointer; }
+    .danger { background: #b91c1c; color: #fff; border: none; border-radius: 4px; }
+    .primary { background: #232D4B; color: #fff; border: none; border-radius: 4px; }
+    #status { margin-top: 0.75rem; font-size: 0.9rem; color: #555; min-height: 1.2em; }
+    #status.error { color: #b91c1c; }
+    #stale-banner { display: none; margin-top: 1rem; padding: 0.6rem 0.9rem; border-radius: 6px; background: #fdecea; border: 1px solid #f3b4ac; color: #7a1a10; font-size: 0.9rem; }
+    #stale-banner.show { display: block; }
+    .badge-stale { display: inline-block; margin-left: 0.4rem; padding: 1px 6px; border-radius: 4px; background: #b91c1c; color: #fff; font-size: 0.75rem; vertical-align: middle; }
+    .back-link { display: inline-block; margin-top: 1.5rem; color: #0b63ce; }
+  </style>
+</head>
+<body>
+
+  <h1>Kiosk Fleet</h1>
+  <p class="subtitle">
+    Registry of Raspberry Pi arrivals-display kiosks (<code>chilipie-kiosk-modern</code>
+    image). Each kiosk checks in every ~15s via <code>POST /v1/kiosk-checkin</code> with
+    its WiFi MAC address and gets told which site code to display. Assign or change the
+    site code below to reassign a kiosk to a different bus stop &mdash; no SD card edit
+    or redeploy needed, the kiosk picks it up on its next check-in. A device that hasn't
+    checked in for over an hour is flagged as stale below.
+  </p>
+
+  <div id="stale-banner"></div>
+
+  <table>
+    <thead>
+      <tr>
+        <th style="width: 16%">MAC</th>
+        <th style="width: 12%">Site Code</th>
+        <th style="width: 16%">Hostname</th>
+        <th style="width: 14%">RustDesk ID</th>
+        <th style="width: 14%">Image Build</th>
+        <th style="width: 14%">Last Seen</th>
+        <th style="width: 14%">Actions</th>
+      </tr>
+    </thead>
+    <tbody id="rows"></tbody>
+  </table>
+
+  <div id="status"></div>
+
+  <a class="back-link" href="/config">&larr; Back to Config Tools</a>
+
+  <script>
+  (function () {
+    const rowsEl = document.getElementById('rows');
+    const statusEl = document.getElementById('status');
+    const staleBanner = document.getElementById('stale-banner');
+    let staleAfterS = 3600;
+
+    function setStatus(msg, isError) {
+      statusEl.textContent = msg || '';
+      statusEl.classList.toggle('error', !!isError);
+    }
+
+    function isStale(lastSeen) {
+      if (!lastSeen) return true;
+      const t = Date.parse(lastSeen);
+      if (Number.isNaN(t)) return true;
+      return (Date.now() - t) / 1000 > staleAfterS;
+    }
+
+    function relativeTime(iso) {
+      if (!iso) return 'never';
+      const t = Date.parse(iso);
+      if (Number.isNaN(t)) return iso;
+      const diffS = Math.max(0, (Date.now() - t) / 1000);
+      if (diffS < 60) return Math.floor(diffS) + 's ago';
+      if (diffS < 3600) return Math.floor(diffS / 60) + 'm ago';
+      if (diffS < 86400) return Math.floor(diffS / 3600) + 'h ago';
+      return Math.floor(diffS / 86400) + 'd ago';
+    }
+
+    function renderRow(mac, entry) {
+      const stale = isStale(entry.last_seen);
+      const tr = document.createElement('tr');
+      tr.className = stale ? 'stale' : '';
+
+      const macTd = document.createElement('td');
+      macTd.className = 'mac';
+      macTd.textContent = mac;
+      if (stale) {
+        const b = document.createElement('span');
+        b.className = 'badge-stale';
+        b.textContent = 'STALE';
+        macTd.appendChild(b);
+      }
+      tr.appendChild(macTd);
+
+      const siteTd = document.createElement('td');
+      const siteInput = document.createElement('input');
+      siteInput.type = 'text';
+      siteInput.placeholder = 'e.g. NGPG';
+      siteInput.value = entry.site_code || '';
+      siteTd.appendChild(siteInput);
+      tr.appendChild(siteTd);
+
+      const hostTd = document.createElement('td');
+      hostTd.textContent = entry.hostname || '';
+      tr.appendChild(hostTd);
+
+      const rustdeskTd = document.createElement('td');
+      rustdeskTd.textContent = entry.rustdesk_id || '';
+      tr.appendChild(rustdeskTd);
+
+      const buildTd = document.createElement('td');
+      buildTd.textContent = entry.image_build || '';
+      tr.appendChild(buildTd);
+
+      const seenTd = document.createElement('td');
+      seenTd.textContent = relativeTime(entry.last_seen);
+      seenTd.title = entry.last_seen || '';
+      tr.appendChild(seenTd);
+
+      const actionsTd = document.createElement('td');
+      actionsTd.className = 'actions';
+      const saveBtn = document.createElement('button');
+      saveBtn.className = 'primary';
+      saveBtn.textContent = 'Save';
+      saveBtn.onclick = () => saveSiteCode(mac, siteInput.value.trim());
+      const deleteBtn = document.createElement('button');
+      deleteBtn.className = 'danger';
+      deleteBtn.textContent = 'Remove';
+      deleteBtn.style.marginLeft = '0.4rem';
+      deleteBtn.onclick = () => deleteDevice(mac);
+      actionsTd.appendChild(saveBtn);
+      actionsTd.appendChild(deleteBtn);
+      tr.appendChild(actionsTd);
+
+      return tr;
+    }
+
+    async function loadDevices() {
+      setStatus('Loading…');
+      try {
+        const r = await fetch('/v1/kiosk-devices', { cache: 'no-store' });
+        if (r.status === 401) {
+          window.location.href = '/login?return=' + encodeURIComponent(window.location.pathname);
+          return;
+        }
+        if (!r.ok) throw new Error('HTTP ' + r.status);
+        const data = await r.json();
+        staleAfterS = data.stale_after_s || staleAfterS;
+        const devices = data.devices || {};
+        const macs = Object.keys(devices).sort((a, b) => {
+          const aStale = isStale(devices[a].last_seen);
+          const bStale = isStale(devices[b].last_seen);
+          if (aStale !== bStale) return aStale ? -1 : 1;
+          return a.localeCompare(b);
+        });
+        rowsEl.innerHTML = '';
+        macs.forEach((mac) => rowsEl.appendChild(renderRow(mac, devices[mac])));
+
+        const staleCount = macs.filter((m) => isStale(devices[m].last_seen)).length;
+        if (staleCount > 0) {
+          staleBanner.textContent = staleCount + ' kiosk' + (staleCount === 1 ? '' : 's') +
+            ' not seen in over ' + Math.round(staleAfterS / 60) + ' minutes.';
+          staleBanner.classList.add('show');
+        } else {
+          staleBanner.classList.remove('show');
+        }
+
+        setStatus(macs.length ? '' : 'No kiosks have checked in yet.');
+      } catch (e) {
+        setStatus('Failed to load kiosk devices: ' + e.message, true);
+      }
+    }
+
+    async function saveSiteCode(mac, siteCode) {
+      setStatus('Saving…');
+      try {
+        const r = await fetch('/v1/kiosk-devices/' + encodeURIComponent(mac), {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ site_code: siteCode || null }),
+        });
+        if (!r.ok) {
+          const body = await r.json().catch(() => ({}));
+          throw new Error(body.detail || ('HTTP ' + r.status));
+        }
+        setStatus('Saved ' + mac + '.');
+        loadDevices();
+      } catch (e) {
+        setStatus('Failed to save: ' + e.message, true);
+      }
+    }
+
+    async function deleteDevice(mac) {
+      if (!window.confirm('Remove kiosk "' + mac + '" from the registry? It will re-register as unassigned on its next check-in.')) return;
+      setStatus('Removing…');
+      try {
+        const r = await fetch('/v1/kiosk-devices/' + encodeURIComponent(mac), { method: 'DELETE' });
+        if (!r.ok) {
+          const body = await r.json().catch(() => ({}));
+          throw new Error(body.detail || ('HTTP ' + r.status));
+        }
+        setStatus('Removed ' + mac + '.');
+        loadDevices();
+      } catch (e) {
+        setStatus('Failed to remove: ' + e.message, true);
+      }
+    }
+
+    loadDevices();
+    setInterval(loadDevices, 30000);
+  })();
+  </script>
+
+</body>
+</html>

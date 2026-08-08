@@ -437,6 +437,41 @@ def _resolve_feed_code(code: str) -> Dict[str, Any]:
 
 
 # ---------------------------
+# Kiosk Fleet (Raspberry Pi arrivals-display registry, keyed by WiFi MAC)
+# ---------------------------
+# Each kiosk (built from the separate chilipie-kiosk-modern image repo) polls
+# POST /v1/kiosk-checkin every ~15s with its MAC. This lets ops reassign a kiosk to a
+# different bus stop by editing site_code at /kiosk-fleet instead of physically editing
+# a file on the device's SD card. Same trust level as feed_codes.json/
+# route_destinations.json: JSON in the persistent /data/ volume, not checked into git,
+# read freely but written only through an authenticated endpoint (except check-in itself,
+# which carries no site assignment and is no more sensitive than /arrivalsdisplay).
+KIOSK_DEVICES_PATH = PRIMARY_DATA_DIR / "kiosk_devices.json"
+KIOSK_STALE_THRESHOLD_S = 3600.0
+
+def _load_kiosk_devices() -> Dict[str, Dict[str, Any]]:
+    """Load MAC -> {hostname, rustdesk_id, image_build, site_code, first_seen, last_seen}."""
+    try:
+        if KIOSK_DEVICES_PATH.exists():
+            data = json.loads(KIOSK_DEVICES_PATH.read_text())
+            if isinstance(data, dict):
+                devices = data.get("devices", {})
+                return devices if isinstance(devices, dict) else {}
+    except (json.JSONDecodeError, OSError) as exc:
+        print(f"[kiosk-fleet] failed to load kiosk_devices.json: {exc}")
+    return {}
+
+def _save_kiosk_devices(devices: Dict[str, Dict[str, Any]]) -> None:
+    KIOSK_DEVICES_PATH.parent.mkdir(parents=True, exist_ok=True)
+    KIOSK_DEVICES_PATH.write_text(
+        json.dumps({
+            "devices": devices,
+            "updated_at": datetime.now(timezone.utc).isoformat(),
+        }, indent=2)
+    )
+
+
+# ---------------------------
 # Route Destinations (admin-curated "next landmark ahead" labels for loop routes)
 # ---------------------------
 # UTS routes are all loops in TransLoc — there's no point-to-point direction/destination
@@ -1797,6 +1832,7 @@ FEEDS_HTML = _load_html("feeds.html")
 FEED_CODES_HTML = _load_html("feed-codes.html")
 ROUTE_DESTINATIONS_HTML = _load_html("route-destinations.html")
 SYSTEM_NOTICES_HTML = _load_html("system-notices.html")
+KIOSK_FLEET_HTML = _load_html("kiosk-fleet.html")
 ARRIVALSDISPLAY_HTML = _load_html("arrivalsdisplay.html")
 CLOCKDISPLAY_HTML = _load_html("clockdisplay.html")
 SOCDISPLAY_HTML = _load_html("socdisplay.html")
@@ -14209,6 +14245,14 @@ async def system_notices_page(request: Request):
     return _login_redirect(request)
 
 
+@app.get("/kiosk-fleet")
+async def kiosk_fleet_page(request: Request):
+    _refresh_dispatch_passwords()
+    if _has_dispatcher_access(request):
+        return HTMLResponse(KIOSK_FLEET_HTML)
+    return _login_redirect(request)
+
+
 # ---------------------------
 # DUCK CONFIG PAGE
 # ---------------------------
@@ -14563,6 +14607,77 @@ async def clear_route_destination(request: Request, route_id: str, route_stop_id
         if not routes[route_id]:
             del routes[route_id]
         _save_route_destinations(routes)
+    return {"deleted": True}
+
+
+# ---------------------------
+# KIOSK FLEET
+# ---------------------------
+@app.post("/v1/kiosk-checkin")
+async def kiosk_checkin(request: Request):
+    """Public check-in for chilipie-kiosk-modern Pi devices, polled every ~15s. No auth,
+    same trust level as /arrivalsdisplay - the payload carries no site assignment, only
+    the device announcing itself. Upserts /data/kiosk_devices.json keyed by MAC and tells
+    the kiosk which site_code (if any) an admin has assigned it at /kiosk-fleet."""
+    body = await request.json()
+    mac = str(body.get("mac") or "").strip().upper()
+    if not mac:
+        raise HTTPException(status_code=400, detail="mac is required")
+    now = datetime.now(timezone.utc).isoformat()
+    devices = _load_kiosk_devices()
+    entry = dict(devices.get(mac) or {})
+    entry["hostname"] = str(body.get("hostname") or "").strip()
+    entry["rustdesk_id"] = str(body.get("rustdesk_id") or "").strip()
+    entry["image_build"] = str(body.get("image_build") or "").strip()
+    entry.setdefault("site_code", None)
+    entry.setdefault("first_seen", now)
+    entry["last_seen"] = now
+    devices[mac] = entry
+    _save_kiosk_devices(devices)
+    return {"registered": bool(entry.get("site_code")), "site_code": entry.get("site_code")}
+
+
+@app.get("/v1/kiosk-devices")
+async def list_kiosk_devices(request: Request):
+    """List every kiosk that has ever checked in, for the /kiosk-fleet editor."""
+    _require_dispatcher_access(request)
+    return {"devices": _load_kiosk_devices(), "stale_after_s": KIOSK_STALE_THRESHOLD_S}
+
+
+@app.put("/v1/kiosk-devices/{mac}")
+async def set_kiosk_device_site(request: Request, mac: str):
+    """Assign/clear the site code a kiosk should display. Body: {site_code}. Upserts so
+    a device can be pre-assigned a site code before it has ever checked in."""
+    _require_dispatcher_access(request)
+    body = await request.json()
+    mac_key = mac.strip().upper()
+    if not mac_key:
+        raise HTTPException(status_code=400, detail="mac is required")
+    raw_site_code = body.get("site_code")
+    site_code = str(raw_site_code).strip().upper() or None if raw_site_code is not None else None
+    devices = _load_kiosk_devices()
+    entry = dict(devices.get(mac_key) or {})
+    entry.setdefault("hostname", "")
+    entry.setdefault("rustdesk_id", "")
+    entry.setdefault("image_build", "")
+    entry.setdefault("first_seen", None)
+    entry.setdefault("last_seen", None)
+    entry["site_code"] = site_code
+    devices[mac_key] = entry
+    _save_kiosk_devices(devices)
+    return {"mac": mac_key, "site_code": site_code}
+
+
+@app.delete("/v1/kiosk-devices/{mac}")
+async def delete_kiosk_device(request: Request, mac: str):
+    """Remove a kiosk from the registry entirely (e.g. a decommissioned device)."""
+    _require_dispatcher_access(request)
+    devices = _load_kiosk_devices()
+    mac_key = mac.strip().upper()
+    if mac_key not in devices:
+        raise HTTPException(status_code=404, detail="device not found")
+    del devices[mac_key]
+    _save_kiosk_devices(devices)
     return {"deleted": True}
 
 
