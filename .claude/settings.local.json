@@ -108,7 +108,9 @@
       "WebFetch(domain:uva.transloc.com)",
       "WebFetch(domain:feeds.transloc.com)",
       "Bash(findstr /n \"nameBubbles\\\\|createMarker\\\\|updateVehicleMarker\" scripts/testmap.js)",
-      "PowerShell(head *)"
+      "PowerShell(head *)",
+      "WebFetch(domain:www.traccar.org)",
+      "Skill(claude-in-chrome)"
     ]
   }
 }

@@ -331,6 +331,10 @@ TM.registerVisibilityResumeHandler(() => {
         return navAuthorized === true && dispatcherAccessType !== 'cat';
       }
 
+      function userIsAuthorizedForSpare() {
+        return navAuthorized === true && dispatcherAccessType !== 'cat';
+      }
+
       function updateUserAuthorizationState(authorized) {
         const normalized = authorized === true;
         if (navAuthorized === normalized) {
@@ -338,6 +342,9 @@ TM.registerVisibilityResumeHandler(() => {
           if (!ondemandAllowed) {
             setOnDemandVehiclesEnabled(false);
             setOnDemandStopsEnabled(false);
+          }
+          if (!userIsAuthorizedForSpare()) {
+            setSpareVehiclesEnabled(false);
           }
           return ondemandAllowed;
         }
@@ -354,6 +361,11 @@ TM.registerVisibilityResumeHandler(() => {
           setOnDemandStopsEnabled(false);
         } else {
           updateOnDemandButton();
+        }
+        if (!userIsAuthorizedForSpare()) {
+          setSpareVehiclesEnabled(false);
+        } else {
+          updateSpareButton();
         }
         return userIsAuthorizedForOnDemand();
       }
@@ -2409,6 +2421,14 @@ TM.registerVisibilityResumeHandler(() => {
       const ONDEMAND_REFRESH_INTERVAL_MS = 5000;
       const ONDEMAND_STOP_ROUTE_PREFIX = 'ondemand-stop:';
       const ONDEMAND_STOP_TOOLTIP_CLASS = 'ondemand-stop-tooltip';
+      const SPARE_VEHICLES_ENDPOINT = '/api/spare/vehicles';
+      const SPARE_REQUESTS_ENDPOINT = '/api/spare/requests';
+      const SPARE_DUTIES_ENDPOINT = '/api/spare/duties';
+      const SPARE_MARKER_PREFIX = 'spare:';
+      const SPARE_DEFAULT_MARKER_COLOR = '#7c3aed';
+      const SPARE_REFRESH_INTERVAL_MS = 5000;
+      const SPARE_REQUESTS_REFRESH_INTERVAL_MS = 30000;
+      const SPARE_DUTIES_REFRESH_INTERVAL_MS = 60000;
 
       let map;
       let markers = {};
@@ -3314,6 +3334,16 @@ TM.registerVisibilityResumeHandler(() => {
       const onDemandStopMarkerCache = new Map();
       let onDemandStopMarkers = [];
       let lastOnDemandVehicles = [];
+      let spareVehiclesEnabled = false;
+      let spareAutoEnabled = false;
+      let sparePollingTimerId = null;
+      let sparePollingPausedForVisibility = false;
+      let spareFetchPromise = null;
+      let lastSpareVehicles = [];
+      let spareRequests = [];
+      let spareDuties = {};
+      let spareRequestsPollingTimerId = null;
+      let spareDutiesPollingTimerId = null;
       const ADMIN_KIOSK_UVA_HEALTH_NAME = 'University of Virginia Health';
       const ADMIN_KIOSK_UVA_HEALTH_START_MINUTES = 2 * 60 + 30;
       const ADMIN_KIOSK_UVA_HEALTH_END_MINUTES = 4 * 60 + 30;
@@ -3578,6 +3608,123 @@ TM.registerVisibilityResumeHandler(() => {
       function initializeAdminKioskOnDemandSchedule() {
         clearAdminKioskOnDemandTimer();
         enforceAdminKioskOnDemandSchedule({ force: true });
+      }
+
+      // Spare's daytime hours (7am-7pm ET) -- same auto-schedule mechanism as OnDemand
+      // above (fires for any authorized session, not just admin-kiosk displays, despite
+      // the "AdminKiosk" naming convention shared with that block).
+      const ADMIN_KIOSK_SPARE_START_MINUTES = 7 * 60;
+      const ADMIN_KIOSK_SPARE_END_MINUTES = 19 * 60;
+      const ADMIN_KIOSK_SPARE_START_MS = ADMIN_KIOSK_SPARE_START_MINUTES * MS_PER_MINUTE;
+      const ADMIN_KIOSK_SPARE_END_MS = ADMIN_KIOSK_SPARE_END_MINUTES * MS_PER_MINUTE;
+
+      let adminKioskSpareTimerId = null;
+
+      function shouldEnableAdminKioskSpare() {
+        try {
+          const now = new Date();
+          if (!(now instanceof Date) || Number.isNaN(now.getTime())) {
+            return false;
+          }
+          const hours = typeof now.getHours === 'function' ? now.getHours() : NaN;
+          const minutes = typeof now.getMinutes === 'function' ? now.getMinutes() : NaN;
+          if (!Number.isFinite(hours) || !Number.isFinite(minutes)) {
+            return false;
+          }
+          const totalMinutes = (hours * 60) + minutes;
+          if (ADMIN_KIOSK_SPARE_START_MINUTES <= ADMIN_KIOSK_SPARE_END_MINUTES) {
+            return totalMinutes >= ADMIN_KIOSK_SPARE_START_MINUTES
+              && totalMinutes < ADMIN_KIOSK_SPARE_END_MINUTES;
+          }
+          return totalMinutes >= ADMIN_KIOSK_SPARE_START_MINUTES
+            || totalMinutes < ADMIN_KIOSK_SPARE_END_MINUTES;
+        } catch (error) {
+          return false;
+        }
+      }
+
+      function clearAdminKioskSpareTimer() {
+        if (adminKioskSpareTimerId === null) {
+          return;
+        }
+        if (typeof window !== 'undefined' && typeof window.clearTimeout === 'function') {
+          window.clearTimeout(adminKioskSpareTimerId);
+        } else {
+          clearTimeout(adminKioskSpareTimerId);
+        }
+        adminKioskSpareTimerId = null;
+      }
+
+      function computeNextAdminKioskSpareDelayMs() {
+        try {
+          const now = new Date();
+          if (!(now instanceof Date) || Number.isNaN(now.getTime())) {
+            return null;
+          }
+          const hours = typeof now.getHours === 'function' ? now.getHours() : NaN;
+          const minutes = typeof now.getMinutes === 'function' ? now.getMinutes() : NaN;
+          const seconds = typeof now.getSeconds === 'function' ? now.getSeconds() : NaN;
+          const milliseconds = typeof now.getMilliseconds === 'function' ? now.getMilliseconds() : NaN;
+          if (![hours, minutes, seconds, milliseconds].every(Number.isFinite)) {
+            return null;
+          }
+          const currentMs = (((hours * 60) + minutes) * 60 + seconds) * 1000 + milliseconds;
+          const nextStart = currentMs < ADMIN_KIOSK_SPARE_START_MS
+            ? ADMIN_KIOSK_SPARE_START_MS
+            : ADMIN_KIOSK_SPARE_START_MS + MS_PER_DAY;
+          const nextEnd = currentMs < ADMIN_KIOSK_SPARE_END_MS
+            ? ADMIN_KIOSK_SPARE_END_MS
+            : ADMIN_KIOSK_SPARE_END_MS + MS_PER_DAY;
+          const currentlyEnabled = shouldEnableAdminKioskSpare();
+          const targetMs = currentlyEnabled ? nextEnd : nextStart;
+          const delta = targetMs - currentMs;
+          return Number.isFinite(delta) ? delta : null;
+        } catch (error) {
+          return null;
+        }
+      }
+
+      function scheduleNextAdminKioskSpareCheck() {
+        clearAdminKioskSpareTimer();
+        if (typeof window === 'undefined' || typeof window.setTimeout !== 'function') {
+          return;
+        }
+        let delay = computeNextAdminKioskSpareDelayMs();
+        if (!Number.isFinite(delay) || delay <= 0) {
+          delay = ADMIN_KIOSK_SCHEDULE_MAX_DELAY_MS;
+        }
+        const normalizedDelay = Math.min(
+          Math.max(delay, ADMIN_KIOSK_SCHEDULE_MIN_DELAY_MS),
+          ADMIN_KIOSK_SCHEDULE_MAX_DELAY_MS
+        );
+        adminKioskSpareTimerId = window.setTimeout(() => {
+          adminKioskSpareTimerId = null;
+          enforceAdminKioskSpareSchedule({ force: true });
+        }, normalizedDelay);
+      }
+
+      function enforceAdminKioskSpareSchedule({ force = false } = {}) {
+        if (!userIsAuthorizedForSpare()) {
+          if (spareVehiclesEnabled) {
+            spareAutoEnabled = false;
+            setSpareVehiclesEnabled(false);
+          } else {
+            updateSpareButton();
+          }
+          scheduleNextAdminKioskSpareCheck();
+          return;
+        }
+        const shouldEnable = shouldEnableAdminKioskSpare();
+        if (force || spareVehiclesEnabled !== shouldEnable) {
+          spareAutoEnabled = shouldEnable;
+          setSpareVehiclesEnabled(shouldEnable);
+        }
+        scheduleNextAdminKioskSpareCheck();
+      }
+
+      function initializeAdminKioskSpareSchedule() {
+        clearAdminKioskSpareTimer();
+        enforceAdminKioskSpareSchedule({ force: true });
       }
       let catOverlayEnabled = false;
       let catLayerGroup = null;
@@ -5909,6 +6056,29 @@ TM.registerVisibilityResumeHandler(() => {
         }
       }
 
+      function updateSpareButton() {
+        const button = document.getElementById('spareToggleButton');
+        if (!button) return;
+        const authorized = userIsAuthorizedForSpare();
+        if (typeof button.disabled === 'boolean') {
+          button.disabled = !authorized;
+        }
+        if (!authorized) {
+          button.setAttribute('aria-disabled', 'true');
+        } else {
+          button.removeAttribute('aria-disabled');
+        }
+        const isActive = !!spareVehiclesEnabled;
+        const isAuto = isActive && !!spareAutoEnabled;
+        button.classList.toggle('is-active', isActive);
+        button.classList.toggle('is-auto', isAuto);
+        button.setAttribute('aria-pressed', isActive ? 'true' : 'false');
+        const indicator = button.querySelector('.toggle-indicator');
+        if (indicator) {
+          indicator.textContent = isAuto ? 'Auto' : (isActive ? 'On' : 'Off');
+        }
+      }
+
       function shouldPollOnDemandData() {
         if (!userIsAuthorizedForOnDemand()) {
           return false;
@@ -6046,6 +6216,13 @@ TM.registerVisibilityResumeHandler(() => {
         return `${vehicleID}`.startsWith(ONDEMAND_MARKER_PREFIX);
       }
 
+      function isSpareVehicleId(vehicleID) {
+        if (vehicleID === undefined || vehicleID === null) {
+          return false;
+        }
+        return `${vehicleID}`.startsWith(SPARE_MARKER_PREFIX);
+      }
+
       function extractOnDemandDisplayName(callName) {
         if (typeof callName !== 'string') {
           return '';
@@ -6111,6 +6288,59 @@ TM.registerVisibilityResumeHandler(() => {
 
         purgeOrphanedBusMarkers();
         clearOnDemandRoutes();
+      }
+
+      function clearSpareVehicles() {
+        if (!map || typeof map.removeLayer !== 'function') {
+          Object.keys(markers).forEach(vehicleID => {
+            if (isSpareVehicleId(vehicleID)) {
+              delete markers[vehicleID];
+              clearBusMarkerState(vehicleID);
+            }
+          });
+          Object.keys(nameBubbles).forEach(vehicleID => {
+            if (isSpareVehicleId(vehicleID)) {
+              delete nameBubbles[vehicleID];
+            }
+          });
+          lastSpareVehicles = [];
+          return;
+        }
+
+        Object.keys(markers).forEach(vehicleID => {
+          if (!isSpareVehicleId(vehicleID)) {
+            return;
+          }
+          const marker = markers[vehicleID];
+          if (marker) {
+            map.removeLayer(marker);
+          }
+          delete markers[vehicleID];
+          clearBusMarkerState(vehicleID);
+        });
+
+        Object.keys(nameBubbles).forEach(vehicleID => {
+          if (!isSpareVehicleId(vehicleID)) {
+            return;
+          }
+          const bubble = nameBubbles[vehicleID];
+          if (bubble) {
+            if (bubble.speedMarker) map.removeLayer(bubble.speedMarker);
+            if (bubble.nameMarker) map.removeLayer(bubble.nameMarker);
+            if (bubble.blockMarker) map.removeLayer(bubble.blockMarker);
+            if (bubble.routeMarker) map.removeLayer(bubble.routeMarker);
+          }
+          delete nameBubbles[vehicleID];
+        });
+
+        Object.keys(busMarkerStates).forEach(vehicleID => {
+          if (isSpareVehicleId(vehicleID)) {
+            clearBusMarkerState(vehicleID);
+          }
+        });
+
+        purgeOrphanedBusMarkers();
+        lastSpareVehicles = [];
       }
 
       function clearOnDemandRoutes() {
@@ -6345,6 +6575,91 @@ TM.registerVisibilityResumeHandler(() => {
         }
         onDemandAutoEnabled = false;
         setOnDemandVehiclesEnabled(!onDemandVehiclesEnabled);
+      }
+
+      function shouldPollSpareData() {
+        return userIsAuthorizedForSpare() && spareVehiclesEnabled;
+      }
+
+      function stopSparePolling() {
+        if (sparePollingTimerId !== null) {
+          clearInterval(sparePollingTimerId);
+          sparePollingTimerId = null;
+        }
+        if (spareRequestsPollingTimerId !== null) {
+          clearInterval(spareRequestsPollingTimerId);
+          spareRequestsPollingTimerId = null;
+        }
+        if (spareDutiesPollingTimerId !== null) {
+          clearInterval(spareDutiesPollingTimerId);
+          spareDutiesPollingTimerId = null;
+        }
+      }
+
+      function startSparePolling() {
+        if (!shouldPollSpareData() || sparePollingTimerId !== null) {
+          return;
+        }
+        if (typeof document !== 'undefined' && document.hidden) {
+          return;
+        }
+        fetchSpareDuties()
+          .then(() => fetchSpareRequests())
+          .then(() => fetchSpareVehicles())
+          .catch(error => {
+            console.error('Failed to fetch Spare vehicles:', error);
+          });
+        sparePollingTimerId = setInterval(() => {
+          fetchSpareVehicles().catch(error => {
+            console.error('Failed to refresh Spare vehicles:', error);
+          });
+        }, SPARE_REFRESH_INTERVAL_MS);
+        spareRequestsPollingTimerId = setInterval(() => {
+          fetchSpareRequests().catch(error => {
+            console.error('Failed to refresh Spare requests:', error);
+          });
+        }, SPARE_REQUESTS_REFRESH_INTERVAL_MS);
+        spareDutiesPollingTimerId = setInterval(() => {
+          fetchSpareDuties().catch(error => {
+            console.error('Failed to refresh Spare duties:', error);
+          });
+        }, SPARE_DUTIES_REFRESH_INTERVAL_MS);
+      }
+
+      function setSpareVehiclesEnabled(value) {
+        const authorized = userIsAuthorizedForSpare();
+        const requestedEnable = !!value;
+        if (requestedEnable && !authorized) {
+          updateSpareButton();
+          return;
+        }
+        const nextValue = requestedEnable;
+        if (spareVehiclesEnabled === nextValue) {
+          updateSpareButton();
+          return;
+        }
+        const pollingBefore = shouldPollSpareData();
+        spareVehiclesEnabled = nextValue;
+        if (!spareVehiclesEnabled) {
+          clearSpareVehicles();
+          sparePollingPausedForVisibility = false;
+        }
+        const pollingAfter = shouldPollSpareData();
+        if (pollingAfter && !pollingBefore) {
+          startSparePolling();
+        } else if (!pollingAfter && pollingBefore) {
+          stopSparePolling();
+        }
+        updateSpareButton();
+      }
+
+      function toggleSpareVehicles() {
+        if (!userIsAuthorizedForSpare()) {
+          updateSpareButton();
+          return;
+        }
+        spareAutoEnabled = false;
+        setSpareVehiclesEnabled(!spareVehiclesEnabled);
       }
 
       function toggleOnDemand() {
@@ -7856,6 +8171,352 @@ TM.registerVisibilityResumeHandler(() => {
         return fetchPromise;
       }
 
+      async function fetchSpareRequests() {
+        if (!shouldPollSpareData()) {
+          return [];
+        }
+        try {
+          const response = await fetch(SPARE_REQUESTS_ENDPOINT, { cache: 'no-store' });
+          if (!response.ok) {
+            return spareRequests;
+          }
+          const data = await response.json();
+          spareRequests = Array.isArray(data) ? data : [];
+        } catch (error) {
+          console.error('Failed to fetch Spare requests:', error);
+        }
+        return spareRequests;
+      }
+
+      async function fetchSpareDuties() {
+        if (!shouldPollSpareData()) {
+          return spareDuties;
+        }
+        try {
+          const response = await fetch(SPARE_DUTIES_ENDPOINT, { cache: 'no-store' });
+          if (!response.ok) {
+            return spareDuties;
+          }
+          const data = await response.json();
+          const byId = {};
+          if (Array.isArray(data)) {
+            data.forEach(duty => {
+              if (duty && duty.id !== undefined && duty.id !== null) {
+                byId[duty.id] = duty;
+              }
+            });
+          }
+          spareDuties = byId;
+        } catch (error) {
+          console.error('Failed to fetch Spare duties:', error);
+        }
+        return spareDuties;
+      }
+
+      // Builds ride cards (rider name + pickup/dropoff address) for a Spare vehicle's
+      // active requests -- mirrors renderOnDemandStopList()'s markup/classes so no new
+      // CSS is needed, but sources from Spare's own request objects (which already
+      // carry vehicleId/dutyId + rider + addresses) instead of OnDemand's stop-plan
+      // shape. /api/spare/requests already excludes terminal statuses server-side.
+      function buildSpareRideCards(vehicleId, dutyId) {
+        const active = spareRequests.filter(req => {
+          if (!req || typeof req !== 'object') return false;
+          if (req.vehicleId && `${req.vehicleId}` === `${vehicleId}`) return true;
+          if (dutyId && req.dutyId && `${req.dutyId}` === `${dutyId}`) return true;
+          return false;
+        });
+        if (!active.length) {
+          return '';
+        }
+        const cards = active.map(req => {
+          const rider = req.rider || {};
+          const name = [rider.firstName, rider.lastName].filter(Boolean).join(' ').trim() || 'Rider';
+          const status = req.status || '';
+          const isOnBoard = status === 'inProgress';
+          const pickupAddr = req.scheduledPickupAddress || req.requestedPickupAddress || 'Unknown pickup';
+          const dropoffAddr = req.scheduledDropoffAddress || req.requestedDropoffAddress || 'Unknown dropoff';
+          const pickupClass = isOnBoard
+            ? 'ondemand-driver-popup__ride-location-icon ondemand-driver-popup__ride-location-icon--onboard'
+            : 'ondemand-driver-popup__ride-location-icon ondemand-driver-popup__ride-location-icon--pickup';
+          const pickupIcon = isOnBoard ? '✓' : 'P';
+          const statusLabel = status ? `<span class="ondemand-driver-popup__ride-order">${escapeHtml(status)}</span>` : '';
+          return [
+            '<div class="ondemand-driver-popup__ride-card">',
+            '<div class="ondemand-driver-popup__ride-header">',
+            `<span class="ondemand-driver-popup__ride-name">${escapeHtml(name)}</span>`,
+            statusLabel,
+            '</div>',
+            '<div class="ondemand-driver-popup__ride-locations">',
+            '<div class="ondemand-driver-popup__ride-location">',
+            `<span class="${pickupClass}">${pickupIcon}</span>`,
+            `<span class="ondemand-driver-popup__ride-location-text">${escapeHtml(isOnBoard ? 'On board' : pickupAddr)}</span>`,
+            '</div>',
+            '<div class="ondemand-driver-popup__ride-location">',
+            '<span class="ondemand-driver-popup__ride-location-icon ondemand-driver-popup__ride-location-icon--dropoff">D</span>',
+            `<span class="ondemand-driver-popup__ride-location-text">${escapeHtml(dropoffAddr)}</span>`,
+            '</div>',
+            '</div>',
+            '</div>'
+          ].join('');
+        }).join('');
+        return [
+          '<div class="ondemand-driver-popup__stops">',
+          '<div class="ondemand-driver-popup__label">Rides</div>',
+          `<div class="ondemand-driver-popup__rides">${cards}</div>`,
+          '</div>'
+        ].join('');
+      }
+
+      // Spare vehicle markers -- modeled on fetchOnDemandVehicles() above, reusing the
+      // same shared bus-marker infrastructure, but simpler: Spare has no stop-plan/
+      // ride-visibility/celebration machinery (those are OnDemand-specific concepts).
+      async function fetchSpareVehicles() {
+        if (!shouldPollSpareData()) {
+          return [];
+        }
+        if (!map || typeof fetch !== 'function') {
+          return [];
+        }
+        if (spareFetchPromise) {
+          return spareFetchPromise;
+        }
+        const smoothingClaimed = claimVehicleSmoothingDisable();
+        const fetchPromise = (async () => {
+          try {
+            const response = await fetch(SPARE_VEHICLES_ENDPOINT, { cache: 'no-store' });
+            if (!response.ok) {
+              if (response.status === 401 || response.status === 403 || response.status === 503) {
+                return [];
+              }
+              throw new Error(`HTTP ${response.status}`);
+            }
+            const vehicles = await response.json();
+            if (!shouldPollSpareData()) {
+              return [];
+            }
+            if (!Array.isArray(vehicles)) {
+              return [];
+            }
+            const seen = new Set();
+            const zoom = typeof map.getZoom === 'function' ? map.getZoom() : BUS_MARKER_BASE_ZOOM;
+            const markerMetricsForZoom = computeBusMarkerMetrics(zoom);
+            for (const vehicle of vehicles) {
+              if (!vehicle || typeof vehicle !== 'object') {
+                continue;
+              }
+              const loc = vehicle.currentLocation;
+              const coords = loc && loc.location && Array.isArray(loc.location.coordinates)
+                ? loc.location.coordinates
+                : null;
+              if (!coords || coords.length < 2) {
+                continue;
+              }
+              const lon = Number(coords[0]);
+              const lat = Number(coords[1]);
+              if (!Number.isFinite(lat) || !Number.isFinite(lon)) {
+                continue;
+              }
+              const rawId = vehicle.id;
+              const normalizedId = rawId !== undefined && rawId !== null ? `${rawId}`.trim() : '';
+              if (!normalizedId) {
+                continue;
+              }
+              const markerKey = `${SPARE_MARKER_PREFIX}${normalizedId}`;
+              seen.add(markerKey);
+              const state = ensureBusMarkerState(markerKey);
+              state.isSpare = true;
+              const newPosition = [lat, lon];
+              const fallbackHeading = getVehicleHeadingFallback(markerKey, loc.bearing);
+              const speedRawMs = Number(loc.speed ?? loc.groundSpeed ?? loc.speedMs);
+              const speedMph = Number.isFinite(speedRawMs) ? Math.max(0, speedRawMs * 2.23694) : 0;
+              const headingDeg = updateBusMarkerHeading(state, newPosition, fallbackHeading, speedMph);
+              const displayName = (vehicle.identifier ? `${vehicle.identifier}`.trim() : '') || `Van ${normalizedId}`;
+              state.busName = displayName;
+              state.routeID = null;
+              const fillColor = sanitizeCssColor(vehicle.markerColor) || SPARE_DEFAULT_MARKER_COLOR;
+              state.fillColor = fillColor;
+              const glyphColor = computeBusMarkerGlyphColor(fillColor);
+              state.glyphColor = glyphColor;
+
+              const dutyId = loc.dutyId;
+              const duty = dutyId !== undefined && dutyId !== null ? spareDuties[dutyId] : null;
+              const driver = duty && duty.driver ? duty.driver : null;
+              const driverName = driver
+                ? [driver.firstName, driver.lastName].filter(Boolean).join(' ').trim()
+                : '';
+
+              const popupSections = [];
+              const vehicleSub = [vehicle.make, vehicle.model, vehicle.licensePlate].filter(Boolean).join(' · ');
+              const vehicleCardHtml = buildInfoCardSection(displayName, vehicleSub || 'Spare Paratransit', fillColor);
+              if (vehicleCardHtml) {
+                popupSections.push(vehicleCardHtml);
+              }
+              if (driverName) {
+                const driverCardHtml = buildInfoCardSection(driverName, 'Spare Driver', fillColor);
+                if (driverCardHtml) {
+                  popupSections.push(driverCardHtml);
+                }
+              }
+              const rideCardsHtml = buildSpareRideCards(normalizedId, dutyId);
+              if (rideCardsHtml) {
+                popupSections.push(rideCardsHtml);
+              }
+
+              const accessibleName = `${displayName} Spare Paratransit`;
+              state.accessibleLabel = buildBusMarkerAccessibleLabel(accessibleName, headingDeg, speedMph);
+
+              if (popupSections.length) {
+                state.driverPopupContent = [
+                  '<div class="ondemand-driver-popup__content">',
+                  popupSections.join('<div class="ondemand-driver-popup__divider" aria-hidden="true"></div>'),
+                  '</div>'
+                ].join('');
+                const marker = markers[markerKey];
+                if (marker && typeof marker.isPopupOpen === 'function' && marker.isPopupOpen()) {
+                  if (typeof marker.setPopupContent === 'function') {
+                    marker.setPopupContent(state.driverPopupContent);
+                  }
+                }
+              } else {
+                delete state.driverPopupContent;
+                delete state.driverPopupAriaLabel;
+              }
+              const hasDriverPopup = Boolean(state.driverPopupContent);
+
+              state.isStale = false;
+              state.isStopped = isBusConsideredStopped(speedMph);
+              state.groundSpeed = speedMph;
+              state.lastUpdateTimestamp = Date.now();
+              rememberCachedVehicleHeading(markerKey, headingDeg, state.lastUpdateTimestamp);
+
+              if (markers[markerKey]) {
+                animateMarkerTo(markers[markerKey], newPosition);
+                markers[markerKey].routeID = null;
+                markers[markerKey].isSpare = true;
+                applyMarkerInteractivity(markers[markerKey], hasDriverPopup);
+                syncMarkerPopupPosition(markers[markerKey]);
+                state.marker = markers[markerKey];
+                queueBusMarkerVisualUpdate(markerKey, {
+                  fillColor,
+                  glyphColor,
+                  headingDeg,
+                  accessibleLabel: state.accessibleLabel,
+                  stopped: state.isStopped,
+                  stale: false
+                });
+              } else {
+                const icon = await createBusMarkerDivIcon(markerKey, state);
+                if (!icon) {
+                  continue;
+                }
+                const marker = L.marker(newPosition, { icon, pane: 'busesPane', interactive: hasDriverPopup, keyboard: hasDriverPopup });
+                marker.routeID = null;
+                marker.isSpare = true;
+                marker.addTo(map);
+                applyMarkerInteractivity(marker, hasDriverPopup);
+                markers[markerKey] = marker;
+                state.marker = marker;
+                removeDuplicateBusMarkerLayers(markerKey, marker);
+                registerBusMarkerElements(markerKey);
+                updateBusMarkerRootClasses(state);
+                updateBusMarkerZIndex(state);
+                applyBusMarkerOutlineWidth(state);
+              }
+
+              if (adminMode && displayMode === DISPLAY_MODES.SPEED && !kioskMode) {
+                const speedIcon = createSpeedBubbleDivIcon(fillColor, speedMph, markerMetricsForZoom.scale, headingDeg);
+                nameBubbles[markerKey] = nameBubbles[markerKey] || {};
+                if (speedIcon) {
+                  if (nameBubbles[markerKey].speedMarker) {
+                    animateMarkerTo(nameBubbles[markerKey].speedMarker, newPosition);
+                    nameBubbles[markerKey].speedMarker.setIcon(speedIcon);
+                  } else {
+                    nameBubbles[markerKey].speedMarker = L.marker(newPosition, { icon: speedIcon, interactive: false, pane: 'busesPane' }).addTo(map);
+                  }
+                } else if (nameBubbles[markerKey].speedMarker) {
+                  map.removeLayer(nameBubbles[markerKey].speedMarker);
+                  delete nameBubbles[markerKey].speedMarker;
+                }
+              } else if (nameBubbles[markerKey]?.speedMarker) {
+                map.removeLayer(nameBubbles[markerKey].speedMarker);
+                delete nameBubbles[markerKey].speedMarker;
+              }
+
+              if (adminMode && !kioskMode) {
+                const nameIcon = createNameBubbleDivIcon(displayName, fillColor, markerMetricsForZoom.scale, headingDeg);
+                nameBubbles[markerKey] = nameBubbles[markerKey] || {};
+                if (nameIcon) {
+                  if (nameBubbles[markerKey].nameMarker) {
+                    animateMarkerTo(nameBubbles[markerKey].nameMarker, newPosition);
+                    nameBubbles[markerKey].nameMarker.setIcon(nameIcon);
+                  } else {
+                    nameBubbles[markerKey].nameMarker = L.marker(newPosition, { icon: nameIcon, interactive: false, pane: 'busesPane' }).addTo(map);
+                  }
+                } else if (nameBubbles[markerKey].nameMarker) {
+                  map.removeLayer(nameBubbles[markerKey].nameMarker);
+                  delete nameBubbles[markerKey].nameMarker;
+                }
+              } else if (nameBubbles[markerKey] && nameBubbles[markerKey].nameMarker) {
+                map.removeLayer(nameBubbles[markerKey].nameMarker);
+                delete nameBubbles[markerKey].nameMarker;
+              }
+
+              attachBusMarkerInteractions(markerKey);
+
+              if (nameBubbles[markerKey]) {
+                const bubble = nameBubbles[markerKey];
+                const hasMarkers = Boolean(bubble.speedMarker || bubble.nameMarker || bubble.blockMarker || bubble.routeMarker);
+                if (hasMarkers) {
+                  bubble.lastScale = markerMetricsForZoom.scale;
+                } else {
+                  delete nameBubbles[markerKey];
+                }
+              }
+            }
+
+            Object.keys(markers).forEach(vehicleID => {
+              if (!isSpareVehicleId(vehicleID) || seen.has(vehicleID)) {
+                return;
+              }
+              const marker = markers[vehicleID];
+              if (marker) {
+                map.removeLayer(marker);
+              }
+              delete markers[vehicleID];
+              clearBusMarkerState(vehicleID);
+              if (nameBubbles[vehicleID]) {
+                const bubble = nameBubbles[vehicleID];
+                if (bubble.speedMarker) map.removeLayer(bubble.speedMarker);
+                if (bubble.nameMarker) map.removeLayer(bubble.nameMarker);
+                if (bubble.blockMarker) map.removeLayer(bubble.blockMarker);
+                if (bubble.routeMarker) map.removeLayer(bubble.routeMarker);
+                delete nameBubbles[vehicleID];
+              }
+            });
+            purgeOrphanedBusMarkers();
+            lastSpareVehicles = vehicles.slice();
+            // Spare polls on its own independent interval (see startSparePolling), same
+            // as OnDemand/CAT -- recompute the banner here too.
+            updateKioskStatusMessage({ known: true, hasActiveVehicles: hasAnyActiveVehiclesForKioskStatus() });
+            return vehicles;
+          } catch (error) {
+            console.error('Failed to fetch Spare vehicles:', error);
+            return [];
+          } finally {
+            if (smoothingClaimed) {
+              releaseVehicleSmoothingDisable();
+            }
+          }
+        })();
+        spareFetchPromise = fetchPromise;
+        fetchPromise.finally(() => {
+          if (spareFetchPromise === fetchPromise) {
+            spareFetchPromise = null;
+          }
+        });
+        return fetchPromise;
+      }
+
       const BUS_MARKER_SVG_URL = 'busmarker.svg';
 
       const BUS_MARKER_VIEWBOX_WIDTH = 52.99;
@@ -8402,6 +9063,7 @@ TM.registerVisibilityResumeHandler(() => {
       function hasAnyActiveVehiclesForKioskStatus() {
         return hasAnyActiveRoutes() ||
           (onDemandVehiclesEnabled && lastOnDemandVehicles.length > 0) ||
+          (spareVehiclesEnabled && lastSpareVehicles.length > 0) ||
           (catOverlayEnabled && catVehiclesById.size > 0);
       }
 
@@ -9873,6 +10535,13 @@ TM.registerVisibilityResumeHandler(() => {
               </button>
             `;
             contentHtml += buildSection('ondemand', 'OnDemand', onDemandSectionInner);
+
+            const spareSectionInner = `
+              <button type="button" id="spareToggleButton" class="pill-button ondemand-toggle-button${spareVehiclesEnabled ? ' is-active' : ''}" aria-pressed="${spareVehiclesEnabled ? 'true' : 'false'}" onclick="toggleSpareVehicles()">
+                Spare<span class="toggle-indicator">${spareVehiclesEnabled ? 'On' : 'Off'}</span>
+              </button>
+            `;
+            contentHtml += buildSection('spare', 'Spare Paratransit', spareSectionInner);
           }
         }
 
@@ -11661,6 +12330,10 @@ TM.registerVisibilityResumeHandler(() => {
             stopOnDemandPolling();
             onDemandPollingPausedForVisibility = true;
           }
+          if (shouldPollSpareData() && sparePollingTimerId !== null) {
+            stopSparePolling();
+            sparePollingPausedForVisibility = true;
+          }
           clearRefreshIntervals();
           return;
         }
@@ -11672,6 +12345,10 @@ TM.registerVisibilityResumeHandler(() => {
           if (shouldPollOnDemandData() && (onDemandPollingPausedForVisibility || onDemandPollingTimerId === null)) {
             onDemandPollingPausedForVisibility = false;
             startOnDemandPolling();
+          }
+          if (shouldPollSpareData() && (sparePollingPausedForVisibility || sparePollingTimerId === null)) {
+            sparePollingPausedForVisibility = false;
+            startSparePolling();
           }
         }
       }
@@ -22647,6 +23324,7 @@ TM.registerVisibilityResumeHandler(() => {
           .then(() => {
             initializeAdminKioskAgencySchedule();
             initializeAdminKioskOnDemandSchedule();
+            initializeAdminKioskSpareSchedule();
             initMap();
             showCookieBanner();
             enforceIncidentVisibilityForCurrentAgency();

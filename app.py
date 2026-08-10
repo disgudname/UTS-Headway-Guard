@@ -991,6 +991,10 @@ SPARE_REQUESTS_TTL_S = int(os.getenv("SPARE_REQUESTS_TTL_S", "30"))
 SPARE_DUTIES_TTL_S = int(os.getenv("SPARE_DUTIES_TTL_S", "60"))
 SPARE_VEHICLES_TTL_S = int(os.getenv("SPARE_VEHICLES_TTL_S", "120"))
 SPARE_WEBHOOK_SECRET = (os.getenv("SPARE_WEBHOOK_SECRET") or "").strip()
+SPARE_DEFAULT_MARKER_COLOR = (os.getenv("SPARE_DEFAULT_MARKER_COLOR") or "#7c3aed").strip() or "#7c3aed"
+if not SPARE_DEFAULT_MARKER_COLOR.startswith("#"):
+    SPARE_DEFAULT_MARKER_COLOR = f"#{SPARE_DEFAULT_MARKER_COLOR.lstrip('#')}"
+ONDEMAND_COLOR_BY_NAME_TTL_S = int(os.getenv("ONDEMAND_COLOR_BY_NAME_TTL_S", "60"))
 DISPATCHER_DOWNED_SHEET_URL = os.getenv(
     "DISPATCHER_DOWNED_SHEET_URL",
     "https://docs.google.com/spreadsheets/d/e/2PACX-1vRZz9HtiUnA6MONcaHw_Kz1Cd8dHhm7Gt9OBuOy7bPfNiHaGYvkVlONxttrUgNCjXdLDnDcgCh4IeQH/pub?gid=0&single=true&output=csv",
@@ -2597,6 +2601,7 @@ adsb_cache_lock = asyncio.Lock()
 spare_requests_cache = TTLCache(SPARE_REQUESTS_TTL_S)
 spare_duties_cache = TTLCache(SPARE_DUTIES_TTL_S)
 spare_vehicles_cache = TTLCache(SPARE_VEHICLES_TTL_S)
+ondemand_color_by_name_cache = TTLCache(ONDEMAND_COLOR_BY_NAME_TTL_S)
 
 
 def _is_within_ondemand_operating_window(now: Optional[datetime] = None) -> bool:
@@ -11169,6 +11174,31 @@ async def transloc_stop_alert_by_code(code: str):
     return await transloc_stop_alert(stopIDs=",".join(entry["stop_ids"]))
 
 
+@app.get("/v1/transloc/cat_stop_routes")
+async def cat_stop_routes(
+    stopIDs: Optional[str] = Query(None, description="Comma-separated stop IDs"),
+):
+    """RouteIDs of every CAT route that statically serves any of the given (possibly
+    mixed UTS/CAT) stop IDs -- see _cat_route_ids_serving_stops for why this is a
+    separate, ETA-independent source of "which routes serve this stop" from
+    /v1/transloc/stop_arrivals. Non-CAT stop IDs are ignored (UTS routes have no
+    equivalent lookup here)."""
+    raw_ids = [s.strip() for s in (stopIDs or "").split(",") if s.strip()]
+    cat_ids = [s for s in raw_ids if _is_cat_stop_id(s)]
+    return {"route_ids": await _cat_route_ids_serving_stops(cat_ids)}
+
+
+@app.get("/v1/transloc/cat_stop_routes/{code}")
+async def cat_stop_routes_by_code(code: str):
+    """Same as /v1/transloc/cat_stop_routes, keyed by a stable feed code instead of raw
+    stop IDs -- see /v1/transloc/stop_arrivals/{code} for why.
+
+    Example: /v1/transloc/cat_stop_routes/DTS
+    """
+    entry = _resolve_feed_code(code)
+    return await cat_stop_routes(stopIDs=",".join(entry["stop_ids"]))
+
+
 def _simplify_route_name(route_desc: str) -> str:
     """Collapse any "Orientation - Day N AM/PM — To ..." route name down to just
     "Orientation" for signage feeds. The full names (e.g. "Orientation - Day 1 AM — To
@@ -11429,6 +11459,35 @@ async def _cat_arrivals(stop_ids: List[str]) -> Tuple[List[Tuple[str, float]], O
                 arrivals.append((route_desc, max(float(minutes), 0.0) * 60.0))
 
     return arrivals, stop_name
+
+
+async def _cat_route_ids_serving_stops(cat_stop_ids: List[str]) -> List[int]:
+    """RouteIDs of every CAT route that statically serves any of the given CAT stop IDs,
+    per the cached get_stops list (_get_cat_stops) -- unlike _cat_arrivals/
+    _cat_transloc_shaped_arrivals, this doesn't depend on get_stop_etas, whose live
+    "enRoute" list is capped at the ~5 soonest arrivals across ALL routes at a stop. A
+    busy multi-route hub (e.g. Downtown Transit Station, served by 11 routes) can easily
+    have more than 5 routes with buses currently running but none of them among the
+    nearest 5 arrivals, which would otherwise make those routes vanish from anything
+    keyed off live arrivals alone (e.g. the /arrivalsdisplay embedded map's route
+    filter -- see updateMapConfig in arrivalsdisplay.html)."""
+    wanted = {str(s) for s in cat_stop_ids}
+    if not wanted:
+        return []
+    cat_stops = await _get_cat_stops()
+    result: Set[int] = set()
+    for stop in cat_stops:
+        sid = stop.get("StopID")
+        if sid is None or str(sid) not in wanted:
+            continue
+        rid = stop.get("RouteID")
+        if rid is None:
+            continue
+        try:
+            result.add(int(rid))
+        except (TypeError, ValueError):
+            continue
+    return sorted(result)
 
 
 async def _cat_transloc_shaped_arrivals(cat_stop_ids: List[str]) -> List[Dict[str, Any]]:
@@ -15894,9 +15953,82 @@ def _get_spare_client() -> Optional[SpareClient]:
     return getattr(app.state, "spare_client", None)
 
 
+def _normalize_van_display_name(name: Optional[str]) -> str:
+    """Text before the first ':' (matches extractOnDemandDisplayName() client-side),
+    uppercased/trimmed so OnDemand call names ("VAN 16: ...") and Spare vehicle
+    identifiers ("Van 16") can be compared regardless of case."""
+    if not name:
+        return ""
+    text = str(name).strip()
+    if not text:
+        return ""
+    colon_index = text.find(":")
+    if colon_index > 0:
+        text = text[:colon_index].strip()
+    return text.upper()
+
+
+async def _get_ondemand_color_by_display_name() -> Dict[str, str]:
+    """Map normalized van display name -> hex color, sourced from the TransLoc
+    OnDemand roster. Deliberately bypasses _collect_ondemand_data's overnight
+    operating-window gate: a van's on-file color is a roster property, not a
+    live-position one, and Spare's daytime window doesn't overlap OnDemand's."""
+    client: Optional[OnDemandClient] = getattr(app.state, "ondemand_client", None)
+    if client is None:
+        return {}
+
+    async def fetch() -> Dict[str, str]:
+        try:
+            roster_result, positions_result = await asyncio.gather(
+                client.get_vehicle_details(),
+                client.get_vehicle_positions(),
+                return_exceptions=True,
+            )
+        except Exception as exc:
+            print(f"[spare] ondemand color lookup failed: {exc}")
+            return {}
+        roster = roster_result if isinstance(roster_result, list) else []
+        positions = positions_result if isinstance(positions_result, list) else []
+        if isinstance(roster_result, Exception):
+            print(f"[spare] ondemand roster fetch failed: {roster_result}")
+        if isinstance(positions_result, Exception):
+            print(f"[spare] ondemand positions fetch failed: {positions_result}")
+
+        color_by_vehicle_id: Dict[str, str] = {}
+        for entry in roster:
+            if not isinstance(entry, dict):
+                continue
+            vehicle_id = entry.get("vehicle_id")
+            if vehicle_id is None:
+                continue
+            color_value = _normalize_hex_color(entry.get("color"))
+            if color_value:
+                color_by_vehicle_id[str(vehicle_id).strip()] = color_value
+
+        color_by_name: Dict[str, str] = {}
+        for entry in positions:
+            if not isinstance(entry, dict):
+                continue
+            vehicle_id = entry.get("vehicle_id") or entry.get("VehicleID")
+            if vehicle_id is None:
+                continue
+            color_value = color_by_vehicle_id.get(str(vehicle_id).strip())
+            if not color_value:
+                continue
+            display_name = _normalize_van_display_name(
+                entry.get("call_name") or entry.get("callName")
+            )
+            if display_name:
+                color_by_name[display_name] = color_value
+        return color_by_name
+
+    return await ondemand_color_by_name_cache.get(fetch)
+
+
 @app.get("/api/spare/requests")
-async def api_spare_requests():
+async def api_spare_requests(request: Request):
     """Today's active paratransit trip requests."""
+    _require_dispatcher_access(request)
     client = _get_spare_client()
     if client is None:
         raise HTTPException(status_code=503, detail="Spare client not configured (set SPARE_API_KEY)")
@@ -15922,8 +16054,9 @@ async def api_spare_requests():
 
 
 @app.get("/api/spare/duties")
-async def api_spare_duties():
+async def api_spare_duties(request: Request):
     """Today's duty roster (shifts that overlap with today)."""
+    _require_dispatcher_access(request)
     client = _get_spare_client()
     if client is None:
         raise HTTPException(status_code=503, detail="Spare client not configured (set SPARE_API_KEY)")
@@ -15954,8 +16087,9 @@ async def api_spare_duties():
 
 
 @app.get("/api/spare/duties/debug")
-async def api_spare_duties_debug():
+async def api_spare_duties_debug(request: Request):
     """Raw Spare /duties response with no filters — for debugging only."""
+    _require_dispatcher_access(request)
     client = _get_spare_client()
     if client is None:
         raise HTTPException(status_code=503, detail="Spare client not configured")
@@ -15969,8 +16103,9 @@ async def api_spare_duties_debug():
 
 
 @app.get("/api/spare/vehicles")
-async def api_spare_vehicles():
+async def api_spare_vehicles(request: Request):
     """Vehicle roster with latest known locations (from webhook cache)."""
+    _require_dispatcher_access(request)
     client = _get_spare_client()
     if client is None:
         raise HTTPException(status_code=503, detail="Spare client not configured (set SPARE_API_KEY)")
@@ -15991,7 +16126,23 @@ async def api_spare_vehicles():
                 v["currentLocation"] = _spare_locations[vid]
         return vehicles
 
-    return await spare_vehicles_cache.get(fetch)
+    vehicles = await spare_vehicles_cache.get(fetch)
+
+    # Spare has no vehicle color of its own -- prefer the color TransLoc OnDemand
+    # already has on file for the same physical van, falling back to the
+    # admin-curated /van-colors map, then a default.
+    ondemand_colors = await _get_ondemand_color_by_display_name()
+    van_colors = _load_van_colors()
+    for v in vehicles:
+        identifier = v.get("identifier")
+        color = (
+            ondemand_colors.get(_normalize_van_display_name(identifier))
+            or (van_colors.get(str(identifier).strip()) if identifier else None)
+            or SPARE_DEFAULT_MARKER_COLOR
+        )
+        v["markerColor"] = color
+
+    return vehicles
 
 
 @app.post("/api/spare/webhook")
@@ -16028,8 +16179,10 @@ async def api_spare_webhook(request: Request):
 
 
 @app.get("/stream/spare")
-async def stream_spare():
+async def stream_spare(request: Request):
     """SSE stream for real-time Spare vehicle locations and request updates."""
+    _require_dispatcher_access(request)
+
     async def gen():
         q: asyncio.Queue = asyncio.Queue(maxsize=100)
         SPARE_SUBS.add(q)
@@ -16054,6 +16207,7 @@ async def stream_spare():
 @app.post("/api/spare/webhook/register")
 async def api_spare_register_webhook(request: Request):
     """Register this app's webhook URL with Spare (one-time admin action)."""
+    _require_dispatcher_access(request)
     client = _get_spare_client()
     if client is None:
         raise HTTPException(status_code=503, detail="Spare client not configured")
@@ -16081,8 +16235,9 @@ async def api_spare_register_webhook(request: Request):
 
 
 @app.get("/api/spare/webhooks")
-async def api_spare_list_webhooks():
+async def api_spare_list_webhooks(request: Request):
     """List webhooks registered in Spare."""
+    _require_dispatcher_access(request)
     client = _get_spare_client()
     if client is None:
         raise HTTPException(status_code=503, detail="Spare client not configured")
@@ -16093,8 +16248,10 @@ async def api_spare_list_webhooks():
 
 
 @app.get("/vandispatch")
-async def vandispatch_page():
-    return HTMLResponse(VANDISPATCH_HTML)
+async def vandispatch_page(request: Request):
+    if _has_dispatcher_access(request):
+        return HTMLResponse(VANDISPATCH_HTML)
+    return _login_redirect(request)
 
 
 @app.get("/van-colors")
