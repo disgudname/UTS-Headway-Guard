@@ -50,6 +50,7 @@ from headway_tracker import (
 from viriciti_client import ViriCitiClient, VehicleSOC
 
 from fastapi import Body, FastAPI, HTTPException, Request, Response, Query
+from starlette.middleware.gzip import GZipMiddleware
 from fastapi.responses import (
     JSONResponse,
     StreamingResponse,
@@ -1715,6 +1716,11 @@ def project_vehicle_to_route(v: Vehicle, route: Route, prev_idx: Optional[int] =
 # App & state
 # ---------------------------
 app = FastAPI(title="UVATransit Operations Dashboard")
+# Nothing in this app was being compressed before this -- HTML/JS/CSS/JSON responses
+# (including the testmap assets kiosk displays load repeatedly) all went over the wire
+# uncompressed. Stacks with the testmap minification: smaller transfers and less time
+# spent downloading on weak kiosk hardware/networks (e.g. Raspberry Pi boards).
+app.add_middleware(GZipMiddleware, minimum_size=500)
 
 
 @app.on_event("startup")

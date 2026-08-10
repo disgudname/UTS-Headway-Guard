@@ -12506,11 +12506,24 @@ TM.registerVisibilityResumeHandler(() => {
       }
 
       function initMap() {
+          // No kiosk deployment (arrivalsdisplay's embedded board, the kiosk-fleet Pi
+          // devices, etc.) is touch/mouse-interactive -- they're passive signage. Skip
+          // ever wiring up Leaflet's drag/zoom/keyboard handlers for those rather than
+          // just hiding the +/- zoom control buttons, saving the event listeners and
+          // interaction state those handlers would otherwise keep alive for the life of
+          // the page.
+          const kioskInteractive = !isKioskExperienceActive();
           map = L.map('map', {
               zoomControl: false,
               crs: L.CRS.EPSG3857,
               zoomAnimation: true,
-              markerZoomAnimation: true
+              markerZoomAnimation: true,
+              dragging: kioskInteractive,
+              scrollWheelZoom: kioskInteractive,
+              doubleClickZoom: kioskInteractive,
+              boxZoom: kioskInteractive,
+              touchZoom: kioskInteractive,
+              keyboard: kioskInteractive
           }).setView(EFFECTIVE_MAP_VIEW.center, EFFECTIVE_MAP_VIEW.zoom);
           map.on('popupclose', handleDispatcherPopupClosed);
           map.on('click', () => {
