@@ -12897,6 +12897,41 @@ async def testmap_css():
     return _serve_css_asset("testmap.css")
 
 
+# Minified builds of the above (see scripts/testmap*.js / css/testmap.css) --
+# comments/whitespace stripped only, no mangling/compression, so behavior is identical.
+# testmap.html loads these instead of the source files to cut parse/download weight,
+# especially for the kiosk-embedded map in arrivalsdisplay.html. Source files remain the
+# ones to edit; re-run the minifier and commit the .min output after changing them.
+@app.get("/testmap.min.js", include_in_schema=False)
+async def testmap_min_js():
+    return _serve_js_asset("testmap.min.js")
+
+
+@app.get("/testmap-core.min.js", include_in_schema=False)
+async def testmap_core_min_js():
+    return _serve_js_asset("testmap-core.min.js")
+
+
+@app.get("/testmap-vehicles.min.js", include_in_schema=False)
+async def testmap_vehicles_min_js():
+    return _serve_js_asset("testmap-vehicles.min.js")
+
+
+@app.get("/testmap-stops.min.js", include_in_schema=False)
+async def testmap_stops_min_js():
+    return _serve_js_asset("testmap-stops.min.js")
+
+
+@app.get("/testmap-overlays.min.js", include_in_schema=False)
+async def testmap_overlays_min_js():
+    return _serve_js_asset("testmap-overlays.min.js")
+
+
+@app.get("/testmap.min.css", include_in_schema=False)
+async def testmap_min_css():
+    return _serve_css_asset("testmap.min.css")
+
+
 @app.get("/stop-approach.js", include_in_schema=False)
 async def stop_approach_js():
     return _serve_js_asset("stop-approach.js")
@@ -12945,6 +12980,16 @@ async def marker_selection_menu_css():
 @app.get("/scripts/marker-selection-menu.js", include_in_schema=False)
 async def marker_selection_menu_js():
     return _serve_js_asset("marker-selection-menu.js")
+
+
+@app.get("/css/marker-selection-menu.min.css", include_in_schema=False)
+async def marker_selection_menu_min_css():
+    return _serve_css_asset("marker-selection-menu.min.css")
+
+
+@app.get("/scripts/marker-selection-menu.min.js", include_in_schema=False)
+async def marker_selection_menu_min_js():
+    return _serve_js_asset("marker-selection-menu.min.js")
 
 
 @app.get("/scripts/push-notifications.js", include_in_schema=False)

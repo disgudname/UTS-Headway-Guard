@@ -624,6 +624,30 @@ Format: `{"stop_id": [lat, lon, radius_m]}`
 
 **UI editor:** `/stop-approach` (admin page)
 
+### Regenerating testmap's Minified Assets
+
+`html/testmap.html` (served at `/map`, and embedded read-only in `arrivalsdisplay.html`'s
+kiosk map iframe) loads `scripts/testmap*.min.js`, `scripts/marker-selection-menu.min.js`,
+`css/testmap.min.css`, and `css/marker-selection-menu.min.css` instead of their unminified
+sources, to cut load weight for low-power kiosk hardware. **Always edit the unminified
+source files** (`scripts/testmap.js`, `scripts/testmap-core.js`, `scripts/testmap-vehicles.js`,
+`scripts/testmap-stops.js`, `scripts/testmap-overlays.js`, `scripts/marker-selection-menu.js`,
+`css/testmap.css`, `css/marker-selection-menu.css`) — the `.min.*` files are generated
+output and go stale silently if you forget to rebuild them. After changing any of the
+sources above, regenerate with:
+
+```bash
+npm run build:testmap-min
+```
+
+This strips comments/whitespace only (no mangling, no compression — see `package.json`'s
+`build:testmap-min` script), so output is guaranteed behavior-identical to the source, not
+just visually similar. Commit the regenerated `.min.*` files alongside your source change.
+Both the source and `.min.*` routes are registered individually in `app.py` (search for
+`_serve_js_asset("testmap` / `_serve_css_asset("testmap`) — there's no static-file mount,
+so a genuinely new asset (not just an edit to an existing one) needs its own route added
+there too.
+
 ### Managing Feed Codes
 
 **File:** `/data/feed_codes.json` (persisted in the data volume, not checked into the repo)

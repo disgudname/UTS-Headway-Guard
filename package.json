@@ -5,9 +5,14 @@
   "main": "src/server.js",
   "type": "commonjs",
   "scripts": {
-    "start": "node src/server.js"
+    "start": "node src/server.js",
+    "build:testmap-min": "terser scripts/testmap-core.js -o scripts/testmap-core.min.js && terser scripts/testmap-vehicles.js -o scripts/testmap-vehicles.min.js && terser scripts/testmap-stops.js -o scripts/testmap-stops.min.js && terser scripts/testmap-overlays.js -o scripts/testmap-overlays.min.js && terser scripts/testmap.js -o scripts/testmap.min.js && terser scripts/marker-selection-menu.js -o scripts/marker-selection-menu.min.js && cleancss -O0 -o css/testmap.min.css css/testmap.css && cleancss -O0 -o css/marker-selection-menu.min.css css/marker-selection-menu.css"
   },
   "dependencies": {
     "express": "^4.19.2"
+  },
+  "devDependencies": {
+    "clean-css-cli": "^5.6.3",
+    "terser": "^5.49.2"
   }
 }
