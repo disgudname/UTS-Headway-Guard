@@ -1716,11 +1716,36 @@ def project_vehicle_to_route(v: Vehicle, route: Route, prev_idx: Optional[int] =
 # App & state
 # ---------------------------
 app = FastAPI(title="UVATransit Operations Dashboard")
+
+# Every SSE endpoint in this app (checked exhaustively via every StreamingResponse(...,
+# media_type="text/event-stream") call site) -- these must never be gzipped.
+# GZipMiddleware buffers/batches chunks through zlib before flushing, which breaks the
+# whole point of an indefinitely-long streaming response: live updates stopped arriving
+# in production the moment this middleware was added, with dashboards only appearing to
+# "move" right after a fresh page load (the stream's initial snapshot) before freezing
+# again. Excluded by path prefix rather than relying on GZipMiddleware's own content-type
+# awareness, since it has none -- it compresses any response that clears minimum_size.
+_SSE_STREAM_PATH_PREFIXES = ("/v1/stream/", "/stream/")
+
+
+class _ConditionalGZipMiddleware:
+    def __init__(self, app, minimum_size: int = 500):
+        self._gzip_app = GZipMiddleware(app, minimum_size=minimum_size)
+        self._plain_app = app
+
+    async def __call__(self, scope, receive, send):
+        path = scope.get("path", "") if scope.get("type") == "http" else ""
+        if path.startswith(_SSE_STREAM_PATH_PREFIXES):
+            await self._plain_app(scope, receive, send)
+        else:
+            await self._gzip_app(scope, receive, send)
+
+
 # Nothing in this app was being compressed before this -- HTML/JS/CSS/JSON responses
 # (including the testmap assets kiosk displays load repeatedly) all went over the wire
 # uncompressed. Stacks with the testmap minification: smaller transfers and less time
 # spent downloading on weak kiosk hardware/networks (e.g. Raspberry Pi boards).
-app.add_middleware(GZipMiddleware, minimum_size=500)
+app.add_middleware(_ConditionalGZipMiddleware, minimum_size=500)
 
 
 @app.on_event("startup")
