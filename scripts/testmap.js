@@ -16993,6 +16993,9 @@ TM.registerVisibilityResumeHandler(() => {
                   if (isOnDemandVehicleId(vehicleID)) {
                       return;
                   }
+                  if (isSpareVehicleId(vehicleID)) {
+                      return;
+                  }
                   if (`${vehicleID}`.startsWith('traccar_')) {
                       return;
                   }
@@ -21768,9 +21771,14 @@ TM.registerVisibilityResumeHandler(() => {
 
           const driverPopupHtml = state.driverPopupContent;
           const isOnDemandVehicle = isOnDemandVehicleId(vehicleID);
+          // Spare vehicles build the same kind of driver/ride-card popup content as
+          // OnDemand (see fetchSpareVehicles) -- without this, they fell through to
+          // the "regular bus marker" branch below and got the generic bus popup
+          // instead of their own, since only isOnDemandVehicle was checked here.
+          const usesDriverPopup = isOnDemandVehicle || isSpareVehicleId(vehicleID);
 
-          // For ondemand vehicles, only show popup if there's driver content
-          if (isOnDemandVehicle && !driverPopupHtml) {
+          // For ondemand/Spare vehicles, only show popup if there's driver content
+          if (usesDriverPopup && !driverPopupHtml) {
               if (hadOpenPopup && typeof marker.closePopup === 'function') {
                   marker.closePopup();
               }
@@ -21815,8 +21823,8 @@ TM.registerVisibilityResumeHandler(() => {
               offset: [0, -20],
           };
 
-          // For ondemand vehicles with driver popup, use the driver popup HTML
-          if (isOnDemandVehicle && driverPopupHtml) {
+          // For ondemand/Spare vehicles with driver popup, use the driver popup HTML
+          if (usesDriverPopup && driverPopupHtml) {
               if (existingPopup && typeof marker.unbindPopup === 'function') {
                   marker.unbindPopup();
               }
@@ -21873,7 +21881,7 @@ TM.registerVisibilityResumeHandler(() => {
           }
 
           // For regular bus markers, add click handler to fetch and show popup
-          if (!isOnDemandVehicle) {
+          if (!usesDriverPopup) {
               const handleBusMarkerClick = async (e) => {
                   const clickedLatLng = marker.getLatLng();
                   const overlappingItems = findOverlappingClickableItems(clickedLatLng);
