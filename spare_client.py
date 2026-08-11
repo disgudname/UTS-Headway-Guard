@@ -98,7 +98,10 @@ class SpareClient:
         client = await self._ensure_client()
         body: Dict[str, Any] = {"url": url, "types": types}
         if secret_header and secret_value:
-            body["headers"] = [{"name": secret_header, "value": secret_value}]
+            # Spare's webhook API validates this as {key, value}, not {name, value} --
+            # confirmed against the actual 400 ValidationError response, which reported
+            # "/body/headers/0/key must have required property 'key'".
+            body["headers"] = [{"key": secret_header, "value": secret_value}]
         resp = await client.post(
             f"{self._base_url}/webhooks",
             json=body,
