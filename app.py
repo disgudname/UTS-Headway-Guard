@@ -16180,29 +16180,41 @@ async def api_spare_duties_debug(request: Request):
 
 @app.get("/api/spare/vehicles")
 async def api_spare_vehicles(request: Request):
-    """Vehicle roster with latest known locations (from webhook cache)."""
+    """Vehicle roster (cached) with always-fresh locations from the webhook cache."""
     _require_dispatcher_access(request)
     client = _get_spare_client()
     if client is None:
         raise HTTPException(status_code=503, detail="Spare client not configured (set SPARE_API_KEY)")
 
-    async def fetch():
+    async def fetch_roster():
         try:
-            vehicles = await client.get_vehicles()
+            return await client.get_vehicles()
         except httpx.HTTPStatusError as exc:
             print(f"[spare] vehicles fetch error {exc.response.status_code}: {exc}")
             return []
         except Exception as exc:
             print(f"[spare] vehicles fetch failed: {exc}")
             return []
-        cutoff = _today_start_ts()
-        for v in vehicles:
-            vid = v.get("id")
-            if vid and vid in _spare_locations and _spare_location_times.get(vid, 0) >= cutoff:
-                v["currentLocation"] = _spare_locations[vid]
-        return vehicles
 
-    vehicles = await spare_vehicles_cache.get(fetch)
+    roster = await spare_vehicles_cache.get(fetch_roster)
+
+    # Roster metadata (make/model/color/etc) rarely changes and is fine to cache for
+    # SPARE_VEHICLES_TTL_S, but location is live webhook-pushed data -- merging it
+    # inside that same cached fetch meant every client saw one frozen location
+    # snapshot for a full 120s at a time, with whichever vehicles happened to have a
+    # location AT THAT ONE MERGE MOMENT baked in and every other vehicle silently
+    # omitted until the next refresh (observed in production as van markers flickering
+    # in and out and showing stale positions). Copy+merge fresh on every request
+    # instead of caching the merged result, and don't mutate the cached roster dicts
+    # in place (they're shared across requests for the life of the cache entry).
+    cutoff = _today_start_ts()
+    vehicles = []
+    for v in roster:
+        v = dict(v)
+        vid = v.get("id")
+        if vid and vid in _spare_locations and _spare_location_times.get(vid, 0) >= cutoff:
+            v["currentLocation"] = _spare_locations[vid]
+        vehicles.append(v)
 
     # Spare has no vehicle color of its own -- prefer the color TransLoc OnDemand
     # already has on file for the same physical van, falling back to the
