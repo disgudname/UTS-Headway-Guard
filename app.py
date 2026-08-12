@@ -94,6 +94,9 @@ TRANSLOC_KEY  = os.getenv("TRANSLOC_KEY", "8882812681")
 OVERPASS_EP   = os.getenv("OVERPASS_EP", "https://overpass-api.de/api/interpreter")
 CAT_API_BASE  = os.getenv("CAT_API_BASE", "https://catpublic.etaspot.net/service.php")
 CAT_API_TOKEN = os.getenv("CAT_API_TOKEN", "TESTING")
+DASH_OBA_BASE_URL = os.getenv("DASH_OBA_BASE_URL", "https://tracker.dashbus.com/onebusaway-api-webapp/api/where/")
+DASH_OBA_KEY  = os.getenv("DASH_OBA_KEY", "")
+DASH_AGENCY_ID = os.getenv("DASH_AGENCY_ID", "1")
 TRANSLOC_HTTP_TIMEOUT = httpx.Timeout(20.0, connect=5.0, read=20.0, write=20.0, pool=20.0)
 TRANSLOC_HTTP_LIMITS = httpx.Limits(max_keepalive_connections=20, max_connections=200)
 PULSEPOINT_ENDPOINT = os.getenv(
@@ -880,6 +883,11 @@ EXPECTED_ENV_KEYS = sorted(
         "CAT_SERVICE_ALERT_TTL_S",
         "CAT_STOP_ETA_TTL_S",
         "CAT_VEHICLE_TTL_S",
+        "DASH_AGENCY_ID",
+        "DASH_METADATA_TTL_S",
+        "DASH_OBA_BASE_URL",
+        "DASH_OBA_KEY",
+        "DASH_VEHICLE_TTL_S",
         "DATA_DIRS",
         "DISPATCHER_DOWNED_REFRESH_S",
         "DISPATCH_COOKIE_MAX_AGE",
@@ -966,6 +974,8 @@ CAT_METADATA_TTL_S = int(os.getenv("CAT_METADATA_TTL_S", str(5 * 60)))
 CAT_VEHICLE_TTL_S = int(os.getenv("CAT_VEHICLE_TTL_S", "5"))
 CAT_SERVICE_ALERT_TTL_S = int(os.getenv("CAT_SERVICE_ALERT_TTL_S", "60"))
 CAT_STOP_ETA_TTL_S = int(os.getenv("CAT_STOP_ETA_TTL_S", "30"))
+DASH_METADATA_TTL_S = int(os.getenv("DASH_METADATA_TTL_S", str(30 * 60)))
+DASH_VEHICLE_TTL_S = int(os.getenv("DASH_VEHICLE_TTL_S", "10"))
 PULSEPOINT_TTL_S = int(os.getenv("PULSEPOINT_TTL_S", "20"))
 PULSEPOINT_ICON_TTL_S = int(os.getenv("PULSEPOINT_ICON_TTL_S", str(24 * 3600)))
 AMTRAKER_TTL_S = int(os.getenv("AMTRAKER_TTL_S", "30"))
@@ -1852,6 +1862,7 @@ MAP_HTML = _load_html("map.html")
 TESTMAP_HTML = _load_html("testmap.html")
 KIOSKMAP_HTML = _load_html("kioskmap.html")
 CATTESTMAP_HTML = _load_html("cattestmap.html")
+DASHMAP_HTML = _load_html("dashmap.html")
 MADMAP_HTML = _load_html("madmap.html")
 METROMAP_HTML = _load_html("metromap.html")
 ADMIN_HTML = _load_html("admin.html")
@@ -2617,6 +2628,9 @@ cat_patterns_cache = TTLCache(CAT_METADATA_TTL_S)
 cat_vehicles_cache = TTLCache(CAT_VEHICLE_TTL_S)
 cat_service_alerts_cache = TTLCache(CAT_SERVICE_ALERT_TTL_S)
 cat_stop_etas_cache = PerKeyTTLCache(CAT_STOP_ETA_TTL_S)
+dash_routes_cache = TTLCache(DASH_METADATA_TTL_S)
+dash_shapes_cache = TTLCache(DASH_METADATA_TTL_S)
+dash_vehicles_cache = TTLCache(DASH_VEHICLE_TTL_S)
 pulsepoint_cache = TTLCache(PULSEPOINT_TTL_S)
 pulsepoint_icon_cache = PerKeyTTLCache(PULSEPOINT_ICON_TTL_S)
 amtraker_cache = TTLCache(AMTRAKER_TTL_S)
@@ -9822,6 +9836,19 @@ async def _cat_api_request(service: str, extra: Optional[Dict[str, Any]] = None)
         return resp.json()
 
 
+async def _dash_api_request(path: str, extra: Optional[Dict[str, Any]] = None) -> Any:
+    params = {"key": DASH_OBA_KEY}
+    if extra:
+        for k, v in extra.items():
+            if v is not None:
+                params[k] = v
+    async with httpx.AsyncClient() as client:
+        resp = await client.get(f"{DASH_OBA_BASE_URL}{path}", params=params, timeout=20)
+        record_api_call("GET", str(resp.request.url), resp.status_code)
+        resp.raise_for_status()
+        return resp.json()
+
+
 def _trim_cat_routes(payload: Any) -> List[Dict[str, Any]]:
     entries = _extract_cat_array(payload, ["routes", "Routes", "get_routes", "GetRoutes"])
     result: List[Dict[str, Any]] = []
@@ -10371,6 +10398,182 @@ async def cat_service_alerts_endpoint():
 async def cat_stop_etas_endpoint(stop_id: str):
     data = await _get_cat_stop_etas(stop_id)
     return {"etas": data}
+
+
+async def _get_dash_routes() -> List[Dict[str, Any]]:
+    async def fetch():
+        payload = await _dash_api_request(f"routes-for-agency/{DASH_AGENCY_ID}.json")
+        routes = ((payload.get("data") or {}).get("list")) or []
+        return [
+            {
+                "id": r.get("id"),
+                "shortName": r.get("shortName"),
+                "longName": r.get("longName"),
+                "color": r.get("color") or "000000",
+                "textColor": r.get("textColor") or "ffffff",
+            }
+            for r in routes
+        ]
+
+    return await dash_routes_cache.get(fetch)
+
+
+def _dedupe_route_polylines(polylines: List[List[Tuple[float, float]]]) -> List[List[Tuple[float, float]]]:
+    """OBA's stops-for-route?includePolylines=true returns one polyline per
+    shapeId used by any trip pattern on the route, which in practice means a
+    handful of genuinely distinct branches PLUS a large number of short
+    sub-segments that just retrace ground already covered by a longer one
+    (observed: routes with 20-60+ polylines, where all but 2-3 are near-total
+    overlaps). Drawing every polyline unfiltered stacks dozens of translucent
+    strokes on the same road, which reads as a smudgy shadow. Keep only
+    polylines that still contribute a meaningful amount of new ground,
+    processed longest-first, using a coarse lat/lon grid (~11m cells at DC's
+    latitude) to approximate "already covered"."""
+    GRID_DECIMALS = 4
+    COVERAGE_THRESHOLD = 0.7
+
+    def cell(lat: float, lon: float) -> Tuple[int, int]:
+        return (round(lat, GRID_DECIMALS) * (10 ** GRID_DECIMALS), round(lon, GRID_DECIMALS) * (10 ** GRID_DECIMALS))
+
+    def neighbors(c: Tuple[int, int]):
+        cx, cy = c
+        for dx in (-1, 0, 1):
+            for dy in (-1, 0, 1):
+                yield (cx + dx, cy + dy)
+
+    ordered = sorted(polylines, key=len, reverse=True)
+    covered: set = set()
+    kept: List[List[Tuple[float, float]]] = []
+    for poly in ordered:
+        if not poly:
+            continue
+        if not kept:
+            kept.append(poly)
+            for lat, lon in poly:
+                covered.add(cell(lat, lon))
+            continue
+        covered_count = 0
+        for lat, lon in poly:
+            if any(n in covered for n in neighbors(cell(lat, lon))):
+                covered_count += 1
+        fraction_covered = covered_count / len(poly)
+        if fraction_covered < COVERAGE_THRESHOLD:
+            kept.append(poly)
+            for lat, lon in poly:
+                covered.add(cell(lat, lon))
+    return kept
+
+
+async def _get_dash_route_shapes() -> Dict[str, Any]:
+    async def fetch():
+        routes = await _get_dash_routes()
+
+        async def fetch_one(route_id: str):
+            payload = await _dash_api_request(
+                f"stops-for-route/{route_id}.json",
+                {"includePolylines": "true"},
+            )
+            data = payload.get("data") or {}
+            entry = data.get("entry") or {}
+            refs = data.get("references") or {}
+            raw_polylines = [
+                decode_polyline(p["points"])
+                for p in (entry.get("polylines") or [])
+                if p.get("points")
+            ]
+            polylines = _dedupe_route_polylines(raw_polylines)
+            shape = {"polylines": polylines, "stopIds": entry.get("stopIds") or []}
+            return route_id, shape, refs.get("stops") or []
+
+        results = await asyncio.gather(*(fetch_one(r["id"]) for r in routes))
+
+        shapes: Dict[str, Any] = {}
+        stops_by_id: Dict[str, Dict[str, Any]] = {}
+        for route_id, shape, stops in results:
+            shapes[route_id] = shape
+            for s in stops:
+                sid = s.get("id")
+                if not sid:
+                    continue
+                existing = stops_by_id.get(sid)
+                if existing is None:
+                    existing = {
+                        "id": sid,
+                        "lat": s.get("lat"),
+                        "lon": s.get("lon"),
+                        "name": s.get("name"),
+                        "code": s.get("code"),
+                        "direction": s.get("direction"),
+                        "routeIds": set(),
+                    }
+                    stops_by_id[sid] = existing
+                existing["routeIds"].update(s.get("routeIds") or [])
+
+        stops = [
+            {**s, "routeIds": sorted(s["routeIds"])} for s in stops_by_id.values()
+        ]
+        return {"routes": shapes, "stops": stops}
+
+    return await dash_shapes_cache.get(fetch)
+
+
+async def _get_dash_vehicles() -> List[Dict[str, Any]]:
+    async def fetch():
+        payload = await _dash_api_request(f"vehicles-for-agency/{DASH_AGENCY_ID}.json")
+        data = payload.get("data") or {}
+        vehicles = data.get("list") or []
+        refs = data.get("references") or {}
+        trips_by_id = {t["id"]: t for t in (refs.get("trips") or []) if t.get("id")}
+        routes_by_id = {r["id"]: r for r in (refs.get("routes") or []) if r.get("id")}
+
+        result: List[Dict[str, Any]] = []
+        for v in vehicles:
+            loc = v.get("location")
+            if not loc or loc.get("lat") is None or loc.get("lon") is None:
+                continue
+            trip = trips_by_id.get(v.get("tripId")) or {}
+            route = routes_by_id.get(trip.get("routeId")) or {}
+            status = v.get("tripStatus") or {}
+            result.append(
+                {
+                    "vehicleId": v.get("vehicleId"),
+                    "lat": loc.get("lat"),
+                    "lon": loc.get("lon"),
+                    "heading": status.get("orientation"),
+                    "tripId": v.get("tripId"),
+                    "tripHeadsign": trip.get("tripHeadsign"),
+                    "routeId": route.get("id"),
+                    "routeShortName": route.get("shortName"),
+                    "routeLongName": route.get("longName"),
+                    "routeColor": route.get("color") or "9CA3AF",
+                    "routeTextColor": route.get("textColor") or "000000",
+                    "nextStopId": status.get("nextStop"),
+                    "closestStopId": status.get("closestStop"),
+                    "scheduleDeviationSec": status.get("scheduleDeviation"),
+                    "predicted": status.get("predicted"),
+                    "phase": v.get("phase"),
+                    "lastUpdateTime": v.get("lastUpdateTime"),
+                    "lastLocationUpdateTime": v.get("lastLocationUpdateTime"),
+                }
+            )
+        return result
+
+    return await dash_vehicles_cache.get(fetch)
+
+
+@app.get("/v1/testmap/dash/routes")
+async def dash_routes_endpoint():
+    return {"routes": await _get_dash_routes()}
+
+
+@app.get("/v1/testmap/dash/shapes")
+async def dash_shapes_endpoint():
+    return await _get_dash_route_shapes()
+
+
+@app.get("/v1/testmap/dash/vehicles")
+async def dash_vehicles_endpoint():
+    return {"vehicles": await _get_dash_vehicles()}
 
 
 
@@ -12998,6 +13201,16 @@ async def kioskmap_js():
     return _serve_js_asset("kioskmap.js")
 
 
+@app.get("/dashmap.css", include_in_schema=False)
+async def dashmap_css():
+    return _serve_css_asset("dashmap.css")
+
+
+@app.get("/dashmap.js", include_in_schema=False)
+async def dashmap_js():
+    return _serve_js_asset("dashmap.js")
+
+
 @app.get("/nav-bar.js", include_in_schema=False)
 async def nav_bar_js():
     return _serve_js_asset("nav-bar.js")
@@ -14272,6 +14485,13 @@ async def kioskmap_page():
 @app.get("/cattestmap")
 async def cattestmap_page():
     return HTMLResponse(CATTESTMAP_HTML)
+
+# ---------------------------
+# DASH (Alexandria, VA / OneBusAway) MAP PAGE
+# ---------------------------
+@app.get("/dashmap")
+async def dashmap_page():
+    return HTMLResponse(DASHMAP_HTML)
 
 # ---------------------------
 # MAD MAP PAGE
