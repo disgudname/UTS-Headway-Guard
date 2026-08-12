@@ -11084,7 +11084,13 @@ def _decrypt_pulsepoint_payload(payload: Dict[str, Any]) -> Any:
 async def _get_pulsepoint_incidents() -> Any:
     async def fetch():
         async with httpx.AsyncClient() as client:
-            resp = await client.get(PULSEPOINT_ENDPOINT, timeout=20)
+            resp = await client.get(
+                PULSEPOINT_ENDPOINT,
+                timeout=20,
+                headers={
+                    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/143.0.0.0 Safari/537.36"
+                },
+            )
             record_api_call("GET", str(resp.request.url), resp.status_code)
             resp.raise_for_status()
             data = resp.json()
