@@ -118,11 +118,6 @@
     .service-alerts{margin-bottom:16px;gap:10px;}
     .service-alert{padding:14px 16px;}
   }
-  /* Service Level */
-  .service-level{font-size:13px;color:var(--muted);text-align:center;margin-bottom:20px;}
-  .service-level a{color:var(--muted);text-decoration:none;transition:color 0.2s ease;}
-  .service-level a:hover{color:var(--ink);}
-  .service-level__value{color:var(--accent);font-weight:700;}
 </style>
 </head>
 <body>
@@ -137,7 +132,6 @@
   <img class="title-logo" src="/media/UVATransitWordmark.png" alt="UVATransit Operations Dashboard" />
   <div class="header-divider"></div>
 </header>
-<div class="service-level" id="service-level"></div>
 <div class="main-content">
 <div class="system-notices" id="system-notices"></div>
 <div class="service-alerts" id="service-alerts"></div>
@@ -546,39 +540,6 @@
   })();
 </script>
 <script>
-  // Service Level
-  (function(){
-    const el = document.getElementById('service-level');
-    if(!el) return;
-
-    function renderServiceLevel(data){
-      const level = data?.service_level;
-      if(!level || level === 'UNKNOWN'){
-        el.textContent = '';
-        return;
-      }
-      el.innerHTML = `<a href="https://parking.virginia.edu/serviceschedule" target="_blank" rel="noopener">Today's Service Level: <span class="service-level__value">${level.replace(/</g,'&lt;')}</span></a>`;
-    }
-
-    async function fetchServiceLevel(){
-      try{
-        const resp = await fetch('/v1/uts/service_level');
-        if(!resp.ok) return;
-        const data = await resp.json();
-        renderServiceLevel(data);
-      } catch(e){
-        // Silently fail
-      }
-    }
-
-    // Expose for combined init
-    window._renderServiceLevel = renderServiceLevel;
-
-    // Initial fetch replaced by combined init; keep refresh interval
-    setInterval(fetchServiceLevel, 300000);
-  })();
-</script>
-<script>
   // Approach-set alert (dispatcher only)
   (function(){
     const DISMISS_KEY_PREFIX = 'approach_alert_dismissed_';
@@ -647,7 +608,6 @@
       if(window._applyAuthData) window._applyAuthData(data.auth);
       if(window._renderServiceAlerts) window._renderServiceAlerts(data.alerts);
       if(window._renderSystemNotices) window._renderSystemNotices(data.notices);
-      if(window._renderServiceLevel) window._renderServiceLevel(data.service_level);
       if(window._renderApproachAlert && data.approach_check) window._renderApproachAlert(data.approach_check);
     } catch(e){
       // Fallback: trigger individual fetches if combined fails

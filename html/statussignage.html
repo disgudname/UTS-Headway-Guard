@@ -52,18 +52,6 @@
             overflow: hidden;
             text-overflow: ellipsis;
         }
-        .service-row {
-            margin-bottom: 8px;
-        }
-        .service-level {
-            font-size: 24px;
-            font-weight: bold;
-        }
-        .notes {
-            font-size: 14px;
-            color: #c0c0e0;
-            margin-left: 8px;
-        }
         .next-info {
             font-size: 14px;
             color: #a0a0c0;
@@ -84,13 +72,6 @@
 </head>
 <body>
     <div class="container">
-        <div class="row service-row">
-            <span class="label">Service:</span>
-            <span class="value">
-                <span class="service-level" id="serviceLevel">--</span>
-                <span class="notes" id="serviceNotes"></span>
-            </span>
-        </div>
         <div class="row">
             <span class="label">Supervisor:</span>
             <span class="value" id="supervisor">--</span>
@@ -129,18 +110,6 @@
                 console.error('Auth failed:', e);
             }
             return false;
-        }
-
-        async function fetchServiceLevel() {
-            try {
-                const resp = await fetch('/v1/uts/service_level');
-                if (resp.ok) {
-                    return await resp.json();
-                }
-            } catch (e) {
-                console.error('Service level fetch failed:', e);
-            }
-            return null;
         }
 
         async function fetchOnDuty() {
@@ -244,22 +213,10 @@
         }
 
         async function updateDisplay() {
-            const [serviceData, onDutyData, antibunchingData] = await Promise.all([
-                fetchServiceLevel(),
+            const [onDutyData, antibunchingData] = await Promise.all([
                 authenticated ? fetchOnDuty() : Promise.resolve(null),
                 authenticated ? fetchAntibunching() : Promise.resolve(null)
             ]);
-
-            // Service level
-            const levelEl = document.getElementById('serviceLevel');
-            const notesEl = document.getElementById('serviceNotes');
-            if (serviceData) {
-                levelEl.textContent = serviceData.service_level || '--';
-                notesEl.textContent = serviceData.notes ? `(${serviceData.notes})` : '';
-            } else {
-                levelEl.textContent = '--';
-                notesEl.textContent = '';
-            }
 
             // Supervisor
             const supEl = document.getElementById('supervisor');

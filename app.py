@@ -73,13 +73,6 @@ from uva_athletics import (
     is_home_location,
     load_cached_events,
 )
-from service_level import (
-    SERVICE_SCHEDULE_URL,
-    ServiceLevelResult,
-    ServiceLevelCache,
-    get_service_date,
-    parse_service_schedule,
-)
 
 # Ensure local time aligns with Charlottesville, VA
 os.environ.setdefault("TZ", "America/New_York")
@@ -1863,6 +1856,7 @@ TESTMAP_HTML = _load_html("testmap.html")
 KIOSKMAP_HTML = _load_html("kioskmap.html")
 CATTESTMAP_HTML = _load_html("cattestmap.html")
 DASHMAP_HTML = _load_html("dashmap.html")
+DASHMAPTESTER_HTML = _load_html("dashmaptester.html")
 MADMAP_HTML = _load_html("madmap.html")
 METROMAP_HTML = _load_html("metromap.html")
 ADMIN_HTML = _load_html("admin.html")
@@ -2603,9 +2597,6 @@ class State:
         self.anti_bunching_consecutive_failures: int = 0
         self.anti_bunching_last_status: str = "N/A"
         self.anti_bunching_status_ts: float = 0.0
-        # Service level cache (scraped from parking.virginia.edu)
-        self.service_level_cache: ServiceLevelCache = ServiceLevelCache()
-        self.service_level_lock: asyncio.Lock = asyncio.Lock()
         # ViriCiti EV telemetry (keyed by bus number for TransLoc matching)
         self.vehicle_soc: Dict[str, Dict[str, Any]] = {}  # bus_number -> {soc, odo, timestamp, vid}
         self.viriciti_connected: bool = False
@@ -10576,7 +10567,6 @@ async def dash_vehicles_endpoint():
     return {"vehicles": await _get_dash_vehicles()}
 
 
-
 _PULSEPOINT_INCIDENT_ID_KEYS = (
     "ID",
     "IncidentID",
@@ -12388,171 +12378,6 @@ async def anti_bunching_status(request: Request):
 
 
 # ---------------------------
-# REST: UVATransit Service Level
-# ---------------------------
-
-# Use curl_cffi with browser impersonation to bypass TLS fingerprinting
-# parking.virginia.edu uses protection that blocks non-browser TLS fingerprints
-try:
-    from curl_cffi.requests import AsyncSession as CurlAsyncSession
-    CURL_CFFI_AVAILABLE = True
-except ImportError:
-    CURL_CFFI_AVAILABLE = False
-
-
-async def _fetch_service_level(bypass_cache: bool = False) -> ServiceLevelResult:
-    """
-    Fetch and parse the service level from parking.virginia.edu.
-
-    Uses curl_cffi with Chrome impersonation to bypass TLS fingerprinting.
-
-    Args:
-        bypass_cache: If True, skip HTTP cache headers and force a fresh fetch
-
-    Returns:
-        ServiceLevelResult with current service level data
-    """
-    service_date = get_service_date()
-    service_date_str = service_date.isoformat()
-    now_ts = time.time()
-
-    async with state.service_level_lock:
-        cache = state.service_level_cache
-
-        # Check if we have a valid cached result for current service date
-        if not bypass_cache and cache.result is not None:
-            if cache.result.service_date == service_date_str:
-                # Cache hit for current service day
-                return cache.result
-
-        # Build request headers for conditional fetch
-        headers = {}
-        if not bypass_cache:
-            if cache.etag:
-                headers["If-None-Match"] = cache.etag
-            if cache.last_modified:
-                headers["If-Modified-Since"] = cache.last_modified
-
-        # Retry a few times with a short backoff before giving up -- parking.virginia.edu
-        # sits behind Cloudflare and occasionally 403s transiently (e.g. a bot-management
-        # challenge that clears on the next attempt) even with Chrome TLS impersonation.
-        RETRY_ATTEMPTS = 3
-        RETRY_DELAY_S = 2.0
-
-        try:
-            if not CURL_CFFI_AVAILABLE:
-                raise ImportError("curl_cffi not available")
-
-            last_error_msg = None
-            for attempt in range(RETRY_ATTEMPTS):
-                # Use curl_cffi with Chrome impersonation for TLS fingerprint bypass
-                async with CurlAsyncSession() as session:
-                    resp = await session.get(
-                        SERVICE_SCHEDULE_URL,
-                        headers=headers if headers else None,
-                        impersonate="chrome",
-                        timeout=20,
-                    )
-                    record_api_call("GET", SERVICE_SCHEDULE_URL, resp.status_code)
-
-                    if resp.status_code == 304:
-                        # Not modified - return cached result if valid for current date
-                        if cache.result and cache.result.service_date == service_date_str:
-                            return cache.result
-                        # Cache is for a different date, need to re-fetch without cache headers
-                        resp = await session.get(
-                            SERVICE_SCHEDULE_URL,
-                            impersonate="chrome",
-                            timeout=20,
-                        )
-                        record_api_call("GET", SERVICE_SCHEDULE_URL, resp.status_code)
-
-                    if resp.status_code != 200:
-                        last_error_msg = f"HTTP {resp.status_code} from {SERVICE_SCHEDULE_URL}"
-                        if attempt < RETRY_ATTEMPTS - 1:
-                            await asyncio.sleep(RETRY_DELAY_S)
-                            continue
-                        break
-
-                    html = resp.text
-                    result = parse_service_schedule(html, service_date)
-
-                    # Update cache
-                    cache.result = result
-                    cache.etag = resp.headers.get("ETag")
-                    cache.last_modified = resp.headers.get("Last-Modified")
-                    cache.fetched_at = now_ts
-                    state.service_level_cache = cache
-
-                    return result
-
-            # All attempts failed - return cached value if available for current date
-            if cache.result and cache.result.service_date == service_date_str:
-                return cache.result
-            return ServiceLevelResult(
-                service_date=service_date_str,
-                service_level="UNKNOWN",
-                notes=None,
-                scraped_at=datetime.now(UVA_TZ).isoformat(),
-                error=last_error_msg,
-            )
-
-        except ImportError as exc:
-            # curl_cffi not available, fall back to error
-            error_msg = f"curl_cffi library not available: {exc}"
-            if cache.result and cache.result.service_date == service_date_str:
-                return cache.result
-            return ServiceLevelResult(
-                service_date=service_date_str,
-                service_level="UNKNOWN",
-                notes=None,
-                scraped_at=datetime.now(UVA_TZ).isoformat(),
-                error=error_msg,
-            )
-        except Exception as exc:
-            error_msg = f"Error fetching service schedule: {exc}"
-            if cache.result and cache.result.service_date == service_date_str:
-                return cache.result
-            return ServiceLevelResult(
-                service_date=service_date_str,
-                service_level="UNKNOWN",
-                notes=None,
-                scraped_at=datetime.now(UVA_TZ).isoformat(),
-                error=error_msg,
-            )
-
-
-@app.get("/v1/uts/service_level")
-async def uts_service_level(request: Request):
-    """Get the current UVATransit service level.
-
-    Public endpoint.
-
-    Returns:
-        JSON with service_date, service_level, notes, source_url, scraped_at, source_hash.
-        If unable to determine, service_level will be "UNKNOWN" with an error field.
-    """
-    result = await _fetch_service_level(bypass_cache=False)
-    return result.to_dict()
-
-
-@app.post("/v1/uts/service_level/refresh")
-async def uts_service_level_refresh(request: Request):
-    """Force refresh the UVATransit service level from the source page.
-
-    Requires dispatcher authentication.
-    Bypasses cache and re-scrapes the service schedule.
-    Useful when the webpage is updated unexpectedly during the day.
-
-    Returns:
-        Same response shape as GET /v1/uts/service_level
-    """
-    _require_dispatcher_access(request)
-    result = await _fetch_service_level(bypass_cache=True)
-    return result.to_dict()
-
-
-# ---------------------------
 # REST: On-Duty Personnel
 # ---------------------------
 
@@ -13215,6 +13040,16 @@ async def dashmap_css():
 @app.get("/dashmap.js", include_in_schema=False)
 async def dashmap_js():
     return _serve_js_asset("dashmap.js")
+
+
+@app.get("/dashmaptester.css", include_in_schema=False)
+async def dashmaptester_css():
+    return _serve_css_asset("dashmaptester.css")
+
+
+@app.get("/dashmaptester.js", include_in_schema=False)
+async def dashmaptester_js():
+    return _serve_js_asset("dashmaptester.js")
 
 
 @app.get("/nav-bar.js", include_in_schema=False)
@@ -14500,6 +14335,17 @@ async def dashmap_page():
     return HTMLResponse(DASHMAP_HTML)
 
 # ---------------------------
+# DASH MAP TESTER PAGE — literal duplicate of /dashmap used to validate a
+# new route overlap/striping rendering approach before porting it back into
+# dashmap.js. See scripts/dashmaptester.js's renderSelectedRoutes for the
+# current approach (casing + widest-to-narrowest stacking, ported from
+# OneBusAway's own wayfinder web app).
+# ---------------------------
+@app.get("/dashmaptester")
+async def dashmaptester_page():
+    return HTMLResponse(DASHMAPTESTER_HTML)
+
+# ---------------------------
 # MAD MAP PAGE
 # ---------------------------
 @app.get("/madmap")
@@ -15562,7 +15408,7 @@ async def dispatcher_auth_status(request: Request):
 async def index_init(request: Request):
     """Combined endpoint for index.html initial page load.
 
-    Returns auth status, service alerts, system notices, and service level
+    Returns auth status, service alerts, system notices, and vehicle count
     in a single request to reduce page load latency.
     """
     # Get auth status (sync)
@@ -15594,14 +15440,6 @@ async def index_init(request: Request):
         except Exception as exc:
             print(f"[landing] failed to fetch TransLoc alerts: {exc}")
             return {"Rows": []}
-
-    async def fetch_service_level():
-        try:
-            result = await _fetch_service_level(bypass_cache=False)
-            return result.to_dict()
-        except Exception as exc:
-            print(f"[landing] failed to fetch service level: {exc}")
-            return {"service_level": "UNKNOWN"}
 
     async def fetch_vehicle_count():
         # Buses: dedupe by Name (same convention as /v1/roster/vehicles) and
@@ -15637,9 +15475,8 @@ async def index_init(request: Request):
         return bus_count + ondemand_count
 
     # Run async fetches in parallel
-    alerts_result, service_level_result, vehicle_count_result = await asyncio.gather(
+    alerts_result, vehicle_count_result = await asyncio.gather(
         fetch_alerts(),
-        fetch_service_level(),
         fetch_vehicle_count(),
     )
 
@@ -15662,7 +15499,6 @@ async def index_init(request: Request):
         "auth": auth_data,
         "alerts": alerts_result,
         "notices": notices,
-        "service_level": service_level_result,
         "vehicle_count": vehicle_count_result,
         "approach_check": {"missing": approach_missing},
     }

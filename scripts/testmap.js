@@ -11107,7 +11107,6 @@ TM.registerVisibilityResumeHandler(() => {
       let statusPanelCollapsed = false;
       let routePanelCollapsed = false;
       let statusPanelData = {
-        serviceLevel: null,
         onDuty: null,
         antiBunchingStatus: null,
         lastRefresh: 0
@@ -11201,15 +11200,13 @@ TM.registerVisibilityResumeHandler(() => {
 
       async function fetchStatusPanelData() {
         const results = await Promise.allSettled([
-          fetch('/v1/uts/service_level', { credentials: 'include' }),
           fetch('/v1/uts/on_duty', { credentials: 'include' }),
           fetch('/v1/transloc/anti_bunching/status', { credentials: 'include' })
         ]);
 
         // Check if auth-required endpoints (on_duty, anti_bunching) returned 401
-        // service_level is public, so we check the other two for auth status
-        const onDutyUnauthorized = results[1].status === 'fulfilled' && results[1].value && results[1].value.status === 401;
-        const antiBunchingUnauthorized = results[2].status === 'fulfilled' && results[2].value && results[2].value.status === 401;
+        const onDutyUnauthorized = results[0].status === 'fulfilled' && results[0].value && results[0].value.status === 401;
+        const antiBunchingUnauthorized = results[1].status === 'fulfilled' && results[1].value && results[1].value.status === 401;
 
         if (onDutyUnauthorized || antiBunchingUnauthorized) {
           // User is not authenticated, hide the status panel
@@ -11235,9 +11232,8 @@ TM.registerVisibilityResumeHandler(() => {
           }
         }
 
-        statusPanelData.serviceLevel = results[0].data;
-        statusPanelData.onDuty = results[1].data;
-        statusPanelData.antiBunchingStatus = results[2].data;
+        statusPanelData.onDuty = results[0].data;
+        statusPanelData.antiBunchingStatus = results[1].data;
         statusPanelData.lastRefresh = Date.now();
 
         renderStatusPanel();
@@ -11297,18 +11293,6 @@ TM.registerVisibilityResumeHandler(() => {
       function renderStatusPanel() {
         const panel = getCachedElementById('statusPanel');
         if (!panel) return;
-
-        // Build SERVICE section
-        let serviceHtml = '';
-        const sl = statusPanelData.serviceLevel;
-        if (sl && sl.service_level && sl.service_level !== 'UNKNOWN') {
-          serviceHtml = `<div class="status-section__value">${escapeHtml(sl.service_level)}</div>`;
-          if (sl.notes) {
-            serviceHtml += `<div class="status-section__value" style="font-size:13px;color:var(--panel-muted-text)">${escapeHtml(sl.notes)}</div>`;
-          }
-        } else {
-          serviceHtml = `<div class="status-section__value status-section__value--empty">Unknown</div>`;
-        }
 
         // Build ON DUTY section
         let onDutyHtml = '';
@@ -11460,10 +11444,6 @@ TM.registerVisibilityResumeHandler(() => {
           </div>
           <div class="selector-content">
             ${dataWarningHtml}
-            <div class="status-section">
-              <div class="status-section__label">Service</div>
-              ${serviceHtml}
-            </div>
             <div class="status-section">
               <div class="status-section__label">On Duty</div>
               ${onDutyHtml}

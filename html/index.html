@@ -312,8 +312,6 @@
     <span class="ticker__dot"></span>
     <span id="ticker-vehicles">&mdash; VEHICLES ACTIVE</span>
     <span class="ticker__sep">&middot;</span>
-    <span id="ticker-service">SERVICE STATUS UNAVAILABLE</span>
-    <span class="ticker__sep">&middot;</span>
     <span id="ticker-alerts">&mdash; ACTIVE ALERTS</span>
   </div>
 
@@ -787,31 +785,11 @@
   })();
 </script>
 <script>
-  // Service level + vehicle count + alert count -> ticker
+  // Vehicle count + alert count -> ticker
   (function(){
     const vehiclesEl = document.getElementById('ticker-vehicles');
-    const serviceEl = document.getElementById('ticker-service');
     const alertsEl = document.getElementById('ticker-alerts');
-    if(!vehiclesEl || !serviceEl || !alertsEl) return;
-
-    window._renderServiceLevel = function(data){
-      const level = data?.service_level;
-      if(!level || level === 'UNKNOWN'){
-        serviceEl.textContent = 'SERVICE STATUS UNAVAILABLE';
-        return;
-      }
-      serviceEl.innerHTML = `<a href="https://parking.virginia.edu/serviceschedule" target="_blank" rel="noopener">${level.replace(/</g,'&lt;').toUpperCase()}</a>`;
-    };
-
-    async function fetchServiceLevel(){
-      try{
-        const resp = await fetch('/v1/uts/service_level');
-        if(!resp.ok) return;
-        const data = await resp.json();
-        window._renderServiceLevel(data);
-      } catch(e){ /* keep last-known value */ }
-    }
-    setInterval(fetchServiceLevel, 300000);
+    if(!vehiclesEl || !alertsEl) return;
 
     window._renderVehicleCount = function(count){
       const n = Number.isFinite(count) ? count : null;
@@ -892,7 +870,6 @@
       if(window._applyAuthData) window._applyAuthData(data.auth);
       if(window._renderServiceAlerts) window._renderServiceAlerts(data.alerts);
       if(window._renderSystemNotices) window._renderSystemNotices(data.notices);
-      if(window._renderServiceLevel) window._renderServiceLevel(data.service_level);
       if(window._renderVehicleCount) window._renderVehicleCount(data.vehicle_count);
       if(window._renderApproachAlert && data.approach_check) window._renderApproachAlert(data.approach_check);
     } catch(e){
