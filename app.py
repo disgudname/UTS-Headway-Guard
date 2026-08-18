@@ -14898,6 +14898,7 @@ async def kiosk_checkin(request: Request):
     entry["image_build"] = str(body.get("image_build") or "").strip()
     entry.setdefault("site_code", None)
     entry.setdefault("url", None)
+    entry.setdefault("channel", "prod")
     entry.setdefault("first_seen", now)
     entry["last_seen"] = now
     devices[mac] = entry
@@ -14906,6 +14907,7 @@ async def kiosk_checkin(request: Request):
         "registered": bool(entry.get("site_code")) or bool(entry.get("url")),
         "site_code": entry.get("site_code"),
         "url": entry.get("url"),
+        "channel": entry.get("channel"),
     }
 
 
@@ -14919,10 +14921,13 @@ async def list_kiosk_devices(request: Request):
 @app.put("/v1/kiosk-devices/{mac}")
 async def set_kiosk_device_site(request: Request, mac: str):
     """Assign/clear the site code and/or full-URL override a kiosk should display.
-    Body: {site_code, url}, both optional - a field is only updated if its key is present
-    in the body, so callers can set one without clobbering the other. Upserts so a
-    device can be pre-assigned before it has ever checked in. `url`, when set, is meant
-    to fully supersede site_code on the kiosk side (see kiosk_checkin)."""
+    Body: {site_code, url, channel}, all optional - a field is only updated if its key
+    is present in the body, so callers can set one without clobbering the others.
+    Upserts so a device can be pre-assigned before it has ever checked in. `url`, when
+    set, is meant to fully supersede site_code on the kiosk side (see kiosk_checkin).
+    `channel` ("dev" or "prod") tells the kiosk's self-update mechanism which git branch
+    to pull its app files from, so an update can be soak-tested on a dev unit before
+    being promoted to field devices."""
     _require_dispatcher_access(request)
     body = await request.json()
     mac_key = mac.strip().upper()
@@ -14935,6 +14940,7 @@ async def set_kiosk_device_site(request: Request, mac: str):
     entry.setdefault("image_build", "")
     entry.setdefault("site_code", None)
     entry.setdefault("url", None)
+    entry.setdefault("channel", "prod")
     entry.setdefault("first_seen", None)
     entry.setdefault("last_seen", None)
     if "site_code" in body:
@@ -14946,9 +14952,14 @@ async def set_kiosk_device_site(request: Request, mac: str):
         if url and not (url.startswith("http://") or url.startswith("https://")):
             raise HTTPException(status_code=400, detail="url must start with http:// or https://")
         entry["url"] = url
+    if "channel" in body:
+        raw_channel = str(body.get("channel") or "").strip().lower()
+        if raw_channel not in ("dev", "prod"):
+            raise HTTPException(status_code=400, detail="channel must be 'dev' or 'prod'")
+        entry["channel"] = raw_channel
     devices[mac_key] = entry
     _save_kiosk_devices(devices)
-    return {"mac": mac_key, "site_code": entry["site_code"], "url": entry["url"]}
+    return {"mac": mac_key, "site_code": entry["site_code"], "url": entry["url"], "channel": entry["channel"]}
 
 
 @app.delete("/v1/kiosk-devices/{mac}")

@@ -53,19 +53,26 @@
     loads it directly and ignores the site code entirely &mdash; the site code field is
     greyed out below to make that precedence clear.
   </p>
+  <p class="subtitle">
+    Each kiosk also has an update <strong>channel</strong> (<code>prod</code> or
+    <code>dev</code>) telling its self-update mechanism which git branch to pull app
+    files from. Devices default to <code>prod</code>; switch a unit to <code>dev</code>
+    to soak-test an update before promoting it fleet-wide.
+  </p>
 
   <div id="stale-banner"></div>
 
   <table>
     <thead>
       <tr>
-        <th style="width: 13%">MAC</th>
-        <th style="width: 10%">Site Code</th>
-        <th style="width: 16%">URL Override</th>
-        <th style="width: 12%">Hostname</th>
-        <th style="width: 11%">RustDesk ID</th>
-        <th style="width: 11%">Image Build</th>
-        <th style="width: 12%">Last Seen</th>
+        <th style="width: 12%">MAC</th>
+        <th style="width: 9%">Site Code</th>
+        <th style="width: 14%">URL Override</th>
+        <th style="width: 8%">Channel</th>
+        <th style="width: 11%">Hostname</th>
+        <th style="width: 10%">RustDesk ID</th>
+        <th style="width: 10%">Image Build</th>
+        <th style="width: 11%">Last Seen</th>
         <th style="width: 15%">Actions</th>
       </tr>
     </thead>
@@ -142,6 +149,18 @@
       urlTd.appendChild(urlInput);
       tr.appendChild(urlTd);
 
+      const channelTd = document.createElement('td');
+      const channelSelect = document.createElement('select');
+      ['prod', 'dev'].forEach((ch) => {
+        const opt = document.createElement('option');
+        opt.value = ch;
+        opt.textContent = ch;
+        channelSelect.appendChild(opt);
+      });
+      channelSelect.value = entry.channel || 'prod';
+      channelTd.appendChild(channelSelect);
+      tr.appendChild(channelTd);
+
       function syncOverrideState() {
         const hasUrl = !!urlInput.value.trim();
         siteInput.disabled = hasUrl;
@@ -172,7 +191,7 @@
       const saveBtn = document.createElement('button');
       saveBtn.className = 'primary';
       saveBtn.textContent = 'Save';
-      saveBtn.onclick = () => saveDevice(mac, siteInput.value.trim(), urlInput.value.trim());
+      saveBtn.onclick = () => saveDevice(mac, siteInput.value.trim(), urlInput.value.trim(), channelSelect.value);
       const deleteBtn = document.createElement('button');
       deleteBtn.className = 'danger';
       deleteBtn.textContent = 'Remove';
@@ -221,13 +240,13 @@
       }
     }
 
-    async function saveDevice(mac, siteCode, url) {
+    async function saveDevice(mac, siteCode, url, channel) {
       setStatus('Saving…');
       try {
         const r = await fetch('/v1/kiosk-devices/' + encodeURIComponent(mac), {
           method: 'PUT',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ site_code: siteCode || null, url: url || null }),
+          body: JSON.stringify({ site_code: siteCode || null, url: url || null, channel: channel || 'prod' }),
         });
         if (!r.ok) {
           const body = await r.json().catch(() => ({}));
