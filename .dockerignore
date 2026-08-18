@@ -20,3 +20,10 @@ Thumbs.db
 
 # Node (if any front-end experiments later)
 node_modules/
+
+# Local dev/test cruft (not needed in the runtime image)
+.claude/
+data-local-test/
+data-local-test-*/
+data-local/
+examples/
