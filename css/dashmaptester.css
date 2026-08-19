@@ -1,0 +1,11 @@
+/* DASH map reuses testmap.css wholesale for visual parity (panels, popups,
+   route/stop/bus marker styling). This file only holds the handful of things
+   genuinely specific to this page. */
+
+/* No statusPanel on this page, so let routeSelector use the full column
+   height instead of the 50/50 split testmap.css assumes for two stacked
+   panel--half panels. */
+body.dashmap #routeSelector {
+  height: auto;
+  max-height: calc(90vh - 20px);
+}

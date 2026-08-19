@@ -1,0 +1,58 @@
+<!DOCTYPE html>
+<html>
+  <head>
+<link rel="icon" type="image/png" href="/media/favicon.ico" />
+<link rel="apple-touch-icon" sizes="120x120" href="/media/apple-touch-icon-120.png" />
+<link rel="apple-touch-icon" sizes="152x152" href="/media/apple-touch-icon-152.png" />
+<link rel="apple-touch-icon" sizes="180x180" href="/media/apple-touch-icon-180.png" />
+    <title>DASH Bus Map Tester - UVATransit Operations Dashboard</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css" />
+    <link rel="stylesheet" href="/testmap.css" />
+    <link rel="stylesheet" href="dashmaptester.css" />
+    <script defer src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
+    <script defer src="https://cdn.jsdelivr.net/npm/suncalc@1.9.0/suncalc.min.js"></script>
+    <script defer src="dashmaptester.js"></script>
+  </head>
+  <body class="dashmap dashmaptester">
+    <div id="map"></div>
+    <div id="kioskStatusMessage" class="kiosk-status-message" aria-live="polite" aria-hidden="true">
+      No active vehicles
+    </div>
+    <div id="routeLegend" aria-live="polite"></div>
+    <div id="controlPanel" class="selector-panel"></div>
+    <div id="rightPanelColumn" class="right-panel-column">
+      <div id="routeSelector" class="selector-panel"></div>
+    </div>
+    <div
+      id="controlPanelTab"
+      class="panel-toggle panel-toggle--left"
+      data-arrow-direction="in"
+      onclick="toggleControlPanel()"
+      title="Toggle system controls"
+    >
+      <svg class="panel-toggle__arrow" viewBox="0 0 16 24" aria-hidden="true" focusable="false">
+        <path d="M4 3l8 9-8 9z" />
+      </svg>
+    </div>
+    <div
+      id="routeSelectorTab"
+      class="panel-toggle panel-toggle--right"
+      data-arrow-direction="in"
+      onclick="toggleRoutePanel()"
+      title="Toggle route selector"
+    >
+      <svg class="panel-toggle__arrow" viewBox="0 0 16 24" aria-hidden="true" focusable="false">
+        <path d="M4 3l8 9-8 9z" />
+      </svg>
+    </div>
+    <div class="credit">DASH bus data via OneBusAway. Not affiliated with DASH or the City of Alexandria.</div>
+    <div id="loadingOverlay" class="loading-overlay" aria-live="polite" aria-busy="true">
+      <div class="loading-overlay__inner">
+        <div class="loading-overlay__spinner" aria-hidden="true"></div>
+        <div class="loading-overlay__text">Loading DASH buses…</div>
+      </div>
+    </div>
+    <script src="/nav-bar.js"></script>
+  </body>
+</html>
