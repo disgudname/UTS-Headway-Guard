@@ -2429,6 +2429,12 @@ TM.registerVisibilityResumeHandler(() => {
       const SPARE_REFRESH_INTERVAL_MS = 5000;
       const SPARE_REQUESTS_REFRESH_INTERVAL_MS = 30000;
       const SPARE_DUTIES_REFRESH_INTERVAL_MS = 60000;
+      // Spare's API reports no speed field, so we estimate it from consecutive fixes.
+      // A deadband filters out GPS jitter while a van sits still (see HEADING_JITTER_M
+      // in app.py for the equivalent tolerance used server-side for TransLoc buses).
+      const SPARE_SPEED_DEADBAND_METERS = 3;
+      const SPARE_SPEED_MIN_SAMPLE_INTERVAL_S = 1;
+      const SPARE_SPEED_MAX_REASONABLE_MPH = 80;
 
       let map;
       let markers = {};
@@ -8326,10 +8332,40 @@ TM.registerVisibilityResumeHandler(() => {
               const state = ensureBusMarkerState(markerKey);
               state.isSpare = true;
               const newPosition = [lat, lon];
-              const fallbackHeading = getVehicleHeadingFallback(markerKey, loc.bearing);
-              const speedRawMs = Number(loc.speed ?? loc.groundSpeed ?? loc.speedMs);
-              const speedMph = Number.isFinite(speedRawMs) ? Math.max(0, speedRawMs * 2.23694) : 0;
-              const headingDeg = updateBusMarkerHeading(state, newPosition, fallbackHeading, speedMph);
+              const newLatLng = L.latLng(lat, lon);
+
+              // Spare reports a real per-fix compass bearing, unlike TransLoc (which gives
+              // us no heading at all and forces us to infer it from GPS movement). Trust
+              // Spare's own bearing directly on every update instead of running it through
+              // updateBusMarkerHeading()'s movement-inference logic -- that logic freezes
+              // in place once a vehicle's speed reads as 0, which Spare's feed always does
+              // (see next block), so it never rotated to match Spare's own admin panel.
+              const rawBearing = Number(loc.bearing);
+              const headingDeg = Number.isFinite(rawBearing)
+                ? normalizeHeadingDegrees(rawBearing)
+                : getVehicleHeadingFallback(markerKey, state.headingDeg);
+              state.headingDeg = headingDeg;
+
+              // Spare's API has no speed field, so estimate it from consecutive fixes
+              // (distance / elapsed time), the same way we'd estimate heading for a feed
+              // that gave us no heading. A deadband absorbs GPS jitter while a van is
+              // actually parked so it doesn't read as slowly "creeping."
+              const previousSparePosition = state.lastSparePosition || null;
+              const previousSpareTimestamp = Number.isFinite(state.lastUpdateTimestamp) && state.lastUpdateTimestamp > 0
+                ? state.lastUpdateTimestamp
+                : null;
+              let speedMph = 0;
+              if (previousSparePosition && previousSpareTimestamp) {
+                const elapsedS = (Date.now() - previousSpareTimestamp) / 1000;
+                if (elapsedS >= SPARE_SPEED_MIN_SAMPLE_INTERVAL_S) {
+                  const distanceM = previousSparePosition.distanceTo(newLatLng);
+                  if (distanceM >= SPARE_SPEED_DEADBAND_METERS) {
+                    const speedMps = distanceM / elapsedS;
+                    speedMph = Math.min(speedMps * 2.23694, SPARE_SPEED_MAX_REASONABLE_MPH);
+                  }
+                }
+              }
+              state.lastSparePosition = newLatLng;
               const displayName = (vehicle.identifier ? `${vehicle.identifier}`.trim() : '') || `Van ${normalizedId}`;
               state.busName = displayName;
               state.routeID = null;
