@@ -8347,25 +8347,36 @@ TM.registerVisibilityResumeHandler(() => {
               state.headingDeg = headingDeg;
 
               // Spare's API has no speed field, so estimate it from consecutive fixes
-              // (distance / elapsed time), the same way we'd estimate heading for a feed
-              // that gave us no heading. A deadband absorbs GPS jitter while a van is
-              // actually parked so it doesn't read as slowly "creeping."
-              const previousSparePosition = state.lastSparePosition || null;
-              const previousSpareTimestamp = Number.isFinite(state.lastUpdateTimestamp) && state.lastUpdateTimestamp > 0
-                ? state.lastUpdateTimestamp
-                : null;
-              let speedMph = 0;
-              if (previousSparePosition && previousSpareTimestamp) {
-                const elapsedS = (Date.now() - previousSpareTimestamp) / 1000;
-                if (elapsedS >= SPARE_SPEED_MIN_SAMPLE_INTERVAL_S) {
-                  const distanceM = previousSparePosition.distanceTo(newLatLng);
-                  if (distanceM >= SPARE_SPEED_DEADBAND_METERS) {
-                    const speedMps = distanceM / elapsedS;
-                    speedMph = Math.min(speedMps * 2.23694, SPARE_SPEED_MAX_REASONABLE_MPH);
+              // (distance / elapsed time). Spare only pushes a new location fix per
+              // vehicle roughly every 10s, but we poll this endpoint every
+              // SPARE_REFRESH_INTERVAL_MS (5s) -- so about half our polls just re-fetch
+              // the same cached fix. Using our own poll clock as "elapsed time" made
+              // those stale polls look like "0 distance covered in 5s," flipping the
+              // marker to stopped every other update even while the van kept moving.
+              // Key off Spare's own loc.latestLocationUpdatedTs (unix seconds) instead:
+              // skip recomputing speed entirely when it hasn't advanced (keep showing
+              // the last real estimate), and use the true elapsed time between Spare's
+              // two fixes -- not our polling interval -- once it has. A deadband on
+              // distance absorbs GPS jitter between fixes while a van is actually parked.
+              const latestFixTs = Number(loc.latestLocationUpdatedTs);
+              let speedMph = Number.isFinite(state.groundSpeed) ? state.groundSpeed : 0;
+              if (Number.isFinite(latestFixTs) && latestFixTs !== state.lastSpareFixTs) {
+                const previousPosition = state.lastSparePosition || null;
+                const previousFixTs = Number.isFinite(state.lastSpareFixTs) ? state.lastSpareFixTs : null;
+                if (previousPosition && previousFixTs) {
+                  const elapsedS = latestFixTs - previousFixTs;
+                  if (elapsedS >= SPARE_SPEED_MIN_SAMPLE_INTERVAL_S) {
+                    const distanceM = previousPosition.distanceTo(newLatLng);
+                    speedMph = distanceM >= SPARE_SPEED_DEADBAND_METERS
+                      ? Math.min((distanceM / elapsedS) * 2.23694, SPARE_SPEED_MAX_REASONABLE_MPH)
+                      : 0;
                   }
+                } else {
+                  speedMph = 0;
                 }
+                state.lastSpareFixTs = latestFixTs;
+                state.lastSparePosition = newLatLng;
               }
-              state.lastSparePosition = newLatLng;
               const displayName = (vehicle.identifier ? `${vehicle.identifier}`.trim() : '') || `Van ${normalizedId}`;
               state.busName = displayName;
               state.routeID = null;
