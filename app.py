@@ -932,6 +932,7 @@ EXPECTED_ENV_KEYS = sorted(
         "SPARE_REQUESTS_TTL_S",
         "SPARE_DUTIES_TTL_S",
         "SPARE_VEHICLES_TTL_S",
+        "SPARE_LOCATION_STALE_S",
     }
 )
 
@@ -994,6 +995,12 @@ ADSB_CACHE_TTL_S = float(os.getenv("ADSB_CACHE_TTL_S", "15"))
 SPARE_REQUESTS_TTL_S = int(os.getenv("SPARE_REQUESTS_TTL_S", "30"))
 SPARE_DUTIES_TTL_S = int(os.getenv("SPARE_DUTIES_TTL_S", "60"))
 SPARE_VEHICLES_TTL_S = int(os.getenv("SPARE_VEHICLES_TTL_S", "120"))
+# A van pushes a location fix roughly every 10-11s while its duty/tablet is active
+# (confirmed against live webhook traffic). If nothing's arrived in this long, the
+# duty most likely ended or the tablet went offline -- stop surfacing its last known
+# position rather than leaving a marker frozen in place for the rest of the day.
+# Same 90s tolerance as STALE_FIX_S uses for TransLoc vehicles elsewhere.
+SPARE_LOCATION_STALE_S = int(os.getenv("SPARE_LOCATION_STALE_S", "90"))
 SPARE_WEBHOOK_SECRET = (os.getenv("SPARE_WEBHOOK_SECRET") or "").strip()
 SPARE_DEFAULT_MARKER_COLOR = (os.getenv("SPARE_DEFAULT_MARKER_COLOR") or "#7c3aed").strip() or "#7c3aed"
 if not SPARE_DEFAULT_MARKER_COLOR.startswith("#"):
@@ -1991,8 +1998,9 @@ def _today_start_ts() -> float:
 
 
 def _fresh_spare_locations() -> list:
-    """Return Spare vehicle locations received since ET midnight (no cross-day carryover)."""
-    cutoff = _today_start_ts()
+    """Return Spare vehicle locations that are both from today (no cross-day carryover)
+    and recent (no vehicle whose duty ended or tablet went offline mid-shift)."""
+    cutoff = max(_today_start_ts(), time.time() - SPARE_LOCATION_STALE_S)
     return [
         loc for vid, loc in _spare_locations.items()
         if _spare_location_times.get(vid, 0) >= cutoff
@@ -16280,7 +16288,10 @@ async def api_spare_vehicles(request: Request):
     # in and out and showing stale positions). Copy+merge fresh on every request
     # instead of caching the merged result, and don't mutate the cached roster dicts
     # in place (they're shared across requests for the life of the cache entry).
-    cutoff = _today_start_ts()
+    # The cutoff also enforces SPARE_LOCATION_STALE_S so a van whose duty ended or
+    # tablet went offline mid-shift drops off the map instead of sitting frozen at
+    # its last known position for the rest of the day.
+    cutoff = max(_today_start_ts(), time.time() - SPARE_LOCATION_STALE_S)
     vehicles = []
     for v in roster:
         v = dict(v)
