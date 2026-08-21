@@ -172,12 +172,12 @@
     &lt;title&gt;Bus Arrivals - Massie Rd @ JPJ South Lot&lt;/title&gt;
     &lt;ttl&gt;1&lt;/ttl&gt;
     &lt;item&gt;
-      &lt;title&gt;Silver:0m&lt;/title&gt;
-      &lt;description&gt;Next arrivals: 0m, 8m&lt;/description&gt;
+      &lt;title&gt;Silver Line: 0 min, 8 min&lt;/title&gt;
+      &lt;description&gt;Silver Line: 0 min, 8 min&lt;/description&gt;
     &lt;/item&gt;
     &lt;item&gt;
-      &lt;title&gt;Gold:3m&lt;/title&gt;
-      &lt;description&gt;Next arrivals: 3m, 10m, 18m, 24m&lt;/description&gt;
+      &lt;title&gt;Gold Line: 3 min, 10 min, 18 min, 24 min&lt;/title&gt;
+      &lt;description&gt;Gold Line: 3 min, 10 min, 18 min, 24 min&lt;/description&gt;
     &lt;/item&gt;
   &lt;/channel&gt;
 &lt;/rss&gt;</pre>
@@ -187,10 +187,9 @@
     <tr><th>Field</th><th>Description</th></tr>
     <tr><td><code>&lt;title&gt;</code> (channel)</td><td>Stop name, e.g. "Bus Arrivals - Massie Rd @ JPJ South Lot"</td></tr>
     <tr><td><code>&lt;ttl&gt;</code></td><td>1 (minute) — recommended poll interval</td></tr>
-    <tr><td><code>&lt;item&gt; &lt;title&gt;</code></td><td>Route name and next arrival, e.g. "Gold:3m" or "Silver:0m" — same compact format as CAP's headline (see above)</td></tr>
-    <tr><td><code>&lt;item&gt; &lt;description&gt;</code></td><td>All upcoming arrivals for that route, e.g. "Next arrivals: 3m, 10m, 18m"</td></tr>
+    <tr><td><code>&lt;item&gt; &lt;title&gt;</code> and <code>&lt;item&gt; &lt;description&gt;</code></td><td>Identical plain-English text for the route: name, then every upcoming arrival, e.g. "Gold Line: 3 min, 10 min, 18 min". Both fields always carry the same full text (not "next arrival" vs. "the rest") since it's unpredictable whether a given ticker widget reads title, description, or both.</td></tr>
   </table>
-  <p>One item per route, sorted by soonest arrival (a single "no arrivals" item if none are scheduled). If an active service alert applies, its text leads the feed, ahead of the arrivals — the opposite placement from CAP, since RSS clients aren't known to have the same fixed-page pagination the OnAlert sign does.</p>
+  <p>One item per route, sorted by soonest arrival (a single "no arrivals" item if none are scheduled). If an active service alert applies, its text leads the feed, ahead of the arrivals — the opposite placement from CAP, since RSS clients aren't known to have the same fixed-page pagination the OnAlert sign does. Unlike CAP, RSS route names and times are kept in plain spaced-out English rather than the sign's compact no-space format — there's no dot-matrix pixel-wrap to dodge here.</p>
 
   <h2>Service Alerts</h2>
   <p>

@@ -11922,9 +11922,16 @@ async def _rss_feed_response(
 
     stop_name = display_name or stop_name_from_data or f"Stop {joined_ids}"
 
-    # Sort routes by soonest arrival
-    route_labels = {route: _expand_solo_eta(labels) for route, labels in route_labels.items()}
+    # Sort routes by soonest arrival. Unlike the CAP feed, RSS deliberately skips
+    # _expand_solo_eta and keeps labels in plain, spaced-out English ("3 min" not
+    # "3min") -- there's no dot-matrix pixel-wrap to dodge here, and we don't know what
+    # any given RSS ticker widget does with an item's fields (title-only? description-only?
+    # both concatenated?), so every item's title and description carry identical,
+    # fully self-contained readable text rather than splitting "next arrival" from "the rest."
     sorted_routes = sorted(route_labels.items(), key=lambda kv: route_first_seconds.get(kv[0], 0))
+
+    def _readable_times(labels: List[str]) -> str:
+        return ", ".join(label.replace("min", " min") for label in labels)
 
     # Build RSS 2.0 XML
     guid_key = feed_key or joined_ids
@@ -11947,17 +11954,15 @@ async def _rss_feed_response(
     if active_notices:
         alert_text = " ".join(text for _, text in active_notices)
         if not sorted_routes:
-            arrivals_summary = "No ETAs to display."
-            title_tail = "No ETAs to display."
+            combined_text = f"{alert_text} No ETAs to display."
         else:
-            arrivals_summary = " ".join(
-                f"{route_desc} {','.join(labels)}" for route_desc, labels in sorted_routes
+            arrivals_summary = " | ".join(
+                f"{route_desc}: {_readable_times(labels)}" for route_desc, labels in sorted_routes
             )
-            top_route, top_labels = sorted_routes[0]
-            title_tail = f"{top_route} {top_labels[0]}"
+            combined_text = f"{alert_text} {arrivals_summary}"
         item = ET.SubElement(channel, "item")
-        ET.SubElement(item, "title").text = f"{alert_text} {title_tail}"
-        ET.SubElement(item, "description").text = f"{alert_text} {arrivals_summary}"
+        ET.SubElement(item, "title").text = combined_text
+        ET.SubElement(item, "description").text = combined_text
         ET.SubElement(item, "link").text = arrivals_link
         ET.SubElement(item, "guid", isPermaLink="false").text = f"uts-stop-{guid_key}-alert-combined"
         ET.SubElement(item, "pubDate").text = pub_date
@@ -11971,9 +11976,10 @@ async def _rss_feed_response(
     else:
         for route_desc, labels in sorted_routes:
             safe_route = re.sub(r"[^a-z0-9]+", "-", route_desc.lower()).strip("-")
+            route_text = f"{route_desc}: {_readable_times(labels)}"
             item = ET.SubElement(channel, "item")
-            ET.SubElement(item, "title").text = f"{route_desc} {labels[0]}"
-            ET.SubElement(item, "description").text = "Next arrivals: " + ", ".join(labels)
+            ET.SubElement(item, "title").text = route_text
+            ET.SubElement(item, "description").text = route_text
             ET.SubElement(item, "link").text = arrivals_link
             ET.SubElement(item, "guid", isPermaLink="false").text = f"uts-stop-{guid_key}-{safe_route}"
             ET.SubElement(item, "pubDate").text = pub_date
