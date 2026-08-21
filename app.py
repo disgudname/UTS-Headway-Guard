@@ -1874,6 +1874,7 @@ DEBUG_HTML = _load_html("debug.html")
 REPLAY_HTML = _load_html("replay.html")
 RIDERSHIP_HTML = _load_html("ridership.html")
 TRANSLOC_TICKER_HTML = _load_html("transloc_ticker.html")
+ETA_TICKER_HTML = _load_html("eta_ticker.html")
 SITEMAP_HTML = _load_html("sitemap.html")
 FEEDS_HTML = _load_html("feeds.html")
 FEED_CODES_HTML = _load_html("feed-codes.html")
@@ -15970,6 +15971,13 @@ async def fullbus_page(request: Request):
 @app.get("/transloc_ticker")
 async def transloc_ticker_page():
     return HTMLResponse(TRANSLOC_TICKER_HTML)
+
+# ---------------------------
+# ETA TICKER PAGE (RSS-backed)
+# ---------------------------
+@app.get("/eta-ticker")
+async def eta_ticker_page():
+    return HTMLResponse(ETA_TICKER_HTML)
 
 # ---------------------------
 # ARRIVALS DISPLAY PAGE
