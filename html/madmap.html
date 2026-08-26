@@ -1023,7 +1023,7 @@
 
       function initMap() {
         map = L.map('map', { zoomControl: false }).setView([38.03799212281404, -78.50981502838886], 15);
-        const cartoLight = L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}.png', {
+        const cartoLight = L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}.png?key=cb1_274a_1_de65d091600f3f8a641f3856', {
           attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors &copy; <a href="https://carto.com/attributions">CARTO</a>'
         });
         cartoLight.addTo(map);

@@ -233,7 +233,7 @@ let serverSegments = null; // null = use demo client-side mode
 
 // ─── Map init ─────────────────────────────────────────────────────────────────
 map = L.map('map', { zoomControl: true }).setView([38.034, -78.508], 14);
-L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
+L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png?key=cb1_274a_1_de65d091600f3f8a641f3856', {
   attribution: '&copy; OpenStreetMap contributors &copy; CARTO', maxZoom: 19
 }).addTo(map);
 

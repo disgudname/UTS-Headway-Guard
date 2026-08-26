@@ -112,8 +112,8 @@
   const map = L.map('map').setView(ALEXANDRIA_CENTER, ALEXANDRIA_ZOOM);
 
   const tileAttribution = '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors &copy; <a href="https://carto.com/attributions">CARTO</a>';
-  const lightTileLayer = L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}.png', { attribution: tileAttribution });
-  const darkTileLayer = L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}.png', { attribution: tileAttribution });
+  const lightTileLayer = L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}.png?key=cb1_274a_1_de65d091600f3f8a641f3856', { attribution: tileAttribution });
+  const darkTileLayer = L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}.png?key=cb1_274a_1_de65d091600f3f8a641f3856', { attribution: tileAttribution });
   lightTileLayer.addTo(map);
 
   const routePane = map.createPane('routes');

@@ -12644,10 +12644,10 @@ TM.registerVisibilityResumeHandler(() => {
           }
           // Create both light and dark tile layers
           const tileAttribution = '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors &copy; <a href="https://carto.com/attributions">CARTO</a>';
-          lightTileLayer = L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}.png', {
+          lightTileLayer = L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}.png?key=cb1_274a_1_de65d091600f3f8a641f3856', {
               attribution: tileAttribution
           });
-          darkTileLayer = L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}.png', {
+          darkTileLayer = L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}.png?key=cb1_274a_1_de65d091600f3f8a641f3856', {
               attribution: tileAttribution
           });
 

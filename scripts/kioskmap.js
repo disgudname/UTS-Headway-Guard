@@ -134,7 +134,7 @@
     inertia: false
   }).setView(UVA_DEFAULT_CENTER, UVA_DEFAULT_ZOOM);
 
-  L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png', {
+  L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png?key=cb1_274a_1_de65d091600f3f8a641f3856', {
     subdomains: 'abcd',
     maxZoom: 19,
     attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors &copy; <a href="https://carto.com/attributions">CARTO</a>'
