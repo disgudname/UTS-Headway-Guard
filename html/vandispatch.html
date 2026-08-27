@@ -1250,7 +1250,6 @@
     let spareTrips = [];
     let odStops    = [];  // extracted from ondemand vehicle stop plans
 
-    const SPARE_STATUS_ORDER = { arriving: 0, inProgress: 1, accepted: 2, processing: 3 };
     // OD rideStatus values we consider active (skip completed/cancelled)
     const OD_ACTIVE = new Set(['pending', 'in_progress', 'inProgress', 'scheduled', 'accepted']);
     const OD_STATUS_CLASS = { in_progress: 'inProgress', inProgress: 'inProgress', pending: 'accepted', scheduled: 'accepted', accepted: 'accepted' };
@@ -1276,8 +1275,12 @@
       document.getElementById('trips-updated').textContent = new Date().toLocaleTimeString();
       const cards = [];
 
-      // Spare requests
-      const sorted = [...spareTrips].sort((a,b) => (SPARE_STATUS_ORDER[a.status]??9)-(SPARE_STATUS_ORDER[b.status]??9));
+      // Spare requests, chronological by whatever's next for that ride -- pickup time
+      // normally, or dropoff time once the rider's already been picked up (inProgress).
+      const tripSortTs = req => (req.status === 'inProgress'
+        ? (req.dropoffEta || req.scheduledDropoffTs)
+        : (req.pickupEta || req.scheduledPickupTs)) || Infinity;
+      const sorted = [...spareTrips].sort((a, b) => tripSortTs(a) - tripSortTs(b));
       for (const req of sorted) {
         const name   = riderName(req);
         const status = req.status || 'unknown';
