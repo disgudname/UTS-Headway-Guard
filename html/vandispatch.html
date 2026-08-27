@@ -14,7 +14,54 @@
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
   <style>
-    :root { color-scheme: dark; }
+    :root {
+      color-scheme: dark;
+      --bg: #0d0d0d;
+      --text: #f0f0f0;
+      --text-muted: #999;
+      --text-faint: #666;
+      --text-faintest: #555;
+      --panel-bg: #111;
+      --panel-header-bg: #16162a;
+      --card-bg: #1a1a2e;
+      --row-hover-bg: #1a1a2e;
+      --border: #2a2a44;
+      --border-soft: #1e1e32;
+      --header-grad-a: #1a0a3d;
+      --header-grad-b: #0f0820;
+      --header-border: #6c3fc5;
+      --header-title: #e0d0ff;
+      --accent-label: #9980d0;
+      --rider-name: #e0d0ff;
+      --eta-time: #f0f0f0;
+      --trip-body-text: #aaa;
+      --td-text: #ddd;
+      --card-hover-border: #6c3fc5;
+    }
+    :root[data-theme="light"] {
+      color-scheme: light;
+      --bg: #f3f1f9;
+      --text: #1e1b2e;
+      --text-muted: #6b6478;
+      --text-faint: #8f889c;
+      --text-faintest: #a8a1b5;
+      --panel-bg: #ffffff;
+      --panel-header-bg: #f1ecfa;
+      --card-bg: #fbfaff;
+      --row-hover-bg: #f1ecfa;
+      --border: #ded7ee;
+      --border-soft: #e8e2f4;
+      --header-grad-a: #efe6ff;
+      --header-grad-b: #f9f6ff;
+      --header-border: #8a5cd6;
+      --header-title: #3d1a78;
+      --accent-label: #7143c2;
+      --rider-name: #3d1a78;
+      --eta-time: #1e1b2e;
+      --trip-body-text: #5b5468;
+      --td-text: #33304a;
+      --card-hover-border: #6c3fc5;
+    }
     * { box-sizing: border-box; margin: 0; padding: 0; }
     @font-face {
       font-family: 'FGDC';
@@ -23,38 +70,54 @@
     html, body { height: 100%; }
     body {
       font-family: "Inter", "Segoe UI", system-ui, sans-serif;
-      background: #0d0d0d;
-      color: #f0f0f0;
+      background: var(--bg);
+      color: var(--text);
       height: 100vh;
       overflow: hidden;
       display: flex;
       flex-direction: column;
     }
     header {
-      background: linear-gradient(120deg, #1a0a3d, #0f0820);
+      background: linear-gradient(120deg, var(--header-grad-a), var(--header-grad-b));
       padding: 1rem 1.5rem;
       display: flex;
       align-items: center;
       gap: 1rem;
-      border-bottom: 2px solid #6c3fc5;
+      border-bottom: 2px solid var(--header-border);
     }
     header h1 {
       font-size: 1.3rem;
       font-weight: 700;
-      color: #e0d0ff;
+      color: var(--header-title);
       letter-spacing: 0.02em;
     }
     header .subtitle {
       font-size: 0.8rem;
-      color: #9980d0;
+      color: var(--accent-label);
       margin-left: auto;
     }
+    .theme-toggle {
+      background: transparent;
+      border: 1px solid var(--border);
+      color: var(--text);
+      border-radius: 999px;
+      width: 32px;
+      height: 32px;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 0.95rem;
+      line-height: 1;
+      cursor: pointer;
+      transition: background 0.15s, border-color 0.15s;
+    }
+    .theme-toggle:hover { border-color: var(--header-border); background: rgba(108,63,197,0.12); }
     #status-bar {
-      background: #1a1a2e;
+      background: var(--card-bg);
       padding: 0.4rem 1.5rem;
       font-size: 0.78rem;
-      color: #888;
-      border-bottom: 1px solid #2a2a44;
+      color: var(--text-muted);
+      border-bottom: 1px solid var(--border);
       display: flex;
       gap: 1.5rem;
       align-items: center;
@@ -91,7 +154,7 @@
       width: 100%;
       height: 100%;
       min-height: 400px;
-      background: #111;
+      background: var(--panel-bg);
     }
     #map-no-webhooks {
       display: none;
@@ -114,8 +177,8 @@
       grid-column: 2;
       display: flex;
       flex-direction: column;
-      background: #111;
-      border-left: 1px solid #2a2a44;
+      background: var(--panel-bg);
+      border-left: 1px solid var(--border);
       overflow: hidden;
     }
     #trip-board h2 {
@@ -123,15 +186,15 @@
       font-weight: 600;
       letter-spacing: 0.08em;
       text-transform: uppercase;
-      color: #9980d0;
+      color: var(--accent-label);
       padding: 0.75rem 1rem;
-      border-bottom: 1px solid #2a2a44;
-      background: #16162a;
+      border-bottom: 1px solid var(--border);
+      background: var(--panel-header-bg);
     }
     #trip-board h2 span {
       float: right;
       font-size: 0.75rem;
-      color: #666;
+      color: var(--text-faint);
       font-weight: 400;
       letter-spacing: 0;
       text-transform: none;
@@ -142,14 +205,14 @@
       padding: 0.5rem;
     }
     .trip-card {
-      background: #1a1a2e;
-      border: 1px solid #2a2a44;
+      background: var(--card-bg);
+      border: 1px solid var(--border);
       border-radius: 8px;
       padding: 0.7rem 0.8rem;
       margin-bottom: 0.5rem;
       transition: border-color 0.2s;
     }
-    .trip-card:hover { border-color: #6c3fc5; }
+    .trip-card:hover { border-color: var(--card-hover-border); }
     .trip-card.arriving { border-left: 3px solid #ff9800; }
     .trip-card.inProgress { border-left: 3px solid #4caf50; }
     .trip-card.accepted { border-left: 3px solid #2196f3; }
@@ -175,12 +238,12 @@
     .rider-name {
       font-size: 0.9rem;
       font-weight: 600;
-      color: #e0d0ff;
+      color: var(--rider-name);
       flex: 1;
     }
     .trip-body {
       font-size: 0.78rem;
-      color: #aaa;
+      color: var(--trip-body-text);
       line-height: 1.5;
     }
     .trip-body .addr {
@@ -194,8 +257,8 @@
       margin-top: 0.35rem;
       font-size: 0.75rem;
     }
-    .trip-meta .eta-label { color: #9980d0; font-weight: 500; }
-    .trip-meta .eta-time  { color: #f0f0f0; }
+    .trip-meta .eta-label { color: var(--accent-label); font-weight: 500; }
+    .trip-meta .eta-time  { color: var(--eta-time); }
     .access-icons {
       display: flex;
       gap: 0.3rem;
@@ -211,7 +274,7 @@
     }
     .no-trips {
       text-align: center;
-      color: #555;
+      color: var(--text-faintest);
       padding: 2rem 1rem;
       font-size: 0.85rem;
     }
@@ -220,18 +283,18 @@
     #duty-roster {
       grid-row: 2;
       grid-column: 1 / -1;
-      background: #111;
-      border-top: 1px solid #2a2a44;
+      background: var(--panel-bg);
+      border-top: 1px solid var(--border);
     }
     #duty-roster h2 {
       font-size: 0.85rem;
       font-weight: 600;
       letter-spacing: 0.08em;
       text-transform: uppercase;
-      color: #9980d0;
+      color: var(--accent-label);
       padding: 0.6rem 1rem;
-      border-bottom: 1px solid #2a2a44;
-      background: #16162a;
+      border-bottom: 1px solid var(--border);
+      background: var(--panel-header-bg);
     }
     #duties-table-wrap {
       overflow-x: auto;
@@ -244,26 +307,26 @@
       font-size: 0.8rem;
     }
     th {
-      background: #16162a;
-      color: #9980d0;
+      background: var(--panel-header-bg);
+      color: var(--accent-label);
       font-weight: 600;
       font-size: 0.72rem;
       letter-spacing: 0.06em;
       text-transform: uppercase;
       padding: 0.5rem 1rem;
       text-align: left;
-      border-bottom: 1px solid #2a2a44;
+      border-bottom: 1px solid var(--border);
       position: sticky;
       top: 0;
     }
     td {
       padding: 0.45rem 1rem;
-      border-bottom: 1px solid #1e1e32;
-      color: #ddd;
+      border-bottom: 1px solid var(--border-soft);
+      color: var(--td-text);
       vertical-align: middle;
     }
     tr:last-child td { border-bottom: none; }
-    tr:hover td { background: #1a1a2e; }
+    tr:hover td { background: var(--row-hover-bg); }
     .duty-status {
       font-size: 0.72rem;
       font-weight: 600;
@@ -278,7 +341,7 @@
     .duty-status.cancelled   { background: #b71c1c; color: #ef9a9a; }
     .no-duties {
       text-align: center;
-      color: #555;
+      color: var(--text-faintest);
       padding: 1.5rem;
       font-size: 0.82rem;
     }
@@ -289,7 +352,7 @@
         grid-template-rows: 50vh auto 1fr;
       }
       #map-pane { grid-column: 1; grid-row: 1; }
-      #trip-board { grid-column: 1; grid-row: 3; border-left: none; border-top: 1px solid #2a2a44; }
+      #trip-board { grid-column: 1; grid-row: 3; border-left: none; border-top: 1px solid var(--border); }
       #duty-roster { grid-column: 1; grid-row: 2; }
     }
 
@@ -383,14 +446,15 @@
     <div>
       <h1>Van Dispatch</h1>
     </div>
-    <span class="subtitle">OnDemand &amp; FlexRide</span>
+    <span class="subtitle">UVA Ride &amp; UVA FlexRide</span>
+    <button id="theme-toggle" class="theme-toggle" type="button" title="Toggle light/dark mode" aria-label="Toggle light/dark mode">🌙</button>
   </header>
 
   <div id="status-bar">
     <div class="badge"><span class="dot" id="sse-dot"></span><span id="sse-label">connecting…</span></div>
     <div class="badge">Trips today: <strong id="trip-count">—</strong></div>
     <div class="badge">Duties: <strong id="duty-count">—</strong></div>
-    <div class="badge">OnDemand: <strong id="od-count">—</strong></div>
+    <div class="badge">UVA Ride: <strong id="od-count">—</strong></div>
     <div class="badge" id="webhook-badge" style="display:none">
       <span class="dot warn"></span><span>Live GPS inactive — configure Spare webhook</span>
     </div>
@@ -433,11 +497,34 @@
 
   <script>
     // ---- Map init ----
+    const CARTO_KEY = 'cb1_274a_1_de65d091600f3f8a641f3856';
     const map = L.map('map', { center: [38.0336, -78.5080], zoom: 13 });
-    L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png?key=cb1_274a_1_de65d091600f3f8a641f3856', {
+    const tileLayer = L.tileLayer(`https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png?key=${CARTO_KEY}`, {
       attribution: '© OpenStreetMap © CARTO',
       subdomains: 'abcd', maxZoom: 19,
     }).addTo(map);
+
+    // ---- Light/dark theme toggle ----
+    const THEME_STORAGE_KEY = 'vandispatch-theme';
+    function applyTheme(theme) {
+      document.documentElement.setAttribute('data-theme', theme);
+      const btn = document.getElementById('theme-toggle');
+      if (btn) btn.textContent = theme === 'light' ? '☀️' : '🌙';
+      const basemapStyle = theme === 'light' ? 'light_all' : 'dark_all';
+      tileLayer.setUrl(`https://{s}.basemaps.cartocdn.com/${basemapStyle}/{z}/{x}/{y}{r}.png?key=${CARTO_KEY}`);
+    }
+    function toggleTheme() {
+      const current = document.documentElement.getAttribute('data-theme') === 'light' ? 'light' : 'dark';
+      const next = current === 'light' ? 'dark' : 'light';
+      try { localStorage.setItem(THEME_STORAGE_KEY, next); } catch (_) { /* private browsing, etc. */ }
+      applyTheme(next);
+    }
+    (function initTheme() {
+      let saved = null;
+      try { saved = localStorage.getItem(THEME_STORAGE_KEY); } catch (_) { /* soft-fail */ }
+      applyTheme(saved === 'light' ? 'light' : 'dark');
+    })();
+    document.getElementById('theme-toggle').addEventListener('click', toggleTheme);
 
     // ---- State ----
     const vehicleData    = {};  // vehicleId -> full vehicle object (Spare)
@@ -1122,8 +1209,8 @@
         .filter(s => s.stopType === 'dropoff' && s.rideStatus === 'in_progress')
         .flatMap(s => s.riders);
       const sections = [
-        buildInfoCard(name, 'TransLoc OnDemand', color),
-        driver ? buildInfoCard(driver, 'OnDemand Driver', color) : null,
+        buildInfoCard(name, 'UVA Ride', color),
+        driver ? buildInfoCard(driver, 'UVA Ride Driver', color) : null,
         onboardRiders.length
           ? `<div class="ondemand-driver-popup__section">
                <div class="ondemand-driver-popup__label">Passengers on board</div>
