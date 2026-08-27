@@ -889,6 +889,27 @@
       return result;
     }
 
+    // Flattened `${requestId}-${kind}` -> order number, the same numbering shown on the
+    // map's stop pins -- so a trip card can show "this is stop #3" right next to the
+    // address, without a dispatcher having to cross-reference the map to find it.
+    function computeStopOrderLookup() {
+      const lookup = {};
+      const byVehicle = computeVehicleStopGroups();
+      for (const vehicleId of Object.keys(byVehicle)) {
+        byVehicle[vehicleId].forEach((group, idx) => {
+          const order = idx + 1;
+          group.stops.forEach(stop => { lookup[`${stop.requestId}-${stop.kind}`] = order; });
+        });
+      }
+      return lookup;
+    }
+
+    function stopOrderBadgeHtml(order, color) {
+      if (!order) return '';
+      const textColor = contrastColor(color);
+      return `<span style="display:inline-flex;align-items:center;justify-content:center;width:16px;height:16px;border-radius:50%;background:${color};color:${textColor};font-size:10px;font-weight:700;border:1.5px solid white;flex-shrink:0;margin-right:4px;vertical-align:middle">${order}</span>`;
+    }
+
     function renderStopOrderMarkers() {
       clearStopOrderMarkers();
       const byVehicle = computeVehicleStopGroups();
@@ -1090,9 +1111,6 @@
             ${escHtml(humanizeStatus(rawStatus))}
           </div>
         </div>` : null,
-        `<div class="ondemand-driver-popup__section">
-          <div class="ondemand-driver-popup__value" style="cursor:pointer;color:#6c3fc5" onclick="showVanFullRoute('${escHtml(vid)}')">🛣️ Show full route</div>
-        </div>`,
       ].filter(Boolean);
 
       return `<div class="ondemand-driver-popup__content">
@@ -1136,6 +1154,11 @@
       } else {
         vehicleMarkers[vid] = L.marker([lat, lng], { icon: busIcon })
           .bindPopup(popupHtml, POPUP_OPTS)
+          // Selecting a van (matches Spare's own admin panel: open one duty, see its full
+          // route) shows its full remaining route automatically; deselecting clears it,
+          // rather than leaving every van's path drawn on the map at once.
+          .on('popupopen', () => showVanFullRoute(vid))
+          .on('popupclose', clearRequestRoute)
           .addTo(map);
         bubbleMarkers[vid] = L.marker([lat, lng], { icon: bubbleIcon, interactive: false }).addTo(map);
       }
@@ -1468,6 +1491,7 @@
         ? (req.dropoffEta || req.scheduledDropoffTs)
         : (req.pickupEta || req.scheduledPickupTs)) || Infinity;
       const sorted = [...spareTrips].sort((a, b) => tripSortTs(a) - tripSortTs(b));
+      const stopOrder = computeStopOrderLookup();
       for (const req of sorted) {
         const name   = riderName(req);
         const status = req.status || 'unknown';
@@ -1490,6 +1514,11 @@
           : '';
         const intentLabel = rideIntentLabel(req);
         const intentLine = intentLabel ? `<div class="addr" style="color:#777;font-size:.68rem">🎯 ${escHtml(intentLabel)}</div>` : '';
+        // Same numbers shown on the map's stop pins, so a card can be matched to its pin
+        // (and vice versa) without hunting across the map for the right color/marker.
+        const badgeColor = vanColor || '#7c3aed';
+        const puBadge = stopOrderBadgeHtml(stopOrder[`${req.id}-Pickup`], badgeColor);
+        const doBadge = stopOrderBadgeHtml(stopOrder[`${req.id}-Dropoff`], badgeColor);
         cards.push(`<div class="trip-card ${status}" style="cursor:pointer" title="Click to show this ride's route on the map" onclick="showRequestRoute('${escHtml(req.id)}')">
           <div class="trip-header">
             <span class="status-pill ${status}">${status}</span>
@@ -1498,8 +1527,8 @@
           </div>
           <div class="trip-body">
             ${vanLine}
-            <div class="addr">▲ ${escHtml(pickup)}</div>
-            <div class="addr">▼ ${escHtml(dropoff)}</div>
+            <div class="addr">${puBadge}▲ ${escHtml(pickup)}</div>
+            <div class="addr">${doBadge}▼ ${escHtml(dropoff)}</div>
             <div class="trip-meta">
               <span><span class="eta-label">PU</span> <span class="eta-time">${puEta}</span></span>
               <span><span class="eta-label">DO</span> <span class="eta-time">${doEta}</span></span>
