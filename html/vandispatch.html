@@ -37,6 +37,9 @@
       --trip-body-text: #aaa;
       --td-text: #ddd;
       --card-hover-border: #6c3fc5;
+      --card-selected-border: #8a5cd6;
+      --card-selected-ring: rgba(138,92,214,0.35);
+      --trip-note: #ffd54f;
     }
     :root[data-theme="light"] {
       color-scheme: light;
@@ -61,6 +64,10 @@
       --trip-body-text: #5b5468;
       --td-text: #33304a;
       --card-hover-border: #6c3fc5;
+      --card-selected-border: #7143c2;
+      --card-selected-ring: rgba(113,67,194,0.28);
+      /* dark amber -- the dark-mode #ffd54f is unreadable on the near-white card bg */
+      --trip-note: #9a6700;
     }
     * { box-sizing: border-box; margin: 0; padding: 0; }
     @font-face {
@@ -217,6 +224,15 @@
     .trip-card.inProgress { border-left: 3px solid #4caf50; }
     .trip-card.accepted { border-left: 3px solid #2196f3; }
     .trip-card.processing { border-left: 3px solid #9e9e9e; }
+    /* Highlight applied when the matching van is selected on the map */
+    .trip-card.card-selected,
+    .duty-card.card-selected {
+      border-color: var(--card-selected-border);
+      box-shadow: 0 0 0 2px var(--card-selected-ring);
+    }
+    .trip-note { color: var(--trip-note); }
+    .trip-phone a { color: var(--accent-label); text-decoration: none; }
+    .trip-phone a:hover { text-decoration: underline; }
     .trip-header {
       display: flex;
       align-items: center;
@@ -989,7 +1005,9 @@
       });
       if (bounds.length) map.fitBounds(bounds, { padding: [60, 60], maxZoom: 16 });
     }
-    map.on('click', clearRequestRoute);
+    // Clicking empty map clears both the drawn route and any van selection. Van marker
+    // clicks call L.DomEvent.stopPropagation, so this only fires for genuine map clicks.
+    map.on('click', () => clearVanSelection());
 
     // ---- Full van route preview (current position through every remaining stop) ----
     // Spare's own currentRoute only works within ~20 minutes of a request's pickup (its
@@ -1072,59 +1090,56 @@
       await showVanFullRouteViaLegRouting(vehicleId, marker, color);
     }
 
-    // ---- Status display helpers ----
-    const STATUS_LABELS = { inProgress: 'In Progress', scheduled: 'Scheduled', completed: 'Completed', cancelled: 'Cancelled' };
-    const STATUS_COLORS = { inProgress: '#16a34a', scheduled: '#2563eb', completed: '#6b7280', cancelled: '#dc2626' };
-    function humanizeStatus(s) { return STATUS_LABELS[s] || s || '—'; }
-    function statusColor(s) { return STATUS_COLORS[s] || '#9ca3af'; }
+    // ---- Van selection (replaces the old marker popups) ----
+    // Clicking a van on the map highlights its card in the Duty Roster and every ride
+    // card it's serving in Active Trips, and (Spare only) draws its full remaining route.
+    // Clicking the same van again, another van, or empty map clears it. Held as plain
+    // state + data-* lookups so it survives the roster/trip lists re-rendering on poll.
+    let selectedVan = null; // { source: 'spare'|'od', id: string|null, driverNorm: string|null }
 
-    // ---- Popup content (ondemand-driver-popup style) ----
-    function buildPopupHtml(vid) {
-      const v = vehicleData[vid] || {};
-      const loc = v.currentLocation || {};
-      const duty = dutiesData[loc.dutyId] || {};
-      const driver = duty.driver || {};
-
-      const vehName = v.identifier || 'Van';
-      const vehSub = [v.make, v.model, v.color, v.licensePlate].filter(Boolean).join(' · ');
-      const driverName = [driver.firstName, driver.lastName].filter(Boolean).join(' ') || '—';
-      const shift = duty.startRequestedTs
-        ? `${fmtTime(duty.startRequestedTs)} – ${fmtTime(duty.endRequestedTs)}`
-        : null;
-      const rawStatus = duty.status || null;
-
-      const sections = [
-        `<div class="ondemand-driver-popup__section">
-          <div class="ondemand-driver-popup__label">Vehicle</div>
-          <div class="ondemand-driver-popup__value">${escHtml(vehName)}</div>
-          ${vehSub ? `<div class="ondemand-driver-popup__sub">${escHtml(vehSub)}</div>` : ''}
-        </div>`,
-        `<div class="ondemand-driver-popup__section">
-          <div class="ondemand-driver-popup__label">Driver</div>
-          <div class="ondemand-driver-popup__value">${escHtml(driverName)}</div>
-          ${shift ? `<div class="ondemand-driver-popup__sub">${escHtml(shift)}</div>` : ''}
-        </div>`,
-        rawStatus ? `<div class="ondemand-driver-popup__section">
-          <div class="ondemand-driver-popup__label">Duty Status</div>
-          <div class="ondemand-driver-popup__value" style="display:flex;align-items:center;gap:6px">
-            <span style="width:8px;height:8px;border-radius:50%;background:${statusColor(rawStatus)};flex-shrink:0;display:inline-block;box-shadow:0 0 4px ${statusColor(rawStatus)}66"></span>
-            ${escHtml(humanizeStatus(rawStatus))}
-          </div>
-        </div>` : null,
-      ].filter(Boolean);
-
-      return `<div class="ondemand-driver-popup__content">
-        ${sections.join('<div class="ondemand-driver-popup__divider"></div>')}
-      </div>`;
+    function vanCardMatches(el) {
+      if (!selectedVan) return false;
+      if (el.dataset.vanSource !== selectedVan.source) return false;
+      if (selectedVan.id && el.dataset.vehicleId && el.dataset.vehicleId === selectedVan.id) return true;
+      // W2W shift rows / OnDemand cards carry no vehicle id -- fall back to driver name.
+      if (selectedVan.driverNorm && el.dataset.driver && el.dataset.driver === selectedVan.driverNorm) return true;
+      return false;
     }
 
-    const POPUP_OPTS = {
-      className: 'ondemand-driver-popup',
-      closeButton: false,
-      autoClose: true,
-      autoPan: false,
-      offset: [0, -20],
-    };
+    function applyVanHighlight(doScroll) {
+      ['#duties-list', '#trips-list'].forEach(sel => {
+        let firstHit = null;
+        document.querySelectorAll(`${sel} .duty-card, ${sel} .trip-card`).forEach(el => {
+          const hit = vanCardMatches(el);
+          el.classList.toggle('card-selected', hit);
+          if (hit && !firstHit) firstHit = el;
+        });
+        if (doScroll && firstHit) firstHit.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+      });
+    }
+
+    function clearVanSelection() {
+      selectedVan = null;
+      document.querySelectorAll('.card-selected').forEach(el => el.classList.remove('card-selected'));
+      clearRequestRoute();
+    }
+
+    function selectVan(source, vehicleId, driverNorm) {
+      const id = vehicleId != null && vehicleId !== '' ? String(vehicleId) : null;
+      const norm = driverNorm || null;
+      if (selectedVan && selectedVan.source === source && selectedVan.id === id && selectedVan.driverNorm === norm) {
+        clearVanSelection(); // clicked the already-selected van -- toggle off
+        return;
+      }
+      selectedVan = { source, id, driverNorm: norm };
+      applyVanHighlight(true);
+      clearRequestRoute();
+      if (source === 'spare' && id) showVanFullRoute(id);
+    }
+
+    // ---- Status display helpers ----
+    const STATUS_LABELS = { inProgress: 'In Progress', scheduled: 'Scheduled', completed: 'Completed', cancelled: 'Cancelled' };
+    function humanizeStatus(s) { return STATUS_LABELS[s] || s || '—'; }
 
     // ---- Upsert van marker (bus body + bubble label) ----
     function upsertVehicleMarker(locData) {
@@ -1134,7 +1149,7 @@
       const vid = locData.vehicleId;
       const bearing = locData.bearing ?? 0;
 
-      // Keep vehicleData location in sync so popup can read it
+      // Keep vehicleData location in sync (dutyId in particular -- selectVan needs it)
       if (vehicleData[vid]) vehicleData[vid].currentLocation = locData;
 
       const v = vehicleData[vid] || {};
@@ -1146,19 +1161,18 @@
       const spareColor = getVanColor(label, v.markerColor || '#7c3aed');
       const busIcon    = makeBusMarkerIcon(bearing, spareColor);
       const bubbleIcon = createBubbleIcon(label, spareColor, bearing);
-      const popupHtml  = buildPopupHtml(vid);
 
       if (vehicleMarkers[vid]) {
-        vehicleMarkers[vid].setLatLng([lat, lng]).setIcon(busIcon).setPopupContent(popupHtml);
+        vehicleMarkers[vid].setLatLng([lat, lng]).setIcon(busIcon);
         bubbleMarkers[vid].setLatLng([lat, lng]).setIcon(bubbleIcon);
       } else {
         vehicleMarkers[vid] = L.marker([lat, lng], { icon: busIcon })
-          .bindPopup(popupHtml, POPUP_OPTS)
-          // Selecting a van (matches Spare's own admin panel: open one duty, see its full
-          // route) shows its full remaining route automatically; deselecting clears it,
-          // rather than leaving every van's path drawn on the map at once.
-          .on('popupopen', () => showVanFullRoute(vid))
-          .on('popupclose', clearRequestRoute)
+          // No popup -- it covered the map and duplicated info the Duty Roster / Active
+          // Trips panels already show. Selecting a van (matches Spare's own admin panel:
+          // open one duty, see its full route) instead highlights its duty/shift card and
+          // ride cards and shows its full route; deselecting (click elsewhere, or the same
+          // van again) clears both.
+          .on('click', (e) => { L.DomEvent.stopPropagation(e); selectVan('spare', vid); })
           .addTo(map);
         bubbleMarkers[vid] = L.marker([lat, lng], { icon: bubbleIcon, interactive: false }).addTo(map);
       }
@@ -1179,143 +1193,6 @@
       }
     }
 
-    // ---- Info-card section builder (matches testmap buildInfoCardSection) ----
-    function buildInfoCard(primary, secondary, color, meta) {
-      primary   = (primary   || '').trim();
-      secondary = (secondary || '').trim();
-      meta      = (meta      || '').trim();
-      if (!primary && !secondary) return '';
-      const lines = [];
-      if (primary)   lines.push(`<div class="bus-popup__info-line bus-popup__info-line--route">${escHtml(primary)}</div>`);
-      if (secondary) lines.push(`<div class="bus-popup__info-line bus-popup__info-line--block">${escHtml(secondary)}</div>`);
-      if (meta)      lines.push(`<div class="bus-popup__info-line bus-popup__info-line--meta">${escHtml(meta)}</div>`);
-      return `<div class="ondemand-driver-popup__section">
-        <div class="bus-popup__drivers-list">
-          <div class="bus-popup__driver-row bus-popup__info-card" style="border-left-color:${color};">
-            ${lines.join('')}
-          </div>
-        </div>
-      </div>`;
-    }
-
-    // ---- OnDemand stop plan normalizer (simplified — no ride visibility filtering) ----
-    function normalizeOdStopPlan(rawStops) {
-      if (!Array.isArray(rawStops)) return [];
-      const normalized = [];
-      let fallbackOrder = 1;
-      for (const stop of rawStops) {
-        if (!stop || typeof stop !== 'object') continue;
-        const baseAddress = (stop.address || '').trim();
-        const stopRideId  = stop.rideId || stop.ride_id || '';
-        const stopStatus  = stop.status || stop.rideStatus || stop.ride_status || '';
-        const rides = Array.isArray(stop.rides) ? stop.rides : null;
-        if (rides) {
-          const baseOrder = Number.isFinite(Number(stop.order)) ? Number(stop.order) : fallbackOrder;
-          for (const ride of rides) {
-            if (!ride || typeof ride !== 'object') continue;
-            const type   = ride.stop_type || ride.stopType || stop.stopType || stop.stop_type || '';
-            const rideId = ride.rideId || ride.ride_id || ride.id || '';
-            const status = ride.status || ride.rideStatus || ride.ride_status || '';
-            const riders = Array.isArray(ride.riders) ? ride.riders : (Array.isArray(ride.passengers) ? ride.passengers : []);
-            const t = `${type}`.trim().toLowerCase();
-            if (t !== 'pickup' && t !== 'dropoff') continue;
-            normalized.push({ order: baseOrder, stopType: t, address: baseAddress,
-              riders: riders.map(r => `${r}`.trim()).filter(Boolean),
-              rideId: rideId ? `${rideId}` : undefined,
-              rideStatus: status ? `${status}` : undefined });
-          }
-          continue;
-        }
-        const t = `${stop.stopType || stop.stop_type || ''}`.trim().toLowerCase();
-        if (t !== 'pickup' && t !== 'dropoff') continue;
-        const orderVal = Number(stop.order);
-        const riders = Array.isArray(stop.riders) ? stop.riders : [];
-        normalized.push({ order: Number.isFinite(orderVal) ? orderVal : fallbackOrder++,
-          stopType: t, address: baseAddress,
-          riders: riders.map(r => `${r}`.trim()).filter(Boolean),
-          rideId: stopRideId ? `${stopRideId}` : undefined,
-          rideStatus: stopStatus ? `${stopStatus}` : undefined });
-      }
-      normalized.sort((a, b) => a.order - b.order);
-      return normalized;
-    }
-
-    // ---- Render stop plan as ride cards (matches testmap renderOnDemandStopList) ----
-    function renderOdStopList(stopPlan) {
-      if (!stopPlan.length) return '';
-      const rideMap = new Map();
-      for (const stop of stopPlan) {
-        const key = stop.rideId || (stop.riders.length ? stop.riders.join(',') : `stop-${stop.order}`);
-        if (!rideMap.has(key)) {
-          rideMap.set(key, { riders: stop.riders, pickup: null, dropoff: null,
-            minOrder: stop.order, rideStatus: stop.rideStatus || '' });
-        }
-        const ride = rideMap.get(key);
-        if (stop.stopType === 'pickup')  { ride.pickup  = stop; ride.minOrder = Math.min(ride.minOrder, stop.order); }
-        if (stop.stopType === 'dropoff') { ride.dropoff = stop; }
-        if (!ride.riders.length && stop.riders.length) ride.riders = stop.riders;
-        if (stop.rideStatus && ride.rideStatus !== 'in_progress') ride.rideStatus = stop.rideStatus;
-      }
-      const rides = [...rideMap.values()].sort((a, b) => (a.minOrder || 999) - (b.minOrder || 999));
-      const cards = rides.map(ride => {
-        const name = ride.riders.join(', ') || 'Rider';
-        const nextOrder = ride.pickup?.order ?? ride.dropoff?.order;
-        const orderLabel = Number.isFinite(nextOrder) ? `#${nextOrder}` : '';
-        const isOnBoard = !ride.pickup && ride.dropoff && ride.rideStatus === 'in_progress';
-        const pickupAddr  = ride.pickup?.address || (isOnBoard ? 'On board' : 'Unknown pickup');
-        const dropoffAddr = ride.dropoff?.address || 'Unknown dropoff';
-        const pickupClass = isOnBoard
-          ? 'ondemand-driver-popup__ride-location-icon ondemand-driver-popup__ride-location-icon--onboard'
-          : 'ondemand-driver-popup__ride-location-icon ondemand-driver-popup__ride-location-icon--pickup';
-        const pickupIcon = isOnBoard ? '✓' : 'P';
-        return `<div class="ondemand-driver-popup__ride-card">
-          <div class="ondemand-driver-popup__ride-header">
-            <span class="ondemand-driver-popup__ride-name">${escHtml(name)}</span>
-            ${orderLabel ? `<span class="ondemand-driver-popup__ride-order">${escHtml(orderLabel)}</span>` : ''}
-          </div>
-          <div class="ondemand-driver-popup__ride-locations">
-            <div class="ondemand-driver-popup__ride-location">
-              <span class="${pickupClass}">${pickupIcon}</span>
-              <span class="ondemand-driver-popup__ride-location-text">${escHtml(pickupAddr)}</span>
-            </div>
-            <div class="ondemand-driver-popup__ride-location">
-              <span class="ondemand-driver-popup__ride-location-icon ondemand-driver-popup__ride-location-icon--dropoff">D</span>
-              <span class="ondemand-driver-popup__ride-location-text">${escHtml(dropoffAddr)}</span>
-            </div>
-          </div>
-        </div>`;
-      }).join('');
-      return `<div class="ondemand-driver-popup__stops">
-        <div class="ondemand-driver-popup__label">Rides</div>
-        <div class="ondemand-driver-popup__rides">${cards}</div>
-      </div>`;
-    }
-
-    // ---- OnDemand popup ----
-    function buildOdPopupHtml(v, color) {
-      const name   = parseOdCallName(v.callName) || `Van ${v.vehicleId}`;
-      const driver = v.driverName || null;
-      const stopPlan  = normalizeOdStopPlan(v.stops || []);
-      const stopHtml  = renderOdStopList(stopPlan);
-      const onboardRiders = stopPlan
-        .filter(s => s.stopType === 'dropoff' && s.rideStatus === 'in_progress')
-        .flatMap(s => s.riders);
-      const sections = [
-        buildInfoCard(name, 'UVA Ride', color),
-        driver ? buildInfoCard(driver, 'UVA Ride Driver', color) : null,
-        onboardRiders.length
-          ? `<div class="ondemand-driver-popup__section">
-               <div class="ondemand-driver-popup__label">Passengers on board</div>
-               <div class="ondemand-driver-popup__value">${escHtml(onboardRiders.join(', '))}</div>
-             </div>`
-          : null,
-        stopHtml || null,
-      ].filter(Boolean);
-      return `<div class="ondemand-driver-popup__content">
-        ${sections.join('<div class="ondemand-driver-popup__divider"></div>')}
-      </div>`;
-    }
-
     // ---- OnDemand marker upsert ----
     function upsertOdMarker(v) {
       const key     = 'od_' + v.vehicleId;
@@ -1325,13 +1202,16 @@
       const color   = getVanColor(label, v.markerColor || '#ec4899');
       const busIcon    = makeBusMarkerIcon(bearing, color);
       const bubbleIcon = createBubbleIcon(label, color, bearing);
-      const popupHtml  = buildOdPopupHtml(v, color);
       if (odVehicleMarkers[key]) {
-        odVehicleMarkers[key].setLatLng([lat, lng]).setIcon(busIcon).setPopupContent(popupHtml);
+        odVehicleMarkers[key].setLatLng([lat, lng]).setIcon(busIcon);
         odBubbleMarkers[key].setLatLng([lat, lng]).setIcon(bubbleIcon);
       } else {
         odVehicleMarkers[key] = L.marker([lat, lng], { icon: busIcon })
-          .bindPopup(popupHtml, POPUP_OPTS).addTo(map);
+          // No popup (see Spare markers above for why) -- selecting an OD van instead
+          // highlights its shift row and ride cards. OD has no per-van dutyId/route
+          // concept, so this only drives highlighting, not a route preview.
+          .on('click', (e) => { L.DomEvent.stopPropagation(e); selectVan('od', v.vehicleId, normalizeName(v.driverName)); })
+          .addTo(map);
         odBubbleMarkers[key] = L.marker([lat, lng], { icon: bubbleIcon, interactive: false }).addTo(map);
       }
       if (typeof v.speed === 'number' && v.speed >= 0) {
@@ -1394,6 +1274,7 @@
         for (const stop of (v.stops || [])) {
           freshStops.push({
             ...stop,
+            vehicleId: v.vehicleId,
             vehicleName: odLabel,
             vehicleColor: odColor,
           });
@@ -1497,10 +1378,20 @@
         const status = req.status || 'unknown';
         const pickup  = req.scheduledPickupAddress  || req.requestedPickupAddress  || '—';
         const dropoff = req.scheduledDropoffAddress || req.requestedDropoffAddress || '—';
-        const puEta = req.pickupEta  ? fmtTime(req.pickupEta)  : fmtTime(req.scheduledPickupTs);
+        // Once the rider's actually been picked up, Spare stamps pickupCompletedTs --
+        // show that real time (labeled "Picked up") instead of a now-moot ETA.
+        const pickedUp = Number.isFinite(req.pickupCompletedTs);
+        const puLabel = pickedUp ? 'Picked up' : 'PU';
+        const puEta = pickedUp
+          ? fmtTime(req.pickupCompletedTs)
+          : (req.pickupEta ? fmtTime(req.pickupEta) : fmtTime(req.scheduledPickupTs));
         const doEta = req.dropoffEta ? fmtTime(req.dropoffEta) : fmtTime(req.scheduledDropoffTs);
-        const notes  = req.notes ? `<div class="addr" style="color:#ffd54f;margin-top:.25rem">📝 ${escHtml(req.notes)}</div>` : '';
+        const notes  = req.notes ? `<div class="addr trip-note" style="margin-top:.25rem">📝 ${escHtml(req.notes)}</div>` : '';
         const riders = req.numRiders ? ` · ${req.numRiders} rider${req.numRiders>1?'s':''}` : '';
+        const riderPhone = req.rider && req.rider.phoneNumber ? String(req.rider.phoneNumber).trim() : '';
+        const phoneLine = riderPhone
+          ? `<div class="addr trip-phone" style="font-size:.72rem;margin-bottom:.15rem">📞 <a href="tel:${escHtml(riderPhone.replace(/[^\d+]/g, ''))}">${escHtml(riderPhone)}</a></div>`
+          : '';
         const van = req.vehicleId ? (vehicleData[req.vehicleId] || {}) : null;
         const vanLabel = van ? (van.identifier || 'Van') : null;
         const vanColor = van ? getVanColor(vanLabel, van.markerColor || '#7c3aed') : null;
@@ -1519,7 +1410,7 @@
         const badgeColor = vanColor || '#7c3aed';
         const puBadge = stopOrderBadgeHtml(stopOrder[`${req.id}-Pickup`], badgeColor);
         const doBadge = stopOrderBadgeHtml(stopOrder[`${req.id}-Dropoff`], badgeColor);
-        cards.push(`<div class="trip-card ${status}" style="cursor:pointer" title="Click to show this ride's route on the map" onclick="showRequestRoute('${escHtml(req.id)}')">
+        cards.push(`<div class="trip-card ${status}" style="cursor:pointer" title="Click to show this ride's route on the map" onclick="showRequestRoute('${escHtml(req.id)}')" data-van-source="spare" data-vehicle-id="${escHtml(req.vehicleId || '')}">
           <div class="trip-header">
             <span class="status-pill ${status}">${status}</span>
             <span class="rider-name">${escHtml(name)}${riders}</span>
@@ -1527,10 +1418,11 @@
           </div>
           <div class="trip-body">
             ${vanLine}
+            ${phoneLine}
             <div class="addr">${puBadge}▲ ${escHtml(pickup)}</div>
             <div class="addr">${doBadge}▼ ${escHtml(dropoff)}</div>
             <div class="trip-meta">
-              <span><span class="eta-label">PU</span> <span class="eta-time">${puEta}</span></span>
+              <span><span class="eta-label">${puLabel}</span> <span class="eta-time">${puEta}</span></span>
               <span><span class="eta-label">DO</span> <span class="eta-time">${doEta}</span></span>
             </div>
             ${bookedLine}
@@ -1551,7 +1443,7 @@
         const icon  = stop.stopType === 'pickup' ? '▲' : '▼';
         const typeLabel = stop.stopType === 'pickup' ? 'Pickup' : 'Drop-off';
         const vehColor = stop.vehicleColor || '#ec4899';
-        cards.push(`<div class="trip-card ${cls}">
+        cards.push(`<div class="trip-card ${cls}" data-van-source="od" data-vehicle-id="${escHtml(stop.vehicleId || '')}">
           <div class="trip-header">
             <span class="status-pill ${cls}">${escHtml(lbl)}</span>
             <span class="rider-name">${escHtml(names)}</span>
@@ -1566,6 +1458,7 @@
 
       document.getElementById('trip-count').textContent = cards.length;
       list.innerHTML = cards.length ? cards.join('') : '<div class="no-trips">No active trips right now</div>';
+      if (selectedVan) applyVanHighlight(false);
     }
 
     async function fetchTrips() {
@@ -1641,7 +1534,7 @@
         ? `<div class="access-icons">${interruptions.map(t => `<span class="access-tag" style="background:#3a1f1f;color:#ffab91">⚠ ${escHtml(t)}</span>`).join('')}</div>`
         : '';
 
-      return `<div class="duty-card ${r.status}">
+      return `<div class="duty-card ${r.status}" data-van-source="${r.source === 'spare' ? 'spare' : 'od'}" data-vehicle-id="${escHtml(r.vehicleId || '')}" data-driver="${escHtml(r.driverNameNorm || '')}">
         <div class="trip-header">
           <span class="rider-name">${escHtml(r.driverName)}</span>
           ${statusPill}
@@ -1677,6 +1570,7 @@
           assignment: vehName,
           vanColor: vehName !== '—' ? getVanColor(vehName, vObj.markerColor || '#7c3aed') : null,
           status: d.status || 'unknown',
+          vehicleId: vid || '',
           dutyStr: `${fmtTime(d.startRequestedTs)} – ${fmtTime(d.endRequestedTs)}`,
           shiftStr: null,
           detail: d.identifier || '',
@@ -1713,6 +1607,7 @@
           source: 'w2w',
           startMs: s.start_ts || 0,
           driverName: s.name || '—',
+          driverNameNorm: normalizeName(s.name),
           assignment: s.position_name || 'UVA Ride',
           status: 'shift',
           shiftStr: `${fmtTime(s.start_ts / 1000)} – ${fmtTime(s.end_ts / 1000)}`,
@@ -1732,6 +1627,7 @@
 
       rows.sort((a, b) => a.startMs - b.startMs);
       list.innerHTML = rows.map(buildDutyCard).join('');
+      if (selectedVan) applyVanHighlight(false);
     }
 
     // Remove Spare vehicle markers for vans not on an inProgress duty
@@ -1760,7 +1656,6 @@
         spareDuties.forEach(d => { if (d.id) dutiesData[d.id] = d; });
         renderDuties();
         syncVehicleMarkersWithDuties();
-        Object.keys(vehicleMarkers).forEach(vid => vehicleMarkers[vid].setPopupContent(buildPopupHtml(vid)));
       } catch (err) {
         console.error('duties fetch failed:', err);
       }
