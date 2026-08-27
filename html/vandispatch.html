@@ -994,14 +994,27 @@
       }
     }
 
-    async function showVanFullRoute(vehicleId) {
-      clearRequestRoute();
-      const marker = vehicleMarkers[vehicleId];
-      if (!marker) return;
-      const v = vehicleData[vehicleId] || {};
-      const label = v.identifier || 'Van';
-      const color = getVanColor(label, v.markerColor || '#7c3aed');
+    // Preferred path: Spare's own undocumented GET /duties/{id}/polyline (found by watching
+    // network traffic in Spare's admin panel -- it's what draws the full route there, and
+    // our own SPARE_API_KEY can call it too, same auth as everything else). This is Spare's
+    // actual computed route for the whole remaining duty, not our own approximation, so
+    // prefer it whenever a dutyId is known. Falls back to routing our own stop-to-stop
+    // legs via ORS (below) if it's missing, fails, or Spare ever changes/removes it.
+    async function fetchDutyPolyline(dutyId) {
+      try {
+        const res = await fetch(`/api/spare/duties/${encodeURIComponent(dutyId)}/route`);
+        if (!res.ok) return null;
+        const data = await res.json();
+        const coords = data && data.polyline && data.polyline.coordinates;
+        if (!Array.isArray(coords) || !coords.length) return null;
+        // Spare returns [lng, lat] pairs; Leaflet wants [lat, lng].
+        return coords.map(([lng, lat]) => [lat, lng]);
+      } catch (_) {
+        return null;
+      }
+    }
 
+    async function showVanFullRouteViaLegRouting(vehicleId, marker, color) {
       const groups = (computeVehicleStopGroups()[vehicleId] || []);
       if (!groups.length) return;
 
@@ -1016,6 +1029,26 @@
         bounds.push(...leg);
       }
       if (bounds.length > 1) map.fitBounds(bounds, { padding: [60, 60], maxZoom: 16 });
+    }
+
+    async function showVanFullRoute(vehicleId) {
+      clearRequestRoute();
+      const marker = vehicleMarkers[vehicleId];
+      if (!marker) return;
+      const v = vehicleData[vehicleId] || {};
+      const label = v.identifier || 'Van';
+      const color = getVanColor(label, v.markerColor || '#7c3aed');
+
+      const dutyId = v.currentLocation && v.currentLocation.dutyId;
+      const dutyPoints = dutyId ? await fetchDutyPolyline(dutyId) : null;
+      if (dutyPoints) {
+        const line = L.polyline(dutyPoints, { color, weight: 4, opacity: 0.85 }).addTo(map);
+        activeRouteLayers.push(line);
+        map.fitBounds(dutyPoints, { padding: [60, 60], maxZoom: 16 });
+        return;
+      }
+
+      await showVanFullRouteViaLegRouting(vehicleId, marker, color);
     }
 
     // ---- Status display helpers ----

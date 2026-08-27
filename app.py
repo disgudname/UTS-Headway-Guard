@@ -16290,6 +16290,41 @@ async def api_spare_request_route(request: Request, request_id: str):
     return route
 
 
+_SPARE_DUTY_ID_RE = re.compile(r"^[0-9a-fA-F-]{36}$")
+spare_duty_polyline_cache = PerKeyTTLCache(SPARE_ROUTE_TTL_S)
+
+
+@app.get("/api/spare/duties/{duty_id}/route")
+async def api_spare_duty_route(request: Request, duty_id: str):
+    """Full remaining route for a duty (current position through every future stop) --
+    an undocumented Spare endpoint (GET /duties/{id}/polyline), found by watching network
+    traffic in Spare's own admin panel and confirmed to work with our own SPARE_API_KEY.
+    Not in their public API docs, so it could change or vanish without notice -- treat a
+    failure here as routine, not exceptional (the frontend falls back to routing the van's
+    own stop sequence itself via /api/routes/leg when this comes back empty)."""
+    _require_dispatcher_access(request)
+    if not _SPARE_DUTY_ID_RE.match(duty_id):
+        raise HTTPException(status_code=400, detail="Invalid duty id.")
+    client = _get_spare_client()
+    if client is None:
+        raise HTTPException(status_code=503, detail="Spare client not configured (set SPARE_API_KEY)")
+
+    async def fetch():
+        try:
+            return await client.get_duty_polyline(duty_id)
+        except httpx.HTTPStatusError as exc:
+            print(f"[spare] duty polyline fetch error {exc.response.status_code} for {duty_id}: {exc}")
+            return None
+        except Exception as exc:
+            print(f"[spare] duty polyline fetch failed for {duty_id}: {exc}")
+            return None
+
+    result = await spare_duty_polyline_cache.get(duty_id, fetch)
+    if result is None:
+        raise HTTPException(status_code=502, detail="Could not fetch duty polyline from Spare.")
+    return result
+
+
 @app.get("/api/spare/duties")
 async def api_spare_duties(request: Request):
     """Today's duty roster (shifts that overlap with today)."""

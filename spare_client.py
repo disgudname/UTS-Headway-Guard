@@ -67,6 +67,16 @@ class SpareClient:
     async def get_request_current_route(self, request_id: str) -> Dict[str, Any]:
         return await self.get(f"requests/{request_id}/currentRoute")
 
+    async def get_duty_polyline(self, duty_id: str) -> Dict[str, Any]:
+        # Undocumented -- not in Spare's public OpenAPI spec or developer docs, found by
+        # watching network traffic in Spare's own admin panel (platform.us.sparelabs.com),
+        # which calls this to draw a duty's full remaining route (current position through
+        # every future stop) on its live map. Confirmed our own SPARE_API_KEY can call it
+        # too, same base URL/auth as the rest of the public API, no extra permission needed.
+        # Since it's undocumented, Spare could change or remove it without notice -- callers
+        # should treat a failure here as routine and fall back to computing their own route.
+        return await self.get(f"duties/{duty_id}/polyline")
+
     async def get_duties(self, **params: Any) -> List[Dict[str, Any]]:
         data = await self.get("duties", **params)
         if isinstance(data, list):
