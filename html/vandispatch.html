@@ -481,6 +481,37 @@
       return new Date(ts * 1000).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true });
     }
 
+    // How far ahead of the ride a request was booked -- e.g. "45m", "2h 10m", "3d 4h".
+    function formatLeadTime(seconds) {
+      if (!Number.isFinite(seconds) || seconds < 0) return null;
+      const mins = Math.round(seconds / 60);
+      if (mins < 60) return `${mins}m`;
+      const hrs = Math.floor(mins / 60);
+      const remMins = mins % 60;
+      if (hrs < 24) return remMins ? `${hrs}h ${remMins}m` : `${hrs}h`;
+      const days = Math.floor(hrs / 24);
+      const remHrs = hrs % 24;
+      return remHrs ? `${days}d ${remHrs}h` : `${days}d`;
+    }
+
+    // Spare's intentType is how the rider framed the request when booking: "leaveAt"
+    // (depart at a requested time -- including "leave now", which is just a leaveAt
+    // request whose requested pickup time is right on top of when it was booked) or
+    // "arriveBy" (be at the destination by a requested time).
+    function rideIntentLabel(req) {
+      if (req.intentType === 'arriveBy') {
+        const t = req.requestedDropoffTs || req.scheduledDropoffTs;
+        return t ? `Arrive by ${fmtTime(t)}` : null;
+      }
+      if (req.intentType === 'leaveAt') {
+        const pu = req.requestedPickupTs || req.scheduledPickupTs;
+        if (!pu) return null;
+        if (req.createdAt && (pu - req.createdAt) <= 300) return 'Leave ASAP';
+        return `Leave at ${fmtTime(pu)}`;
+      }
+      return null;
+    }
+
     // ==== Bus marker geometry/rendering — ported verbatim from testmap.js /
     // testmap-vehicles.js (constants, contrastBW, bubble SVG formulas, leader-offset
     // math) so vans on this page look and sit exactly like vehicles on /map. One
@@ -1296,6 +1327,13 @@
         const vanLine = van
           ? `<div class="addr" style="color:#aaa;font-size:.72rem;margin-bottom:.15rem">🚐 <span style="color:${vanColor};font-weight:600">${escHtml(vanLabel)}</span></div>`
           : `<div class="addr" style="color:#666;font-size:.72rem;margin-bottom:.15rem;font-style:italic">Not yet assigned to a van</div>`;
+        const bookedPickupTs = req.requestedPickupTs || req.scheduledPickupTs;
+        const leadTime = req.createdAt && bookedPickupTs ? formatLeadTime(bookedPickupTs - req.createdAt) : null;
+        const bookedLine = req.createdAt
+          ? `<div class="addr" style="color:#777;font-size:.68rem;margin-top:.3rem">📅 Booked ${leadTime ? `${leadTime} ahead` : `at ${fmtTime(req.createdAt)}`}</div>`
+          : '';
+        const intentLabel = rideIntentLabel(req);
+        const intentLine = intentLabel ? `<div class="addr" style="color:#777;font-size:.68rem">🎯 ${escHtml(intentLabel)}</div>` : '';
         cards.push(`<div class="trip-card ${status}" style="cursor:pointer" title="Click to show this ride's route on the map" onclick="showRequestRoute('${escHtml(req.id)}')">
           <div class="trip-header">
             <span class="status-pill ${status}">${status}</span>
@@ -1310,6 +1348,8 @@
               <span><span class="eta-label">PU</span> <span class="eta-time">${puEta}</span></span>
               <span><span class="eta-label">DO</span> <span class="eta-time">${doEta}</span></span>
             </div>
+            ${bookedLine}
+            ${intentLine}
             ${notes}
             <div class="access-icons">${accessTags(req)}</div>
           </div>
