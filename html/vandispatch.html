@@ -688,6 +688,126 @@
       return L.divIcon({ html: svg, className: '', iconSize: [width, height], iconAnchor: [width / 2, height / 2] });
     }
 
+    // ---- Pickup/dropoff stop-order markers (numbered, colored to match the assigned van) ----
+    // Spare's /requests doesn't carry an explicit sequence number for a van's stops (checked
+    // the full field list), so order is inferred by sorting each van's active pickups/dropoffs
+    // by scheduled time -- the same order Spare's own routing has to respect physically.
+    const stopOrderMarkers = {};
+
+    function createStopOrderMarker(number, color) {
+      const SIZE = 22, STROKE = 2.5;
+      const sw = round2(SIZE + STROKE * 2);
+      const textColor = contrastColor(color);
+      const svg = `<svg width="${sw}" height="${sw}" viewBox="0 0 ${sw} ${sw}" xmlns="http://www.w3.org/2000/svg" style="pointer-events:none">
+        <circle cx="${sw / 2}" cy="${sw / 2}" r="${SIZE / 2}" fill="${color}" stroke="white" stroke-width="${STROKE}"/>
+        <text x="${sw / 2}" y="${sw / 2}" text-anchor="middle" dominant-baseline="central" font-size="12" font-weight="bold" fill="${textColor}" font-family="${BUS_MARKER_LABEL_FONT_FAMILY}">${number}</text>
+      </svg>`;
+      return L.divIcon({ html: svg, className: 'leaflet-div-icon bus-label-icon', iconSize: [sw, sw], iconAnchor: [sw / 2, sw / 2] });
+    }
+
+    function pointFromGeoJson(loc) {
+      if (!loc || !Array.isArray(loc.coordinates)) return null;
+      const [lng, lat] = loc.coordinates;
+      if (!Number.isFinite(lat) || !Number.isFinite(lng)) return null;
+      return [lat, lng];
+    }
+
+    function clearStopOrderMarkers() {
+      for (const key in stopOrderMarkers) { map.removeLayer(stopOrderMarkers[key]); delete stopOrderMarkers[key]; }
+    }
+
+    function renderStopOrderMarkers() {
+      clearStopOrderMarkers();
+      const byVehicle = {};
+      for (const t of spareTrips) {
+        if (!t.vehicleId) continue; // not yet assigned to a van -- no color/order to show
+        const list = byVehicle[t.vehicleId] || (byVehicle[t.vehicleId] = []);
+        // Once a rider is picked up (inProgress), only the dropoff is still ahead of the van.
+        if (t.status !== 'inProgress') {
+          const p = pointFromGeoJson(t.scheduledPickupLocation || t.requestedPickupLocation);
+          if (p) list.push({ ts: t.scheduledPickupTs || t.requestedPickupTs || 0, latlng: p, requestId: t.id, kind: 'Pickup' });
+        }
+        const d = pointFromGeoJson(t.scheduledDropoffLocation || t.requestedDropoffLocation);
+        if (d) list.push({ ts: t.scheduledDropoffTs || 0, latlng: d, requestId: t.id, kind: 'Dropoff' });
+      }
+      for (const vehicleId of Object.keys(byVehicle)) {
+        const v = vehicleData[vehicleId] || {};
+        const label = v.identifier || 'Van';
+        const color = getVanColor(label, v.markerColor || '#7c3aed');
+        const stops = byVehicle[vehicleId].sort((a, b) => a.ts - b.ts);
+        stops.forEach((stop, idx) => {
+          const order = idx + 1;
+          const marker = L.marker(stop.latlng, { icon: createStopOrderMarker(order, color), zIndexOffset: 400 })
+            .bindTooltip(`${order}. ${stop.kind} — ${escHtml(label)}`, { direction: 'top', offset: [0, -12] })
+            .addTo(map);
+          stopOrderMarkers[`${stop.requestId}-${stop.kind}`] = marker;
+        });
+      }
+    }
+
+    // ---- Click-to-reveal driver route for one trip (GET /requests/{id}/currentRoute) ----
+    // Fetched on demand, not polled: Spare's own docs note the route can change any time
+    // Spare Engine re-optimizes, so it's only meaningful as a one-glance snapshot.
+    let activeRouteLayers = [];
+
+    function clearRequestRoute() {
+      activeRouteLayers.forEach(l => map.removeLayer(l));
+      activeRouteLayers = [];
+    }
+
+    // Standard Google Encoded Polyline Algorithm Format decoder (same implementation
+    // already used by scripts/stop-approach.js elsewhere in this codebase).
+    function decodeGooglePolyline(encoded) {
+      const points = [];
+      let index = 0, lat = 0, lng = 0;
+      while (index < encoded.length) {
+        let b, shift = 0, result = 0;
+        do { b = encoded.charCodeAt(index++) - 63; result |= (b & 0x1f) << shift; shift += 5; } while (b >= 0x20);
+        lat += (result & 1) ? ~(result >> 1) : (result >> 1);
+        shift = 0; result = 0;
+        do { b = encoded.charCodeAt(index++) - 63; result |= (b & 0x1f) << shift; shift += 5; } while (b >= 0x20);
+        lng += (result & 1) ? ~(result >> 1) : (result >> 1);
+        points.push([lat / 1e5, lng / 1e5]);
+      }
+      return points;
+    }
+
+    async function showRequestRoute(requestId) {
+      clearRequestRoute();
+      const req = spareTrips.find(t => t.id === requestId);
+      const v = req && req.vehicleId ? (vehicleData[req.vehicleId] || {}) : {};
+      const label = v.identifier || 'Van';
+      const color = getVanColor(label, v.markerColor || '#7c3aed');
+
+      let data;
+      try {
+        const res = await fetch(`/api/spare/requests/${encodeURIComponent(requestId)}/route`);
+        if (!res.ok) return;
+        data = await res.json();
+      } catch (_) { return; }
+
+      const bounds = [];
+      const polylines = data.polylines || {};
+      [['routeToPickup', '2 8'], ['routeToDropoff', null]].forEach(([key, dashArray]) => {
+        const encoded = polylines[key];
+        if (!encoded) return;
+        const pts = decodeGooglePolyline(encoded);
+        if (!pts.length) return;
+        const line = L.polyline(pts, { color, weight: 4, opacity: 0.85, dashArray }).addTo(map);
+        activeRouteLayers.push(line);
+        bounds.push(...pts);
+      });
+      (data.stopovers || []).forEach(s => {
+        const p = pointFromGeoJson(s.location);
+        if (!p) return;
+        const m = L.circleMarker(p, { radius: 5, color: '#fff', weight: 2, fillColor: color, fillOpacity: 1 }).addTo(map);
+        activeRouteLayers.push(m);
+        bounds.push(p);
+      });
+      if (bounds.length) map.fitBounds(bounds, { padding: [60, 60], maxZoom: 16 });
+    }
+    map.on('click', clearRequestRoute);
+
     // ---- Status display helpers ----
     const STATUS_LABELS = { inProgress: 'In Progress', scheduled: 'Scheduled', completed: 'Completed', cancelled: 'Cancelled' };
     const STATUS_COLORS = { inProgress: '#16a34a', scheduled: '#2563eb', completed: '#6b7280', cancelled: '#dc2626' };
@@ -1108,13 +1228,20 @@
         const doEta = req.dropoffEta ? fmtTime(req.dropoffEta) : fmtTime(req.scheduledDropoffTs);
         const notes  = req.notes ? `<div class="addr" style="color:#ffd54f;margin-top:.25rem">📝 ${escHtml(req.notes)}</div>` : '';
         const riders = req.numRiders ? ` · ${req.numRiders} rider${req.numRiders>1?'s':''}` : '';
-        cards.push(`<div class="trip-card ${status}">
+        const van = req.vehicleId ? (vehicleData[req.vehicleId] || {}) : null;
+        const vanLabel = van ? (van.identifier || 'Van') : null;
+        const vanColor = van ? getVanColor(vanLabel, van.markerColor || '#7c3aed') : null;
+        const vanLine = van
+          ? `<div class="addr" style="color:#aaa;font-size:.72rem;margin-bottom:.15rem">🚐 <span style="color:${vanColor};font-weight:600">${escHtml(vanLabel)}</span></div>`
+          : `<div class="addr" style="color:#666;font-size:.72rem;margin-bottom:.15rem;font-style:italic">Not yet assigned to a van</div>`;
+        cards.push(`<div class="trip-card ${status}" style="cursor:pointer" title="Click to show this ride's route on the map" onclick="showRequestRoute('${escHtml(req.id)}')">
           <div class="trip-header">
             <span class="status-pill ${status}">${status}</span>
             <span class="rider-name">${escHtml(name)}${riders}</span>
             <span class="source-badge source-badge--spare" style="margin-left:auto">Spare</span>
           </div>
           <div class="trip-body">
+            ${vanLine}
             <div class="addr">▲ ${escHtml(pickup)}</div>
             <div class="addr">▼ ${escHtml(dropoff)}</div>
             <div class="trip-meta">
@@ -1167,6 +1294,7 @@
         const trips = await res.json();
         spareTrips = Array.isArray(trips) ? trips : [];
         renderTrips();
+        renderStopOrderMarkers();
       } catch (err) {
         console.error('[spare] trips fetch failed:', err);
         // soft-fail: board unchanged
@@ -1301,7 +1429,7 @@
 
     // ---- Initial load + polling ----
     loadVanColors().then(() => {
-      loadVehicleIdents();
+      loadVehicleIdents().then(() => { renderTrips(); renderStopOrderMarkers(); });
       fetchOnDemand();
     });
     fetchTrips();

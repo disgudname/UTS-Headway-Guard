@@ -995,6 +995,10 @@ ADSB_CACHE_TTL_S = float(os.getenv("ADSB_CACHE_TTL_S", "15"))
 SPARE_REQUESTS_TTL_S = int(os.getenv("SPARE_REQUESTS_TTL_S", "30"))
 SPARE_DUTIES_TTL_S = int(os.getenv("SPARE_DUTIES_TTL_S", "60"))
 SPARE_VEHICLES_TTL_S = int(os.getenv("SPARE_VEHICLES_TTL_S", "120"))
+# Spare's own docs note this route "may become out of date" as Spare Engine
+# re-optimizes -- short TTL just to survive a dispatcher clicking the same trip
+# card repeatedly without hammering the upstream API on every click.
+SPARE_ROUTE_TTL_S = int(os.getenv("SPARE_ROUTE_TTL_S", "20"))
 # A van pushes a location fix roughly every 10-11s while its duty/tablet is active
 # (confirmed against live webhook traffic). If nothing's arrived in this long, the
 # duty most likely ended or the tablet went offline -- stop surfacing its last known
@@ -2646,6 +2650,7 @@ adsb_cache_lock = asyncio.Lock()
 spare_requests_cache = TTLCache(SPARE_REQUESTS_TTL_S)
 spare_duties_cache = TTLCache(SPARE_DUTIES_TTL_S)
 spare_vehicles_cache = TTLCache(SPARE_VEHICLES_TTL_S)
+spare_route_cache = PerKeyTTLCache(SPARE_ROUTE_TTL_S)
 ondemand_color_by_name_cache = TTLCache(ONDEMAND_COLOR_BY_NAME_TTL_S)
 
 
@@ -16222,6 +16227,37 @@ async def api_spare_requests(request: Request):
         return [r for r in requests if r.get("status") not in terminal]
 
     return await spare_requests_cache.get(fetch)
+
+
+_SPARE_REQUEST_ID_RE = re.compile(r"^[0-9a-fA-F-]{36}$")
+
+
+@app.get("/api/spare/requests/{request_id}/route")
+async def api_spare_request_route(request: Request, request_id: str):
+    """Driver's planned route (polylines + stopovers) for one active request --
+    fetched on demand (a dispatcher clicking a trip card), not polled, since Spare
+    Engine can re-plan it at any time and it's only useful for one glance."""
+    _require_dispatcher_access(request)
+    if not _SPARE_REQUEST_ID_RE.match(request_id):
+        raise HTTPException(status_code=400, detail="Invalid request id.")
+    client = _get_spare_client()
+    if client is None:
+        raise HTTPException(status_code=503, detail="Spare client not configured (set SPARE_API_KEY)")
+
+    async def fetch():
+        try:
+            return await client.get_request_current_route(request_id)
+        except httpx.HTTPStatusError as exc:
+            print(f"[spare] route fetch error {exc.response.status_code} for {request_id}: {exc}")
+            return None
+        except Exception as exc:
+            print(f"[spare] route fetch failed for {request_id}: {exc}")
+            return None
+
+    route = await spare_route_cache.get(request_id, fetch)
+    if route is None:
+        raise HTTPException(status_code=502, detail="Could not fetch route from Spare.")
+    return route
 
 
 @app.get("/api/spare/duties")

@@ -64,6 +64,9 @@ class SpareClient:
             return data
         return data.get("data", [])
 
+    async def get_request_current_route(self, request_id: str) -> Dict[str, Any]:
+        return await self.get(f"requests/{request_id}/currentRoute")
+
     async def get_duties(self, **params: Any) -> List[Dict[str, Any]]:
         data = await self.get("duties", **params)
         if isinstance(data, list):
