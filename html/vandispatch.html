@@ -716,31 +716,81 @@
       for (const key in stopOrderMarkers) { map.removeLayer(stopOrderMarkers[key]); delete stopOrderMarkers[key]; }
     }
 
+    // A dropoff for one ride and a pickup for a different ride can legitimately land on the
+    // exact same spot at essentially the same time (a shared stop/transfer point, or just two
+    // riders using the same address back-to-back) -- rounding coordinates and allowing a short
+    // time window catches that instead of drawing two markers stacked invisibly on top of each
+    // other with two different, confusing order numbers.
+    const STOP_COORD_PRECISION = 5;   // ~1.1m -- treat this as "the same physical spot"
+    const STOP_SAME_VISIT_WINDOW_S = 180; // 3 min -- treat this as "the same visit"
+
+    function buildStopPopupHtml(order, stops, vanLabel, vanColor) {
+      const rows = stops.map(s => {
+        const isPickup = s.kind === 'Pickup';
+        const iconCls = isPickup ? 'ondemand-driver-popup__ride-location-icon--pickup' : 'ondemand-driver-popup__ride-location-icon--dropoff';
+        return `<div class="ondemand-driver-popup__ride-location">
+          <span class="ondemand-driver-popup__ride-location-icon ${iconCls}">${isPickup ? 'P' : 'D'}</span>
+          <span class="ondemand-driver-popup__ride-location-text"><strong>${escHtml(s.name)}</strong> — ${s.kind} at ${fmtTime(s.ts)}<br>${escHtml(s.address || '—')}</span>
+        </div>`;
+      }).join('');
+      const shared = stops.length > 1
+        ? `<div class="ondemand-driver-popup__label" style="margin-top:8px;color:#b45309">⚠ Shared stop — ${stops.length} events happen here</div>`
+        : '';
+      return `<div class="ondemand-driver-popup__content">
+        <div class="ondemand-driver-popup__section">
+          <div class="ondemand-driver-popup__label">Stop #${order} — <span style="color:${vanColor}">${escHtml(vanLabel)}</span></div>
+        </div>
+        <div class="ondemand-driver-popup__divider"></div>
+        <div class="ondemand-driver-popup__ride-locations">${rows}</div>
+        ${shared}
+      </div>`;
+    }
+
+    const STOP_POPUP_OPTS = { className: 'ondemand-driver-popup', closeButton: true, autoClose: true, autoPan: true, offset: [0, -14] };
+
     function renderStopOrderMarkers() {
       clearStopOrderMarkers();
       const byVehicle = {};
       for (const t of spareTrips) {
         if (!t.vehicleId) continue; // not yet assigned to a van -- no color/order to show
         const list = byVehicle[t.vehicleId] || (byVehicle[t.vehicleId] = []);
+        const name = riderName(t);
         // Once a rider is picked up (inProgress), only the dropoff is still ahead of the van.
         if (t.status !== 'inProgress') {
           const p = pointFromGeoJson(t.scheduledPickupLocation || t.requestedPickupLocation);
-          if (p) list.push({ ts: t.scheduledPickupTs || t.requestedPickupTs || 0, latlng: p, requestId: t.id, kind: 'Pickup' });
+          if (p) list.push({ ts: t.scheduledPickupTs || t.requestedPickupTs || 0, latlng: p, requestId: t.id, kind: 'Pickup', name, address: t.scheduledPickupAddress || t.requestedPickupAddress || '' });
         }
         const d = pointFromGeoJson(t.scheduledDropoffLocation || t.requestedDropoffLocation);
-        if (d) list.push({ ts: t.scheduledDropoffTs || 0, latlng: d, requestId: t.id, kind: 'Dropoff' });
+        if (d) list.push({ ts: t.scheduledDropoffTs || 0, latlng: d, requestId: t.id, kind: 'Dropoff', name, address: t.scheduledDropoffAddress || t.requestedDropoffAddress || '' });
       }
       for (const vehicleId of Object.keys(byVehicle)) {
         const v = vehicleData[vehicleId] || {};
         const label = v.identifier || 'Van';
         const color = getVanColor(label, v.markerColor || '#7c3aed');
-        const stops = byVehicle[vehicleId].sort((a, b) => a.ts - b.ts);
-        stops.forEach((stop, idx) => {
+        const stops = byVehicle[vehicleId].slice().sort((a, b) => a.ts - b.ts);
+
+        // Merge stops that share a rounded coordinate within a short time window into one
+        // combined marker/order-number instead of two overlapping ones.
+        const groups = [];
+        for (const stop of stops) {
+          const key = stop.latlng.map(n => n.toFixed(STOP_COORD_PRECISION)).join(',');
+          const existing = groups.find(g => g.key === key && Math.abs(g.ts - stop.ts) <= STOP_SAME_VISIT_WINDOW_S);
+          if (existing) {
+            existing.stops.push(stop);
+            existing.ts = Math.min(existing.ts, stop.ts);
+          } else {
+            groups.push({ key, ts: stop.ts, latlng: stop.latlng, stops: [stop] });
+          }
+        }
+        groups.sort((a, b) => a.ts - b.ts);
+
+        groups.forEach((group, idx) => {
           const order = idx + 1;
-          const marker = L.marker(stop.latlng, { icon: createStopOrderMarker(order, color), zIndexOffset: 400 })
-            .bindTooltip(`${order}. ${stop.kind} — ${escHtml(label)}`, { direction: 'top', offset: [0, -12] })
+          const marker = L.marker(group.latlng, { icon: createStopOrderMarker(order, color), zIndexOffset: 400 })
+            .bindPopup(buildStopPopupHtml(order, group.stops, label, color), STOP_POPUP_OPTS)
             .addTo(map);
-          stopOrderMarkers[`${stop.requestId}-${stop.kind}`] = marker;
+          const key = group.stops.map(s => `${s.requestId}-${s.kind}`).join('|');
+          stopOrderMarkers[key] = marker;
         });
       }
     }
