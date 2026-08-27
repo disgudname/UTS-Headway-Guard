@@ -4161,6 +4161,36 @@ async def _fetch_openrouteservice_route(
     return _extract_ors_coordinates(data)
 
 
+@app.post("/api/routes/leg")
+async def api_route_leg(request: Request, payload: Dict[str, Any] = Body(...)):
+    """Road-following polyline between two arbitrary points, via OpenRouteService.
+
+    Generic (not Spare- or OnDemand-specific) so a client can stitch several legs
+    together into one longer path -- e.g. a van's current position through its whole
+    remaining stop sequence -- without a new endpoint per use case. Gated behind
+    dispatcher auth purely to protect the paid ORS key from being an open proxy.
+    """
+    _require_dispatcher_access(request)
+    if not ORS_KEY:
+        raise HTTPException(status_code=503, detail="openrouteservice not configured")
+
+    start = payload.get("start")
+    end = payload.get("end")
+    if not (isinstance(start, list) and len(start) == 2 and isinstance(end, list) and len(end) == 2):
+        raise HTTPException(status_code=400, detail="start/end must each be [lat, lng]")
+    try:
+        start_lat, start_lng = float(start[0]), float(start[1])
+        end_lat, end_lng = float(end[0]), float(end[1])
+    except (TypeError, ValueError):
+        raise HTTPException(status_code=400, detail="start/end must be numeric [lat, lng]")
+
+    try:
+        coordinates = await _fetch_openrouteservice_route(start_lat, start_lng, end_lat, end_lng)
+    except httpx.HTTPError as exc:
+        raise HTTPException(status_code=502, detail="openrouteservice request failed") from exc
+    return {"coordinates": coordinates}
+
+
 async def _build_ondemand_payload(request: Request) -> Dict[str, Any]:
     _require_dispatcher_access(request)
     dispatcher_info = _get_dispatcher_secret_info(request)

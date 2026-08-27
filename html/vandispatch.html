@@ -851,8 +851,11 @@
 
     const STOP_POPUP_OPTS = { className: 'ondemand-driver-popup', closeButton: true, autoClose: true, autoPan: true, offset: [0, -14] };
 
-    function renderStopOrderMarkers() {
-      clearStopOrderMarkers();
+    // Group every active Spare trip's remaining pickup/dropoff into per-van, time-ordered
+    // stop sequences, merging stops that land on the same spot around the same time (see
+    // STOP_COORD_PRECISION/STOP_SAME_VISIT_WINDOW_S above). Shared by the numbered map pins
+    // and by the "full route" preview, so both agree on what a van's stop order actually is.
+    function computeVehicleStopGroups() {
       const byVehicle = {};
       for (const t of spareTrips) {
         if (!t.vehicleId) continue; // not yet assigned to a van -- no color/order to show
@@ -866,14 +869,9 @@
         const d = pointFromGeoJson(t.scheduledDropoffLocation || t.requestedDropoffLocation);
         if (d) list.push({ ts: t.scheduledDropoffTs || 0, latlng: d, requestId: t.id, kind: 'Dropoff', name, address: t.scheduledDropoffAddress || t.requestedDropoffAddress || '' });
       }
+      const result = {};
       for (const vehicleId of Object.keys(byVehicle)) {
-        const v = vehicleData[vehicleId] || {};
-        const label = v.identifier || 'Van';
-        const color = getVanColor(label, v.markerColor || '#7c3aed');
         const stops = byVehicle[vehicleId].slice().sort((a, b) => a.ts - b.ts);
-
-        // Merge stops that share a rounded coordinate within a short time window into one
-        // combined marker/order-number instead of two overlapping ones.
         const groups = [];
         for (const stop of stops) {
           const key = stop.latlng.map(n => n.toFixed(STOP_COORD_PRECISION)).join(',');
@@ -886,8 +884,19 @@
           }
         }
         groups.sort((a, b) => a.ts - b.ts);
+        result[vehicleId] = groups;
+      }
+      return result;
+    }
 
-        groups.forEach((group, idx) => {
+    function renderStopOrderMarkers() {
+      clearStopOrderMarkers();
+      const byVehicle = computeVehicleStopGroups();
+      for (const vehicleId of Object.keys(byVehicle)) {
+        const v = vehicleData[vehicleId] || {};
+        const label = v.identifier || 'Van';
+        const color = getVanColor(label, v.markerColor || '#7c3aed');
+        byVehicle[vehicleId].forEach((group, idx) => {
           const order = idx + 1;
           const marker = L.marker(group.latlng, { icon: createStopOrderMarker(order, color), zIndexOffset: 400 })
             .bindPopup(buildStopPopupHtml(order, group.stops, label, color), STOP_POPUP_OPTS)
@@ -961,6 +970,54 @@
     }
     map.on('click', clearRequestRoute);
 
+    // ---- Full van route preview (current position through every remaining stop) ----
+    // Spare's own currentRoute only works within ~20 minutes of a request's pickup (its
+    // API returns 400 "Cannot get a driver route for a request whose pickup is more than
+    // 20 minutes in the future" for anything further out) -- confirmed against a real van
+    // with two active rides, where the second, further-out ride's route came back empty
+    // for exactly this reason. Spare's own admin panel can still show a full multi-stop
+    // path because it isn't limited to that live-navigation concept; we replicate it by
+    // road-routing (via OpenRouteService, already used for OnDemand's route preview) leg
+    // by leg through the van's own already-computed stop order, current position first.
+    async function fetchRouteLeg(startLatLng, endLatLng) {
+      try {
+        const res = await fetch('/api/routes/leg', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ start: startLatLng, end: endLatLng }),
+        });
+        if (!res.ok) return null;
+        const data = await res.json();
+        return Array.isArray(data.coordinates) ? data.coordinates : null;
+      } catch (_) {
+        return null;
+      }
+    }
+
+    async function showVanFullRoute(vehicleId) {
+      clearRequestRoute();
+      const marker = vehicleMarkers[vehicleId];
+      if (!marker) return;
+      const v = vehicleData[vehicleId] || {};
+      const label = v.identifier || 'Van';
+      const color = getVanColor(label, v.markerColor || '#7c3aed');
+
+      const groups = (computeVehicleStopGroups()[vehicleId] || []);
+      if (!groups.length) return;
+
+      const start = marker.getLatLng();
+      const waypoints = [[start.lat, start.lng], ...groups.map(g => g.latlng)];
+      const bounds = [waypoints[0]];
+      for (let i = 0; i < waypoints.length - 1; i++) {
+        const leg = await fetchRouteLeg(waypoints[i], waypoints[i + 1]);
+        if (!leg || !leg.length) continue;
+        const line = L.polyline(leg, { color, weight: 4, opacity: 0.85 }).addTo(map);
+        activeRouteLayers.push(line);
+        bounds.push(...leg);
+      }
+      if (bounds.length > 1) map.fitBounds(bounds, { padding: [60, 60], maxZoom: 16 });
+    }
+
     // ---- Status display helpers ----
     const STATUS_LABELS = { inProgress: 'In Progress', scheduled: 'Scheduled', completed: 'Completed', cancelled: 'Cancelled' };
     const STATUS_COLORS = { inProgress: '#16a34a', scheduled: '#2563eb', completed: '#6b7280', cancelled: '#dc2626' };
@@ -1000,6 +1057,9 @@
             ${escHtml(humanizeStatus(rawStatus))}
           </div>
         </div>` : null,
+        `<div class="ondemand-driver-popup__section">
+          <div class="ondemand-driver-popup__value" style="cursor:pointer;color:#6c3fc5" onclick="showVanFullRoute('${escHtml(vid)}')">🛣️ Show full route</div>
+        </div>`,
       ].filter(Boolean);
 
       return `<div class="ondemand-driver-popup__content">
