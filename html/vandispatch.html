@@ -335,6 +335,8 @@
     .duty-card.completed  { border-left: 3px solid #9e9e9e; }
     .duty-card.cancelled  { border-left: 3px solid #f44336; }
     .duty-card.shift      { border-left: 3px solid #6ee7b7; }
+    /* Driver currently on a break/pause -- overrides the inProgress green stripe */
+    .duty-card.onBreak    { border-left: 3px solid #ffb74d; }
     .duty-status {
       font-size: 0.72rem;
       font-weight: 600;
@@ -347,6 +349,7 @@
     .duty-status.inProgress  { background: #1b5e20; color: #a5d6a7; }
     .duty-status.completed   { background: #212121; color: #757575; }
     .duty-status.cancelled   { background: #b71c1c; color: #ef9a9a; }
+    .duty-status.onBreak     { background: #4a3a1f; color: #ffcc80; }
     .no-duties {
       text-align: center;
       color: var(--text-faintest);
@@ -1561,7 +1564,9 @@
         ? `<span class="source-badge source-badge--spare">Spare</span>${r.detail ? ` <span style="color:var(--text-faint);font-size:.7rem">${escHtml(r.detail)}</span>` : ''}`
         : `<span class="source-badge source-badge--w2w">W2W</span>`;
       const statusPill = r.source === 'spare'
-        ? `<span class="duty-status ${r.status}">${escHtml(humanizeStatus(r.status))}</span>`
+        ? (r.onBreakSince
+            ? `<span class="duty-status onBreak">On break</span>`
+            : `<span class="duty-status ${r.status}">${escHtml(humanizeStatus(r.status))}</span>`)
         : `<span class="duty-status scheduled" style="background:#1a2a1e;color:#6ee7b7">Shift</span>`;
       const assignLine = r.vanColor
         ? `🚐 <span style="color:${r.vanColor};font-weight:600">${escHtml(r.assignment)}</span>`
@@ -1588,13 +1593,18 @@
       if (r.hasDriverConflict) interruptions.push('Driver conflict');
       if (r.hasVehicleConflict) interruptions.push('Vehicle conflict');
       if (r.cancellationDetails) interruptions.push('Cancelled');
+      if (r.onBreakSince) {
+        const elapsedM = Math.max(0, Math.round((Date.now() / 1000 - r.onBreakSince) / 60));
+        const capM = r.breakLenSec ? ` / ${Math.round(r.breakLenSec / 60)}m` : '';
+        interruptions.push(`On break ${elapsedM}m${capM}`);
+      }
       if (r.breakSec > 60) interruptions.push(`Break ${Math.round(r.breakSec / 60)}m`);
       if (r.pauseSec > 60) interruptions.push(`Paused ${Math.round(r.pauseSec / 60)}m`);
       const interruptLine = interruptions.length
         ? `<div class="access-icons">${interruptions.map(t => `<span class="access-tag" style="background:#3a1f1f;color:#ffab91">⚠ ${escHtml(t)}</span>`).join('')}</div>`
         : '';
 
-      return `<div class="duty-card ${r.status}" title="Click to show this van on the map" data-van-source="${r.source === 'spare' ? 'spare' : 'od'}" data-vehicle-id="${escHtml(r.vehicleId || '')}" data-driver="${escHtml(r.driverNameNorm || '')}">
+      return `<div class="duty-card ${r.status}${r.onBreakSince ? ' onBreak' : ''}" title="Click to show this van on the map" data-van-source="${r.source === 'spare' ? 'spare' : 'od'}" data-vehicle-id="${escHtml(r.vehicleId || '')}" data-driver="${escHtml(r.driverNameNorm || '')}">
         <div class="trip-header">
           <span class="rider-name">${escHtml(r.driverName)}</span>
           ${statusPill}
@@ -1640,6 +1650,10 @@
           cancellationDetails: d.cancellationDetails || null,
           breakSec: Number.isFinite(metrics.totalBreakLengthS) ? metrics.totalBreakLengthS : 0,
           pauseSec: Number.isFinite(metrics.totalInProgressPauseLengthS) ? metrics.totalInProgressPauseLengthS : 0,
+          // Live break/pause state (see _spare_active_break in app.py). Present only
+          // while the driver is actually on a break -- the "paused on OnDemand" analogue.
+          onBreakSince: (d.activeBreak && Number.isFinite(d.activeBreak.startedTs)) ? d.activeBreak.startedTs : null,
+          breakLenSec: (d.activeBreak && Number.isFinite(d.activeBreak.breakLength)) ? d.activeBreak.breakLength : null,
         };
       });
 

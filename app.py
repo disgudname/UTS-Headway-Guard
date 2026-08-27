@@ -16325,6 +16325,28 @@ async def api_spare_duty_route(request: Request, duty_id: str):
     return result
 
 
+async def _spare_active_break(client: SpareClient, duty_id: str) -> Optional[Dict[str, Any]]:
+    """Is the driver on this duty on a break/pause *right now*?
+
+    Spare's /duties payload carries no live break state -- on an autoAccept fleet
+    `isMatchingEnabled` stays true and `matchingDisabledEndTs` stays null even while
+    the driver is mid-break -- so the only way to know is GET /driverBreaks?dutyId=.
+    A break is in progress when its slot has a `startedTs` but no `completedTs` and
+    no `cancelledTs`. Returns {'startedTs', 'breakLength'} or None.
+    """
+    try:
+        resp = await client.get("driverBreaks", dutyId=duty_id, limit=50)
+    except Exception as exc:  # noqa: BLE001 - best-effort enrichment, never fatal
+        print(f"[spare] driverBreaks fetch failed for {duty_id}: {exc}")
+        return None
+    rows = resp.get("data", []) if isinstance(resp, dict) else (resp or [])
+    for b in rows:
+        slot = b.get("slot") or {}
+        if slot.get("startedTs") and not slot.get("completedTs") and not slot.get("cancelledTs"):
+            return {"startedTs": slot.get("startedTs"), "breakLength": b.get("breakLength")}
+    return None
+
+
 @app.get("/api/spare/duties")
 async def api_spare_duties(request: Request):
     """Today's duty roster (shifts that overlap with today)."""
@@ -16345,7 +16367,7 @@ async def api_spare_duties(request: Request):
         _, end_ts = _spare_today_range()
         now_ts = int(datetime.now(ZoneInfo("America/New_York")).timestamp())
         active = {"inProgress", "scheduled"}
-        return [
+        result = [
             d for d in duties
             if d.get("status") in active
             and (d.get("startRequestedTs") or 0) <= end_ts   # starts today, not tomorrow
@@ -16354,6 +16376,21 @@ async def api_spare_duties(request: Request):
                 or (d.get("endRequestedTs") or 0) >= now_ts  # scheduled: only if not yet over
             )
         ]
+
+        # Enrich in-progress duties with live break state (see _spare_active_break).
+        # Only a handful are ever inProgress at once, and the whole list is cached for
+        # SPARE_DUTIES_TTL_S, so these extra calls are cheap.
+        in_progress = [d for d in result if d.get("status") == "inProgress" and d.get("id")]
+        if in_progress:
+            breaks = await asyncio.gather(
+                *(_spare_active_break(client, d["id"]) for d in in_progress),
+                return_exceptions=True,
+            )
+            for d, br in zip(in_progress, breaks):
+                if isinstance(br, dict):
+                    d["activeBreak"] = br
+
+        return result
 
     return await spare_duties_cache.get(fetch)
 
