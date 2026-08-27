@@ -16,11 +16,17 @@
   <style>
     :root { color-scheme: dark; }
     * { box-sizing: border-box; margin: 0; padding: 0; }
+    @font-face {
+      font-family: 'FGDC';
+      src: url('/FGDC.ttf') format('truetype');
+    }
+    html, body { height: 100%; }
     body {
       font-family: "Inter", "Segoe UI", system-ui, sans-serif;
       background: #0d0d0d;
       color: #f0f0f0;
-      min-height: 100vh;
+      height: 100vh;
+      overflow: hidden;
       display: flex;
       flex-direction: column;
     }
@@ -463,82 +469,223 @@
       } catch (_) { /* soft-fail */ }
     }
 
-    // Contrast text color (black or white) based on fill luminance — matches testmap
-    function contrastColor(hex) {
-      const h = (hex || '#000000').replace('#', '');
-      if (h.length !== 6) return '#ffffff';
-      const r = parseInt(h.slice(0,2),16)/255;
-      const g = parseInt(h.slice(2,4),16)/255;
-      const b = parseInt(h.slice(4,6),16)/255;
-      const L = 0.2126*r + 0.7152*g + 0.0722*b;
-      return L > 0.55 ? '#000000' : '#ffffff';
-    }
-
     function fmtTime(ts) {
       if (!ts) return '—';
       return new Date(ts * 1000).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true });
     }
 
-    // ---- Bubble icon (matches testmap createNameBubbleDivIcon) ----
+    // ==== Bus marker geometry/rendering — ported verbatim from testmap.js /
+    // testmap-vehicles.js (constants, contrastBW, bubble SVG formulas, leader-offset
+    // math) so vans on this page look and sit exactly like vehicles on /map. One
+    // deliberate simplification: testmap scales all of this by a zoom-dependent
+    // `scale` factor (bus markers get bigger as you zoom in); this page's map doesn't
+    // need that, so every formula below runs with scale fixed at 1. ====
+    const BUS_MARKER_VIEWBOX_WIDTH  = 52.99;
+    const BUS_MARKER_VIEWBOX_HEIGHT = 86.99;
+    const BUS_MARKER_PIVOT_X = BUS_MARKER_VIEWBOX_WIDTH / 2;
+    const BUS_MARKER_PIVOT_Y = BUS_MARKER_VIEWBOX_HEIGHT / 2;
+    const BUS_MARKER_ASPECT_RATIO = BUS_MARKER_VIEWBOX_HEIGHT / BUS_MARKER_VIEWBOX_WIDTH;
+    const BUS_MARKER_BASE_WIDTH_PX = 26;
+    const BUS_MARKER_BASE_HEIGHT_PX = BUS_MARKER_BASE_WIDTH_PX * BUS_MARKER_ASPECT_RATIO;
+    const BUS_MARKER_DEFAULT_HEADING = 0;
+    const BUS_MARKER_LABEL_FONT_FAMILY = "'FGDC', sans-serif";
+    const BUS_MARKER_LABEL_MIN_FONT_PX = 10;
+    const LABEL_BASE_STROKE_WIDTH = 2.5;
+    const LABEL_TEXT_VERTICAL_ADJUSTMENT_RATIO = 0.06;
+    // Leader-offset tuning (how far the name/speed bubble floats from the van icon):
+    const LABEL_VERTICAL_CLEARANCE_PX = -7;
+    const LABEL_VERTICAL_ALIGNMENT_BONUS_PX = 6;
+    const LABEL_VERTICAL_ALIGNMENT_EXPONENT = 4;
+    const LABEL_HORIZONTAL_ALIGNMENT_BONUS_PX = 1;
+    const NAME_BUBBLE_BASE_FONT_PX = 14;
+    const NAME_BUBBLE_HORIZONTAL_PADDING = 14;
+    const NAME_BUBBLE_VERTICAL_PADDING = 3;
+    const NAME_BUBBLE_MIN_WIDTH = 40;
+    const NAME_BUBBLE_MIN_HEIGHT = 20;
+    const NAME_BUBBLE_CORNER_RADIUS = 10;
+    const NAME_BUBBLE_FRAME_INSET = 5;
+    const SPEED_BUBBLE_BASE_FONT_PX = 12;
+    const SPEED_BUBBLE_HORIZONTAL_PADDING = 12;
+    const SPEED_BUBBLE_VERTICAL_PADDING = 4;
+    const SPEED_BUBBLE_MIN_WIDTH = 60;
+    const SPEED_BUBBLE_MIN_HEIGHT = 20;
+    const SPEED_BUBBLE_CORNER_RADIUS = 10;
+
+    // Exact paths from media/busmarker.svg (the same file /map fetches at runtime).
+    const BUS_MARKER_HALO_PATH    = 'M26.49,0c1.56,0,3.11.52,4.38,1.55,3.68,2.93,22.12,18.71,22.12,39.94,0,17.84-13.46,28.5-26.49,28.5S0,59.33,0,41.49C0,20.26,18.44,4.48,22.14,1.54,23.4.52,24.94.01,26.49.01h0Z';
+    const BUS_MARKER_ROUTE_PATH   = 'M26.5,67.49c-11.5,0-24-9.5-24-26C2.5,23.99,16.3,9.39,23.7,3.49c1.6-1.3,4-1.3,5.6,0,7.4,5.9,21.2,20.5,21.2,38,0,16.5-12.5,26-24,26Z';
+    const BUS_MARKER_RING_PATH    = 'M26.5,27.99c8.55,0,15.5,6.95,15.5,15.5s-6.95,15.5-15.5,15.5-15.5-6.95-15.5-15.5,6.95-15.5,15.5-15.5ZM26.5,52.49c4.97,0,9-4.03,9-9s-4.03-9-9-9-9,4.03-9,9,4.03,9,9,9Z';
+    const BUS_MARKER_HEADING_PATH = 'M26.5,8.49l10,18c-6.67-4-13.33-4-20,0l10-18Z';
+
+    // Exact port of testmap-core.js's contrastBW(): YIQ perceived brightness,
+    // threshold raised to 150 (not the usual 128) for better contrast on
+    // medium-brightness colors like orange.
+    function contrastColor(hex) {
+      if (typeof hex !== 'string') return '#ffffff';
+      const h = hex.replace('#', '');
+      if (h.length !== 6 && h.length !== 3) return '#ffffff';
+      let r, g, b;
+      if (h.length === 3) {
+        r = parseInt(h[0] + h[0], 16); g = parseInt(h[1] + h[1], 16); b = parseInt(h[2] + h[2], 16);
+      } else {
+        r = parseInt(h.slice(0, 2), 16); g = parseInt(h.slice(2, 4), 16); b = parseInt(h.slice(4, 6), 16);
+      }
+      const yiq = (r * 299 + g * 587 + b * 114) / 1000;
+      return yiq >= 150 ? '#000000' : '#ffffff';
+    }
+
+    function round2(v) { return Math.round((Number(v) || 0) * 100) / 100; }
+
     const _bubbleCanvas = document.createElement('canvas');
-    function measureText(text, fontSize) {
+    function measureLabelTextWidth(text, fontSizePx) {
       const ctx = _bubbleCanvas.getContext('2d');
-      if (!ctx) return text.length * fontSize * 0.6;
-      ctx.font = `bold ${fontSize}px "Inter","Segoe UI",system-ui,sans-serif`;
-      return ctx.measureText(text).width;
+      const size = Math.max(1, Number(fontSizePx) || 0);
+      if (!ctx) return (text || '').length * size * 0.6;
+      ctx.font = `bold ${size}px ${BUS_MARKER_LABEL_FONT_FAMILY}`;
+      const m = ctx.measureText(text || '');
+      return m && Number.isFinite(m.width) ? m.width : (text || '').length * size * 0.6;
     }
 
-    function createBubbleIcon(text, fillColor) {
-      const FONT = 14, H_PAD = 14, V_PAD = 3, STROKE = 3, INSET = 5;
-      const tw = measureText(text, FONT);
-      const rw = Math.max(40, tw + H_PAD * 2);
-      const rh = Math.max(20, FONT + V_PAD * 2);
-      // Corner radius = half height → pill shape (matches testmap NAME_BUBBLE_CORNER_RADIUS=10 on min-height 20)
-      const CORNER = rh / 2;
-      const sw = rw + STROKE * 2;
-      const sh = rh + INSET * 2 + STROKE;
-      const anchorX = sw / 2;
-      const anchorY = sh + 44 + 5;
-      const rx = STROKE, ry = INSET + STROKE / 2;
-      const tx = sw / 2, ty = ry + rh / 2 + FONT * 0.06;
+    // Real visible bounding box of the bus icon (the halo circle — the widest shape —
+    // not the taller-than-it-needs-to-be SVG viewBox), measured the same way testmap
+    // does (getBBox() on a live SVG), so labels sit the same distance from the van
+    // regardless of which way it's facing.
+    let _busMarkerExtents = null;
+    function getBusMarkerVisibleExtents() {
+      if (_busMarkerExtents) return _busMarkerExtents;
+      const svgNS = 'http://www.w3.org/2000/svg';
+      const svg = document.createElementNS(svgNS, 'svg');
+      svg.setAttribute('viewBox', `0 0 ${BUS_MARKER_VIEWBOX_WIDTH} ${BUS_MARKER_VIEWBOX_HEIGHT}`);
+      Object.assign(svg.style, { position: 'absolute', visibility: 'hidden', pointerEvents: 'none', left: '-9999px', top: '-9999px' });
+      [BUS_MARKER_HALO_PATH, BUS_MARKER_ROUTE_PATH, BUS_MARKER_RING_PATH, BUS_MARKER_HEADING_PATH].forEach(d => {
+        const p = document.createElementNS(svgNS, 'path');
+        p.setAttribute('d', d);
+        svg.appendChild(p);
+      });
+      document.body.appendChild(svg);
+      try {
+        const bbox = svg.getBBox();
+        _busMarkerExtents = {
+          top: BUS_MARKER_PIVOT_Y - bbox.y,
+          bottom: (bbox.y + bbox.height) - BUS_MARKER_PIVOT_Y,
+          left: BUS_MARKER_PIVOT_X - bbox.x,
+          right: (bbox.x + bbox.width) - BUS_MARKER_PIVOT_X,
+        };
+      } catch (_) {
+        _busMarkerExtents = { top: BUS_MARKER_PIVOT_Y, bottom: BUS_MARKER_VIEWBOX_HEIGHT - BUS_MARKER_PIVOT_Y, left: BUS_MARKER_PIVOT_X, right: BUS_MARKER_VIEWBOX_WIDTH - BUS_MARKER_PIVOT_X };
+      } finally {
+        svg.remove();
+      }
+      return _busMarkerExtents;
+    }
+
+    function normalizeHeadingDegrees(deg) {
+      let d = Number(deg);
+      if (!Number.isFinite(d)) d = BUS_MARKER_DEFAULT_HEADING;
+      d = d % 360;
+      if (d < 0) d += 360;
+      return d;
+    }
+
+    function computeBusMarkerVerticalExtentsForHeading(headingDeg) {
+      const extents = getBusMarkerVisibleExtents();
+      const normalizedHeading = normalizeHeadingDegrees(headingDeg);
+      const rad = normalizedHeading * Math.PI / 180;
+      const sin = Math.sin(rad), cos = Math.cos(rad);
+      const corners = [
+        { x: -extents.left,  y: -extents.top },
+        { x:  extents.right, y: -extents.top },
+        { x:  extents.right, y:  extents.bottom },
+        { x: -extents.left,  y:  extents.bottom },
+      ];
+      let minY = Infinity, maxY = -Infinity;
+      for (const c of corners) {
+        const ry = c.x * sin + c.y * cos;
+        if (ry < minY) minY = ry;
+        if (ry > maxY) maxY = ry;
+      }
+      return { top: Math.abs(minY), bottom: Math.abs(maxY) };
+    }
+
+    // Exact port of testmap.js's computeLabelLeaderOffset() with scale fixed at 1.
+    function computeLabelLeaderOffset(headingDeg, position) {
+      const normalizedHeading = normalizeHeadingDegrees(headingDeg);
+      const conversionFactor = BUS_MARKER_BASE_WIDTH_PX / BUS_MARKER_VIEWBOX_WIDTH;
+      const headingRelativeToVertical = normalizedHeading % 180;
+      const deviationFromVertical = Math.min(headingRelativeToVertical, 180 - headingRelativeToVertical);
+      const verticality = Math.pow(Math.max(0, Math.cos(deviationFromVertical * Math.PI / 180)), LABEL_VERTICAL_ALIGNMENT_EXPONENT);
+      const verticalAlignmentBonus = LABEL_VERTICAL_ALIGNMENT_BONUS_PX * verticality;
+      const horizontalAlignmentBonus = LABEL_HORIZONTAL_ALIGNMENT_BONUS_PX * (1 - verticality);
+      const verticalExtents = computeBusMarkerVerticalExtentsForHeading(normalizedHeading);
+      const extentSvgUnits = position === 'below' ? verticalExtents.bottom : verticalExtents.top;
+      const extentPx = extentSvgUnits * conversionFactor;
+      const total = extentPx + LABEL_VERTICAL_CLEARANCE_PX + verticalAlignmentBonus + horizontalAlignmentBonus;
+      return total > 0 ? total : 0;
+    }
+
+    // ---- Name bubble (matches testmap createNameBubbleDivIcon) ----
+    function createBubbleIcon(text, fillColor, headingDeg) {
+      if (typeof text !== 'string' || !text.trim()) return null;
+      const name = text.trim();
+      const fontSize = Math.max(BUS_MARKER_LABEL_MIN_FONT_PX, NAME_BUBBLE_BASE_FONT_PX);
+      const textWidth = measureLabelTextWidth(name, fontSize);
+      const rectWidth  = Math.max(NAME_BUBBLE_MIN_WIDTH, textWidth + NAME_BUBBLE_HORIZONTAL_PADDING * 2);
+      const rectHeight = Math.max(NAME_BUBBLE_MIN_HEIGHT, fontSize + NAME_BUBBLE_VERTICAL_PADDING * 2);
+      const strokeWidth = Math.max(1, LABEL_BASE_STROKE_WIDTH);
+      const svgWidth  = round2(rectWidth + strokeWidth * 2);
+      const svgHeight = round2(rectHeight + NAME_BUBBLE_FRAME_INSET * 2 + strokeWidth);
+      const rectX = round2(strokeWidth);
+      const rectY = round2(NAME_BUBBLE_FRAME_INSET + strokeWidth / 2);
+      const textX = round2(svgWidth / 2);
+      const textY = round2(rectY + rectHeight / 2 + fontSize * LABEL_TEXT_VERTICAL_ADJUSTMENT_RATIO);
+      const anchorY = svgHeight + round2(computeLabelLeaderOffset(headingDeg, 'above'));
       const textColor = contrastColor(fillColor);
-      const svg = `<svg width="${sw}" height="${sh}" viewBox="0 0 ${sw} ${sh}" xmlns="http://www.w3.org/2000/svg" style="pointer-events:none">
-        <rect x="${rx}" y="${ry}" width="${rw}" height="${rh}" rx="${CORNER}" ry="${CORNER}" fill="${fillColor}" stroke="white" stroke-width="${STROKE}"/>
-        <text x="${tx}" y="${ty}" text-anchor="middle" dominant-baseline="middle" font-size="${FONT}" font-weight="bold" fill="${textColor}" font-family="Inter,Segoe UI,system-ui,sans-serif">${escHtml(text)}</text>
+      const svg = `<svg width="${svgWidth}" height="${svgHeight}" viewBox="0 0 ${svgWidth} ${svgHeight}" xmlns="http://www.w3.org/2000/svg" style="pointer-events:none">
+        <rect x="${rectX}" y="${rectY}" width="${round2(rectWidth)}" height="${round2(rectHeight)}" rx="${NAME_BUBBLE_CORNER_RADIUS}" ry="${NAME_BUBBLE_CORNER_RADIUS}" fill="${fillColor}" stroke="white" stroke-width="${round2(strokeWidth)}"/>
+        <text x="${textX}" y="${textY}" text-anchor="middle" dominant-baseline="middle" font-size="${round2(fontSize)}" font-weight="bold" fill="${textColor}" font-family="${BUS_MARKER_LABEL_FONT_FAMILY}">${escHtml(name)}</text>
       </svg>`;
-      return L.divIcon({ html: svg, className: 'leaflet-div-icon bus-label-icon', iconSize: [sw, sh], iconAnchor: [anchorX, anchorY] });
+      return L.divIcon({ html: svg, className: 'leaflet-div-icon bus-label-icon', iconSize: [svgWidth, svgHeight], iconAnchor: [textX, anchorY] });
     }
 
-    // ---- Speed bubble icon (below marker, matches testmap createSpeedBubbleDivIcon) ----
-    function createSpeedBubbleIcon(speedMph, fillColor) {
-      const FONT = 12, H_PAD = 12, V_PAD = 4, STROKE = 3;
-      const label = `${Math.round(Math.max(0, speedMph))} MPH`;
-      const tw = measureText(label, FONT);
-      const rw = Math.max(60, tw + H_PAD * 2);
-      const rh = Math.max(20, FONT + V_PAD * 2);
-      const CORNER = rh / 2;  // pill
-      const sw = rw + STROKE * 2;
-      const sh = rh + STROKE * 2;
-      // anchorY negative → icon top sits below the geographic point (pin tip), giving a gap
+    // ---- Speed bubble (below marker, matches testmap createSpeedBubbleDivIcon) ----
+    function createSpeedBubbleIcon(speedMph, fillColor, headingDeg) {
+      if (!Number.isFinite(speedMph)) return null;
+      const fontSize = Math.max(BUS_MARKER_LABEL_MIN_FONT_PX, SPEED_BUBBLE_BASE_FONT_PX);
+      const label = `${Math.max(0, Math.round(speedMph))} MPH`;
+      const textWidth = measureLabelTextWidth(label, fontSize);
+      const rectWidth  = Math.max(SPEED_BUBBLE_MIN_WIDTH, textWidth + SPEED_BUBBLE_HORIZONTAL_PADDING * 2);
+      const rectHeight = Math.max(SPEED_BUBBLE_MIN_HEIGHT, fontSize + SPEED_BUBBLE_VERTICAL_PADDING * 2);
+      const strokeWidth = Math.max(1, LABEL_BASE_STROKE_WIDTH);
+      const svgWidth  = round2(rectWidth + strokeWidth * 2);
+      const svgHeight = round2(rectHeight + strokeWidth * 2);
+      const textX = round2(svgWidth / 2);
+      const textY = round2(svgHeight / 2 + fontSize * LABEL_TEXT_VERTICAL_ADJUSTMENT_RATIO);
+      const anchorY = -round2(computeLabelLeaderOffset(headingDeg, 'below'));
       const textColor = contrastColor(fillColor);
-      const svg = `<svg width="${sw}" height="${sh}" viewBox="0 0 ${sw} ${sh}" xmlns="http://www.w3.org/2000/svg" style="pointer-events:none">
-        <rect x="${STROKE}" y="${STROKE}" width="${rw}" height="${rh}" rx="${CORNER}" ry="${CORNER}" fill="${fillColor}" stroke="white" stroke-width="${STROKE}"/>
-        <text x="${sw/2}" y="${sh/2}" text-anchor="middle" dominant-baseline="middle" font-size="${FONT}" font-weight="bold" fill="${textColor}" font-family="Inter,Segoe UI,system-ui,sans-serif">${escHtml(label)}</text>
+      const svg = `<svg width="${svgWidth}" height="${svgHeight}" viewBox="0 0 ${svgWidth} ${svgHeight}" xmlns="http://www.w3.org/2000/svg" style="pointer-events:none">
+        <rect x="${round2(strokeWidth)}" y="${round2(strokeWidth)}" width="${round2(rectWidth)}" height="${round2(rectHeight)}" rx="${SPEED_BUBBLE_CORNER_RADIUS}" ry="${SPEED_BUBBLE_CORNER_RADIUS}" fill="${fillColor}" stroke="white" stroke-width="${round2(strokeWidth)}"/>
+        <text x="${textX}" y="${textY}" text-anchor="middle" dominant-baseline="middle" font-size="${round2(fontSize)}" font-weight="bold" fill="${textColor}" font-family="${BUS_MARKER_LABEL_FONT_FAMILY}">${escHtml(label)}</text>
       </svg>`;
-      return L.divIcon({ html: svg, className: 'leaflet-div-icon bus-label-icon', iconSize: [sw, sh], iconAnchor: [sw / 2, -8] });
+      return L.divIcon({ html: svg, className: 'leaflet-div-icon bus-label-icon', iconSize: [svgWidth, svgHeight], iconAnchor: [textX, anchorY] });
     }
 
-    // ---- Bus-body marker icon ----
+    // ---- Bus-body marker icon (matches testmap's busmarker.svg + applyColorsToBusMarkerSvg:
+    // route_color gets the van's color, halo stays white, center_ring + heading arrow get
+    // whichever of black/white contrasts with the van's color) ----
     function makeBusMarkerIcon(bearing, fillColor = '#7c3aed') {
-      const fill = fillColor;
-      const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 52.99 86.99" width="26" height="44"
+      const glyphColor = contrastColor(fillColor);
+      const width = BUS_MARKER_BASE_WIDTH_PX;
+      const height = round2(BUS_MARKER_BASE_HEIGHT_PX);
+      const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${BUS_MARKER_VIEWBOX_WIDTH} ${BUS_MARKER_VIEWBOX_HEIGHT}" width="${width}" height="${height}"
           style="transform:rotate(${bearing}deg);transform-origin:50% 50%;display:block">
-        <path d="M26.49,0c1.56,0,3.11.52,4.38,1.55,3.68,2.93,22.12,18.71,22.12,39.94,0,17.84-13.46,28.5-26.49,28.5S0,59.33,0,41.49C0,20.26,18.44,4.48,22.14,1.54,23.4.52,24.94.01,26.49.01h0Z" fill="#fff"/>
-        <path d="M26.5,67.49c-11.5,0-24-9.5-24-26C2.5,23.99,16.3,9.39,23.7,3.49c1.6-1.3,4-1.3,5.6,0,7.4,5.9,21.2,20.5,21.2,38,0,16.5-12.5,26-24,26Z" fill="${fill}"/>
-        <path d="M26.5,27.99c8.55,0,15.5,6.95,15.5,15.5s-6.95,15.5-15.5,15.5-15.5-6.95-15.5-15.5,6.95-15.5,15.5-15.5ZM26.5,52.49c4.97,0,9-4.03,9-9s-4.03-9-9-9-9,4.03-9,9,4.03,9,9,9Z" fill="#fff"/>
-        <path d="M26.5,8.49l10,18c-6.67-4-13.33-4-20,0l10-18Z" fill="#fff"/>
+        <path d="${BUS_MARKER_HALO_PATH}" fill="#fff"/>
+        <path d="${BUS_MARKER_ROUTE_PATH}" fill="${fillColor}"/>
+        <path d="${BUS_MARKER_RING_PATH}" fill="${glyphColor}"/>
+        <path d="${BUS_MARKER_HEADING_PATH}" fill="${glyphColor}"/>
       </svg>`;
-      return L.divIcon({ html: svg, className: '', iconSize: [26, 44], iconAnchor: [13, 44] });
+      // Anchor at the icon's true center (matches testmap: BUS_MARKER_ICON_ANCHOR_X/Y_RATIO
+      // are both 0.5 — the geographic point is the middle of the icon, not its bottom tip).
+      return L.divIcon({ html: svg, className: '', iconSize: [width, height], iconAnchor: [width / 2, height / 2] });
     }
 
     // ---- Status display helpers ----
@@ -608,9 +755,13 @@
 
       const v = vehicleData[vid] || {};
       const label = v.identifier || 'Van';
-      const spareColor = getVanColor(label, '#7c3aed');
+      // v.markerColor is computed server-side in /api/spare/vehicles: the same physical
+      // van's real color on file in OnDemand, falling back to the /van-colors admin map,
+      // then a default purple — see app.py's api_spare_vehicles(). vanColors here is just
+      // a faster-polled (60s vs 120s) client-side mirror of that same admin override map.
+      const spareColor = getVanColor(label, v.markerColor || '#7c3aed');
       const busIcon    = makeBusMarkerIcon(bearing, spareColor);
-      const bubbleIcon = createBubbleIcon(label, spareColor);
+      const bubbleIcon = createBubbleIcon(label, spareColor, bearing);
       const popupHtml  = buildPopupHtml(vid);
 
       if (vehicleMarkers[vid]) {
@@ -627,7 +778,7 @@
       const rawSpeedMs = locData.speed ?? locData.groundSpeed ?? locData.speedMs ?? null;
       const speedMph = rawSpeedMs != null ? rawSpeedMs * 2.23694 : null;
       if (speedMph != null && speedMph >= 0) {
-        const speedIcon = createSpeedBubbleIcon(speedMph, spareColor);
+        const speedIcon = createSpeedBubbleIcon(speedMph, spareColor, bearing);
         if (speedMarkers[vid]) {
           speedMarkers[vid].setLatLng([lat, lng]).setIcon(speedIcon);
         } else {
@@ -784,7 +935,7 @@
       const label   = parseOdCallName(v.callName) || 'Van';
       const color   = getVanColor(label, v.markerColor || '#ec4899');
       const busIcon    = makeBusMarkerIcon(bearing, color);
-      const bubbleIcon = createBubbleIcon(label, color);
+      const bubbleIcon = createBubbleIcon(label, color, bearing);
       const popupHtml  = buildOdPopupHtml(v, color);
       if (odVehicleMarkers[key]) {
         odVehicleMarkers[key].setLatLng([lat, lng]).setIcon(busIcon).setPopupContent(popupHtml);
@@ -795,7 +946,7 @@
         odBubbleMarkers[key] = L.marker([lat, lng], { icon: bubbleIcon, interactive: false }).addTo(map);
       }
       if (typeof v.speed === 'number' && v.speed >= 0) {
-        const speedIcon = createSpeedBubbleIcon(v.speed, color);
+        const speedIcon = createSpeedBubbleIcon(v.speed, color, bearing);
         if (odSpeedMarkers[key]) {
           odSpeedMarkers[key].setLatLng([lat, lng]).setIcon(speedIcon);
         } else {
