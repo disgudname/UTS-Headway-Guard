@@ -962,6 +962,16 @@
     // Spare Engine re-optimizes, so it's only meaningful as a one-glance snapshot.
     let activeRouteLayers = [];
 
+    // Shared weight for every route polyline drawn on this map (single-ride and
+    // full-van-route alike), so they read as one consistent style.
+    const ROUTE_LINE_WEIGHT = 5;
+
+    // Bumped on every showVanFullRoute call. Because the selected van's route is
+    // re-fetched on each position update (mirroring Spare's admin panel), an older
+    // in-flight fetch can resolve after a newer one -- a stale draw. Each call
+    // captures this value and bails before drawing if a newer call has superseded it.
+    let routeDrawSeq = 0;
+
     function clearRequestRoute() {
       activeRouteLayers.forEach(l => map.removeLayer(l));
       activeRouteLayers = [];
@@ -1005,7 +1015,7 @@
         if (!encoded) return;
         const pts = decodeGooglePolyline(encoded);
         if (!pts.length) return;
-        const line = L.polyline(pts, { color, weight: 4, opacity: 0.85, dashArray }).addTo(map);
+        const line = L.polyline(pts, { color, weight: ROUTE_LINE_WEIGHT, opacity: 0.85, dashArray }).addTo(map);
         activeRouteLayers.push(line);
         bounds.push(...pts);
       });
@@ -1066,41 +1076,56 @@
       }
     }
 
-    async function showVanFullRouteViaLegRouting(vehicleId, marker, color) {
+    async function showVanFullRouteViaLegRouting(vehicleId, marker, color, fit, seq) {
       const groups = (computeVehicleStopGroups()[vehicleId] || []);
       if (!groups.length) return;
 
       const start = marker.getLatLng();
       const waypoints = [[start.lat, start.lng], ...groups.map(g => g.latlng)];
+      const legs = [];
       const bounds = [waypoints[0]];
       for (let i = 0; i < waypoints.length - 1; i++) {
         const leg = await fetchRouteLeg(waypoints[i], waypoints[i + 1]);
+        if (seq !== routeDrawSeq) return; // superseded by a newer refresh
         if (!leg || !leg.length) continue;
-        const line = L.polyline(leg, { color, weight: 4, opacity: 0.85 }).addTo(map);
-        activeRouteLayers.push(line);
+        legs.push(leg);
         bounds.push(...leg);
       }
-      if (bounds.length > 1) map.fitBounds(bounds, { padding: [60, 60], maxZoom: 16 });
+      // Swap in the freshly-routed legs only now they're all in hand, so a refresh
+      // doesn't blank the map leg-by-leg while it re-routes.
+      clearRequestRoute();
+      legs.forEach(leg => activeRouteLayers.push(
+        L.polyline(leg, { color, weight: ROUTE_LINE_WEIGHT, opacity: 0.85 }).addTo(map)
+      ));
+      if (fit && bounds.length > 1) map.fitBounds(bounds, { padding: [60, 60], maxZoom: 16 });
     }
 
-    async function showVanFullRoute(vehicleId) {
-      clearRequestRoute();
+    // opts.fit (default true): fit the map to the route. The per-position-update
+    // refresh passes fit:false so the map doesn't lurch every time the van moves.
+    async function showVanFullRoute(vehicleId, opts) {
+      const fit = !(opts && opts.fit === false);
+      const seq = ++routeDrawSeq;
       const marker = vehicleMarkers[vehicleId];
-      if (!marker) return;
+      if (!marker) { clearRequestRoute(); return; }
       const v = vehicleData[vehicleId] || {};
       const label = v.identifier || 'Van';
       const color = getVanColor(label, v.markerColor || '#7c3aed');
 
       const dutyId = v.currentLocation && v.currentLocation.dutyId;
       const dutyPoints = dutyId ? await fetchDutyPolyline(dutyId) : null;
+      if (seq !== routeDrawSeq) return; // a newer call superseded this one
       if (dutyPoints) {
-        const line = L.polyline(dutyPoints, { color, weight: 4, opacity: 0.85 }).addTo(map);
-        activeRouteLayers.push(line);
-        map.fitBounds(dutyPoints, { padding: [60, 60], maxZoom: 16 });
+        // Clear only now the replacement is ready -- keeps the old line up (no
+        // flicker) across a refresh, and keeps the last good route if a poll blips.
+        clearRequestRoute();
+        activeRouteLayers.push(
+          L.polyline(dutyPoints, { color, weight: ROUTE_LINE_WEIGHT, opacity: 0.85 }).addTo(map)
+        );
+        if (fit) map.fitBounds(dutyPoints, { padding: [60, 60], maxZoom: 16 });
         return;
       }
 
-      await showVanFullRouteViaLegRouting(vehicleId, marker, color);
+      await showVanFullRouteViaLegRouting(vehicleId, marker, color, fit, seq);
     }
 
     // ---- Van selection (replaces the old marker popups) ----
@@ -1218,6 +1243,13 @@
       } else if (speedMarkers[vid]) {
         map.removeLayer(speedMarkers[vid]);
         delete speedMarkers[vid];
+      }
+
+      // Mirror Spare's admin panel: while this van is the selected one, re-fetch and
+      // redraw its route on every position update so the drawn path tracks the van as
+      // it moves. fit:false so the map doesn't lurch on each tick.
+      if (selectedVan && selectedVan.source === 'spare' && selectedVan.id === vid) {
+        showVanFullRoute(vid, { fit: false });
       }
     }
 
