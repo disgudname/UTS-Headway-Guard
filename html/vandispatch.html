@@ -658,9 +658,12 @@
       } catch (_) { /* soft-fail */ }
     }
 
+    // 24-hour clock everywhere (h23: 00:00–23:59, zero-padded). hourCycle beats
+    // hour12:false, which some engines render as "24:00" at midnight.
+    const TIME_24 = { hour: '2-digit', minute: '2-digit', hourCycle: 'h23' };
     function fmtTime(ts) {
       if (!ts) return '—';
-      return new Date(ts * 1000).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true });
+      return new Date(ts * 1000).toLocaleTimeString('en-US', TIME_24);
     }
 
     // Spare gives rider phone numbers back in whatever shape the rider typed --
@@ -1727,7 +1730,8 @@
 
     function renderTrips() {
       const list = document.getElementById('trips-list');
-      document.getElementById('trips-updated').textContent = new Date().toLocaleTimeString();
+      document.getElementById('trips-updated').textContent =
+        new Date().toLocaleTimeString('en-US', { ...TIME_24, second: '2-digit' });
       // { sortTs, html } for every card, Spare + OnDemand together, so the whole board
       // ends up in one chronological order -- next-relevant time for each ride: its
       // pickup time normally, its dropoff time once the rider's already aboard.
@@ -2128,7 +2132,8 @@
 
     // ---- Last refresh ----
     function updateLastRefresh() {
-      document.getElementById('last-refresh').textContent = 'Updated ' + new Date().toLocaleTimeString();
+      document.getElementById('last-refresh').textContent =
+        'Updated ' + new Date().toLocaleTimeString('en-US', { ...TIME_24, second: '2-digit' });
     }
 
     // ---- Service area outline (Spare zones, unioned server-side) ----
@@ -2356,10 +2361,10 @@
       const dt = new Date(d);
       try {
         return {
-          display: new Intl.DateTimeFormat('en-US', { hour: 'numeric', minute: '2-digit', hour12: true, timeZone: 'America/New_York' }).format(dt),
-          full: new Intl.DateTimeFormat('en-US', { dateStyle: 'medium', timeStyle: 'short', timeZone: 'America/New_York' }).format(dt),
+          display: new Intl.DateTimeFormat('en-US', { ...TIME_24, timeZone: 'America/New_York' }).format(dt),
+          full: new Intl.DateTimeFormat('en-US', { dateStyle: 'medium', timeStyle: 'short', hourCycle: 'h23', timeZone: 'America/New_York' }).format(dt),
         };
-      } catch (_) { const f = dt.toLocaleString(); return { display: f, full: f }; }
+      } catch (_) { const f = dt.toLocaleString('en-US', { hourCycle: 'h23' }); return { display: f, full: f }; }
     }
     function incidentPopupHtml(inc) {
       const rec = inc.raw || {};
