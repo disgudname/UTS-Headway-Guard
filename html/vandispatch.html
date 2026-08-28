@@ -2124,8 +2124,6 @@
       WD:'Wires Down', WDA:'Wires Down/Arcing', WCF:'Working Commercial Fire', WRF:'Working Residential Fire'
     };
     const INCIDENT_ICON_BASE = '/v1/pulsepoint/respond_icons/';
-    // Recent (closed) incidents older than this are dropped -- active ones always show.
-    const INCIDENT_RECENT_MAX_AGE_MS = 3 * 60 * 60 * 1000;
     const HALO_DIAMETER = 110;
     let _haloIcon = null;
     function incidentHaloIcon() {
@@ -2141,7 +2139,9 @@
       return _haloIcon;
     }
     function incidentIcon(url) {
-      if (url) return L.icon({ iconUrl: url, iconSize: [34, 40], iconAnchor: [17, 40], className: 'incident-marker-icon' });
+      // The PulsePoint respond icons are square teardrop pins (183x183) -- keep 1:1 or
+      // they squish; anchor near the pin tip.
+      if (url) return L.icon({ iconUrl: url, iconSize: [40, 40], iconAnchor: [20, 38], className: 'incident-marker-icon' });
       return L.divIcon({ className: '', iconSize: [14, 14], iconAnchor: [7, 7],
         html: '<div style="width:14px;height:14px;border-radius:50%;background:#ef4444;border:2px solid #fff;box-shadow:0 1px 4px rgba(0,0,0,.4)"></div>' });
     }
@@ -2161,33 +2161,29 @@
       return '';
     }
     function normIncidents(root) {
-      const inc = root && root.incidents;
+      // Active incidents only -- recent/cleared calls aren't actionable for dispatch.
+      const arr = root && root.incidents && Array.isArray(root.incidents.active) ? root.incidents.active : [];
       const out = [];
-      const now = Date.now();
-      for (const cat of ['active', 'recent']) {
-        const arr = inc && Array.isArray(inc[cat]) ? inc[cat] : [];
-        for (const rec of arr) {
-          const lat = parseFloat(rec.Latitude ?? rec.latitude ?? rec.lat);
-          const lng = parseFloat(rec.Longitude ?? rec.longitude ?? rec.lon);
-          if (!Number.isFinite(lat) || !Number.isFinite(lng)) continue;
-          const receivedTs = Date.parse(rec.CallReceivedDateTime || rec.CallReceivedDateTimeLocal || '') || null;
-          if (cat === 'recent' && receivedTs && (now - receivedTs) > INCIDENT_RECENT_MAX_AGE_MS) continue;
-          const id = String(rec.ID ?? rec.PulsePointIncidentID ?? rec.PulsePointIncidentCallNumber ?? `${lat.toFixed(6)},${lng.toFixed(6)}`);
-          const type = _incidentType(rec);
-          const units = Array.isArray(rec.Unit)
-            ? rec.Unit.map(u => {
-                const uid = u.UnitID || u.Unit || '';
-                const st = u.PulsePointDispatchStatus || u.Status || '';
-                return st ? `${uid} (${st})` : uid;
-              }).filter(Boolean)
-            : [];
-          out.push({
-            id, lat, lng, category: cat, type, receivedTs, units,
-            iconUrl: type ? `${INCIDENT_ICON_BASE}${type.toLowerCase()}_map_${cat}.png` : '',
-            callTypeLabel: INCIDENT_TYPE_LABELS[type] || rec.PulsePointIncidentCallType || rec.CallType || 'Incident',
-            address: rec.FullDisplayAddress || rec.MedicalEmergencyDisplayAddress || rec.AddressLine1 || '',
-          });
-        }
+      for (const rec of arr) {
+        const lat = parseFloat(rec.Latitude ?? rec.latitude ?? rec.lat);
+        const lng = parseFloat(rec.Longitude ?? rec.longitude ?? rec.lon);
+        if (!Number.isFinite(lat) || !Number.isFinite(lng)) continue;
+        const id = String(rec.ID ?? rec.PulsePointIncidentID ?? rec.PulsePointIncidentCallNumber ?? `${lat.toFixed(6)},${lng.toFixed(6)}`);
+        const type = _incidentType(rec);
+        const units = Array.isArray(rec.Unit)
+          ? rec.Unit.map(u => {
+              const uid = u.UnitID || u.Unit || '';
+              const st = u.PulsePointDispatchStatus || u.Status || '';
+              return st ? `${uid} (${st})` : uid;
+            }).filter(Boolean)
+          : [];
+        out.push({
+          id, lat, lng, type, units,
+          receivedTs: Date.parse(rec.CallReceivedDateTime || rec.CallReceivedDateTimeLocal || '') || null,
+          iconUrl: type ? `${INCIDENT_ICON_BASE}${type.toLowerCase()}_map_active.png` : '',
+          callTypeLabel: INCIDENT_TYPE_LABELS[type] || rec.PulsePointIncidentCallType || rec.CallType || 'Incident',
+          address: rec.FullDisplayAddress || rec.MedicalEmergencyDisplayAddress || rec.AddressLine1 || '',
+        });
       }
       return out;
     }
@@ -2197,7 +2193,7 @@
         <div class="incident-popup__type">${escHtml(inc.callTypeLabel)}</div>
         ${inc.address ? `<div class="incident-popup__addr">${escHtml(inc.address)}</div>` : ''}
         ${inc.units.length ? `<div class="incident-popup__units">${escHtml(inc.units.join(', '))}</div>` : ''}
-        <div class="incident-popup__meta">${inc.category === 'active' ? 'Active' : 'Recent'}${ago != null ? ` · reported ${ago} min ago` : ''}</div>
+        ${ago != null ? `<div class="incident-popup__meta">reported ${ago} min ago</div>` : ''}
       </div>`;
     }
 
@@ -2212,7 +2208,7 @@
       } catch (_) { return; }
       const seen = new Set();
       for (const inc of normIncidents(root)) {
-        if (seen.has(inc.id)) continue;          // same incident in both active & recent -> active wins
+        if (seen.has(inc.id)) continue;          // guard against a duplicate id in the feed
         if (!inServiceArea(inc.lat, inc.lng)) continue;
         seen.add(inc.id);
         let entry = incidentMarkers.get(inc.id);
