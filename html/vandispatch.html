@@ -133,30 +133,6 @@
       transition: background 0.15s, border-color 0.15s;
     }
     .theme-toggle:hover { border-color: var(--header-border); background: rgba(229,114,0,0.14); }
-    #status-bar {
-      background: var(--card-bg);
-      padding: 0.4rem 1.5rem;
-      font-size: 0.78rem;
-      color: var(--text-muted);
-      border-bottom: 1px solid var(--border);
-      display: flex;
-      gap: 1.5rem;
-      align-items: center;
-    }
-    #status-bar .badge {
-      display: inline-flex;
-      align-items: center;
-      gap: 0.35rem;
-    }
-    .dot {
-      width: 8px; height: 8px;
-      border-radius: 50%;
-      background: #555;
-      display: inline-block;
-    }
-    .dot.live { background: #4caf50; box-shadow: 0 0 6px #4caf5099; }
-    .dot.warn { background: #ff9800; }
-    .dot.off  { background: #f44336; }
 
     .main-layout {
       display: grid;
@@ -212,7 +188,8 @@
       border-bottom: 1px solid var(--border);
       background: var(--panel-header-bg);
     }
-    #trip-board h2 span {
+    #trip-board h2 span,
+    #duty-roster h2 span {
       float: right;
       font-size: 0.75rem;
       color: var(--text-faint);
@@ -541,19 +518,6 @@
     <button id="theme-toggle" class="theme-toggle" type="button" title="Toggle light/dark mode" aria-label="Toggle light/dark mode"></button>
   </header>
 
-  <div id="status-bar">
-    <div class="badge"><span class="dot" id="sse-dot"></span><span id="sse-label">connecting…</span></div>
-    <div class="badge">Trips today: <strong id="trip-count">—</strong></div>
-    <div class="badge">Duties: <strong id="duty-count">—</strong></div>
-    <div class="badge">UVA Ride: <strong id="od-count">—</strong></div>
-    <div class="badge" id="webhook-badge" style="display:none">
-      <span class="dot warn"></span><span>Live GPS inactive — configure Spare webhook</span>
-    </div>
-    <div class="badge" style="margin-left:auto">
-      <span id="last-refresh">—</span>
-    </div>
-  </div>
-
   <div class="main-layout">
     <div id="trip-board">
       <h2>Active Trips <span id="trips-updated"></span></h2>
@@ -566,7 +530,7 @@
     </div>
 
     <div id="duty-roster">
-      <h2>Duty Roster — Today</h2>
+      <h2>Duty Roster — Today <span id="duties-updated"></span></h2>
       <div id="duties-list"><div class="no-duties">Loading…</div></div>
     </div>
   </div>
@@ -1645,7 +1609,6 @@
 
       odStops = freshStops;
       odVehicles = freshVehicles;
-      document.getElementById('od-count').textContent = active.size;
       renderTrips();
       renderStopOrderMarkers();
       renderDuties();
@@ -1672,31 +1635,23 @@
     }
 
     // ---- SSE ----
-    const sseDot   = document.getElementById('sse-dot');
-    const sseLabel = document.getElementById('sse-label');
-
     function connectSSE() {
       const es = new EventSource('/stream/spare');
-      es.onopen = () => { sseDot.className = 'dot live'; sseLabel.textContent = 'Live'; };
       es.onmessage = (e) => {
         const msg = JSON.parse(e.data);
         if (msg.type === 'initial') {
           (msg.data.vehicleLocations || []).forEach(upsertVehicleMarker);
           if (!msg.data.webhookConfigured) {
-            document.getElementById('webhook-badge').style.display = '';
             document.getElementById('map-no-webhooks').style.display = 'block';
           }
         } else if (msg.type === 'vehicleLocation') {
           upsertVehicleMarker(msg.data);
           document.getElementById('map-no-webhooks').style.display = 'none';
-          document.getElementById('webhook-badge').style.display = 'none';
         } else if (msg.type === 'requestStatus') {
           fetchTrips();
         }
       };
       es.onerror = () => {
-        sseDot.className = 'dot off';
-        sseLabel.textContent = 'Disconnected — reconnecting…';
         es.close();
         setTimeout(connectSSE, 5000);
       };
@@ -1878,7 +1833,6 @@
 
       items.sort((a, b) => a.sortTs - b.sortTs);
       const cards = items.map(i => i.html);
-      document.getElementById('trip-count').textContent = cards.length;
       list.innerHTML = cards.length ? cards.join('') : '<div class="no-trips">No active trips right now</div>';
       if (selectedVan) applyVanHighlight(false);
     }
@@ -2063,7 +2017,8 @@
         });
 
       const rows = [...spareRows, ...w2wRows];
-      document.getElementById('duty-count').textContent = rows.length;
+      document.getElementById('duties-updated').textContent =
+        new Date().toLocaleTimeString('en-US', { ...TIME_24, second: '2-digit' });
 
       if (!rows.length) {
         list.innerHTML = '<div class="no-duties">No shifts or duties today</div>';
@@ -2128,12 +2083,6 @@
       } catch (err) {
         console.error('[w2w] fetch failed:', err);
       }
-    }
-
-    // ---- Last refresh ----
-    function updateLastRefresh() {
-      document.getElementById('last-refresh').textContent =
-        'Updated ' + new Date().toLocaleTimeString('en-US', { ...TIME_24, second: '2-digit' });
     }
 
     // ---- Service area outline (Spare zones, unioned server-side) ----
@@ -2432,11 +2381,10 @@
     fetchDuties();
     fetchW2WShifts();
     loadServiceArea().then(loadIncidents);
-    updateLastRefresh();
 
     setInterval(loadServiceArea, 3_600_000);
     setInterval(loadIncidents, 20_000);
-    setInterval(() => { fetchTrips(); updateLastRefresh(); }, 30_000);
+    setInterval(fetchTrips, 30_000);
     setInterval(fetchDuties, 60_000);
     setInterval(fetchW2WShifts, 60_000);
     setInterval(loadVehicleIdents, 120_000);
