@@ -2651,6 +2651,8 @@ spare_requests_cache = TTLCache(SPARE_REQUESTS_TTL_S)
 spare_duties_cache = TTLCache(SPARE_DUTIES_TTL_S)
 spare_vehicles_cache = TTLCache(SPARE_VEHICLES_TTL_S)
 spare_route_cache = PerKeyTTLCache(SPARE_ROUTE_TTL_S)
+# Service-area zones change ~never; poll them at most hourly.
+spare_service_area_cache = TTLCache(int(os.getenv("SPARE_SERVICE_AREA_TTL_S", "3600")))
 ondemand_color_by_name_cache = TTLCache(ONDEMAND_COLOR_BY_NAME_TTL_S)
 
 
@@ -16445,6 +16447,77 @@ async def api_spare_duties_debug(request: Request):
         return {"error": exc.response.status_code, "body": exc.response.text}
     except Exception as exc:
         return {"error": str(exc)}
+
+
+@app.get("/api/spare/service-area")
+async def api_spare_service_area(request: Request):
+    """Merged coverage polygon for the live paratransit service area, as GeoJSON.
+
+    Spare models the area as one zone per service, and UVA runs several overlapping
+    services (FlexRide via Lyft / On-Demand / Advanced Booking) plus a small
+    "North Med Center" extension -- so on its own /zones is a dozen near-duplicate
+    polygons. We keep the zones belonging to *enabled* services and union them into
+    one shape (shapely). Zones change ~never, so this is cached for an hour. Returns
+    a GeoJSON Feature, or 204 if the Spare key can't read zones/services or shapely
+    isn't available.
+    """
+    _require_dispatcher_access(request)
+    client = _get_spare_client()
+    if client is None:
+        raise HTTPException(status_code=503, detail="Spare client not configured (set SPARE_API_KEY)")
+
+    async def fetch():
+        try:
+            from shapely.geometry import shape as _shape, mapping as _mapping
+            from shapely.ops import unary_union as _unary_union
+        except ImportError:
+            print("[spare] shapely not installed; service-area overlay disabled")
+            return None
+        try:
+            services_resp, zones_resp = await asyncio.gather(
+                client.get("services", limit=100),
+                client.get("zones", limit=200),
+            )
+        except httpx.HTTPStatusError as exc:
+            print(f"[spare] service-area fetch error {exc.response.status_code}: {exc}")
+            return None
+        except Exception as exc:
+            print(f"[spare] service-area fetch failed: {exc}")
+            return None
+
+        services = services_resp.get("data", []) if isinstance(services_resp, dict) else (services_resp or [])
+        zones = zones_resp.get("data", []) if isinstance(zones_resp, dict) else (zones_resp or [])
+        enabled_ids = {
+            s.get("id") for s in services
+            if s.get("id") and s.get("status") in {"enabled", "active"}
+        }
+        polys = []
+        for z in zones:
+            if z.get("serviceId") not in enabled_ids:
+                continue
+            area = z.get("area") or {}
+            if area.get("type") == "Polygon" and area.get("coordinates"):
+                try:
+                    geom = _shape(area)
+                    if not geom.is_valid:
+                        geom = geom.buffer(0)  # fix self-intersections
+                    if geom.is_valid and not geom.is_empty:
+                        polys.append(geom)
+                except Exception:
+                    continue
+        if not polys:
+            return None
+        try:
+            merged = _unary_union(polys)
+        except Exception as exc:
+            print(f"[spare] service-area union failed: {exc}")
+            return None
+        return _mapping(merged)
+
+    geom = await spare_service_area_cache.get(fetch)
+    if not geom:
+        return Response(status_code=204)
+    return {"type": "Feature", "geometry": geom, "properties": {"name": "Service area"}}
 
 
 @app.get("/api/spare/vehicles")

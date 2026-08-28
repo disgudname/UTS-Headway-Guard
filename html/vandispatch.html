@@ -1926,6 +1926,25 @@
       document.getElementById('last-refresh').textContent = 'Updated ' + new Date().toLocaleTimeString();
     }
 
+    // ---- Service area outline (Spare zones, unioned server-side) ----
+    // A quiet reference layer under everything else: dashed outline + whisper-faint
+    // fill of the merged paratransit coverage area. 204 (key can't read zones) -> skip.
+    let serviceAreaLayer = null;
+    async function loadServiceArea() {
+      try {
+        const res = await fetch('/api/spare/service-area');
+        if (res.status === 204 || !res.ok) return;
+        const gj = await res.json();
+        if (serviceAreaLayer) { map.removeLayer(serviceAreaLayer); serviceAreaLayer = null; }
+        serviceAreaLayer = L.geoJSON(gj, {
+          interactive: false,
+          style: { color: '#8b5cf6', weight: 1.5, opacity: 0.5, dashArray: '5 5',
+                   fill: true, fillColor: '#8b5cf6', fillOpacity: 0.045 },
+        }).addTo(map);
+        serviceAreaLayer.bringToBack();
+      } catch (_) { /* leave the map alone */ }
+    }
+
     // ---- Initial load + polling ----
     loadVanColors().then(() => {
       loadVehicleIdents().then(() => { renderTrips(); renderStopOrderMarkers(); });
@@ -1934,8 +1953,10 @@
     fetchTrips();
     fetchDuties();
     fetchW2WShifts();
+    loadServiceArea();
     updateLastRefresh();
 
+    setInterval(loadServiceArea, 3_600_000);
     setInterval(() => { fetchTrips(); updateLastRefresh(); }, 30_000);
     setInterval(fetchDuties, 60_000);
     setInterval(fetchW2WShifts, 60_000);
