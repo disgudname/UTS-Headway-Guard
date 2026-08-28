@@ -450,6 +450,33 @@
     .ondemand-driver-popup__ride-location-icon--dropoff { background: #f87171; color: #450a0a; }
     .ondemand-driver-popup__ride-location-icon--onboard { background: #60a5fa; color: #1e3a5f; }
     .ondemand-driver-popup__ride-location-text { flex: 1; color: #374151; line-height: 1.4; }
+
+    /* PulsePoint incident markers + pulsating halo (ported from testmap) */
+    .incident-marker-icon { filter: drop-shadow(0 3px 8px rgba(15,23,42,0.45)) drop-shadow(0 0 5px rgba(255,255,255,0.6)); }
+    .incident-halo-icon { pointer-events: none !important; }
+    .incident-halo-icon .incident-halo {
+      position: absolute; left: 50%; top: 50%;
+      width: var(--incident-halo-diameter, 110px); height: var(--incident-halo-diameter, 110px);
+      margin-left: calc(-0.5 * var(--incident-halo-diameter, 110px));
+      margin-top:  calc(-0.5 * var(--incident-halo-diameter, 110px));
+      border-radius: 50%;
+      background: radial-gradient(circle, rgba(239,68,68,0.45) 0%, rgba(239,68,68,0) 72%);
+      opacity: 0.45; transform: scale(0.3); transform-origin: 50% 50%;
+      pointer-events: none; will-change: transform, opacity;
+    }
+    .incident-halo--animated { animation: incident-halo-pulse 1600ms cubic-bezier(0.25,1,0.5,1) infinite; }
+    @keyframes incident-halo-pulse {
+      0%   { transform: scale(0.3); opacity: 0.45; }
+      70%  { opacity: 0.45; }
+      100% { transform: scale(1); opacity: 0; }
+    }
+    @media (prefers-reduced-motion: reduce) {
+      .incident-halo--animated { animation: none; transform: scale(1); opacity: 0.4; }
+    }
+    .incident-popup__type { font-weight: 700; font-size: 0.9rem; color: #1f2937; }
+    .incident-popup__addr { font-size: 0.8rem; color: #4b5563; margin-top: 2px; }
+    .incident-popup__units { font-size: 0.78rem; color: #6b7280; margin-top: 4px; }
+    .incident-popup__meta { font-size: 0.72rem; color: #9ca3af; margin-top: 4px; }
   </style>
 </head>
 <body>
@@ -824,15 +851,20 @@
     // ---- Bus-body marker icon (matches testmap's busmarker.svg + applyColorsToBusMarkerSvg:
     // route_color gets the van's color, halo stays white, center_ring + heading arrow get
     // whichever of black/white contrasts with the van's color) ----
-    function makeBusMarkerIcon(bearing, fillColor = '#7c3aed') {
+    // stopped=true swaps the centre ring for a filled square, like testmap does for a
+    // vehicle sitting still (speed <= 1 mph).
+    function makeBusMarkerIcon(bearing, fillColor = '#7c3aed', stopped = false) {
       const glyphColor = contrastColor(fillColor);
       const width = BUS_MARKER_BASE_WIDTH_PX;
       const height = round2(BUS_MARKER_BASE_HEIGHT_PX);
+      const centre = stopped
+        ? `<rect x="15.5" y="32.49" width="22" height="22" rx="2.5" fill="${glyphColor}"/>`
+        : `<path d="${BUS_MARKER_RING_PATH}" fill="${glyphColor}"/>`;
       const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${BUS_MARKER_VIEWBOX_WIDTH} ${BUS_MARKER_VIEWBOX_HEIGHT}" width="${width}" height="${height}"
           style="transform:rotate(${bearing}deg);transform-origin:50% 50%;display:block;transition:transform 0.3s ease">
         <path d="${BUS_MARKER_HALO_PATH}" fill="#fff"/>
         <path d="${BUS_MARKER_ROUTE_PATH}" fill="${fillColor}"/>
-        <path d="${BUS_MARKER_RING_PATH}" fill="${glyphColor}"/>
+        ${centre}
         <path d="${BUS_MARKER_HEADING_PATH}" fill="${glyphColor}"/>
       </svg>`;
       // Anchor at the icon's true center (matches testmap: BUS_MARKER_ICON_ANCHOR_X/Y_RATIO
@@ -1341,12 +1373,14 @@
       _markerHeadingDeg.set(marker, next);
       svg.style.transform = `rotate(${next}deg)`;
     }
-    // Update a bus-body marker: full icon swap only when colour changed, else just rotate.
-    function updateBusBody(marker, key, bearing, color) {
-      if (_busIconColor.get(key) !== color) {
-        _busIconColor.set(key, color);
+    // Update a bus-body marker: full icon swap only when colour or moving/stopped state
+    // changed (both are baked into the SVG); otherwise just rotate.
+    function updateBusBody(marker, key, bearing, color, stopped) {
+      const iconKey = `${color}|${stopped ? 1 : 0}`;
+      if (_busIconColor.get(key) !== iconKey) {
+        _busIconColor.set(key, iconKey);
         _markerHeadingDeg.delete(marker);
-        marker.setIcon(makeBusMarkerIcon(bearing, color));
+        marker.setIcon(makeBusMarkerIcon(bearing, color, stopped));
         _markerHeadingDeg.set(marker, bearing);
       } else {
         setBusMarkerHeading(marker, bearing);
@@ -1372,14 +1406,18 @@
       // a faster-polled (60s vs 120s) client-side mirror of that same admin override map.
       const spareColor = getVanColor(label, v.markerColor || '#7c3aed');
       const bubbleIcon = createBubbleIcon(label, spareColor, bearing);
+      // Moving vs stopped -- testmap's threshold: <= 1 mph, and unknown speed = moving.
+      const rawSpeedMs = locData.speed ?? locData.groundSpeed ?? locData.speedMs ?? null;
+      const speedMph = rawSpeedMs != null ? rawSpeedMs * 2.23694 : null;
+      const stopped = speedMph != null && speedMph <= 1;
 
       if (vehicleMarkers[vid]) {
-        updateBusBody(vehicleMarkers[vid], vid, bearing, spareColor);
+        updateBusBody(vehicleMarkers[vid], vid, bearing, spareColor, stopped);
         animateMarkerTo(vehicleMarkers[vid], [lat, lng]);
         bubbleMarkers[vid].setIcon(bubbleIcon);
         animateMarkerTo(bubbleMarkers[vid], [lat, lng]);
       } else {
-        vehicleMarkers[vid] = L.marker([lat, lng], { icon: makeBusMarkerIcon(bearing, spareColor) })
+        vehicleMarkers[vid] = L.marker([lat, lng], { icon: makeBusMarkerIcon(bearing, spareColor, stopped) })
           // No popup -- it covered the map and duplicated info the Duty Roster / Active
           // Trips panels already show. Selecting a van (matches Spare's own admin panel:
           // open one duty, see its full route) instead highlights its duty/shift card and
@@ -1387,14 +1425,12 @@
           // van again) clears both.
           .on('click', (e) => { L.DomEvent.stopPropagation(e); selectVan('spare', vid); })
           .addTo(map);
-        _busIconColor.set(vid, spareColor);
+        _busIconColor.set(vid, `${spareColor}|${stopped ? 1 : 0}`);
         _markerHeadingDeg.set(vehicleMarkers[vid], bearing);
         bubbleMarkers[vid] = L.marker([lat, lng], { icon: bubbleIcon, interactive: false }).addTo(map);
       }
 
       // Speed bubble — show if Spare provides speed in the location payload (m/s → mph)
-      const rawSpeedMs = locData.speed ?? locData.groundSpeed ?? locData.speedMs ?? null;
-      const speedMph = rawSpeedMs != null ? rawSpeedMs * 2.23694 : null;
       if (speedMph != null && speedMph >= 0) {
         const speedIcon = createSpeedBubbleIcon(speedMph, spareColor, bearing);
         if (speedMarkers[vid]) {
@@ -1424,19 +1460,20 @@
       const label   = parseOdCallName(v.callName) || 'Van';
       const color   = getVanColor(label, v.markerColor || '#ec4899');
       const bubbleIcon = createBubbleIcon(label, color, bearing);
+      const stopped = typeof v.speed === 'number' && v.speed <= 1;   // v.speed is mph
       if (odVehicleMarkers[key]) {
-        updateBusBody(odVehicleMarkers[key], key, bearing, color);
+        updateBusBody(odVehicleMarkers[key], key, bearing, color, stopped);
         animateMarkerTo(odVehicleMarkers[key], [lat, lng]);
         odBubbleMarkers[key].setIcon(bubbleIcon);
         animateMarkerTo(odBubbleMarkers[key], [lat, lng]);
       } else {
-        odVehicleMarkers[key] = L.marker([lat, lng], { icon: makeBusMarkerIcon(bearing, color) })
+        odVehicleMarkers[key] = L.marker([lat, lng], { icon: makeBusMarkerIcon(bearing, color, stopped) })
           // No popup (see Spare markers above for why) -- selecting an OD van highlights
           // its shift row + ride cards and draws its route (leg-routed through its
           // ordered stops, since OnDemand has no server-side route polyline).
           .on('click', (e) => { L.DomEvent.stopPropagation(e); selectVan('od', v.vehicleId, normalizeName(v.driverName)); })
           .addTo(map);
-        _busIconColor.set(key, color);
+        _busIconColor.set(key, `${color}|${stopped ? 1 : 0}`);
         _markerHeadingDeg.set(odVehicleMarkers[key], bearing);
         odBubbleMarkers[key] = L.marker([lat, lng], { icon: bubbleIcon, interactive: false }).addTo(map);
       }
@@ -2018,6 +2055,7 @@
     // A quiet reference layer under everything else: dashed outline + whisper-faint
     // fill of the merged paratransit coverage area. 204 (key can't read zones) -> skip.
     let serviceAreaLayer = null;
+    let serviceAreaPolys = null;   // [[outerRing, hole...], ...] of [lng,lat] pairs -- for point-in-area tests
     async function loadServiceArea() {
       try {
         const res = await fetch('/api/spare/service-area');
@@ -2030,7 +2068,168 @@
                    fill: true, fillColor: '#8b5cf6', fillOpacity: 0.045 },
         }).addTo(map);
         serviceAreaLayer.bringToBack();
+        const geom = gj && gj.geometry;
+        if (geom && geom.type === 'Polygon') serviceAreaPolys = [geom.coordinates];
+        else if (geom && geom.type === 'MultiPolygon') serviceAreaPolys = geom.coordinates;
       } catch (_) { /* leave the map alone */ }
+    }
+
+    // ---- PulsePoint emergency incidents (inside the service area only) ----
+    // Mirrors testmap's incident layer -- respond-icon markers, a pulsating halo, and a
+    // popup -- but only for incidents that fall within the merged service-area polygon.
+    function _pointInRing(lng, lat, ring) {
+      let inside = false;
+      for (let i = 0, j = ring.length - 1; i < ring.length; j = i++) {
+        const xi = ring[i][0], yi = ring[i][1], xj = ring[j][0], yj = ring[j][1];
+        if (((yi > lat) !== (yj > lat)) && (lng < (xj - xi) * (lat - yi) / (yj - yi) + xi)) inside = !inside;
+      }
+      return inside;
+    }
+    function inServiceArea(lat, lng) {
+      if (!serviceAreaPolys) return false;   // no area loaded -> show nothing (only-inside rule)
+      for (const poly of serviceAreaPolys) {
+        if (_pointInRing(lng, lat, poly[0]) && !poly.slice(1).some(h => _pointInRing(lng, lat, h))) return true;
+      }
+      return false;
+    }
+
+    // PulsePoint incident type code -> label (from testmap)
+    const INCIDENT_TYPE_LABELS = {
+      AED:'AED Alarm', AC:'Aircraft Crash', AE:'Aircraft Emergency', AES:'Aircraft Emergency Standby',
+      OA:'Alarm', AR:'Animal Rescue', AF:'Appliance Fire', AI:'Arson Investigation',
+      AA:'Auto Aid', BT:'Bomb Threat', BP:'Burn Permit', CMA:'Carbon Monoxide',
+      CHIM:'Chimney Fire', CR:'Cliff Rescue', TCP:'Collision Involving Pedestrian', TCS:'Collision Involving Structure',
+      TCT:'Collision Involving Train', CF:'Commercial Fire', CL:'Commercial Lockout', CA:'Community Activity',
+      CP:'Community Paramedicine', CSR:'Confined Space Rescue', WF:'Confirmed Fire', WSF:'Confirmed Structure Fire',
+      WVEG:'Confirmed Vegetation Fire', CB:'Controlled Burn/Prescribed Fire', EQ:'Earthquake', EE:'Electrical Emergency',
+      ELF:'Electrical Fire', ELR:'Elevator Rescue', EER:'Elevator/Escalator Rescue', EM:'Emergency',
+      ER:'Emergency Response', TCE:'Expanded Traffic Collision', EX:'Explosion', EF:'Extinguished Fire',
+      FIRE:'Fire', FA:'Fire Alarm', FW:'Fire Watch', FWI:'Fireworks Investigation',
+      FLW:'Flood Warning', FL:'Flooding', FULL:'Full Assignment', GAS:'Gas Leak',
+      HC:'Hazardous Condition', HMR:'Hazardous Response', HMI:'Hazmat Investigation', IR:'Ice Rescue',
+      IF:'Illegal Fire', IA:'Industrial Accident', IFT:'Interfacility Transfer', INV:'Investigation',
+      LR:'Ladder Request', LZ:'Landing Zone', LA:'Lift Assist', LO:'Lockout',
+      MA:'Manual Alarm', MF:'Marine Fire', ME:'Medical Emergency', MC:'Move-up/Cover',
+      MCI:'Multi Casualty', MU:'Mutual Aid', NO:'Notification', OI:'Odor Investigation',
+      OF:'Outside Fire', PE:'Pipeline Emergency', PF:'Pole Fire', PA:'Police Assist',
+      PLE:'Powerline Emergency', PS:'Public Service', RTE:'Railroad/Train Emergency', GF:'Refuse/Garbage Fire',
+      RES:'Rescue', RF:'Residential Fire', RL:'Residential Lockout', RR:'Rope Rescue',
+      SH:'Sheared Hydrant', SD:'Smoke Detector', SI:'Smoke Investigation', STBY:'Standby',
+      ST:'Strike Team/Task Force', SC:'Structural Collapse', SF:'Structure Fire', TF:'Tank Fire',
+      TR:'Technical Rescue', TEST:'Test', TOW:'Tornado Warning', TC:'Traffic Collision',
+      TRNG:'Training', TE:'Transformer Explosion', TD:'Tree Down', TNR:'Trench Rescue',
+      TRBL:'Trouble Alarm', TSW:'Tsunami Warning', USAR:'Urban Search and Rescue', VEG:'Vegetation Fire',
+      VF:'Vehicle Fire', VL:'Vehicle Lockout', VS:'Vessel Sinking', WE:'Water Emergency',
+      WR:'Water Rescue', WFA:'Waterflow Alarm', WX:'Weather Incident', WA:'Wires Arching',
+      WD:'Wires Down', WDA:'Wires Down/Arcing', WCF:'Working Commercial Fire', WRF:'Working Residential Fire'
+    };
+    const INCIDENT_ICON_BASE = '/v1/pulsepoint/respond_icons/';
+    // Recent (closed) incidents older than this are dropped -- active ones always show.
+    const INCIDENT_RECENT_MAX_AGE_MS = 3 * 60 * 60 * 1000;
+    const HALO_DIAMETER = 110;
+    let _haloIcon = null;
+    function incidentHaloIcon() {
+      if (!_haloIcon) {
+        _haloIcon = L.divIcon({
+          className: 'incident-halo-icon',
+          iconSize: [HALO_DIAMETER, HALO_DIAMETER],
+          iconAnchor: [HALO_DIAMETER / 2, HALO_DIAMETER / 2],
+          // --animated baked in; the reduced-motion @media rule disables it where needed.
+          html: `<div class="incident-halo incident-halo--animated" style="--incident-halo-diameter:${HALO_DIAMETER}px"></div>`,
+        });
+      }
+      return _haloIcon;
+    }
+    function incidentIcon(url) {
+      if (url) return L.icon({ iconUrl: url, iconSize: [34, 40], iconAnchor: [17, 40], className: 'incident-marker-icon' });
+      return L.divIcon({ className: '', iconSize: [14, 14], iconAnchor: [7, 7],
+        html: '<div style="width:14px;height:14px;border-radius:50%;background:#ef4444;border:2px solid #fff;box-shadow:0 1px 4px rgba(0,0,0,.4)"></div>' });
+    }
+    function _incidentType(rec) {
+      const cands = [rec.PulsePointIncidentCallTypeCode, rec.PulsePointIncidentTypeCode,
+        rec.CallTypeCode, rec.TypeCode, rec.PulsePointIncidentCallType, rec.CallType];
+      for (const v of cands) {
+        if (v == null) continue;
+        const t = String(v).trim();
+        if (/^[A-Za-z0-9]{1,6}$/.test(t)) return t.toUpperCase();
+        const words = t.match(/[A-Za-z0-9]+/g);
+        if (words && words.length >= 2) {
+          const acr = words.map(w => w[0]).join('');
+          if (/^[A-Za-z0-9]{1,4}$/.test(acr)) return acr.toUpperCase();
+        }
+      }
+      return '';
+    }
+    function normIncidents(root) {
+      const inc = root && root.incidents;
+      const out = [];
+      const now = Date.now();
+      for (const cat of ['active', 'recent']) {
+        const arr = inc && Array.isArray(inc[cat]) ? inc[cat] : [];
+        for (const rec of arr) {
+          const lat = parseFloat(rec.Latitude ?? rec.latitude ?? rec.lat);
+          const lng = parseFloat(rec.Longitude ?? rec.longitude ?? rec.lon);
+          if (!Number.isFinite(lat) || !Number.isFinite(lng)) continue;
+          const receivedTs = Date.parse(rec.CallReceivedDateTime || rec.CallReceivedDateTimeLocal || '') || null;
+          if (cat === 'recent' && receivedTs && (now - receivedTs) > INCIDENT_RECENT_MAX_AGE_MS) continue;
+          const id = String(rec.ID ?? rec.PulsePointIncidentID ?? rec.PulsePointIncidentCallNumber ?? `${lat.toFixed(6)},${lng.toFixed(6)}`);
+          const type = _incidentType(rec);
+          const units = Array.isArray(rec.Unit)
+            ? rec.Unit.map(u => {
+                const uid = u.UnitID || u.Unit || '';
+                const st = u.PulsePointDispatchStatus || u.Status || '';
+                return st ? `${uid} (${st})` : uid;
+              }).filter(Boolean)
+            : [];
+          out.push({
+            id, lat, lng, category: cat, type, receivedTs, units,
+            iconUrl: type ? `${INCIDENT_ICON_BASE}${type.toLowerCase()}_map_${cat}.png` : '',
+            callTypeLabel: INCIDENT_TYPE_LABELS[type] || rec.PulsePointIncidentCallType || rec.CallType || 'Incident',
+            address: rec.FullDisplayAddress || rec.MedicalEmergencyDisplayAddress || rec.AddressLine1 || '',
+          });
+        }
+      }
+      return out;
+    }
+    function incidentPopupHtml(inc) {
+      const ago = inc.receivedTs ? Math.max(0, Math.round((Date.now() - inc.receivedTs) / 60000)) : null;
+      return `<div class="incident-popup">
+        <div class="incident-popup__type">${escHtml(inc.callTypeLabel)}</div>
+        ${inc.address ? `<div class="incident-popup__addr">${escHtml(inc.address)}</div>` : ''}
+        ${inc.units.length ? `<div class="incident-popup__units">${escHtml(inc.units.join(', '))}</div>` : ''}
+        <div class="incident-popup__meta">${inc.category === 'active' ? 'Active' : 'Recent'}${ago != null ? ` · reported ${ago} min ago` : ''}</div>
+      </div>`;
+    }
+
+    const incidentMarkers = new Map();   // id -> { marker, halo }
+    async function loadIncidents() {
+      if (!serviceAreaPolys) return;      // need the area to filter against
+      let root;
+      try {
+        const res = await fetch('/v1/pulsepoint/incidents');
+        if (!res.ok) return;
+        root = await res.json();
+      } catch (_) { return; }
+      const seen = new Set();
+      for (const inc of normIncidents(root)) {
+        if (seen.has(inc.id)) continue;          // same incident in both active & recent -> active wins
+        if (!inServiceArea(inc.lat, inc.lng)) continue;
+        seen.add(inc.id);
+        let entry = incidentMarkers.get(inc.id);
+        if (!entry) {
+          const halo = L.marker([inc.lat, inc.lng], { icon: incidentHaloIcon(), interactive: false, keyboard: false }).addTo(map);
+          const marker = L.marker([inc.lat, inc.lng], { icon: incidentIcon(inc.iconUrl), zIndexOffset: 700 })
+            .bindPopup(incidentPopupHtml(inc), { className: 'incident-leaflet-popup', maxWidth: 280 })
+            .addTo(map);
+          incidentMarkers.set(inc.id, { marker, halo });
+        } else {
+          entry.marker.setLatLng([inc.lat, inc.lng]).setIcon(incidentIcon(inc.iconUrl)).setPopupContent(incidentPopupHtml(inc));
+          entry.halo.setLatLng([inc.lat, inc.lng]);
+        }
+      }
+      for (const [id, entry] of incidentMarkers) {
+        if (!seen.has(id)) { map.removeLayer(entry.marker); map.removeLayer(entry.halo); incidentMarkers.delete(id); }
+      }
     }
 
     // ---- Initial load + polling ----
@@ -2041,10 +2240,11 @@
     fetchTrips();
     fetchDuties();
     fetchW2WShifts();
-    loadServiceArea();
+    loadServiceArea().then(loadIncidents);
     updateLastRefresh();
 
     setInterval(loadServiceArea, 3_600_000);
+    setInterval(loadIncidents, 20_000);
     setInterval(() => { fetchTrips(); updateLastRefresh(); }, 30_000);
     setInterval(fetchDuties, 60_000);
     setInterval(fetchW2WShifts, 60_000);
