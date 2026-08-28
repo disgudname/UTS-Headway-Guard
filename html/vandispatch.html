@@ -1388,6 +1388,32 @@
       _markerAnims.set(marker, requestAnimationFrame(step));
     }
 
+    // ---- Estimate Spare van speed from consecutive fixes ----
+    // Spare's API/webhook has NO speed field (VehicleLocation is location + bearing +
+    // timestamps only), so speed -- and therefore the moving/stopped marker and the
+    // speed bubble -- has to be derived: distance / elapsed between two fixes, keyed
+    // off Spare's own latestLocationUpdatedTs (unix seconds) so re-delivered/initial
+    // events don't look like "0 m in 0 s". 3 m deadband absorbs GPS jitter at a stop.
+    const _spareSpeed = new Map();   // vid -> { fixTs, latlng, mph }
+    const SPARE_SPEED_DEADBAND_M = 3, SPARE_SPEED_MIN_SAMPLE_S = 1, SPARE_SPEED_MAX_MPH = 80;
+    function deriveSpareSpeedMph(vid, latlng, locData) {
+      const fixTs = Number(locData.latestLocationUpdatedTs ?? locData.locationUpdatedTs ?? locData.latestLocationUpdatedTS);
+      const st = _spareSpeed.get(vid) || { fixTs: NaN, latlng: null, mph: null };
+      if (!Number.isFinite(fixTs) || fixTs === st.fixTs) return st.mph;   // no fresh fix -> keep last estimate
+      let mph = st.mph == null ? null : st.mph;
+      if (st.latlng && Number.isFinite(st.fixTs)) {
+        const elapsed = fixTs - st.fixTs;
+        if (elapsed >= SPARE_SPEED_MIN_SAMPLE_S) {
+          const distM = L.latLng(st.latlng).distanceTo(L.latLng(latlng));
+          mph = distM >= SPARE_SPEED_DEADBAND_M ? Math.min((distM / elapsed) * 2.23694, SPARE_SPEED_MAX_MPH) : 0;
+        }
+      } else {
+        mph = 0;   // first fix for this van
+      }
+      _spareSpeed.set(vid, { fixTs, latlng: [latlng[0], latlng[1]], mph });
+      return mph;
+    }
+
     // ---- Smooth heading changes (mirrors testmap: rotate via CSS transform + transition) ----
     // The bus-body SVG carries its rotation as an inline `transform: rotate()` with a CSS
     // transition, so a heading change just re-sets that value on the *existing* element and
@@ -1443,9 +1469,9 @@
       // a faster-polled (60s vs 120s) client-side mirror of that same admin override map.
       const spareColor = getVanColor(label, v.markerColor || '#7c3aed');
       const bubbleIcon = createBubbleIcon(label, spareColor, bearing);
-      // Moving vs stopped -- testmap's threshold: <= 1 mph, and unknown speed = moving.
-      const rawSpeedMs = locData.speed ?? locData.groundSpeed ?? locData.speedMs ?? null;
-      const speedMph = rawSpeedMs != null ? rawSpeedMs * 2.23694 : null;
+      // Spare sends no speed -- estimate it from fix-to-fix movement. <= 1 mph = stopped
+      // (square marker); null (not enough fixes yet) = treat as moving.
+      const speedMph = deriveSpareSpeedMph(vid, [lat, lng], locData);
       const stopped = speedMph != null && speedMph <= 1;
 
       if (vehicleMarkers[vid]) {
@@ -1467,7 +1493,8 @@
         bubbleMarkers[vid] = L.marker([lat, lng], { icon: bubbleIcon, interactive: false }).addTo(map);
       }
 
-      // Speed bubble — show if Spare provides speed in the location payload (m/s → mph)
+      // Speed bubble — driven by the fix-to-fix estimate above (Spare sends no speed).
+      // null means we don't have two fixes yet; anything >= 0 is a usable estimate.
       if (speedMph != null && speedMph >= 0) {
         const speedIcon = createSpeedBubbleIcon(speedMph, spareColor, bearing);
         if (speedMarkers[vid]) {
