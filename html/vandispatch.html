@@ -958,6 +958,50 @@
           stopOrderMarkers[key] = marker;
         });
       }
+      renderOdStopOrderMarkers();
+    }
+
+    // OnDemand equivalent of the Spare stop pins above. The schedule feed already hands
+    // us a per-van stop sequence (entry.order) and coordinates, so unlike Spare there's
+    // nothing to infer -- just drop a numbered pin per stop, coloured to its van, into
+    // the same stopOrderMarkers pool (cleared together with the Spare pins).
+    function buildOdStopPopupHtml(s, color) {
+      const isPickup = s.stopType === 'pickup';
+      const riders = (s.riders || []).join(', ') || 'Rider';
+      return `<div class="ondemand-driver-popup__content">
+        <div class="ondemand-driver-popup__section">
+          <div class="ondemand-driver-popup__label">Stop #${s.order} — <span style="color:${color}">${escHtml(s.vehicleName || 'Van')}</span></div>
+        </div>
+        <div class="ondemand-driver-popup__divider"></div>
+        <div class="ondemand-driver-popup__ride-locations">
+          <div class="ondemand-driver-popup__ride-location">
+            <span class="ondemand-driver-popup__ride-location-icon ondemand-driver-popup__ride-location-icon--${isPickup ? 'pickup' : 'dropoff'}">${isPickup ? 'P' : 'D'}</span>
+            <span class="ondemand-driver-popup__ride-location-text"><strong>${escHtml(riders)}</strong> — ${isPickup ? 'Pickup' : 'Drop-off'}${Number.isFinite(s.stopTs) ? ` at ${fmtTime(s.stopTs)}` : ''}<br>${escHtml(s.address || '—')}</span>
+          </div>
+        </div>
+      </div>`;
+    }
+
+    function renderOdStopOrderMarkers() {
+      const byVeh = {};
+      for (const s of odStops) {
+        if (s.lat == null || s.lng == null) continue;
+        const rec = (s.rides && s.rides[0]) || {};
+        const rs = s.rideStatus || rec.rideStatus || '';
+        if (!OD_ACTIVE.has(rs) && rs !== '') continue;
+        (byVeh[s.vehicleId] || (byVeh[s.vehicleId] = [])).push(s);
+      }
+      for (const vid of Object.keys(byVeh)) {
+        const entries = byVeh[vid].slice().sort((a, b) => (a.order || 0) - (b.order || 0));
+        const color = entries[0].vehicleColor || '#ec4899';
+        entries.forEach(s => {
+          if (!Number.isFinite(s.order)) return;
+          const marker = L.marker([s.lat, s.lng], { icon: createStopOrderMarker(s.order, color), zIndexOffset: 400 })
+            .bindPopup(buildOdStopPopupHtml(s, color), STOP_POPUP_OPTS)
+            .addTo(map);
+          stopOrderMarkers[`od-${vid}-${s.order}-${s.stopType}`] = marker;
+        });
+      }
     }
 
     // ---- Click-to-reveal driver route for one trip (GET /requests/{id}/currentRoute) ----
@@ -1352,6 +1396,7 @@
       odStops = freshStops;
       document.getElementById('od-count').textContent = active.size;
       renderTrips();
+      renderStopOrderMarkers();
     }
 
     // ---- Load vehicle roster (populates vehicleData + initial map pins) ----
@@ -1511,14 +1556,15 @@
         if (!r) {
           r = { riders: (s.riders || []).slice(), vehicleId: s.vehicleId, vehicleName: s.vehicleName,
                 vehicleColor: s.vehicleColor, status: rs || 'accepted', phone: '',
-                pickupTs: null, dropoffTs: null, pickupAddr: '', dropoffAddr: '' };
+                pickupTs: null, dropoffTs: null, pickupAddr: '', dropoffAddr: '',
+                pickupOrder: null, dropoffOrder: null };
           odRides.set(key, r);
         }
         if (!r.riders.length && s.riders && s.riders.length) r.riders = s.riders.slice();
         if (rs) r.status = rs;
         if (!r.phone) r.phone = s.phone || rec.phone || '';
-        if (s.stopType === 'pickup')  { r.pickupAddr  = r.pickupAddr  || s.address; if (Number.isFinite(s.stopTs)) r.pickupTs  = s.stopTs; }
-        if (s.stopType === 'dropoff') { r.dropoffAddr = r.dropoffAddr || s.address; if (Number.isFinite(s.stopTs)) r.dropoffTs = s.stopTs; }
+        if (s.stopType === 'pickup')  { r.pickupAddr  = r.pickupAddr  || s.address; if (Number.isFinite(s.stopTs)) r.pickupTs  = s.stopTs; if (Number.isFinite(s.order)) r.pickupOrder  = s.order; }
+        if (s.stopType === 'dropoff') { r.dropoffAddr = r.dropoffAddr || s.address; if (Number.isFinite(s.stopTs)) r.dropoffTs = s.stopTs; if (Number.isFinite(s.order)) r.dropoffOrder = s.order; }
         r.pickupAddr  = r.pickupAddr  || s.pickupAddress  || rec.pickupAddress  || '';
         r.dropoffAddr = r.dropoffAddr || s.dropoffAddress || rec.dropoffAddress || '';
       }
@@ -1536,6 +1582,9 @@
         const puLabel = pickedUp ? 'Picked up' : 'PU';
         const puTime = r.pickupTs ? fmtTime(r.pickupTs) : (pickedUp ? '✓' : '—');
         const doTime = r.dropoffTs ? fmtTime(r.dropoffTs) : '—';
+        // Same numbered badges the map's OnDemand stop pins carry (see renderOdStopOrderMarkers).
+        const puBadge = stopOrderBadgeHtml(r.pickupOrder, vanColor);
+        const doBadge = stopOrderBadgeHtml(r.dropoffOrder, vanColor);
         const sortTs = ((pickedUp ? r.dropoffTs : r.pickupTs) || r.pickupTs || r.dropoffTs || Infinity);
         items.push({ sortTs, html: `<div class="trip-card ${cls}" data-van-source="od" data-vehicle-id="${escHtml(r.vehicleId || '')}">
           <div class="trip-header">
@@ -1546,8 +1595,8 @@
           <div class="trip-body">
             <div class="addr" style="color:#aaa;font-size:.72rem;margin-bottom:.15rem">🚐 <span style="color:${vanColor};font-weight:600">${escHtml(r.vehicleName || 'Van')}</span></div>
             ${phoneLine}
-            <div class="addr">▲ ${escHtml(puAddr)}</div>
-            <div class="addr">▼ ${escHtml(r.dropoffAddr || '—')}</div>
+            <div class="addr">${puBadge}▲ ${escHtml(puAddr)}</div>
+            <div class="addr">${doBadge}▼ ${escHtml(r.dropoffAddr || '—')}</div>
             <div class="trip-meta">
               <span><span class="eta-label">${puLabel}</span> <span class="eta-time">${puTime}</span></span>
               <span><span class="eta-label">DO</span> <span class="eta-time">${doTime}</span></span>

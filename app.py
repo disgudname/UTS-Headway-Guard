@@ -3713,6 +3713,14 @@ def build_ondemand_vehicle_stop_plans(
             # same way the Spare cards do.
             stop_ts_dt = _parse_timestamp(stop.get("timestamp") or stop.get("time"))
             stop_ts_epoch = int(stop_ts_dt.timestamp()) if stop_ts_dt is not None else None
+            # Coordinates, so the map can drop numbered stop-order pins for OnDemand vans
+            # (mirroring the Spare stop pins).
+            _pos = stop.get("position") or {}
+            stop_lat = _coerce_float(_pos.get("latitude") or _pos.get("lat") or stop.get("latitude") or stop.get("lat"))
+            stop_lng = _coerce_float(
+                _pos.get("longitude") or _pos.get("lon") or _pos.get("lng")
+                or stop.get("longitude") or stop.get("lon") or stop.get("lng")
+            )
             grouped: Dict[str, List[str]] = {}
             rides_by_type: Dict[str, List[Dict[str, Any]]] = {}
             for ride in rides:
@@ -3781,6 +3789,9 @@ def build_ondemand_vehicle_stop_plans(
                 }
                 if stop_ts_epoch is not None:
                     entry["stopTs"] = stop_ts_epoch
+                if stop_lat is not None and stop_lng is not None:
+                    entry["lat"] = stop_lat
+                    entry["lng"] = stop_lng
                 ride_details = rides_by_type.get(stop_type)
                 if ride_details:
                     entry["rides"] = ride_details
