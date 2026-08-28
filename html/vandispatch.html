@@ -458,7 +458,7 @@
       <h1>Van Dispatch</h1>
     </div>
     <span class="subtitle">UVA Ride &amp; UVA FlexRide</span>
-    <button id="theme-toggle" class="theme-toggle" type="button" title="Toggle light/dark mode" aria-label="Toggle light/dark mode">🌙</button>
+    <button id="theme-toggle" class="theme-toggle" type="button" title="Toggle light/dark mode" aria-label="Toggle light/dark mode"></button>
   </header>
 
   <div id="status-bar">
@@ -505,7 +505,7 @@
     function applyTheme(theme) {
       document.documentElement.setAttribute('data-theme', theme);
       const btn = document.getElementById('theme-toggle');
-      if (btn) btn.textContent = theme === 'light' ? '☀️' : '🌙';
+      if (btn) btn.innerHTML = svgIcon(theme === 'light' ? 'sun' : 'moon');
       const basemapStyle = theme === 'light' ? 'light_all' : 'dark_all';
       tileLayer.setUrl(`https://{s}.basemaps.cartocdn.com/${basemapStyle}/{z}/{x}/{y}{r}.png?key=${CARTO_KEY}`);
     }
@@ -536,6 +536,25 @@
     // ---- Helpers ----
     function escHtml(s) {
       return String(s ?? '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+    }
+
+    // Small inline stroke SVGs -- the board used to lean on emoji for these labels.
+    // Sized to 1em so they sit inline with their text; stroke inherits `color`
+    // (default currentColor).
+    function svgIcon(name, color) {
+      const body = {
+        van:      '<path d="M1 11.5V4.5h8.5l3.5 3.5v3.5"/><path d="M1 11.5h13.5"/><circle cx="4.3" cy="11.7" r="1.6"/><circle cx="11.2" cy="11.7" r="1.6"/>',
+        phone:    '<path d="M3.5 2.2 6 2l1 3-1.4 1a8.5 8.5 0 0 0 3.4 3.4L10 9l3 1-.2 2.5c-.1.6-.6 1-1.2 1C6.4 13.2 2.8 9.6 2.3 4.4c-.1-.6.3-1.1.9-1.2z"/>',
+        note:     '<path d="M3.5 1.5h6L12.5 4.5v10h-9z"/><path d="M9 1.5V5h3.5"/><path d="M5.5 8h5M5.5 10.5h5M5.5 13h3"/>',
+        calendar: '<rect x="2" y="3" width="12" height="11" rx="1.5"/><path d="M2 6.5h12M5.5 1.5v3M10.5 1.5v3"/>',
+        target:   '<circle cx="8" cy="8" r="5.5"/><circle cx="8" cy="8" r="2.3"/>',
+        clock:    '<circle cx="8" cy="8" r="6"/><path d="M8 4.5V8l2.6 1.8"/>',
+        check:    '<path d="M3 8.5 6.2 12 13 4.5"/>',
+        warn:     '<path d="M8 2 14.5 13.5h-13z"/><path d="M8 6.5v3.6M8 12v.05"/>',
+        moon:     '<path d="M13.2 9.4A5.6 5.6 0 1 1 6.6 2.8a4.6 4.6 0 0 0 6.6 6.6z"/>',
+        sun:      '<circle cx="8" cy="8" r="3"/><path d="M8 1.2v1.6M8 13.2v1.6M1.2 8h1.6M13.2 8h1.6M3.3 3.3l1.1 1.1M11.6 11.6l1.1 1.1M12.7 3.3l-1.1 1.1M4.4 11.6l-1.1 1.1"/>',
+      }[name] || '';
+      return `<svg viewBox="0 0 16 16" width="1em" height="1em" fill="none" stroke="${color || 'currentColor'}" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-0.15em;flex-shrink:0" aria-hidden="true">${body}</svg>`;
     }
 
     // Parse OnDemand callName — always "VAN XX:" or "CAR XX:", strip colon + suffix, title-case prefix
@@ -869,7 +888,7 @@
         </div>`;
       }).join('');
       const shared = stops.length > 1
-        ? `<div class="ondemand-driver-popup__label" style="margin-top:8px;color:#b45309">⚠ Shared stop — ${stops.length} events happen here</div>`
+        ? `<div class="ondemand-driver-popup__label" style="margin-top:8px;color:#b45309">${svgIcon('warn')} Shared stop — ${stops.length} events happen here</div>`
         : '';
       return `<div class="ondemand-driver-popup__content">
         <div class="ondemand-driver-popup__section">
@@ -1536,25 +1555,25 @@
           ? fmtTime(req.pickupCompletedTs)
           : (req.pickupEta ? fmtTime(req.pickupEta) : fmtTime(req.scheduledPickupTs));
         const doEta = req.dropoffEta ? fmtTime(req.dropoffEta) : fmtTime(req.scheduledDropoffTs);
-        const notes  = req.notes ? `<div class="addr trip-note" style="margin-top:.25rem">📝 ${escHtml(req.notes)}</div>` : '';
+        const notes  = req.notes ? `<div class="addr trip-note" style="margin-top:.25rem">${svgIcon('note')} ${escHtml(req.notes)}</div>` : '';
         const riders = req.numRiders ? ` · ${req.numRiders} rider${req.numRiders>1?'s':''}` : '';
         const riderPhoneRaw = req.rider && req.rider.phoneNumber ? String(req.rider.phoneNumber).trim() : '';
         const phoneLine = riderPhoneRaw
-          ? `<div class="addr trip-phone" style="font-size:.72rem;margin-bottom:.15rem">📞 <a href="tel:${escHtml(riderPhoneRaw.replace(/[^\d+]/g, ''))}">${escHtml(formatPhone(riderPhoneRaw))}</a></div>`
+          ? `<div class="addr trip-phone" style="font-size:.72rem;margin-bottom:.15rem">${svgIcon('phone')} <a href="tel:${escHtml(riderPhoneRaw.replace(/[^\d+]/g, ''))}">${escHtml(formatPhone(riderPhoneRaw))}</a></div>`
           : '';
         const van = req.vehicleId ? (vehicleData[req.vehicleId] || {}) : null;
         const vanLabel = van ? (van.identifier || 'Van') : null;
         const vanColor = van ? getVanColor(vanLabel, van.markerColor || '#7c3aed') : null;
         const vanLine = van
-          ? `<div class="addr" style="color:#aaa;font-size:.72rem;margin-bottom:.15rem">🚐 <span style="color:${vanColor};font-weight:600">${escHtml(vanLabel)}</span></div>`
+          ? `<div class="addr" style="color:#aaa;font-size:.72rem;margin-bottom:.15rem">${svgIcon('van', vanColor)} <span style="color:${vanColor};font-weight:600">${escHtml(vanLabel)}</span></div>`
           : `<div class="addr" style="color:#666;font-size:.72rem;margin-bottom:.15rem;font-style:italic">Not yet assigned to a van</div>`;
         const bookedPickupTs = req.requestedPickupTs || req.scheduledPickupTs;
         const leadTime = req.createdAt && bookedPickupTs ? formatLeadTime(bookedPickupTs - req.createdAt) : null;
         const bookedLine = req.createdAt
-          ? `<div class="addr" style="color:#777;font-size:.68rem;margin-top:.3rem">📅 Booked ${leadTime ? `${leadTime} ahead` : `at ${fmtTime(req.createdAt)}`}</div>`
+          ? `<div class="addr" style="color:#777;font-size:.68rem;margin-top:.3rem">${svgIcon('calendar')} Booked ${leadTime ? `${leadTime} ahead` : `at ${fmtTime(req.createdAt)}`}</div>`
           : '';
         const intentLabel = rideIntentLabel(req);
-        const intentLine = intentLabel ? `<div class="addr" style="color:#777;font-size:.68rem">🎯 ${escHtml(intentLabel)}</div>` : '';
+        const intentLine = intentLabel ? `<div class="addr" style="color:#777;font-size:.68rem">${svgIcon('target')} ${escHtml(intentLabel)}</div>` : '';
         // Same numbers shown on the map's stop pins, so a card can be matched to its pin
         // (and vice versa) without hunting across the map for the right color/marker.
         const badgeColor = vanColor || '#7c3aed';
@@ -1619,11 +1638,11 @@
         const vanColor = r.vehicleColor || '#ec4899';
         const phoneRaw = r.phone ? String(r.phone).trim() : '';
         const phoneLine = phoneRaw
-          ? `<div class="addr trip-phone" style="font-size:.72rem;margin-bottom:.15rem">📞 <a href="tel:${escHtml(phoneRaw.replace(/[^\d+]/g, ''))}">${escHtml(formatPhone(phoneRaw))}</a></div>`
+          ? `<div class="addr trip-phone" style="font-size:.72rem;margin-bottom:.15rem">${svgIcon('phone')} <a href="tel:${escHtml(phoneRaw.replace(/[^\d+]/g, ''))}">${escHtml(formatPhone(phoneRaw))}</a></div>`
           : '';
         const puAddr = r.pickupAddr || (pickedUp ? 'Pickup complete' : '—');
         const puLabel = pickedUp ? 'Picked up' : 'PU';
-        const puTime = r.pickupTs ? fmtTime(r.pickupTs) : (pickedUp ? '✓' : '—');
+        const puTime = r.pickupTs ? fmtTime(r.pickupTs) : (pickedUp ? svgIcon('check') : '—');
         const doTime = r.dropoffTs ? fmtTime(r.dropoffTs) : '—';
         // Same numbered badges the map's OnDemand stop pins carry (see renderOdStopOrderMarkers).
         const puBadge = stopOrderBadgeHtml(r.pickupOrder, vanColor);
@@ -1636,7 +1655,7 @@
             <span class="source-badge source-badge--w2w" style="margin-left:auto">OD</span>
           </div>
           <div class="trip-body">
-            <div class="addr" style="color:#aaa;font-size:.72rem;margin-bottom:.15rem">🚐 <span style="color:${vanColor};font-weight:600">${escHtml(r.vehicleName || 'Van')}</span></div>
+            <div class="addr" style="color:#aaa;font-size:.72rem;margin-bottom:.15rem">${svgIcon('van', vanColor)} <span style="color:${vanColor};font-weight:600">${escHtml(r.vehicleName || 'Van')}</span></div>
             ${phoneLine}
             <div class="addr">${puBadge}▲ ${escHtml(puAddr)}</div>
             <div class="addr">${doBadge}▼ ${escHtml(r.dropoffAddr || '—')}</div>
@@ -1660,7 +1679,7 @@
         const res = await fetch('/api/spare/requests');
         if (!res.ok) {
           if (res.status === 503) {
-            document.getElementById('trips-list').innerHTML = '<div class="no-trips">⚠ Spare not configured — set SPARE_API_KEY</div>';
+            document.getElementById('trips-list').innerHTML = `<div class="no-trips">${svgIcon('warn')} Spare not configured — set SPARE_API_KEY</div>`;
             return;
           }
           return; // soft-fail: keep last known board
@@ -1702,7 +1721,7 @@
             ? `<span class="duty-status inProgress">Active</span>`
             : `<span class="duty-status scheduled" style="background:#1a2a1e;color:#6ee7b7">Shift</span>`);
       const assignLine = r.vanColor
-        ? `🚐 <span style="color:${r.vanColor};font-weight:600">${escHtml(r.assignment)}</span>`
+        ? `${svgIcon('van', r.vanColor)} <span style="color:${r.vanColor};font-weight:600">${escHtml(r.assignment)}</span>`
         : (r.source === 'w2w'
           ? `<span style="color:var(--accent-label)">${escHtml(r.assignment)}</span>`
           : escHtml(r.assignment));
@@ -1718,8 +1737,8 @@
       if (r.lateness != null) {
         const lateMin = Math.round(r.lateness / 60);
         onTimeLine = lateMin > 1
-          ? `<div class="addr" style="color:#ffb74d;font-size:.7rem;margin-top:.3rem">🕐 ${lateMin} min late</div>`
-          : `<div class="addr" style="color:#81c784;font-size:.7rem;margin-top:.3rem">✅ On time</div>`;
+          ? `<div class="addr" style="color:#ffb74d;font-size:.7rem;margin-top:.3rem">${svgIcon('clock')} ${lateMin} min late</div>`
+          : `<div class="addr" style="color:#81c784;font-size:.7rem;margin-top:.3rem">${svgIcon('check')} On time</div>`;
       }
 
       const interruptions = [];
@@ -1734,7 +1753,7 @@
       if (r.breakSec > 60) interruptions.push(`Break ${Math.round(r.breakSec / 60)}m`);
       if (r.pauseSec > 60) interruptions.push(`Paused ${Math.round(r.pauseSec / 60)}m`);
       const interruptLine = interruptions.length
-        ? `<div class="access-icons">${interruptions.map(t => `<span class="access-tag" style="background:#3a1f1f;color:#ffab91">⚠ ${escHtml(t)}</span>`).join('')}</div>`
+        ? `<div class="access-icons">${interruptions.map(t => `<span class="access-tag" style="background:#3a1f1f;color:#ffab91">${svgIcon('warn')} ${escHtml(t)}</span>`).join('')}</div>`
         : '';
 
       return `<div class="duty-card ${r.status}${r.onBreakSince ? ' onBreak' : ''}" title="Click to show this van on the map" data-van-source="${r.source === 'spare' ? 'spare' : 'od'}" data-vehicle-id="${escHtml(r.vehicleId || '')}" data-driver="${escHtml(r.driverNameNorm || '')}">
