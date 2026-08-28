@@ -1427,16 +1427,15 @@
     function renderTrips() {
       const list = document.getElementById('trips-list');
       document.getElementById('trips-updated').textContent = new Date().toLocaleTimeString();
-      const cards = [];
-
-      // Spare requests, chronological by whatever's next for that ride -- pickup time
-      // normally, or dropoff time once the rider's already been picked up (inProgress).
+      // { sortTs, html } for every card, Spare + OnDemand together, so the whole board
+      // ends up in one chronological order -- next-relevant time for each ride: its
+      // pickup time normally, its dropoff time once the rider's already aboard.
+      const items = [];
       const tripSortTs = req => (req.status === 'inProgress'
         ? (req.dropoffEta || req.scheduledDropoffTs)
         : (req.pickupEta || req.scheduledPickupTs)) || Infinity;
-      const sorted = [...spareTrips].sort((a, b) => tripSortTs(a) - tripSortTs(b));
       const stopOrder = computeStopOrderLookup();
-      for (const req of sorted) {
+      for (const req of spareTrips) {
         const name   = riderName(req);
         const status = req.status || 'unknown';
         const pickup  = req.scheduledPickupAddress  || req.requestedPickupAddress  || '—';
@@ -1473,7 +1472,7 @@
         const badgeColor = vanColor || '#7c3aed';
         const puBadge = stopOrderBadgeHtml(stopOrder[`${req.id}-Pickup`], badgeColor);
         const doBadge = stopOrderBadgeHtml(stopOrder[`${req.id}-Dropoff`], badgeColor);
-        cards.push(`<div class="trip-card ${status}" style="cursor:pointer" title="Click to show this ride's route on the map" onclick="showRequestRoute('${escHtml(req.id)}')" data-van-source="spare" data-vehicle-id="${escHtml(req.vehicleId || '')}">
+        items.push({ sortTs: tripSortTs(req), html: `<div class="trip-card ${status}" style="cursor:pointer" title="Click to show this ride's route on the map" onclick="showRequestRoute('${escHtml(req.id)}')" data-van-source="spare" data-vehicle-id="${escHtml(req.vehicleId || '')}">
           <div class="trip-header">
             <span class="status-pill ${status}">${status}</span>
             <span class="rider-name">${escHtml(name)}${riders}</span>
@@ -1493,32 +1492,72 @@
             ${notes}
             <div class="access-icons">${accessTags(req)}</div>
           </div>
-        </div>`);
+        </div>` });
       }
 
-      // OnDemand stops (active only)
-      for (const stop of odStops) {
-        const rs = stop.rideStatus || '';
+      // OnDemand: the schedule feed gives per-stop rows (one pickup + one dropoff per
+      // ride, and only the dropoff once a ride is in_progress). Regroup them into one
+      // card per ride -- rider, van, phone, both addresses, both times -- to match the
+      // Spare cards. The pickup address of an in_progress ride is NOT lost: the backend
+      // carries it from rides_map onto the surviving dropoff row (stop.pickupAddress /
+      // stop.rides[].pickupAddress).
+      const odRides = new Map();
+      for (const s of odStops) {
+        const rec = (s.rides && s.rides[0]) || {};
+        const rs = s.rideStatus || rec.rideStatus || '';
         if (!OD_ACTIVE.has(rs) && rs !== '') continue;
-        const cls   = OD_STATUS_CLASS[rs] || 'processing';
-        const lbl   = OD_STATUS_LABEL[rs] || (rs || 'Active');
-        const names = (stop.riders || []).join(', ') || 'Rider';
-        const icon  = stop.stopType === 'pickup' ? '▲' : '▼';
-        const typeLabel = stop.stopType === 'pickup' ? 'Pickup' : 'Drop-off';
-        const vehColor = stop.vehicleColor || '#ec4899';
-        cards.push(`<div class="trip-card ${cls}" data-van-source="od" data-vehicle-id="${escHtml(stop.vehicleId || '')}">
+        const key = s.rideId || rec.rideId || `${s.vehicleId}|${(s.riders || []).join(',')}`;
+        let r = odRides.get(key);
+        if (!r) {
+          r = { riders: (s.riders || []).slice(), vehicleId: s.vehicleId, vehicleName: s.vehicleName,
+                vehicleColor: s.vehicleColor, status: rs || 'accepted', phone: '',
+                pickupTs: null, dropoffTs: null, pickupAddr: '', dropoffAddr: '' };
+          odRides.set(key, r);
+        }
+        if (!r.riders.length && s.riders && s.riders.length) r.riders = s.riders.slice();
+        if (rs) r.status = rs;
+        if (!r.phone) r.phone = s.phone || rec.phone || '';
+        if (s.stopType === 'pickup')  { r.pickupAddr  = r.pickupAddr  || s.address; if (Number.isFinite(s.stopTs)) r.pickupTs  = s.stopTs; }
+        if (s.stopType === 'dropoff') { r.dropoffAddr = r.dropoffAddr || s.address; if (Number.isFinite(s.stopTs)) r.dropoffTs = s.stopTs; }
+        r.pickupAddr  = r.pickupAddr  || s.pickupAddress  || rec.pickupAddress  || '';
+        r.dropoffAddr = r.dropoffAddr || s.dropoffAddress || rec.dropoffAddress || '';
+      }
+      for (const r of odRides.values()) {
+        const cls = OD_STATUS_CLASS[r.status] || 'processing';
+        const lbl = OD_STATUS_LABEL[r.status] || (r.status || 'Active');
+        const pickedUp = r.status === 'in_progress' || r.status === 'inProgress';
+        const name = r.riders.join(', ') || 'Rider';
+        const vanColor = r.vehicleColor || '#ec4899';
+        const phoneRaw = r.phone ? String(r.phone).trim() : '';
+        const phoneLine = phoneRaw
+          ? `<div class="addr trip-phone" style="font-size:.72rem;margin-bottom:.15rem">📞 <a href="tel:${escHtml(phoneRaw.replace(/[^\d+]/g, ''))}">${escHtml(formatPhone(phoneRaw))}</a></div>`
+          : '';
+        const puAddr = r.pickupAddr || (pickedUp ? 'Pickup complete' : '—');
+        const puLabel = pickedUp ? 'Picked up' : 'PU';
+        const puTime = r.pickupTs ? fmtTime(r.pickupTs) : (pickedUp ? '✓' : '—');
+        const doTime = r.dropoffTs ? fmtTime(r.dropoffTs) : '—';
+        const sortTs = ((pickedUp ? r.dropoffTs : r.pickupTs) || r.pickupTs || r.dropoffTs || Infinity);
+        items.push({ sortTs, html: `<div class="trip-card ${cls}" data-van-source="od" data-vehicle-id="${escHtml(r.vehicleId || '')}">
           <div class="trip-header">
             <span class="status-pill ${cls}">${escHtml(lbl)}</span>
-            <span class="rider-name">${escHtml(names)}</span>
+            <span class="rider-name">${escHtml(name)}</span>
             <span class="source-badge source-badge--w2w" style="margin-left:auto">OD</span>
           </div>
           <div class="trip-body">
-            <div class="addr" style="color:#aaa;font-size:.72rem;margin-bottom:.15rem">${escHtml(typeLabel)} · <span style="color:${vehColor};font-weight:600">${escHtml(stop.vehicleName)}</span></div>
-            <div class="addr">${icon} ${escHtml(stop.address || '—')}</div>
+            <div class="addr" style="color:#aaa;font-size:.72rem;margin-bottom:.15rem">🚐 <span style="color:${vanColor};font-weight:600">${escHtml(r.vehicleName || 'Van')}</span></div>
+            ${phoneLine}
+            <div class="addr">▲ ${escHtml(puAddr)}</div>
+            <div class="addr">▼ ${escHtml(r.dropoffAddr || '—')}</div>
+            <div class="trip-meta">
+              <span><span class="eta-label">${puLabel}</span> <span class="eta-time">${puTime}</span></span>
+              <span><span class="eta-label">DO</span> <span class="eta-time">${doTime}</span></span>
+            </div>
           </div>
-        </div>`);
+        </div>` });
       }
 
+      items.sort((a, b) => a.sortTs - b.sortTs);
+      const cards = items.map(i => i.html);
       document.getElementById('trip-count').textContent = cards.length;
       list.innerHTML = cards.length ? cards.join('') : '<div class="no-trips">No active trips right now</div>';
       if (selectedVan) applyVanHighlight(false);

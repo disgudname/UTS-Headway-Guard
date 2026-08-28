@@ -3708,6 +3708,11 @@ def build_ondemand_vehicle_stop_plans(
                 continue
             address_value = stop.get("address") or stop.get("label") or ""
             address = str(address_value).strip() or "Unknown stop"
+            # Scheduled time for this stop (ISO in the raw feed) -> epoch seconds, so the
+            # trip board can sort OnDemand rides chronologically and show PU/DO times the
+            # same way the Spare cards do.
+            stop_ts_dt = _parse_timestamp(stop.get("timestamp") or stop.get("time"))
+            stop_ts_epoch = int(stop_ts_dt.timestamp()) if stop_ts_dt is not None else None
             grouped: Dict[str, List[str]] = {}
             rides_by_type: Dict[str, List[Dict[str, Any]]] = {}
             for ride in rides:
@@ -3718,7 +3723,13 @@ def build_ondemand_vehicle_stop_plans(
                 stop_type = str(stop_type_raw or "").strip().lower()
                 if stop_type not in {"pickup", "dropoff"}:
                     continue
-                rider_name = _format_rider_name(ride.get("rider") or ride.get("passenger"))
+                rider_obj = ride.get("rider") or ride.get("passenger")
+                rider_phone = (
+                    str(rider_obj.get("phone")).strip()
+                    if isinstance(rider_obj, dict) and rider_obj.get("phone")
+                    else ""
+                )
+                rider_name = _format_rider_name(rider_obj)
                 ride_riders: List[str] = []
                 if rider_name:
                     ride_riders.append(rider_name)
@@ -3736,13 +3747,20 @@ def build_ondemand_vehicle_stop_plans(
                 ride_id = str(ride_id_val).strip() if ride_id_val not in {None, ""} else ""
                 if ride_id:
                     ride_record["rideId"] = ride_id
-                    # For in_progress rides with dropoff, include pickup address from rides_map
-                    if stop_type == "dropoff":
-                        ride_info = rides_lookup.get(_normalize_ride_id(ride_id))
-                        if isinstance(ride_info, dict):
-                            pickup_addr = ride_info.get("pickup_address")
-                            if pickup_addr:
-                                ride_record["pickupAddress"] = pickup_addr
+                    # Carry the whole ride's pickup/dropoff addresses from rides_map so
+                    # one surviving stop entry has full context -- in particular an
+                    # in_progress ride keeps only its dropoff stop in the schedule, but
+                    # its pickup address is still known here (it was never "lost").
+                    ride_info = rides_lookup.get(_normalize_ride_id(ride_id))
+                    if isinstance(ride_info, dict):
+                        pickup_addr = ride_info.get("pickup_address")
+                        dropoff_addr = ride_info.get("dropoff_address")
+                        if pickup_addr:
+                            ride_record["pickupAddress"] = pickup_addr
+                        if dropoff_addr:
+                            ride_record["dropoffAddress"] = dropoff_addr
+                if rider_phone:
+                    ride_record["phone"] = rider_phone
                 if status_raw is not None:
                     ride_record["rideStatus"] = status_raw
                 if ride_riders:
@@ -3761,6 +3779,8 @@ def build_ondemand_vehicle_stop_plans(
                     "stopType": stop_type,
                     "riders": riders,
                 }
+                if stop_ts_epoch is not None:
+                    entry["stopTs"] = stop_ts_epoch
                 ride_details = rides_by_type.get(stop_type)
                 if ride_details:
                     entry["rides"] = ride_details
@@ -3772,6 +3792,11 @@ def build_ondemand_vehicle_stop_plans(
                             entry["rideId"] = ride_id
                         if ride_status not in {None, ""}:
                             entry["rideStatus"] = ride_status
+                        # Hoist full-ride context so the trip board can render one card
+                        # per ride from a single surviving stop entry.
+                        for k in ("pickupAddress", "dropoffAddress", "phone"):
+                            if ride_detail.get(k):
+                                entry[k] = ride_detail[k]
                 if entries:
                     last = entries[-1]
                     if (
