@@ -558,6 +558,8 @@
       const next = current === 'light' ? 'dark' : 'light';
       try { localStorage.setItem(THEME_STORAGE_KEY, next); } catch (_) { /* private browsing, etc. */ }
       applyTheme(next);
+      // the service-area outline is themed (see serviceAreaStyle) -- restyle it in place
+      if (serviceAreaLayer) serviceAreaLayer.setStyle(serviceAreaStyle());
     }
     (function initTheme() {
       let saved = null;
@@ -2090,6 +2092,13 @@
     // fill of the merged paratransit coverage area. 204 (key can't read zones) -> skip.
     let serviceAreaLayer = null;
     let serviceAreaPolys = null;   // [[outerRing, hole...], ...] of [lng,lat] pairs -- for point-in-area tests
+    // Quiet reference underlay. UVA Blue reads on the light basemap but vanishes on the
+    // dark one, so use UVA Blue 25% (a pale blue-grey) in dark mode instead.
+    function serviceAreaStyle() {
+      const c = document.documentElement.getAttribute('data-theme') === 'light' ? '#232D4B' : '#C8CBD2';
+      return { color: c, weight: 1.5, opacity: 0.5, dashArray: '5 5',
+               fill: true, fillColor: c, fillOpacity: 0.045 };
+    }
     async function loadServiceArea() {
       try {
         const res = await fetch('/api/spare/service-area');
@@ -2098,8 +2107,7 @@
         if (serviceAreaLayer) { map.removeLayer(serviceAreaLayer); serviceAreaLayer = null; }
         serviceAreaLayer = L.geoJSON(gj, {
           interactive: false,
-          style: { color: '#8b5cf6', weight: 1.5, opacity: 0.5, dashArray: '5 5',
-                   fill: true, fillColor: '#8b5cf6', fillOpacity: 0.045 },
+          style: serviceAreaStyle(),
         }).addTo(map);
         serviceAreaLayer.bringToBack();
         const geom = gj && gj.geometry;
