@@ -11,62 +11,72 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Van Dispatch</title>
   <script defer src="/nav-bar.js"></script>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Libre+Franklin:wght@400;500;600;700&display=swap" />
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
   <style>
+    /* Palette follows the UVA visual identity (brand.virginia.edu):
+       UVA Blue #232D4B, UVA Orange #E57200 as primaries; orange is the
+       interactive accent on the dark ops theme. Secondary hues (Cyan #009FDF,
+       Green #62BB46, Teal #25CAD3, Yellow #FDDA24, Emergency #DF1E43) drive
+       the status stripes/chips further down. */
     :root {
       color-scheme: dark;
       --bg: #0d0d0d;
       --text: #f0f0f0;
-      --text-muted: #999;
-      --text-faint: #666;
-      --text-faintest: #555;
-      --panel-bg: #111;
-      --panel-header-bg: #16162a;
-      --card-bg: #1a1a2e;
-      --row-hover-bg: #1a1a2e;
-      --border: #2a2a44;
-      --border-soft: #1e1e32;
-      --header-grad-a: #1a0a3d;
-      --header-grad-b: #0f0820;
-      --header-border: #6c3fc5;
-      --header-title: #e0d0ff;
-      --accent-label: #9980d0;
-      --rider-name: #e0d0ff;
+      --text-muted: #9aa0ab;
+      --text-faint: #6b7280;
+      --text-faintest: #565d69;
+      --panel-bg: #10131b;
+      --panel-header-bg: #1b2338;
+      --card-bg: #1c2740;
+      --row-hover-bg: #1c2740;
+      --border: #2c3a58;
+      --border-soft: #223050;
+      --header-grad-a: #232D4B;
+      --header-grad-b: #0d1220;
+      --header-border: #E57200;
+      --header-title: #f4f6fa;
+      --accent-label: #E57200;
+      --rider-name: #f4f6fa;
       --eta-time: #f0f0f0;
-      --trip-body-text: #aaa;
-      --td-text: #ddd;
-      --card-hover-border: #6c3fc5;
-      --card-selected-border: #8a5cd6;
-      --card-selected-ring: rgba(138,92,214,0.35);
-      --trip-note: #ffd54f;
+      --trip-body-text: #aab0bd;
+      --td-text: #dde1e8;
+      --card-hover-border: #E57200;
+      --card-selected-border: #E57200;
+      --card-selected-ring: rgba(229,114,0,0.35);
+      --trip-note: #FDDA24;
     }
     :root[data-theme="light"] {
       color-scheme: light;
-      --bg: #f3f1f9;
-      --text: #1e1b2e;
-      --text-muted: #6b6478;
-      --text-faint: #8f889c;
-      --text-faintest: #a8a1b5;
+      --bg: #F1F1EF;                /* UVA Light Gray */
+      --text: #232D4B;              /* UVA Blue */
+      --text-muted: #666666;        /* UVA Text Gray */
+      --text-faint: #8a8a8a;
+      --text-faintest: #adadad;
       --panel-bg: #ffffff;
-      --panel-header-bg: #f1ecfa;
-      --card-bg: #fbfaff;
-      --row-hover-bg: #f1ecfa;
-      --border: #ded7ee;
-      --border-soft: #e8e2f4;
-      --header-grad-a: #efe6ff;
-      --header-grad-b: #f9f6ff;
-      --header-border: #8a5cd6;
-      --header-title: #3d1a78;
-      --accent-label: #7143c2;
-      --rider-name: #3d1a78;
-      --eta-time: #1e1b2e;
-      --trip-body-text: #5b5468;
-      --td-text: #33304a;
-      --card-hover-border: #6c3fc5;
-      --card-selected-border: #7143c2;
-      --card-selected-ring: rgba(113,67,194,0.28);
-      /* dark amber -- the dark-mode #ffd54f is unreadable on the near-white card bg */
+      --panel-header-bg: #e9ebf0;
+      --card-bg: #ffffff;
+      --row-hover-bg: #f1f1ef;
+      --border: #DADADA;            /* UVA Medium Gray */
+      --border-soft: #e7e7e5;
+      --header-grad-a: #232D4B;     /* header stays UVA Blue in light mode too */
+      --header-grad-b: #1a2238;
+      --header-border: #E57200;
+      --header-title: #ffffff;
+      /* orange fails AA as small text on white, so text-level accents use UVA
+         Blue in light mode; orange is kept for borders/rings/hover only */
+      --accent-label: #232D4B;
+      --rider-name: #232D4B;
+      --eta-time: #232D4B;
+      --trip-body-text: #55555f;
+      --td-text: #33384a;
+      --card-hover-border: #E57200;
+      --card-selected-border: #E57200;
+      --card-selected-ring: rgba(229,114,0,0.30);
+      /* dark amber -- UVA Yellow is unreadable on the near-white card bg */
       --trip-note: #9a6700;
     }
     * { box-sizing: border-box; margin: 0; padding: 0; }
@@ -76,7 +86,9 @@
     }
     html, body { height: 100%; }
     body {
-      font-family: "Inter", "Segoe UI", system-ui, sans-serif;
+      /* Libre Franklin is the free web equivalent of Franklin Gothic that UVA
+         itself endorses (brand.virginia.edu/design-assets/fonts). */
+      font-family: "Libre Franklin", "Franklin Gothic", Helvetica, Arial, sans-serif;
       background: var(--bg);
       color: var(--text);
       height: 100vh;
@@ -86,27 +98,29 @@
     }
     header {
       background: linear-gradient(120deg, var(--header-grad-a), var(--header-grad-b));
-      padding: 1rem 1.5rem;
+      padding: 0.45rem 1.5rem;
       display: flex;
       align-items: center;
       gap: 1rem;
       border-bottom: 2px solid var(--header-border);
     }
     header h1 {
-      font-size: 1.3rem;
+      font-size: 1.05rem;
       font-weight: 700;
       color: var(--header-title);
       letter-spacing: 0.02em;
     }
     header .subtitle {
       font-size: 0.8rem;
-      color: var(--accent-label);
+      /* header is UVA Blue in both themes, so this can't follow --accent-label
+         (which is dark blue in light mode -- invisible here) */
+      color: #E57200;
       margin-left: auto;
     }
     .theme-toggle {
       background: transparent;
-      border: 1px solid var(--border);
-      color: var(--text);
+      border: 1px solid rgba(255,255,255,0.28);
+      color: #f4f6fa;
       border-radius: 999px;
       width: 32px;
       height: 32px;
@@ -118,7 +132,7 @@
       cursor: pointer;
       transition: background 0.15s, border-color 0.15s;
     }
-    .theme-toggle:hover { border-color: var(--header-border); background: rgba(108,63,197,0.12); }
+    .theme-toggle:hover { border-color: var(--header-border); background: rgba(229,114,0,0.14); }
     #status-bar {
       background: var(--card-bg);
       padding: 0.4rem 1.5rem;
@@ -170,7 +184,7 @@
       left: 50%;
       transform: translateX(-50%);
       background: rgba(0,0,0,0.75);
-      color: #ffd54f;
+      color: #FDDA24;
       font-size: 0.75rem;
       padding: 0.4rem 0.8rem;
       border-radius: 6px;
@@ -220,10 +234,10 @@
       transition: border-color 0.2s;
     }
     .trip-card:hover { border-color: var(--card-hover-border); }
-    .trip-card.arriving { border-left: 3px solid #ff9800; }
-    .trip-card.inProgress { border-left: 3px solid #4caf50; }
-    .trip-card.accepted { border-left: 3px solid #2196f3; }
-    .trip-card.processing { border-left: 3px solid #9e9e9e; }
+    .trip-card.arriving { border-left: 3px solid #E57200; }   /* UVA Orange */
+    .trip-card.inProgress { border-left: 3px solid #62BB46; } /* UVA Green */
+    .trip-card.accepted { border-left: 3px solid #009FDF; }   /* UVA Cyan */
+    .trip-card.processing { border-left: 3px solid #DADADA; } /* UVA Medium Gray */
     /* Highlight applied when the matching van is selected on the map */
     .trip-card.card-selected,
     .duty-card.card-selected {
@@ -247,10 +261,12 @@
       text-transform: uppercase;
       letter-spacing: 0.04em;
     }
-    .status-pill.processing { background: #333; color: #aaa; }
-    .status-pill.accepted   { background: #1565c0; color: #90caf9; }
-    .status-pill.arriving   { background: #e65100; color: #ffe0b2; }
-    .status-pill.inProgress { background: #1b5e20; color: #a5d6a7; }
+    /* Solid mid-tone chips with light text -- legible on both the dark and the
+       light card backgrounds. Hues from the UVA secondary palette. */
+    .status-pill.processing { background: #8a8a8a; color: #f2f2f2; }
+    .status-pill.accepted   { background: #0a6c93; color: #e6f6fd; }
+    .status-pill.arriving   { background: #c25e00; color: #fff2e2; }
+    .status-pill.inProgress { background: #3f8f2c; color: #f0f9ec; }
     .rider-name {
       font-size: 0.9rem;
       font-weight: 600;
@@ -282,8 +298,8 @@
       flex-wrap: wrap;
     }
     .access-tag {
-      background: #2a1f4a;
-      color: #b0a0e0;
+      background: #232D4B;
+      color: #C8CBD2;
       font-size: 0.68rem;
       padding: 0.1rem 0.4rem;
       border-radius: 4px;
@@ -330,13 +346,13 @@
       cursor: pointer;
     }
     .duty-card:hover { border-color: var(--card-hover-border); }
-    .duty-card.scheduled  { border-left: 3px solid #2196f3; }
-    .duty-card.inProgress { border-left: 3px solid #4caf50; }
-    .duty-card.completed  { border-left: 3px solid #9e9e9e; }
-    .duty-card.cancelled  { border-left: 3px solid #f44336; }
-    .duty-card.shift      { border-left: 3px solid #6ee7b7; }
+    .duty-card.scheduled  { border-left: 3px solid #009FDF; } /* UVA Cyan */
+    .duty-card.inProgress { border-left: 3px solid #62BB46; } /* UVA Green */
+    .duty-card.completed  { border-left: 3px solid #DADADA; } /* UVA Medium Gray */
+    .duty-card.cancelled  { border-left: 3px solid #DF1E43; } /* UVA Emergency */
+    .duty-card.shift      { border-left: 3px solid #25CAD3; } /* UVA Teal */
     /* Driver currently on a break/pause -- overrides the inProgress green stripe */
-    .duty-card.onBreak    { border-left: 3px solid #ffb74d; }
+    .duty-card.onBreak    { border-left: 3px solid #FDDA24; } /* UVA Yellow */
     .duty-status {
       font-size: 0.72rem;
       font-weight: 600;
@@ -345,11 +361,11 @@
       text-transform: uppercase;
       letter-spacing: 0.04em;
     }
-    .duty-status.scheduled   { background: #1a237e; color: #90caf9; }
-    .duty-status.inProgress  { background: #1b5e20; color: #a5d6a7; }
-    .duty-status.completed   { background: #212121; color: #757575; }
-    .duty-status.cancelled   { background: #b71c1c; color: #ef9a9a; }
-    .duty-status.onBreak     { background: #4a3a1f; color: #ffcc80; }
+    .duty-status.scheduled   { background: #0a6c93; color: #e6f6fd; }
+    .duty-status.inProgress  { background: #3f8f2c; color: #f0f9ec; }
+    .duty-status.completed   { background: #8a8a8a; color: #f2f2f2; }
+    .duty-status.cancelled   { background: #c11833; color: #ffe6ea; }
+    .duty-status.onBreak     { background: #b58900; color: #fff8dd; }
     .no-duties {
       text-align: center;
       color: var(--text-faintest);
@@ -373,7 +389,7 @@
       border-radius: 12px;
       box-shadow: 0 12px 30px rgba(15,23,42,0.25);
       color: #0f172a;
-      font-family: "Inter","Segoe UI",system-ui,sans-serif;
+      font-family: "Libre Franklin","Franklin Gothic",Helvetica,Arial,sans-serif;
       padding: 10px 14px;
       border: 2px solid rgba(35,45,75,0.08);
     }
@@ -398,8 +414,8 @@
       font-size: 0.65rem; font-weight: 700; padding: 0.1rem 0.35rem;
       border-radius: 3px; letter-spacing: 0.06em; text-transform: uppercase; vertical-align: middle;
     }
-    .source-badge--spare { background: #2a1f4a; color: #b0a0e0; }
-    .source-badge--w2w   { background: #142a1e; color: #6ee7b7; }
+    .source-badge--spare { background: #232D4B; color: #C8CBD2; } /* UVA Blue */
+    .source-badge--w2w   { background: #0a4a4d; color: #C9F2F4; } /* UVA Teal */
     /* Strip Leaflet's default white-box styling from SVG label icons */
     .bus-label-icon {
       pointer-events: none !important;
@@ -890,7 +906,7 @@
     // whichever of black/white contrasts with the van's color) ----
     // stopped=true swaps the centre ring for a filled square, like testmap does for a
     // vehicle sitting still (speed <= 1 mph).
-    function makeBusMarkerIcon(bearing, fillColor = '#7c3aed', stopped = false) {
+    function makeBusMarkerIcon(bearing, fillColor = '#E57200', stopped = false) {
       const glyphColor = contrastColor(fillColor);
       const width = BUS_MARKER_BASE_WIDTH_PX;
       const height = round2(BUS_MARKER_BASE_HEIGHT_PX);
@@ -1036,7 +1052,7 @@
       for (const vehicleId of Object.keys(byVehicle)) {
         const v = vehicleData[vehicleId] || {};
         const label = v.identifier || 'Van';
-        const color = getVanColor(label, v.markerColor || '#7c3aed');
+        const color = getVanColor(label, v.markerColor || '#E57200');
         byVehicle[vehicleId].forEach((group, idx) => {
           const order = idx + 1;
           const marker = L.marker(group.latlng, { icon: createStopOrderMarker(order, color), zIndexOffset: 400 })
@@ -1134,7 +1150,7 @@
       const req = spareTrips.find(t => t.id === requestId);
       const v = req && req.vehicleId ? (vehicleData[req.vehicleId] || {}) : {};
       const label = v.identifier || 'Van';
-      const color = getVanColor(label, v.markerColor || '#7c3aed');
+      const color = getVanColor(label, v.markerColor || '#E57200');
 
       let data;
       try {
@@ -1267,7 +1283,7 @@
       if (!marker) { clearRequestRoute(); return; }
       const v = vehicleData[vehicleId] || {};
       const label = v.identifier || 'Van';
-      const color = getVanColor(label, v.markerColor || '#7c3aed');
+      const color = getVanColor(label, v.markerColor || '#E57200');
 
       const dutyId = v.currentLocation && v.currentLocation.dutyId;
       const dutyPoints = dutyId ? await fetchDutyPolyline(dutyId) : null;
@@ -1467,7 +1483,7 @@
       // van's real color on file in OnDemand, falling back to the /van-colors admin map,
       // then a default purple — see app.py's api_spare_vehicles(). vanColors here is just
       // a faster-polled (60s vs 120s) client-side mirror of that same admin override map.
-      const spareColor = getVanColor(label, v.markerColor || '#7c3aed');
+      const spareColor = getVanColor(label, v.markerColor || '#E57200');
       const bubbleIcon = createBubbleIcon(label, spareColor, bearing);
       // Spare sends no speed -- estimate it from fix-to-fix movement. <= 1 mph = stopped
       // (square marker); null (not enough fixes yet) = treat as moving.
@@ -1749,7 +1765,7 @@
           : '';
         const van = req.vehicleId ? (vehicleData[req.vehicleId] || {}) : null;
         const vanLabel = van ? (van.identifier || 'Van') : null;
-        const vanColor = van ? getVanColor(vanLabel, van.markerColor || '#7c3aed') : null;
+        const vanColor = van ? getVanColor(vanLabel, van.markerColor || '#E57200') : null;
         const vanDriver = req.vehicleId ? spareDriverByVid[req.vehicleId] : null;
         const vanLine = van
           ? `<div class="addr" style="color:#aaa;font-size:.72rem;margin-bottom:.15rem">${svgIcon('van', vanColor)} <span style="color:${vanColor};font-weight:600">${escHtml(vanLabel)}</span>${vanDriver ? ` · ${escHtml(vanDriver)}` : ''}</div>`
@@ -1763,7 +1779,7 @@
         const intentLine = intentLabel ? `<div class="addr" style="color:#777;font-size:.68rem">${svgIcon('target')} ${escHtml(intentLabel)}</div>` : '';
         // Same numbers shown on the map's stop pins, so a card can be matched to its pin
         // (and vice versa) without hunting across the map for the right color/marker.
-        const badgeColor = vanColor || '#7c3aed';
+        const badgeColor = vanColor || '#E57200';
         const puBadge = stopOrderBadgeHtml(stopOrder[`${req.id}-Pickup`], badgeColor);
         const doBadge = stopOrderBadgeHtml(stopOrder[`${req.id}-Dropoff`], badgeColor);
         items.push({ sortTs: tripSortTs(req), html: `<div class="trip-card ${status}" style="cursor:pointer" title="Click to show this ride's route on the map" onclick="showRequestRoute('${escHtml(req.id)}')" data-van-source="spare" data-vehicle-id="${escHtml(req.vehicleId || '')}">
@@ -1908,7 +1924,7 @@
             : `<span class="duty-status ${r.status}">${escHtml(humanizeStatus(r.status))}</span>`)
         : (r.odActive
             ? `<span class="duty-status inProgress">Active</span>`
-            : `<span class="duty-status scheduled" style="background:#1a2a1e;color:#6ee7b7">Shift</span>`);
+            : `<span class="duty-status scheduled" style="background:#0a4a4d;color:#C9F2F4">Shift</span>`);
       const assignLine = r.vanColor
         ? `${svgIcon('van', r.vanColor)} <span style="color:${r.vanColor};font-weight:600">${escHtml(r.assignment)}</span>`
         : (r.source === 'w2w'
@@ -1979,7 +1995,7 @@
           driverName,
           driverNameNorm: normalizeName(driverName),
           assignment: vehName,
-          vanColor: vehName !== '—' ? getVanColor(vehName, vObj.markerColor || '#7c3aed') : null,
+          vanColor: vehName !== '—' ? getVanColor(vehName, vObj.markerColor || '#E57200') : null,
           status: d.status || 'unknown',
           vehicleId: vid || '',
           dutyStr: `${fmtTime(d.startRequestedTs)} – ${fmtTime(d.endRequestedTs)}`,
