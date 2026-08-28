@@ -847,14 +847,14 @@
     const stopOrderMarkers = {};
 
     function createStopOrderMarker(number, color) {
-      const SIZE = 22, STROKE = 2.5;
+      const SIZE = 30, STROKE = 3;
       const sw = round2(SIZE + STROKE * 2);
       const textColor = contrastColor(color);
       // No pointer-events:none here (unlike the name/speed bubble SVGs) -- this marker
       // needs to actually receive the click that opens its popup.
       const svg = `<svg width="${sw}" height="${sw}" viewBox="0 0 ${sw} ${sw}" xmlns="http://www.w3.org/2000/svg">
         <circle cx="${sw / 2}" cy="${sw / 2}" r="${SIZE / 2}" fill="${color}" stroke="white" stroke-width="${STROKE}"/>
-        <text x="${sw / 2}" y="${sw / 2}" text-anchor="middle" dominant-baseline="central" font-size="12" font-weight="bold" fill="${textColor}" font-family="${BUS_MARKER_LABEL_FONT_FAMILY}">${number}</text>
+        <text x="${sw / 2}" y="${sw / 2}" text-anchor="middle" dominant-baseline="central" font-size="16" font-weight="bold" fill="${textColor}" font-family="${BUS_MARKER_LABEL_FONT_FAMILY}">${number}</text>
       </svg>`;
       return L.divIcon({ html: svg, className: 'leaflet-div-icon stop-order-icon', iconSize: [sw, sw], iconAnchor: [sw / 2, sw / 2] });
     }
