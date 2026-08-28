@@ -1123,12 +1123,13 @@
       }
     }
 
-    async function showVanFullRouteViaLegRouting(vehicleId, marker, color, fit, seq) {
-      const groups = (computeVehicleStopGroups()[vehicleId] || []);
-      if (!groups.length) return;
-
-      const start = marker.getLatLng();
-      const waypoints = [[start.lat, start.lng], ...groups.map(g => g.latlng)];
+    // Road-route from a van's current position through an ordered list of stop [lat,lng]s,
+    // one ORS leg at a time (/api/routes/leg). Shared by the Spare leg-routing fallback and
+    // by the OnDemand route preview -- OnDemand has no server-side route polyline like
+    // Spare's duty polyline, so this is how its route gets drawn.
+    async function drawLeggedRoute(startLatLng, stopLatLngs, color, fit, seq) {
+      if (!stopLatLngs.length) { clearRequestRoute(); return; }
+      const waypoints = [startLatLng, ...stopLatLngs];
       const legs = [];
       const bounds = [waypoints[0]];
       for (let i = 0; i < waypoints.length - 1; i++) {
@@ -1145,6 +1146,28 @@
         L.polyline(leg, { color, weight: ROUTE_LINE_WEIGHT, opacity: 0.85 }).addTo(map)
       ));
       if (fit && bounds.length > 1) map.fitBounds(bounds, { padding: [60, 60], maxZoom: 16 });
+    }
+
+    async function showVanFullRouteViaLegRouting(vehicleId, marker, color, fit, seq) {
+      const groups = (computeVehicleStopGroups()[vehicleId] || []);
+      const start = marker.getLatLng();
+      await drawLeggedRoute([start.lat, start.lng], groups.map(g => g.latlng), color, fit, seq);
+    }
+
+    // OnDemand equivalent of showVanFullRoute -- routes the van's current position through
+    // its ordered remaining stops (odStops carry lat/lng + order from the backend).
+    async function showOdVanRoute(vehicleId, opts) {
+      const fit = !(opts && opts.fit === false);
+      const seq = ++routeDrawSeq;
+      const marker = odVehicleMarkers['od_' + vehicleId];
+      if (!marker) { clearRequestRoute(); return; }
+      const stops = odStops
+        .filter(s => String(s.vehicleId) === String(vehicleId) && Number.isFinite(s.lat) && Number.isFinite(s.lng))
+        .slice()
+        .sort((a, b) => (a.order || 0) - (b.order || 0));
+      const color = (stops[0] && stops[0].vehicleColor) || '#ec4899';
+      const start = marker.getLatLng();
+      await drawLeggedRoute([start.lat, start.lng], stops.map(s => [s.lat, s.lng]), color, fit, seq);
     }
 
     // opts.fit (default true): fit the map to the route. The per-position-update
@@ -1220,6 +1243,7 @@
       applyVanHighlight(true);
       clearRequestRoute();
       if (source === 'spare' && id) showVanFullRoute(id);
+      else if (source === 'od' && id) showOdVanRoute(id);
     }
 
     // Clicking a Duty Roster card does the same thing as clicking that van's map
@@ -1314,9 +1338,9 @@
         odBubbleMarkers[key].setLatLng([lat, lng]).setIcon(bubbleIcon);
       } else {
         odVehicleMarkers[key] = L.marker([lat, lng], { icon: busIcon })
-          // No popup (see Spare markers above for why) -- selecting an OD van instead
-          // highlights its shift row and ride cards. OD has no per-van dutyId/route
-          // concept, so this only drives highlighting, not a route preview.
+          // No popup (see Spare markers above for why) -- selecting an OD van highlights
+          // its shift row + ride cards and draws its route (leg-routed through its
+          // ordered stops, since OnDemand has no server-side route polyline).
           .on('click', (e) => { L.DomEvent.stopPropagation(e); selectVan('od', v.vehicleId, normalizeName(v.driverName)); })
           .addTo(map);
         odBubbleMarkers[key] = L.marker([lat, lng], { icon: bubbleIcon, interactive: false }).addTo(map);
@@ -1362,6 +1386,7 @@
       const vehicles = Array.isArray(data.vehicles) ? data.vehicles : [];
       const active = new Set();
       const freshStops = [];
+      const freshVehicles = [];
 
       for (const v of vehicles) {
         if (!v.vehicleId || v.lat == null || v.lng == null) continue;
@@ -1378,7 +1403,9 @@
         // Extract stops for the trip board
         const odLabel = parseOdCallName(v.callName) || 'Van';
         const odColor = getVanColor(odLabel, v.markerColor || '#ec4899');
+        const rideIds = new Set();
         for (const stop of (v.stops || [])) {
+          if (stop.rideId) rideIds.add(stop.rideId);
           freshStops.push({
             ...stop,
             vehicleId: v.vehicleId,
@@ -1386,6 +1413,13 @@
             vehicleColor: odColor,
           });
         }
+        freshVehicles.push({
+          vehicleId: v.vehicleId,
+          driverName: v.driverName || '',
+          label: odLabel,
+          color: odColor,
+          rideCount: rideIds.size,
+        });
       }
 
       // Remove markers for vans that left the response
@@ -1394,9 +1428,17 @@
       }
 
       odStops = freshStops;
+      odVehicles = freshVehicles;
       document.getElementById('od-count').textContent = active.size;
       renderTrips();
       renderStopOrderMarkers();
+      renderDuties();
+
+      // Same as the Spare markers: while an OD van is selected, re-draw its route each
+      // poll so the path tracks it as it moves. fit:false so the map doesn't lurch.
+      if (selectedVan && selectedVan.source === 'od' && selectedVan.id) {
+        showOdVanRoute(selectedVan.id, { fit: false });
+      }
     }
 
     // ---- Load vehicle roster (populates vehicleData + initial map pins) ----
@@ -1448,6 +1490,7 @@
     // ---- Trip board (Spare requests + OnDemand stops) ----
     let spareTrips = [];
     let odStops    = [];  // extracted from ondemand vehicle stop plans
+    let odVehicles = [];  // live OnDemand vans this poll: { vehicleId, driverName, label, color, rideCount }
 
     // OD rideStatus values we consider active (skip completed/cancelled)
     const OD_ACTIVE = new Set(['pending', 'in_progress', 'inProgress', 'scheduled', 'accepted']);
@@ -1650,12 +1693,14 @@
     function buildDutyCard(r) {
       const srcBadge = r.source === 'spare'
         ? `<span class="source-badge source-badge--spare">Spare</span>${r.detail ? ` <span style="color:var(--text-faint);font-size:.7rem">${escHtml(r.detail)}</span>` : ''}`
-        : `<span class="source-badge source-badge--w2w">W2W</span>`;
+        : `<span class="source-badge source-badge--w2w">${r.odActive ? 'OD' : 'W2W'}</span>${r.detail ? ` <span style="color:var(--text-faint);font-size:.7rem">${escHtml(r.detail)}</span>` : ''}`;
       const statusPill = r.source === 'spare'
         ? (r.onBreakSince
             ? `<span class="duty-status onBreak">On break</span>`
             : `<span class="duty-status ${r.status}">${escHtml(humanizeStatus(r.status))}</span>`)
-        : `<span class="duty-status scheduled" style="background:#1a2a1e;color:#6ee7b7">Shift</span>`;
+        : (r.odActive
+            ? `<span class="duty-status inProgress">Active</span>`
+            : `<span class="duty-status scheduled" style="background:#1a2a1e;color:#6ee7b7">Shift</span>`);
       const assignLine = r.vanColor
         ? `🚐 <span style="color:${r.vanColor};font-weight:600">${escHtml(r.assignment)}</span>`
         : (r.source === 'w2w'
@@ -1765,19 +1810,29 @@
 
       const w2wRows = w2wShifts
         .filter(s => !consumedShifts.has(s))
-        .map(s => ({
-          source: 'w2w',
-          startMs: s.start_ts || 0,
-          driverName: s.name || '—',
-          driverNameNorm: normalizeName(s.name),
-          assignment: s.position_name || 'UVA Ride',
-          status: 'shift',
-          shiftStr: `${fmtTime(s.start_ts / 1000)} – ${fmtTime(s.end_ts / 1000)}`,
-          dutyStr: null,
-          detail: '',
-          lateness: null, hasDriverConflict: false, hasVehicleConflict: false,
-          cancellationDetails: null, breakSec: 0, pauseSec: 0,
-        }));
+        .map(s => {
+          const nameNorm = normalizeName(s.name);
+          // The OnDemand analogue of the Spare-duty cross-reference above: if this
+          // driver has a live OnDemand van right now, attach it (van label + colour),
+          // flip the row to "Active", and note how many rides it's carrying.
+          const odVan = odVehicles.find(v => v.driverName && normalizeName(v.driverName) === nameNorm);
+          return {
+            source: 'w2w',
+            startMs: s.start_ts || 0,
+            driverName: s.name || '—',
+            driverNameNorm: nameNorm,
+            assignment: odVan ? odVan.label : (s.position_name || 'UVA Ride'),
+            vanColor: odVan ? odVan.color : null,
+            vehicleId: odVan ? odVan.vehicleId : '',
+            odActive: !!odVan,
+            status: odVan ? 'inProgress' : 'shift',
+            shiftStr: `${fmtTime(s.start_ts / 1000)} – ${fmtTime(s.end_ts / 1000)}`,
+            dutyStr: null,
+            detail: odVan && odVan.rideCount ? `${odVan.rideCount} ride${odVan.rideCount > 1 ? 's' : ''}` : '',
+            lateness: null, hasDriverConflict: false, hasVehicleConflict: false,
+            cancellationDetails: null, breakSec: 0, pauseSec: 0,
+          };
+        });
 
       const rows = [...spareRows, ...w2wRows];
       document.getElementById('duty-count').textContent = rows.length;
