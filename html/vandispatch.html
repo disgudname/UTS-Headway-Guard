@@ -1284,6 +1284,41 @@
     const STATUS_LABELS = { inProgress: 'In Progress', scheduled: 'Scheduled', completed: 'Completed', cancelled: 'Cancelled' };
     function humanizeStatus(s) { return STATUS_LABELS[s] || s || '—'; }
 
+    // ---- Smooth marker position updates (mirrors testmap.js's animateMarkerTo) ----
+    // Vehicle fixes land every ~10s; without this the markers teleport. Linear lerp
+    // over ~1s -- a van moves at roughly constant speed between fixes, so easing would
+    // read as odd deceleration. Snaps instead of animating when the tab's hidden, the
+    // OS asks for reduced motion, there's no prior position, or the move is negligible.
+    const _markerAnims = new WeakMap();      // marker -> pending rAF id
+    const _reduceMotionMq = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)');
+    const MARKER_SMOOTH_MS = 1000;
+    function animateMarkerTo(marker, latlng) {
+      if (!marker || !latlng) return;
+      const end = L.latLng(Array.isArray(latlng) ? latlng : [latlng.lat, latlng.lng]);
+      if (!end || Number.isNaN(end.lat) || Number.isNaN(end.lng)) return;
+      const pending = _markerAnims.get(marker);
+      if (pending) { cancelAnimationFrame(pending); _markerAnims.delete(marker); }
+      const start = marker.getLatLng();
+      if (!start
+          || typeof requestAnimationFrame !== 'function'
+          || document.hidden
+          || (_reduceMotionMq && _reduceMotionMq.matches)
+          || (Math.abs(start.lat - end.lat) < 1e-7 && Math.abs(start.lng - end.lng) < 1e-7)) {
+        marker.setLatLng(end);
+        return;
+      }
+      const t0 = performance.now();
+      const s = { lat: start.lat, lng: start.lng };
+      const step = (now) => {
+        if (!marker._map) { _markerAnims.delete(marker); return; } // marker was removed mid-glide
+        const t = Math.min((now - t0) / MARKER_SMOOTH_MS, 1);
+        marker.setLatLng([s.lat + t * (end.lat - s.lat), s.lng + t * (end.lng - s.lng)]);
+        if (t < 1) _markerAnims.set(marker, requestAnimationFrame(step));
+        else _markerAnims.delete(marker);
+      };
+      _markerAnims.set(marker, requestAnimationFrame(step));
+    }
+
     // ---- Upsert van marker (bus body + bubble label) ----
     function upsertVehicleMarker(locData) {
       const loc = locData.location;
@@ -1306,8 +1341,10 @@
       const bubbleIcon = createBubbleIcon(label, spareColor, bearing);
 
       if (vehicleMarkers[vid]) {
-        vehicleMarkers[vid].setLatLng([lat, lng]).setIcon(busIcon);
-        bubbleMarkers[vid].setLatLng([lat, lng]).setIcon(bubbleIcon);
+        vehicleMarkers[vid].setIcon(busIcon);
+        animateMarkerTo(vehicleMarkers[vid], [lat, lng]);
+        bubbleMarkers[vid].setIcon(bubbleIcon);
+        animateMarkerTo(bubbleMarkers[vid], [lat, lng]);
       } else {
         vehicleMarkers[vid] = L.marker([lat, lng], { icon: busIcon })
           // No popup -- it covered the map and duplicated info the Duty Roster / Active
@@ -1326,7 +1363,8 @@
       if (speedMph != null && speedMph >= 0) {
         const speedIcon = createSpeedBubbleIcon(speedMph, spareColor, bearing);
         if (speedMarkers[vid]) {
-          speedMarkers[vid].setLatLng([lat, lng]).setIcon(speedIcon);
+          speedMarkers[vid].setIcon(speedIcon);
+          animateMarkerTo(speedMarkers[vid], [lat, lng]);
         } else {
           speedMarkers[vid] = L.marker([lat, lng], { icon: speedIcon, interactive: false }).addTo(map);
         }
@@ -1353,8 +1391,10 @@
       const busIcon    = makeBusMarkerIcon(bearing, color);
       const bubbleIcon = createBubbleIcon(label, color, bearing);
       if (odVehicleMarkers[key]) {
-        odVehicleMarkers[key].setLatLng([lat, lng]).setIcon(busIcon);
-        odBubbleMarkers[key].setLatLng([lat, lng]).setIcon(bubbleIcon);
+        odVehicleMarkers[key].setIcon(busIcon);
+        animateMarkerTo(odVehicleMarkers[key], [lat, lng]);
+        odBubbleMarkers[key].setIcon(bubbleIcon);
+        animateMarkerTo(odBubbleMarkers[key], [lat, lng]);
       } else {
         odVehicleMarkers[key] = L.marker([lat, lng], { icon: busIcon })
           // No popup (see Spare markers above for why) -- selecting an OD van highlights
@@ -1367,7 +1407,8 @@
       if (typeof v.speed === 'number' && v.speed >= 0) {
         const speedIcon = createSpeedBubbleIcon(v.speed, color, bearing);
         if (odSpeedMarkers[key]) {
-          odSpeedMarkers[key].setLatLng([lat, lng]).setIcon(speedIcon);
+          odSpeedMarkers[key].setIcon(speedIcon);
+          animateMarkerTo(odSpeedMarkers[key], [lat, lng]);
         } else {
           odSpeedMarkers[key] = L.marker([lat, lng], { icon: speedIcon, interactive: false }).addTo(map);
         }
