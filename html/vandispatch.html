@@ -146,7 +146,7 @@
 
     .main-layout {
       display: grid;
-      grid-template-columns: 360px 1fr 420px;
+      grid-template-columns: 420px 1fr 360px;
       grid-template-rows: 1fr;
       flex: 1;
       min-height: 0;
@@ -181,11 +181,11 @@
     /* Trip board */
     #trip-board {
       grid-row: 1;
-      grid-column: 3;
+      grid-column: 1;
       display: flex;
       flex-direction: column;
       background: var(--panel-bg);
-      border-left: 1px solid var(--border);
+      border-right: 1px solid var(--border);
       overflow: hidden;
     }
     #trip-board h2 {
@@ -298,11 +298,11 @@
     /* Duty roster */
     #duty-roster {
       grid-row: 1;
-      grid-column: 1;
+      grid-column: 3;
       display: flex;
       flex-direction: column;
       background: var(--panel-bg);
-      border-right: 1px solid var(--border);
+      border-left: 1px solid var(--border);
       overflow: hidden;
     }
     #duty-roster h2 {
@@ -363,8 +363,8 @@
         grid-template-rows: 45vh 1fr 1fr;
       }
       #map-pane { grid-column: 1; grid-row: 1; }
-      #duty-roster { grid-column: 1; grid-row: 2; border-right: none; border-top: 1px solid var(--border); }
-      #trip-board { grid-column: 1; grid-row: 3; border-left: none; border-top: 1px solid var(--border); }
+      #trip-board { grid-column: 1; grid-row: 2; border-right: none; border-top: 1px solid var(--border); }
+      #duty-roster { grid-column: 1; grid-row: 3; border-left: none; border-top: 1px solid var(--border); }
     }
 
     /* ondemand-driver-popup (matches testmap style) */
@@ -539,9 +539,9 @@
   </div>
 
   <div class="main-layout">
-    <div id="duty-roster">
-      <h2>Duty Roster — Today</h2>
-      <div id="duties-list"><div class="no-duties">Loading…</div></div>
+    <div id="trip-board">
+      <h2>Active Trips <span id="trips-updated"></span></h2>
+      <div id="trips-list"><div class="no-trips">Loading…</div></div>
     </div>
 
     <div id="map-pane">
@@ -549,9 +549,9 @@
       <div id="map-no-webhooks">Vehicle GPS requires Spare webhook configuration</div>
     </div>
 
-    <div id="trip-board">
-      <h2>Active Trips <span id="trips-updated"></span></h2>
-      <div id="trips-list"><div class="no-trips">Loading…</div></div>
+    <div id="duty-roster">
+      <h2>Duty Roster — Today</h2>
+      <div id="duties-list"><div class="no-duties">Loading…</div></div>
     </div>
   </div>
 
