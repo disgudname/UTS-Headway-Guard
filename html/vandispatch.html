@@ -473,10 +473,47 @@
     @media (prefers-reduced-motion: reduce) {
       .incident-halo--animated { animation: none; transform: scale(1); opacity: 0.4; }
     }
-    .incident-popup__type { font-weight: 700; font-size: 0.9rem; color: #1f2937; }
-    .incident-popup__addr { font-size: 0.8rem; color: #4b5563; margin-top: 2px; }
-    .incident-popup__units { font-size: 0.78rem; color: #6b7280; margin-top: 4px; }
-    .incident-popup__meta { font-size: 0.72rem; color: #9ca3af; margin-top: 4px; }
+    /* Incident click popup (ported from testmap, themed to the vandispatch map) */
+    .leaflet-popup.incident-leaflet-popup .leaflet-popup-content-wrapper {
+      background: var(--card-bg); color: var(--text);
+      border: 1px solid var(--border); border-radius: 12px;
+      box-shadow: 0 12px 34px rgba(0,0,0,0.4);
+    }
+    .leaflet-popup.incident-leaflet-popup .leaflet-popup-content { margin: 12px 14px; }
+    .leaflet-popup.incident-leaflet-popup .leaflet-popup-tip { background: var(--card-bg); border: 1px solid var(--border); }
+    .leaflet-popup.incident-leaflet-popup a.leaflet-popup-close-button { color: var(--text-muted); }
+    .incident-popup {
+      min-width: 240px; max-width: 320px;
+      display: flex; flex-direction: column; gap: 12px;
+      color: var(--text); text-transform: none; letter-spacing: 0.2px; white-space: normal;
+    }
+    .incident-popup__header { display: flex; align-items: flex-start; gap: 12px; }
+    .incident-popup__details { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+    .incident-popup__icon {
+      width: 52px; height: 52px; border-radius: 14px; background: #fff;
+      display: flex; align-items: center; justify-content: center; overflow: hidden;
+      box-shadow: inset 0 0 0 1px rgba(15,23,42,0.08), 0 6px 16px rgba(0,0,0,0.3); flex-shrink: 0;
+    }
+    .incident-popup__icon img { width: 100%; height: 100%; object-fit: contain; display: block; }
+    .incident-popup__icon-fallback { font-size: 22px; font-weight: 800; letter-spacing: 2px; color: rgba(15,23,42,0.75); }
+    .incident-popup__title { font-size: 15px; font-weight: 800; text-transform: uppercase; letter-spacing: 1px; }
+    .incident-popup__meta { display: flex; flex-direction: column; gap: 3px; font-size: 12px; color: var(--text-muted); }
+    .incident-popup__meta-line { line-height: 1.35; }
+    .incident-popup__section { display: flex; flex-direction: column; gap: 6px; }
+    .incident-popup__section-title { font-size: 11px; text-transform: uppercase; letter-spacing: 1px; font-weight: 700; color: var(--text-muted); }
+    .incident-popup__units { gap: 8px; }
+    .incident-popup__unit-status-group { display: flex; flex-direction: column; gap: 6px; }
+    .incident-popup__unit-status-group + .incident-popup__unit-status-group { padding-top: 6px; border-top: 1px solid var(--border); }
+    .incident-popup__unit-status-title { font-size: 11px; text-transform: uppercase; letter-spacing: .8px; font-weight: 700; color: var(--text-muted); }
+    .incident-popup__unit-list { display: flex; flex-wrap: wrap; gap: 6px; }
+    .incident-popup .incident-unit {
+      display: inline-flex; align-items: center; font-size: 11px; font-weight: 700;
+      padding: 3px 9px; border-radius: 999px; border: 1px solid var(--border);
+      background: var(--row-hover-bg); color: var(--text); letter-spacing: .3px;
+    }
+    .incident-unit--upd-notified {
+      background: rgba(59,130,246,0.15) !important; border-color: rgba(59,130,246,0.45) !important; color: #93c5fd !important;
+    }
   </style>
 </head>
 <body>
@@ -2170,30 +2207,140 @@
         if (!Number.isFinite(lat) || !Number.isFinite(lng)) continue;
         const id = String(rec.ID ?? rec.PulsePointIncidentID ?? rec.PulsePointIncidentCallNumber ?? `${lat.toFixed(6)},${lng.toFixed(6)}`);
         const type = _incidentType(rec);
-        const units = Array.isArray(rec.Unit)
-          ? rec.Unit.map(u => {
-              const uid = u.UnitID || u.Unit || '';
-              const st = u.PulsePointDispatchStatus || u.Status || '';
-              return st ? `${uid} (${st})` : uid;
-            }).filter(Boolean)
-          : [];
         out.push({
-          id, lat, lng, type, units,
-          receivedTs: Date.parse(rec.CallReceivedDateTime || rec.CallReceivedDateTimeLocal || '') || null,
+          id, lat, lng, type, raw: rec,
           iconUrl: type ? `${INCIDENT_ICON_BASE}${type.toLowerCase()}_map_active.png` : '',
-          callTypeLabel: INCIDENT_TYPE_LABELS[type] || rec.PulsePointIncidentCallType || rec.CallType || 'Incident',
-          address: rec.FullDisplayAddress || rec.MedicalEmergencyDisplayAddress || rec.AddressLine1 || '',
         });
       }
       return out;
     }
+
+    // ---- Incident popup content (ported from testmap) ----
+    const INCIDENT_UNIT_STATUS_INFO = {
+      DP:{label:'Dispatched',color:'#f57c00',background:'rgba(245,124,0,0.16)',border:'rgba(245,124,0,0.38)'},
+      AK:{label:'Acknowledged',color:'#f57c00',background:'rgba(245,124,0,0.16)',border:'rgba(245,124,0,0.38)'},
+      ER:{label:'En Route',color:'#00cc00',background:'rgba(0,204,0,0.16)',border:'rgba(0,204,0,0.38)'},
+      SG:{label:'Staged',color:'#cc0000',background:'rgba(204,0,0,0.16)',border:'rgba(204,0,0,0.38)'},
+      OS:{label:'On Scene',color:'#cc0000',background:'rgba(204,0,0,0.16)',border:'rgba(204,0,0,0.38)'},
+      AE:{label:'Available On Scene',color:'#cc0000',background:'rgba(204,0,0,0.16)',border:'rgba(204,0,0,0.38)'},
+      TR:{label:'Transport',color:'#ffc107',background:'rgba(255,193,7,0.16)',border:'rgba(255,193,7,0.38)'},
+      TA:{label:'Transport Arrived',color:'#1976d2',background:'rgba(25,118,210,0.16)',border:'rgba(25,118,210,0.38)'},
+      AR:{label:'Cleared From Incident',color:'#8a8a8a',background:'rgba(138,138,138,0.16)',border:'rgba(138,138,138,0.38)'},
+    };
+    const INCIDENT_UNIT_STATUS_ALIASES = {
+      DP:'DP',DISPATCHED:'DP',DISPATCH:'DP', AK:'AK',ACK:'AK',ACKNOWLEDGED:'AK',
+      ER:'ER','EN ROUTE':'ER',ENROUTE:'ER', SG:'SG',STAGED:'SG',
+      OS:'OS','ON SCENE':'OS','ON-SCENE':'OS',ONSCENE:'OS',
+      AE:'AE','AVAILABLE ON SCENE':'AE','AVAIL ON SCENE':'AE',
+      TR:'TR',TRANSPORT:'TR',TRANSPORTING:'TR', TA:'TA','TRANSPORT ARRIVED':'TA',
+      AR:'AR',CLEARED:'AR','CLEARED FROM INCIDENT':'AR',
+    };
+    const INCIDENT_UNIT_STATUS_ORDER = ['OS','AE','SG','ER','TR','TA','DP','AK','AR'];
+    const INCIDENT_UNIT_FALLBACK_LABEL = 'Status Unknown';
+
+    function _parseUnitString(text) {
+      const t = typeof text === 'string' ? text.trim() : '';
+      if (!t) return { name: '', status: '' };
+      const m = t.match(/^(.*?)\s*\(([^)]*)\)\s*$/);
+      return m ? { name: m[1].trim(), status: m[2].trim() } : { name: t, status: '' };
+    }
+    function _normUnitStatus(value) {
+      const raw = value == null ? '' : String(value).trim();
+      if (!raw) return { key: '', raw: '', label: '', info: null };
+      const canonical = INCIDENT_UNIT_STATUS_ALIASES[raw.toUpperCase()] || '';
+      const info = canonical ? INCIDENT_UNIT_STATUS_INFO[canonical] || null : null;
+      return { key: canonical, raw, info, label: (info && info.label) || raw };
+    }
+    function _extractIncidentUnits(rec) {
+      const units = [];
+      let updNotified = false;
+      const src = Array.isArray(rec && rec.Unit) ? rec.Unit : [];
+      for (const entry of src) {
+        if (!entry) continue;
+        let name = [entry.UnitID, entry.Unit, entry.Name].find(v => typeof v === 'string' && v.trim()) || '';
+        let status = [entry.PulsePointDispatchStatus, entry.DispatchStatus, entry.Status].find(v => typeof v === 'string' && v.trim()) || '';
+        name = name.trim();
+        if (name.toUpperCase() === 'UVA2') { updNotified = true; continue; }  // UPD-notified, not an apparatus
+        const n = _normUnitStatus(status);
+        const displayText = name || n.label;
+        if (!displayText) continue;
+        units.push({ displayText, statusKey: n.key, statusLabel: n.label, colorInfo: n.info, tooltip: n.label });
+      }
+      if (updNotified) units.updNotified = true;
+      return units;
+    }
+    function _renderIncidentUnit(u) {
+      if (!u || !u.displayText) return '';
+      const s = [];
+      if (u.colorInfo) {
+        if (u.colorInfo.color) s.push(`color:${u.colorInfo.color}`);
+        if (u.colorInfo.background) s.push(`background:${u.colorInfo.background}`);
+        if (u.colorInfo.border) s.push(`border-color:${u.colorInfo.border}`);
+      }
+      const styleAttr = s.length ? ` style="${s.join(';')}"` : '';
+      const titleAttr = u.tooltip ? ` title="${escHtml(u.tooltip)}"` : '';
+      return `<span class="incident-unit${u.statusKey ? ` incident-unit--${u.statusKey.toLowerCase()}` : ''}"${styleAttr}${titleAttr}>${escHtml(u.displayText)}</span>`;
+    }
+    function _renderIncidentUnitsSection(units) {
+      const valid = (units || []).filter(u => u && u.displayText);
+      const updBadge = units && units.updNotified
+        ? `<div class="incident-popup__unit-list"><span class="incident-unit incident-unit--upd-notified">UPD Notified</span></div>` : '';
+      if (!valid.length && !updBadge) return '';
+      const groupsMap = new Map();
+      valid.forEach((u, i) => {
+        const label = u.statusLabel || u.statusKey || INCIDENT_UNIT_FALLBACK_LABEL;
+        const mapKey = u.statusKey ? `k:${u.statusKey}` : `l:${label.toLowerCase()}`;
+        let g = groupsMap.get(mapKey);
+        if (!g) {
+          const idx = u.statusKey ? INCIDENT_UNIT_STATUS_ORDER.indexOf(u.statusKey) : -1;
+          g = { label, units: [], sortIndex: idx === -1 ? INCIDENT_UNIT_STATUS_ORDER.length : idx, first: i };
+          groupsMap.set(mapKey, g);
+        }
+        g.units.push(u);
+      });
+      const groupsHtml = [...groupsMap.values()]
+        .sort((a, b) => a.sortIndex - b.sortIndex || a.first - b.first || a.label.localeCompare(b.label))
+        .map(g => {
+          const list = g.units.map(_renderIncidentUnit).filter(Boolean).join('');
+          return list ? `<div class="incident-popup__unit-status-group"><div class="incident-popup__unit-status-title">${escHtml(g.label)}</div><div class="incident-popup__unit-list">${list}</div></div>` : '';
+        }).filter(Boolean).join('');
+      if (!groupsHtml && !updBadge) return '';
+      return `<div class="incident-popup__section incident-popup__units"><div class="incident-popup__section-title">Units</div>${groupsHtml}${updBadge}</div>`;
+    }
+    function _incidentReceivedTime(rec) {
+      const d = Date.parse(rec.CallReceivedDateTime || rec.CallReceivedDateTimeLocal || '');
+      if (!Number.isFinite(d)) return null;
+      const dt = new Date(d);
+      try {
+        return {
+          display: new Intl.DateTimeFormat('en-US', { hour: 'numeric', minute: '2-digit', hour12: true, timeZone: 'America/New_York' }).format(dt),
+          full: new Intl.DateTimeFormat('en-US', { dateStyle: 'medium', timeStyle: 'short', timeZone: 'America/New_York' }).format(dt),
+        };
+      } catch (_) { const f = dt.toLocaleString(); return { display: f, full: f }; }
+    }
     function incidentPopupHtml(inc) {
-      const ago = inc.receivedTs ? Math.max(0, Math.round((Date.now() - inc.receivedTs) / 60000)) : null;
+      const rec = inc.raw || {};
+      const typeLabel = INCIDENT_TYPE_LABELS[inc.type] || rec.PulsePointIncidentCallType || rec.CallType || 'Incident';
+      const listIcon = inc.type ? `${INCIDENT_ICON_BASE}${inc.type.toLowerCase()}_list.png` : '';
+      const iconHtml = listIcon
+        ? `<div class="incident-popup__icon"><img src="${escHtml(listIcon)}" alt="${escHtml(typeLabel)} icon" onerror="this.style.display='none'"></div>`
+        : `<div class="incident-popup__icon"><span class="incident-popup__icon-fallback">${escHtml((typeLabel || 'I').charAt(0))}</span></div>`;
+      const t = _incidentReceivedTime(rec);
+      const receivedLine = t ? `<div class="incident-popup__meta-line" title="${escHtml(t.full)}">Received ${escHtml(t.display)}</div>` : '';
+      const loc = rec.FullDisplayAddress || rec.DisplayAddress || rec.Address || rec.MedicalEmergencyDisplayAddress || rec.CrossStreet || '';
+      const locLine = loc ? `<div class="incident-popup__meta-line">Location: ${escHtml(String(loc).trim())}</div>` : '';
+      const metaLines = [receivedLine, locLine].filter(Boolean).join('');
+      const metaHtml = metaLines ? `<div class="incident-popup__meta">${metaLines}</div>` : '';
+      const unitsHtml = _renderIncidentUnitsSection(_extractIncidentUnits(rec));
       return `<div class="incident-popup">
-        <div class="incident-popup__type">${escHtml(inc.callTypeLabel)}</div>
-        ${inc.address ? `<div class="incident-popup__addr">${escHtml(inc.address)}</div>` : ''}
-        ${inc.units.length ? `<div class="incident-popup__units">${escHtml(inc.units.join(', '))}</div>` : ''}
-        ${ago != null ? `<div class="incident-popup__meta">reported ${ago} min ago</div>` : ''}
+        <div class="incident-popup__header">
+          ${iconHtml}
+          <div class="incident-popup__details">
+            <div class="incident-popup__title">${escHtml(typeLabel)}</div>
+            ${metaHtml}
+          </div>
+        </div>
+        ${unitsHtml}
       </div>`;
     }
 
@@ -2215,7 +2362,7 @@
         if (!entry) {
           const halo = L.marker([inc.lat, inc.lng], { icon: incidentHaloIcon(), interactive: false, keyboard: false }).addTo(map);
           const marker = L.marker([inc.lat, inc.lng], { icon: incidentIcon(inc.iconUrl), zIndexOffset: 700 })
-            .bindPopup(incidentPopupHtml(inc), { className: 'incident-leaflet-popup', maxWidth: 280 })
+            .bindPopup(incidentPopupHtml(inc), { className: 'incident-leaflet-popup', maxWidth: 360 })
             .addTo(map);
           incidentMarkers.set(inc.id, { marker, halo });
         } else {
