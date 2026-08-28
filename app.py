@@ -15556,10 +15556,10 @@ async def index_init(request: Request):
             if age is not None and age <= STALE_FIX_S:
                 bus_count += 1
 
-        # On-demand: merged into the same total so the public number never
-        # isolates on-demand activity. Only the count leaves this function —
-        # per-vehicle position/driver/rider details must never reach an
-        # unauthenticated response.
+        # On-demand and Spare paratransit: merged into the same total so the public
+        # number never isolates on-demand / paratransit activity. Only the count
+        # leaves this function — per-vehicle position/driver/rider details must never
+        # reach an unauthenticated response.
         ondemand_count = 0
         try:
             client: Optional[OnDemandClient] = getattr(app.state, "ondemand_client", None)
@@ -15571,7 +15571,9 @@ async def index_init(request: Request):
         except Exception as exc:
             print(f"[landing] failed to fetch ondemand vehicle count: {exc}")
 
-        return bus_count + ondemand_count
+        spare_count = len(_fresh_spare_locations())
+
+        return bus_count + ondemand_count + spare_count
 
     # Run async fetches in parallel
     alerts_result, vehicle_count_result = await asyncio.gather(

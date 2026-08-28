@@ -829,7 +829,7 @@
       const width = BUS_MARKER_BASE_WIDTH_PX;
       const height = round2(BUS_MARKER_BASE_HEIGHT_PX);
       const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${BUS_MARKER_VIEWBOX_WIDTH} ${BUS_MARKER_VIEWBOX_HEIGHT}" width="${width}" height="${height}"
-          style="transform:rotate(${bearing}deg);transform-origin:50% 50%;display:block">
+          style="transform:rotate(${bearing}deg);transform-origin:50% 50%;display:block;transition:transform 0.3s ease">
         <path d="${BUS_MARKER_HALO_PATH}" fill="#fff"/>
         <path d="${BUS_MARKER_ROUTE_PATH}" fill="${fillColor}"/>
         <path d="${BUS_MARKER_RING_PATH}" fill="${glyphColor}"/>
@@ -1319,6 +1319,40 @@
       _markerAnims.set(marker, requestAnimationFrame(step));
     }
 
+    // ---- Smooth heading changes (mirrors testmap: rotate via CSS transform + transition) ----
+    // The bus-body SVG carries its rotation as an inline `transform: rotate()` with a CSS
+    // transition, so a heading change just re-sets that value on the *existing* element and
+    // it animates -- but only if we don't swap the whole icon. So .setIcon() (which replaces
+    // the DOM node) runs only when the van's colour actually changes; otherwise we rotate.
+    const _busIconColor = new Map();       // marker-key -> colour last baked into the icon
+    const _markerHeadingDeg = new WeakMap(); // bus-body marker -> continuous (unwrapped) deg applied
+    function _shortestHeadingDelta(from, to) {
+      let d = ((((to - from) % 360) + 360) % 360);
+      if (d > 180) d -= 360;               // take the short way round (350->10 = +20, not -340)
+      return d;
+    }
+    function setBusMarkerHeading(marker, bearing) {
+      if (!marker || !Number.isFinite(bearing)) return;
+      const el = marker.getElement && marker.getElement();
+      const svg = el && el.querySelector && el.querySelector('svg');
+      if (!svg) return;                    // not rendered yet -- initial angle is baked into the icon
+      const prev = _markerHeadingDeg.has(marker) ? _markerHeadingDeg.get(marker) : bearing;
+      const next = prev + _shortestHeadingDelta(prev, bearing);
+      _markerHeadingDeg.set(marker, next);
+      svg.style.transform = `rotate(${next}deg)`;
+    }
+    // Update a bus-body marker: full icon swap only when colour changed, else just rotate.
+    function updateBusBody(marker, key, bearing, color) {
+      if (_busIconColor.get(key) !== color) {
+        _busIconColor.set(key, color);
+        _markerHeadingDeg.delete(marker);
+        marker.setIcon(makeBusMarkerIcon(bearing, color));
+        _markerHeadingDeg.set(marker, bearing);
+      } else {
+        setBusMarkerHeading(marker, bearing);
+      }
+    }
+
     // ---- Upsert van marker (bus body + bubble label) ----
     function upsertVehicleMarker(locData) {
       const loc = locData.location;
@@ -1337,16 +1371,15 @@
       // then a default purple — see app.py's api_spare_vehicles(). vanColors here is just
       // a faster-polled (60s vs 120s) client-side mirror of that same admin override map.
       const spareColor = getVanColor(label, v.markerColor || '#7c3aed');
-      const busIcon    = makeBusMarkerIcon(bearing, spareColor);
       const bubbleIcon = createBubbleIcon(label, spareColor, bearing);
 
       if (vehicleMarkers[vid]) {
-        vehicleMarkers[vid].setIcon(busIcon);
+        updateBusBody(vehicleMarkers[vid], vid, bearing, spareColor);
         animateMarkerTo(vehicleMarkers[vid], [lat, lng]);
         bubbleMarkers[vid].setIcon(bubbleIcon);
         animateMarkerTo(bubbleMarkers[vid], [lat, lng]);
       } else {
-        vehicleMarkers[vid] = L.marker([lat, lng], { icon: busIcon })
+        vehicleMarkers[vid] = L.marker([lat, lng], { icon: makeBusMarkerIcon(bearing, spareColor) })
           // No popup -- it covered the map and duplicated info the Duty Roster / Active
           // Trips panels already show. Selecting a van (matches Spare's own admin panel:
           // open one duty, see its full route) instead highlights its duty/shift card and
@@ -1354,6 +1387,8 @@
           // van again) clears both.
           .on('click', (e) => { L.DomEvent.stopPropagation(e); selectVan('spare', vid); })
           .addTo(map);
+        _busIconColor.set(vid, spareColor);
+        _markerHeadingDeg.set(vehicleMarkers[vid], bearing);
         bubbleMarkers[vid] = L.marker([lat, lng], { icon: bubbleIcon, interactive: false }).addTo(map);
       }
 
@@ -1388,20 +1423,21 @@
       const bearing = v.heading ?? 0;
       const label   = parseOdCallName(v.callName) || 'Van';
       const color   = getVanColor(label, v.markerColor || '#ec4899');
-      const busIcon    = makeBusMarkerIcon(bearing, color);
       const bubbleIcon = createBubbleIcon(label, color, bearing);
       if (odVehicleMarkers[key]) {
-        odVehicleMarkers[key].setIcon(busIcon);
+        updateBusBody(odVehicleMarkers[key], key, bearing, color);
         animateMarkerTo(odVehicleMarkers[key], [lat, lng]);
         odBubbleMarkers[key].setIcon(bubbleIcon);
         animateMarkerTo(odBubbleMarkers[key], [lat, lng]);
       } else {
-        odVehicleMarkers[key] = L.marker([lat, lng], { icon: busIcon })
+        odVehicleMarkers[key] = L.marker([lat, lng], { icon: makeBusMarkerIcon(bearing, color) })
           // No popup (see Spare markers above for why) -- selecting an OD van highlights
           // its shift row + ride cards and draws its route (leg-routed through its
           // ordered stops, since OnDemand has no server-side route polyline).
           .on('click', (e) => { L.DomEvent.stopPropagation(e); selectVan('od', v.vehicleId, normalizeName(v.driverName)); })
           .addTo(map);
+        _busIconColor.set(key, color);
+        _markerHeadingDeg.set(odVehicleMarkers[key], bearing);
         odBubbleMarkers[key] = L.marker([lat, lng], { icon: bubbleIcon, interactive: false }).addTo(map);
       }
       if (typeof v.speed === 'number' && v.speed >= 0) {
@@ -1582,6 +1618,14 @@
       const tripSortTs = req => (req.status === 'inProgress'
         ? (req.dropoffEta || req.scheduledDropoffTs)
         : (req.pickupEta || req.scheduledPickupTs)) || Infinity;
+      // vehicleId -> driver name, from the duty roster, so a trip card can name the
+      // driver right next to the van.
+      const spareDriverByVid = {};
+      for (const d of spareDuties) {
+        const vid = d.vehicleId || (d.vehicle && d.vehicle.id);
+        const dn = [d.driver && d.driver.firstName, d.driver && d.driver.lastName].filter(Boolean).join(' ');
+        if (vid && dn) spareDriverByVid[vid] = dn;
+      }
       const stopOrder = computeStopOrderLookup();
       for (const req of spareTrips) {
         const name   = riderName(req);
@@ -1605,8 +1649,9 @@
         const van = req.vehicleId ? (vehicleData[req.vehicleId] || {}) : null;
         const vanLabel = van ? (van.identifier || 'Van') : null;
         const vanColor = van ? getVanColor(vanLabel, van.markerColor || '#7c3aed') : null;
+        const vanDriver = req.vehicleId ? spareDriverByVid[req.vehicleId] : null;
         const vanLine = van
-          ? `<div class="addr" style="color:#aaa;font-size:.72rem;margin-bottom:.15rem">${svgIcon('van', vanColor)} <span style="color:${vanColor};font-weight:600">${escHtml(vanLabel)}</span></div>`
+          ? `<div class="addr" style="color:#aaa;font-size:.72rem;margin-bottom:.15rem">${svgIcon('van', vanColor)} <span style="color:${vanColor};font-weight:600">${escHtml(vanLabel)}</span>${vanDriver ? ` · ${escHtml(vanDriver)}` : ''}</div>`
           : `<div class="addr" style="color:#666;font-size:.72rem;margin-bottom:.15rem;font-style:italic">Not yet assigned to a van</div>`;
         const bookedPickupTs = req.requestedPickupTs || req.scheduledPickupTs;
         const leadTime = req.createdAt && bookedPickupTs ? formatLeadTime(bookedPickupTs - req.createdAt) : null;
@@ -1657,8 +1702,10 @@
         const key = s.rideId || rec.rideId || `${s.vehicleId}|${(s.riders || []).join(',')}`;
         let r = odRides.get(key);
         if (!r) {
+          const odv = odVehicles.find(x => String(x.vehicleId) === String(s.vehicleId));
           r = { riders: (s.riders || []).slice(), vehicleId: s.vehicleId, vehicleName: s.vehicleName,
-                vehicleColor: s.vehicleColor, status: rs || 'accepted', phone: '',
+                vehicleColor: s.vehicleColor, driverName: (odv && odv.driverName) || '',
+                status: rs || 'accepted', phone: '',
                 pickupTs: null, dropoffTs: null, pickupAddr: '', dropoffAddr: '',
                 pickupOrder: null, dropoffOrder: null };
           odRides.set(key, r);
@@ -1696,7 +1743,7 @@
             <span class="source-badge source-badge--w2w" style="margin-left:auto">OD</span>
           </div>
           <div class="trip-body">
-            <div class="addr" style="color:#aaa;font-size:.72rem;margin-bottom:.15rem">${svgIcon('van', vanColor)} <span style="color:${vanColor};font-weight:600">${escHtml(r.vehicleName || 'Van')}</span></div>
+            <div class="addr" style="color:#aaa;font-size:.72rem;margin-bottom:.15rem">${svgIcon('van', vanColor)} <span style="color:${vanColor};font-weight:600">${escHtml(r.vehicleName || 'Van')}</span>${r.driverName ? ` · ${escHtml(r.driverName)}` : ''}</div>
             ${phoneLine}
             <div class="addr">${puBadge}▲ ${escHtml(puAddr)}</div>
             <div class="addr">${doBadge}▼ ${escHtml(r.dropoffAddr || '—')}</div>
