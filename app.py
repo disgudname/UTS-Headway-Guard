@@ -7386,18 +7386,22 @@ def _redact_w2w_error(message: str) -> str:
 async def _fetch_w2w_assignments():
     tz = ZoneInfo("America/New_York")
     now = datetime.now(tz)
-    service_day = now
-    if now.time() < dtime(hour=2, minute=30):
-        service_day = now - timedelta(days=1)
     if not W2W_KEY:
         return {
             "disabled": True,
             "fetched_at": int(now.timestamp() * 1000),
             "assignments_by_block": {},
         }
+    # Query yesterday + today, not a single "service day". Fixed-route shifts end by
+    # ~02:30 and OnDemand/FlexRide shifts run 19:30/21:30 -> 05:30, so no one calendar
+    # day (nor a 02:30 rollover) covers both. W2W files an overnight shift under its
+    # START_DATE, so the wider window keeps a still-running shift in the result set
+    # after midnight; _build_driver_assignments() then drops anything already ended
+    # (end_dt <= now), leaving only current + upcoming assignments.
+    yesterday = now - timedelta(days=1)
     params = {
-        "start_date": f"{service_day.month}/{service_day.day}/{service_day.year}",
-        "end_date": f"{service_day.month}/{service_day.day}/{service_day.year}",
+        "start_date": f"{yesterday.month}/{yesterday.day}/{yesterday.year}",
+        "end_date": f"{now.month}/{now.day}/{now.year}",
         "key": W2W_KEY,
     }
     url = httpx.URL(W2W_ASSIGNED_SHIFT_URL)
