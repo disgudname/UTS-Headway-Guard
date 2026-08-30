@@ -8,12 +8,25 @@
 <meta charset="utf-8">
 <title>Dispatch - UVATransit Operations Dashboard</title>
 <meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Libre+Franklin:wght@400;500;600;700&display=swap">
 <style id="dispatcher-style">
+/* Palette follows the UVA visual identity (brand.virginia.edu):
+   UVA Blue #232D4B and UVA Orange #E57200 are the primaries -- on this dark
+   ops theme UVA Blue carries the header/surfaces and UVA Orange is the
+   interactive accent (focus rings, active/selected states). Status pills and
+   dots below use the UVA secondary hues: Cyan #009FDF, Green #62BB46,
+   Teal #25CAD3, Yellow #FDDA24, Orange #E57200, Emergency #DF1E43. */
 @font-face{font-family:'FGDC';src:url('FGDC.ttf') format('truetype')}
 @font-face{font-family:'Antonio';src:url('ANTONIO.ttf') format('truetype');font-weight:400;font-style:normal;font-display:swap}
-:root{--route-color:#2a3442}
-body{font-family:'FGDC',system-ui;font-size:17px;margin:0;background:#0b0e11;color:#e8eef5;display:flex;height:100vh;position:relative;overflow:hidden}
-body.howell-mode{background:radial-gradient(circle at 12% 18%,rgba(255,153,102,.12)0,transparent 54%),radial-gradient(circle at 86% 84%,rgba(102,204,204,.1)0,transparent 60%),linear-gradient(130deg,#070b1a 0,#04060f 42%,#070b1a 100%)}
+:root{--route-color:#2a3442;--uva-blue:#232D4B;--uva-orange:#E57200;--ui-accent:#E57200;--ui-accent-ring:rgba(229,114,0,.45)}
+/* Libre Franklin is the free web equivalent of Franklin Gothic that UVA
+   itself endorses (brand.virginia.edu/design-assets/fonts). FGDC (Franklin
+   Gothic Demi Condensed) is kept where it is set explicitly below -- block
+   labels, mono readouts -- and Antonio stays on the big bus numbers. */
+body{font-family:'Libre Franklin','Franklin Gothic',Helvetica,Arial,sans-serif;font-size:17px;margin:0;background:#0b0e11;color:#e8eef5;display:flex;height:100vh;position:relative;overflow:hidden}
+body.howell-mode{font-family:'FGDC',system-ui;background:radial-gradient(circle at 12% 18%,rgba(255,153,102,.12)0,transparent 54%),radial-gradient(circle at 86% 84%,rgba(102,204,204,.1)0,transparent 60%),linear-gradient(130deg,#070b1a 0,#04060f 42%,#070b1a 100%)}
 body.howell-mode header h1{letter-spacing:.14em}
 
 #left{overflow:auto;flex:1 1 50%;min-width:260px;max-width:100%;background:#080b10}
@@ -23,7 +36,10 @@ body.howell-mode header h1{letter-spacing:.14em}
 iframe#map-frame{flex:1 1 0%;min-width:320px;border-left:1px solid rgba(255,255,255,.05);height:100%}
 body.resizing{cursor:col-resize;user-select:none}
 body.resizing iframe#map-frame{pointer-events:none}
-header{display:flex;gap:12px;align-items:center;padding:10px 16px;border-bottom:1px solid rgba(255,255,255,.06);background:linear-gradient(180deg,#0d1319 0%,#080b10 100%);flex-wrap:nowrap;min-height:52px;box-shadow:0 1px 0 rgba(255,255,255,.03)}
+header{display:flex;gap:12px;align-items:center;padding:10px 16px;border-bottom:2px solid var(--uva-orange);background:linear-gradient(120deg,var(--uva-blue) 0%,#141c30 60%,#0b1120 100%);flex-wrap:nowrap;min-height:52px;box-shadow:0 1px 0 rgba(255,255,255,.03)}
+header h1{margin:0;font-size:14px;font-weight:700;letter-spacing:.16em;text-transform:uppercase;color:#f4f6fa;flex:0 0 auto;white-space:nowrap;display:flex;align-items:center;gap:9px}
+header h1 .mark{width:4px;height:15px;border-radius:2px;background:var(--uva-orange);flex:0 0 auto}
+@media(max-width:900px){header h1{display:none}}
 #controls{display:flex;gap:10px;align-items:center;flex:1;min-width:0;flex-wrap:nowrap}
 #controls label.control-field{display:flex;align-items:center;gap:6px;font-size:12px;color:rgba(255,255,255,.4);letter-spacing:.07em;text-transform:uppercase;flex-shrink:0}
 #controls label.control-field span{white-space:nowrap}
@@ -38,10 +54,10 @@ header{display:flex;gap:12px;align-items:center;padding:10px 16px;border-bottom:
 #sup-duty-container{display:contents}
 body.kiosk-mode #controls label.control-field{flex:0 0 auto}
 select{background:rgba(255,255,255,.05);color:#e8eef5;border:1px solid rgba(255,255,255,.1);border-radius:8px;padding:6px 10px;font-family:inherit;font-size:13px}
-select:focus{outline:2px solid rgba(58,131,245,.5);outline-offset:1px;border-color:transparent}
+select:focus{outline:2px solid var(--ui-accent-ring);outline-offset:1px;border-color:transparent}
 button{background:rgba(255,255,255,.05);color:#e8eef5;border:1px solid rgba(255,255,255,.1);border-radius:8px;padding:6px 12px;font-family:inherit;font-size:13px;cursor:pointer;transition:background-color .15s,border-color .15s}
 button:hover{background:rgba(255,255,255,.09);border-color:rgba(255,255,255,.18)}
-button:focus{outline:2px solid #3a83f5;outline-offset:2px}
+button:focus{outline:2px solid var(--ui-accent);outline-offset:2px}
 button:disabled{opacity:.65;cursor:not-allowed}
 .chip{display:inline-block;border:1px solid #2a3442;border-radius:999px;padding:2px 8px;margin-left:8px;color:#cfe1ff}
 table{width:100%;border-collapse:collapse;margin-top:8px}
@@ -53,12 +69,12 @@ th,td{border-bottom:1px solid #1f2630;padding:8px 10px;text-align:left}
   --downed-ink:#f0f4ff;
   --downed-muted:#9fb0c9;
   --downed-line:rgba(159,176,201,0.25);
-  --downed-pill-downed:#ff4d6d;
-  --downed-pill-hold:#ffe29a;
-  --downed-pill-cosmetic:#7fb2ff;
-  --downed-pill-comfort:#ffb347;
-  --downed-pill-up:#6be39a;
-  --downed-pill-usable:#6b7bff;
+  --downed-pill-downed:#DF1E43;
+  --downed-pill-hold:#FDDA24;
+  --downed-pill-cosmetic:#009FDF;
+  --downed-pill-comfort:#E57200;
+  --downed-pill-up:#62BB46;
+  --downed-pill-usable:#25CAD3;
   background:var(--downed-bg);
   border:1px solid var(--downed-line);
   border-radius:18px;
@@ -95,7 +111,7 @@ th,td{border-bottom:1px solid #1f2630;padding:8px 10px;text-align:left}
   background:transparent;
 }
 .downed-embed-frame:focus{
-  outline:2px solid #3a83f5;
+  outline:2px solid var(--ui-accent);
   outline-offset:2px;
 }
 .ops-status{margin-bottom:8px}
@@ -159,7 +175,7 @@ th,td{border-bottom:1px solid #1f2630;padding:8px 10px;text-align:left}
 }
 .status-pill.usable{
   background:var(--downed-pill-usable);
-  color:#f0f4ff;
+  color:#08201f;
   box-shadow:none;
 }
 .downed-panel .hint{color:var(--downed-muted)}
@@ -212,7 +228,7 @@ body.kiosk-mode .panel.downed-panel .downed-embed-wrapper{
 .driver-line{background:none;border:none;color:inherit;font:inherit;padding:0;cursor:pointer;text-align:center}
 .driver-line[data-active="true"]{font-weight:600}
 .driver-line:hover{opacity:.86;text-decoration:underline}
-.driver-line:focus-visible{outline:2px solid #3a83f5;outline-offset:2px;text-decoration:none}
+.driver-line:focus-visible{outline:2px solid var(--ui-accent);outline-offset:2px;text-decoration:none}
 #blocks td .cell .drivers .driver-line,.blocks-grid .cell .drivers .driver-line{
   width:100%;
   display:flex;
@@ -238,9 +254,9 @@ body.kiosk-mode .panel.downed-panel .downed-embed-wrapper{
 .mono{font-family:FGDC,ui-monospace,Menlo,Consolas,monospace}
 .pill{display:inline-flex;gap:8px;align-items:center;border:1px solid #2a3442;border-radius:999px;padding:4px 8px;background:#10151c}
 .dot{width:10px;height:10px;border-radius:50%}
-.ok{color:#b6f0cb}.ok .dot{background:#24c28a}
-.warn{color:#ffe29a}.warn .dot{background:#ffbf47}
-.bad{color:#ffb0b0}.bad .dot{background:#ff6b6b}
+.ok{color:#b6f0cb}.ok .dot{background:#62BB46}
+.warn{color:#ffe29a}.warn .dot{background:#FDDA24}
+.bad{color:#ffb0b0}.bad .dot{background:#DF1E43}
 .hint{color:#9fb0c9}
 .banner{display:none;position:absolute;right:0;top:50%;transform:translateY(-50%);padding:4px 8px;text-align:right;border-radius:4px}
 .banner.error{background:#3b1f1f;color:#ffbfbf;border:1px solid #5a2b2b}
@@ -320,7 +336,7 @@ body.kiosk-mode .credit{margin-top:auto;padding:8px 12px}
 .driver-popup-subtitle{font-size:14px;color:#9fb0c9}
 .driver-popup-list{list-style:none;padding:0;margin:0;display:flex;flex-direction:column;gap:10px}
 .driver-popup-item{display:flex;flex-direction:column;align-items:flex-start;gap:4px;padding:10px 12px;border-radius:12px;background:rgba(16,21,28,.85);border:1px solid rgba(143,163,193,.22)}
-.driver-popup-item.is-active{border-color:#3a83f5;background:rgba(58,131,245,.18)}
+.driver-popup-item.is-active{border-color:var(--ui-accent);background:rgba(229,114,0,.16)}
 .driver-popup-item .driver-name{font-weight:600;font-size:15px}
 .driver-popup-item .driver-time{font-size:13px;color:#9fb0c9}
 .driver-popup-empty{font-size:14px;color:#9fb0c9}
@@ -335,6 +351,7 @@ body.kiosk-mode .credit{margin-top:auto;padding:8px 12px}
 <body data-hg-nav-requires-auth="true">
 <div id="left" style="flex:1;position:relative">
 <header>
+  <h1><span class="mark" aria-hidden="true"></span>Dispatch</h1>
   <div id="controls">
     <label for="block-layout-select" class="control-field">
       <span>Layout</span>
