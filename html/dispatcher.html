@@ -36,25 +36,36 @@ body.howell-mode header h1{letter-spacing:.14em}
 iframe#map-frame{flex:1 1 0%;min-width:320px;border-left:1px solid rgba(255,255,255,.05);height:100%}
 body.resizing{cursor:col-resize;user-select:none}
 body.resizing iframe#map-frame{pointer-events:none}
-header{display:flex;gap:12px;align-items:center;padding:10px 16px;border-bottom:2px solid var(--uva-orange);background:linear-gradient(120deg,var(--uva-blue) 0%,#141c30 60%,#0b1120 100%);flex-wrap:nowrap;min-height:52px;box-shadow:0 1px 0 rgba(255,255,255,.03)}
+/* Header wraps: brand + Layout stay on row 1; the duty roster drops to its
+   own row when the left pane is narrow instead of sliding under the map. */
+header{display:flex;gap:10px 14px;align-items:center;padding:9px 16px;border-bottom:2px solid var(--uva-orange);background:linear-gradient(120deg,var(--uva-blue) 0%,#141c30 60%,#0b1120 100%);flex-wrap:wrap;row-gap:8px;min-height:52px;box-shadow:0 1px 0 rgba(255,255,255,.03)}
 header h1{margin:0;font-size:14px;font-weight:700;letter-spacing:.16em;text-transform:uppercase;color:#f4f6fa;flex:0 0 auto;white-space:nowrap;display:flex;align-items:center;gap:9px}
 header h1 .mark{width:4px;height:15px;border-radius:2px;background:var(--uva-orange);flex:0 0 auto}
 @media(max-width:900px){header h1{display:none}}
-#controls{display:flex;gap:10px;align-items:center;flex:1;min-width:0;flex-wrap:nowrap}
-#controls label.control-field{display:flex;align-items:center;gap:6px;font-size:12px;color:rgba(255,255,255,.4);letter-spacing:.07em;text-transform:uppercase;flex-shrink:0}
+#controls{display:flex;gap:10px;align-items:center;flex:0 1 auto;min-width:0;flex-wrap:nowrap}
+#controls label.control-field{display:flex;align-items:center;gap:6px;font-size:12px;color:rgba(255,255,255,.45);letter-spacing:.07em;text-transform:uppercase;flex-shrink:0}
 #controls label.control-field span{white-space:nowrap}
 #controls label.control-field select{min-width:150px}
-#duty-roster{display:flex;flex-direction:row;gap:6px;margin-left:auto;flex-shrink:0}
-#duty-roster .duty-line{display:flex;align-items:center;gap:6px;background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.07);border-radius:999px;padding:4px 12px 4px 10px;white-space:nowrap}
-#duty-roster .duty-line.duty-empty{opacity:.5}
-#duty-roster .duty-title{font-size:10px;letter-spacing:.1em;text-transform:uppercase;color:rgba(255,255,255,.38);flex:0 0 auto}
-#duty-roster .duty-name{font-size:12px;font-weight:600;color:#cfe1ff;flex:0 0 auto}
-#duty-roster .duty-line.duty-empty .duty-name{font-weight:400;color:#6b778a}
-#duty-roster .duty-dot{width:7px;height:7px;border-radius:50%;flex-shrink:0}
-#sup-duty-container{display:contents}
+/* Duty roster: one grouped chip per role (Sup / Dispatcher) rather than a
+   free-floating pill per person, so 1-N supervisors stay compact. Right-
+   aligned in the header; wraps to its own full-width row when tight. */
+#duty-roster{display:flex;flex-wrap:wrap;align-items:center;gap:6px 10px;margin-left:auto;justify-content:flex-end;min-width:0;max-width:100%}
+.duty-group{display:flex;align-items:center;flex-wrap:wrap;gap:4px 9px;background:rgba(255,255,255,.055);border:1px solid rgba(255,255,255,.10);border-radius:10px;padding:5px 12px;min-width:0}
+.duty-group .duty-title{font-size:9.5px;font-weight:700;letter-spacing:.12em;text-transform:uppercase;color:rgba(255,255,255,.5);flex:0 0 auto}
+.duty-group .duty-name{display:inline-flex;align-items:center;gap:6px;font-size:12px;font-weight:600;color:#e8eef5;white-space:nowrap;min-width:0}
+.duty-group .duty-name+.duty-name{padding-left:9px;border-left:1px solid rgba(255,255,255,.15)}
+.duty-group .duty-dot{width:7px;height:7px;border-radius:50%;background:#5bb8ff;flex:0 0 auto}
+.duty-group.duty-empty .duty-name,.duty-group .duty-name.duty-empty{font-weight:400;color:#7c889b}
+.duty-group.duty-empty .duty-dot{background:#4a5568}
 body.kiosk-mode #controls label.control-field{flex:0 0 auto}
-select{background:rgba(255,255,255,.05);color:#e8eef5;border:1px solid rgba(255,255,255,.1);border-radius:8px;padding:6px 10px;font-family:inherit;font-size:13px}
+/* appearance:none so the native control chrome (which Windows paints with a
+   light system fill, hence the washed-out look) is dropped for a solid dark
+   field + custom caret that matches the header. */
+select{appearance:none;-webkit-appearance:none;background-color:#1b2336;color:#e8eef5;border:1px solid rgba(255,255,255,.16);border-radius:8px;padding:6px 30px 6px 10px;font-family:inherit;font-size:13px;background-image:url("data:image/svg+xml;charset=utf-8,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath fill='none' stroke='%23aab4c6' stroke-width='1.6' stroke-linecap='round' stroke-linejoin='round' d='M2.5 4.5 6 8l3.5-3.5'/%3E%3C/svg%3E");background-repeat:no-repeat;background-position:right 9px center;cursor:pointer}
+select:hover{border-color:rgba(255,255,255,.30)}
 select:focus{outline:2px solid var(--ui-accent-ring);outline-offset:1px;border-color:transparent}
+select:disabled{opacity:.55;cursor:not-allowed}
+select option{background:#141c30;color:#e8eef5}
 button{background:rgba(255,255,255,.05);color:#e8eef5;border:1px solid rgba(255,255,255,.1);border-radius:8px;padding:6px 12px;font-family:inherit;font-size:13px;cursor:pointer;transition:background-color .15s,border-color .15s}
 button:hover{background:rgba(255,255,255,.09);border-color:rgba(255,255,255,.18)}
 button:focus{outline:2px solid var(--ui-accent);outline-offset:2px}
@@ -258,9 +269,11 @@ body.kiosk-mode .panel.downed-panel .downed-embed-wrapper{
 .warn{color:#ffe29a}.warn .dot{background:#FDDA24}
 .bad{color:#ffb0b0}.bad .dot{background:#DF1E43}
 .hint{color:#9fb0c9}
-.banner{display:none;position:absolute;right:0;top:50%;transform:translateY(-50%);padding:4px 8px;text-align:right;border-radius:4px}
+/* Flows on its own full-width row (min-width:100% forces the wrap) instead of
+   floating absolutely over the duty roster. */
+.banner{display:none;min-width:100%;box-sizing:border-box;padding:3px 8px;text-align:right;border-radius:6px;font-size:12px}
 .banner.error{background:#3b1f1f;color:#ffbfbf;border:1px solid #5a2b2b}
-.banner.info{background:#121922;color:#cfe1ff;border:1px solid #2a3442}
+.banner.info{background:transparent;color:#9fb0c9;border:none;padding:0}
 h2{font-size:10px;letter-spacing:.12em;text-transform:uppercase;color:#556070;font-weight:700;margin:0 0 8px;padding-bottom:8px;border-bottom:1px solid rgba(255,255,255,.05)}
 #layout{display:flex}
 aside .panel{padding-top:16px}
@@ -359,20 +372,18 @@ body.kiosk-mode .credit{margin-top:auto;padding:8px 12px}
         <option value="">Loading layouts…</option>
       </select>
     </label>
-    <div id="duty-roster" aria-live="polite">
-      <div id="sup-duty-container">
-        <div class="duty-line duty-empty">
-          <span class="duty-title">SUP ON DUTY</span>
-          <span class="duty-name">—</span>
-        </div>
-      </div>
-      <div class="duty-line duty-empty" id="dispatch-duty-line">
-        <span class="duty-title">DISPATCHER ON DUTY</span>
-        <span class="duty-name" id="dispatch-duty-name">—</span>
-      </div>
-    </div>
-    <div id="banner" class="banner info"></div>
   </div>
+  <div id="duty-roster" aria-live="polite">
+    <div id="sup-duty-container" class="duty-group duty-empty">
+      <span class="duty-title">Sup on duty</span>
+      <span class="duty-name">—</span>
+    </div>
+    <div class="duty-group duty-empty" id="dispatch-duty-line">
+      <span class="duty-title">Dispatcher</span>
+      <span class="duty-name" id="dispatch-duty-name">—</span>
+    </div>
+  </div>
+  <div id="banner" class="banner info"></div>
 </header>
 <div id="layout">
   <aside style="flex:1;padding:0 14px 20px;border-left:none">
@@ -2027,44 +2038,35 @@ function showDriverAssignmentsPopup({blockNumber,blockLabel,busLabel,customBlock
 }
 
 function updateDutyRoster(){
-  // Supervisor(s) on duty — support 1–N supervisors
+  // Supervisor(s) on duty — support 1–N supervisors in one grouped chip
   const supContainer=document.getElementById('sup-duty-container');
   if(supContainer){
     const drivers=selectDriversForBlock('Sup','');
     const data=(DRIVER_DISPLAY_ENABLED && !driverAssignmentsDisabled)?prepareDriverDisplayData(drivers):null;
     const visible=data?data.visibleDrivers:[];
     supContainer.innerHTML='';
+    const title=document.createElement('span');
+    title.className='duty-title';
+    title.textContent='Sup on duty';
+    supContainer.appendChild(title);
     if(visible.length){
       const nowMs=Date.now();
+      supContainer.classList.remove('duty-empty');
       for(const driver of visible){
-        const pill=document.createElement('div');
-        pill.className='duty-line';
-        const role=document.createElement('span');
-        role.className='duty-title';
-        role.textContent='SUP ON DUTY';
-        const dot=document.createElement('span');
-        dot.className='duty-dot';
-        dot.style.background='#5bb8ff';
         const name=document.createElement('span');
         name.className='duty-name';
-        name.textContent=formatDriverPreviewLabel(driver,nowMs)||driver.name||'—';
-        pill.appendChild(role);
-        pill.appendChild(dot);
-        pill.appendChild(name);
-        supContainer.appendChild(pill);
+        const dot=document.createElement('span');
+        dot.className='duty-dot';
+        name.appendChild(dot);
+        name.appendChild(document.createTextNode(formatDriverPreviewLabel(driver,nowMs)||driver.name||'—'));
+        supContainer.appendChild(name);
       }
     }else{
-      const pill=document.createElement('div');
-      pill.className='duty-line duty-empty';
-      const role=document.createElement('span');
-      role.className='duty-title';
-      role.textContent='SUP ON DUTY';
+      supContainer.classList.add('duty-empty');
       const name=document.createElement('span');
       name.className='duty-name';
       name.textContent='—';
-      pill.appendChild(role);
-      pill.appendChild(name);
-      supContainer.appendChild(pill);
+      supContainer.appendChild(name);
     }
   }
   // Other fixed-position roster slots
