@@ -1,0 +1,1515 @@
+/* livemap.css
+ * ---------------------------------------------------------------------------
+ * Chrome for the new Live Map. Theme-aware via <html data-theme="light|dark">
+ * (set by livemap/core/theme.js). Keep this lean; feature modules ship their
+ * own scoped styles as they land.
+ * ------------------------------------------------------------------------- */
+
+:root {
+  --uva-navy: #232d4b;
+  --uva-orange: #e57200;
+
+  /* Light (day) chrome */
+  --panel-bg: rgba(255, 255, 255, 0.94);
+  --panel-fg: #1c2333;
+  --panel-border: rgba(35, 45, 75, 0.14);
+  --panel-shadow: 0 1px 2px rgba(20, 26, 40, 0.1), 0 8px 24px -6px rgba(20, 26, 40, 0.22);
+  --hover-bg: rgba(35, 45, 75, 0.07);
+  --toggle-active-bg: var(--uva-navy);
+  --toggle-active-fg: #ffffff;
+  --overlay-bg: rgba(243, 239, 230, 0.82);
+  --overlay-fg: #1c2333;
+
+  /* Shared motion — one decelerating curve for panels, carets, hovers. */
+  --ease: cubic-bezier(0.22, 0.61, 0.36, 1);
+  --dur: 0.24s;
+  --radius: 12px;
+}
+
+:root[data-theme='dark'] {
+  --panel-bg: rgba(26, 34, 51, 0.92);
+  --panel-fg: #dfe6f1;
+  --panel-border: rgba(150, 170, 210, 0.2);
+  --panel-shadow: 0 1px 2px rgba(0, 0, 0, 0.3), 0 10px 28px -6px rgba(0, 0, 0, 0.5);
+  --hover-bg: rgba(150, 170, 210, 0.12);
+  --toggle-active-bg: var(--uva-orange);
+  --toggle-active-fg: #1a2233;
+  --overlay-bg: rgba(20, 26, 40, 0.82);
+  --overlay-fg: #dfe6f1;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  :root {
+    --dur: 0.01ms;
+  }
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  height: 100%;
+  overflow: hidden;
+  font-family: 'Libre Franklin', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  background: #f3efe6;
+}
+
+:root[data-theme='dark'] body {
+  background: #1a2233;
+}
+
+#map {
+  position: absolute;
+  inset: 0;
+}
+
+/* --- MapLibre control skin ---------------------------------------------- */
+
+.maplibregl-ctrl-group {
+  background: var(--panel-bg);
+  border: 1px solid var(--panel-border);
+  box-shadow: var(--panel-shadow);
+  backdrop-filter: blur(6px);
+}
+
+.maplibregl-ctrl-group button + button {
+  border-top-color: var(--panel-border);
+}
+
+.livemap-theme-toggle {
+  display: flex;
+  width: max-content;
+  border-radius: 7px;
+  overflow: hidden;
+}
+
+.livemap-theme-toggle button {
+  appearance: none;
+  border: 0;
+  flex: 0 0 auto;
+  padding: 0 13px;
+  height: 30px;
+  white-space: nowrap;
+  font: 600 12px/1 'Libre Franklin', system-ui, sans-serif;
+  letter-spacing: 0.02em;
+  color: var(--panel-fg);
+  background: transparent;
+  cursor: pointer;
+  transition: background-color 0.14s ease, color 0.14s ease;
+}
+
+.livemap-theme-toggle button + button {
+  border-left: 1px solid var(--panel-border);
+}
+
+.livemap-theme-toggle button:hover {
+  background: var(--hover-bg);
+}
+
+.livemap-theme-toggle button.is-active {
+  background: var(--toggle-active-bg);
+  color: var(--toggle-active-fg);
+}
+
+/* --- loading overlay -------------------------------------------------------- */
+
+.loading-overlay {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--overlay-bg);
+  color: var(--overlay-fg);
+  z-index: 500;
+  transition: opacity 0.3s ease;
+}
+
+.loading-overlay.is-hidden {
+  opacity: 0;
+  pointer-events: none;
+}
+
+.loading-overlay__inner {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 14px;
+  font-weight: 600;
+}
+
+.loading-overlay__spinner {
+  width: 34px;
+  height: 34px;
+  border-radius: 50%;
+  border: 3px solid rgba(127, 127, 127, 0.35);
+  border-top-color: var(--uva-orange);
+  animation: livemap-spin 0.9s linear infinite;
+}
+
+@keyframes livemap-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .loading-overlay__spinner {
+    animation-duration: 2.4s;
+  }
+}
+
+/* --- vehicle popup ------------------------------------------------------- */
+
+.livemap-vehicle-popup .maplibregl-popup-content {
+  padding: 12px 14px 13px;
+  border-radius: 10px;
+  background: var(--panel-bg);
+  color: var(--panel-fg);
+  border: 1px solid var(--panel-border);
+  box-shadow: var(--panel-shadow);
+  font-family: inherit;
+}
+
+.livemap-vehicle-popup .maplibregl-popup-tip {
+  border-top-color: var(--panel-bg);
+  border-bottom-color: var(--panel-bg);
+}
+
+.livemap-vehicle-popup .maplibregl-popup-close-button {
+  color: var(--panel-fg);
+  font-size: 16px;
+  padding: 2px 6px;
+}
+
+.lv-route {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-weight: 700;
+  font-size: 13px;
+}
+
+.lv-swatch {
+  width: 10px;
+  height: 10px;
+  border-radius: 3px;
+  flex: 0 0 auto;
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.2) inset;
+}
+
+.lv-name {
+  font-size: 15px;
+  font-weight: 700;
+  margin-top: 3px;
+}
+
+.lv-meta {
+  font-size: 11.5px;
+  opacity: 0.75;
+  margin-top: 2px;
+}
+
+.lv-shift {
+  opacity: 0.7;
+  font-variant-numeric: tabular-nums;
+}
+
+.lv-access {
+  font-style: italic;
+}
+
+.lv-manifest {
+  margin-top: 8px;
+  border-top: 1px solid var(--panel-border);
+  padding-top: 6px;
+}
+
+.lv-manifest-h {
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  opacity: 0.6;
+  margin-bottom: 3px;
+}
+
+.lv-manifest-row {
+  font-size: 11.5px;
+  padding: 3px 0;
+  line-height: 1.35;
+}
+
+.lv-manifest-row + .lv-manifest-row {
+  border-top: 1px dashed var(--panel-border);
+}
+
+.lv-manifest-n {
+  display: inline-block;
+  min-width: 14px;
+  font-weight: 700;
+  opacity: 0.5;
+}
+
+.lv-manifest-k {
+  font-weight: 700;
+}
+.lv-manifest-k--p {
+  color: #16a34a;
+}
+.lv-manifest-k--d {
+  color: #dc2626;
+}
+
+.lv-manifest-addr {
+  opacity: 0.7;
+  margin-left: 14px;
+}
+
+.lv-occ {
+  margin-top: 8px;
+}
+
+.lv-occ-bar {
+  height: 6px;
+  border-radius: 3px;
+  background: rgba(127, 127, 127, 0.25);
+  overflow: hidden;
+}
+
+.lv-occ-bar span {
+  display: block;
+  height: 100%;
+  background: linear-gradient(90deg, #4caf50, #e5b400 70%, #e5533b);
+}
+
+.lv-occ-label {
+  font-size: 10.5px;
+  opacity: 0.7;
+  margin-top: 3px;
+}
+
+.lv-follow {
+  margin-top: 10px;
+  width: 100%;
+  appearance: none;
+  border: 1px solid var(--panel-border);
+  border-radius: 7px;
+  padding: 7px 10px;
+  font: 600 12px/1 inherit;
+  color: var(--panel-fg);
+  background: transparent;
+  cursor: pointer;
+  transition: background-color 0.14s ease;
+}
+
+.lv-follow:hover {
+  background: var(--hover-bg);
+}
+
+.lv-follow.is-on {
+  background: var(--uva-orange);
+  color: #1a2233;
+  border-color: transparent;
+}
+
+/* --- follow chip ------------------------------------------------------------ */
+
+.livemap-follow-chip[hidden] {
+  display: none;
+}
+
+.livemap-follow-chip {
+  position: absolute;
+  left: 50%;
+  bottom: 22px;
+  transform: translateX(-50%);
+  z-index: 450;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 8px 7px 14px;
+  border-radius: 999px;
+  font: 600 12.5px/1 inherit;
+  color: var(--panel-fg);
+  background: var(--panel-bg);
+  border: 1px solid var(--panel-border);
+  box-shadow: var(--panel-shadow);
+}
+
+.livemap-follow-chip .lfc-x {
+  appearance: none;
+  border: 0;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  font-size: 15px;
+  line-height: 1;
+  cursor: pointer;
+  color: var(--panel-fg);
+  background: rgba(127, 127, 127, 0.16);
+}
+
+.livemap-follow-chip .lfc-x:hover {
+  background: rgba(127, 127, 127, 0.3);
+}
+
+/* --- stop popup -------------------------------------------------------------- */
+
+.livemap-stop-popup .maplibregl-popup-content {
+  padding: 11px 13px 12px;
+  border-radius: 10px;
+  background: var(--panel-bg);
+  color: var(--panel-fg);
+  border: 1px solid var(--panel-border);
+  box-shadow: var(--panel-shadow);
+  font-family: inherit;
+}
+
+.livemap-stop-popup .maplibregl-popup-tip {
+  border-top-color: var(--panel-bg);
+  border-bottom-color: var(--panel-bg);
+}
+
+.livemap-stop-popup .maplibregl-popup-close-button {
+  color: var(--panel-fg);
+  font-size: 16px;
+  padding: 2px 6px;
+}
+
+.ls-name {
+  font-size: 13px;
+  font-weight: 700;
+  margin-bottom: 6px;
+  padding-right: 12px;
+}
+
+.ls-row {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 3px 0;
+  font-size: 12px;
+}
+
+.ls-sw {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  flex: 0 0 auto;
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.2) inset;
+}
+
+.ls-route {
+  flex: 1 1 auto;
+  min-width: 58px;
+  font-weight: 600;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.ls-eta {
+  flex: 0 0 auto;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.ls-eta.is-none {
+  font-weight: 500;
+  opacity: 0.55;
+}
+
+.ls-empty {
+  font-size: 11.5px;
+  opacity: 0.7;
+}
+
+/* CAT stop / vehicle popup accents (shares .livemap-stop-popup chrome) */
+.ls-tag {
+  display: inline-block;
+  margin-left: 4px;
+  padding: 1px 5px;
+  border-radius: 4px;
+  font-size: 9.5px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  vertical-align: middle;
+  background: rgba(127, 127, 127, 0.22);
+  color: var(--panel-fg);
+}
+
+.ls-dir {
+  font-weight: 500;
+  opacity: 0.6;
+  font-size: 11px;
+}
+
+/* --- panels (left control · right column) ------------------------------------ */
+
+.livemap-panel {
+  border-radius: var(--radius);
+  color: var(--panel-fg);
+  background: var(--panel-bg);
+  border: 1px solid var(--panel-border);
+  box-shadow: var(--panel-shadow);
+  backdrop-filter: blur(6px);
+  overflow: hidden;
+  font-family: inherit;
+}
+
+.livemap-panel--left {
+  position: absolute;
+  top: 10px;
+  left: 10px;
+  z-index: 450;
+  width: 224px;
+  transition: transform var(--dur) var(--ease), opacity var(--dur) var(--ease);
+}
+
+.livemap-right-column {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  z-index: 450;
+  width: 232px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  max-height: calc(100% - 20px);
+  transition: transform var(--dur) var(--ease), opacity var(--dur) var(--ease);
+}
+
+.livemap-panel--left.is-away {
+  transform: translateX(calc(-100% - 14px));
+  opacity: 0;
+  pointer-events: none;
+}
+
+.livemap-right-column.is-away {
+  transform: translateX(calc(100% + 14px));
+  opacity: 0;
+  pointer-events: none;
+}
+
+.livemap-panel--routes {
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+/* CAT routes section hides entirely when the CAT overlay is off (the class's
+   own display:flex would otherwise beat the [hidden] attribute). */
+.livemap-panel--routes[hidden] {
+  display: none;
+}
+
+.lp-head {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 8px 10px;
+}
+
+.lp-title {
+  font: 700 12.5px/1 inherit;
+  letter-spacing: 0.02em;
+}
+
+.lp-feed {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  font: 700 12px/1 inherit;
+  letter-spacing: 0.02em;
+}
+
+.lp-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex: 0 0 auto;
+  background: #9aa4b2;
+  box-shadow: 0 0 0 3px rgba(154, 164, 178, 0.25);
+}
+
+.lp-dot.is-live {
+  background: #35c26b;
+  box-shadow: 0 0 0 3px rgba(53, 194, 107, 0.28);
+}
+
+.lp-dot.is-polling {
+  background: #e5a100;
+  box-shadow: 0 0 0 3px rgba(229, 161, 0, 0.28);
+}
+
+.lp-dot.is-down {
+  background: #e5533b;
+  box-shadow: 0 0 0 3px rgba(229, 83, 59, 0.28);
+}
+
+.lp-section {
+  border-top: 1px solid var(--panel-border);
+}
+
+/* A section can be hidden outright (e.g. the dispatcher-only On-Demand section
+   for a public viewer) — make sure [hidden] wins regardless of later rules. */
+.lp-section[hidden] {
+  display: none;
+}
+
+.lp-section-head {
+  appearance: none;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 8px 10px;
+  font: 700 10px/1 inherit;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.lp-section-title {
+  opacity: 0.62;
+  flex: 1 1 auto;
+  text-align: left;
+}
+
+.lp-caret {
+  width: 0;
+  height: 0;
+  border-left: 5px solid currentColor;
+  border-top: 4px solid transparent;
+  border-bottom: 4px solid transparent;
+  transform: rotate(90deg);
+  transition: transform var(--dur) var(--ease);
+  opacity: 0.55;
+  flex: 0 0 auto;
+}
+
+.lp-section.is-collapsed .lp-caret {
+  transform: rotate(0deg);
+}
+
+.lp-section.is-collapsed .lp-section-body {
+  display: none;
+}
+
+.lp-section-body {
+  padding: 4px 9px 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.livemap-panel--routes .lp-section {
+  border-top: 0;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.lp-routes {
+  overflow-y: auto;
+  padding-top: 2px;
+}
+
+.lp-pills {
+  display: flex;
+  gap: 4px;
+  margin: 4px 0 2px;
+}
+
+.lp-pills button {
+  appearance: none;
+  flex: 1 1 0;
+  border: 1px solid var(--panel-border);
+  border-radius: 6px;
+  background: transparent;
+  color: inherit;
+  font: 600 11px/1 inherit;
+  padding: 6px 4px;
+  cursor: pointer;
+  transition: background-color 0.14s ease, color 0.14s ease;
+}
+
+.lp-pills button:hover {
+  background: var(--hover-bg);
+}
+
+.lp-pills button.is-active {
+  background: var(--toggle-active-bg);
+  color: var(--toggle-active-fg);
+  border-color: transparent;
+}
+
+.lp-btn {
+  appearance: none;
+  border: 1px solid var(--panel-border);
+  border-radius: 6px;
+  background: transparent;
+  color: inherit;
+  font: 600 11.5px/1 inherit;
+  padding: 7px 8px;
+  margin-top: 3px;
+  cursor: pointer;
+  transition: background-color 0.14s ease;
+}
+
+.lp-btn:hover {
+  background: var(--hover-bg);
+}
+
+.lp-btn:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+/* --- dispatcher sign-in / sign-out --------------------------------------- */
+
+.lp-auth {
+  border-top: 1px solid var(--panel-border);
+  padding: 8px 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.lp-auth .lp-btn {
+  margin-top: 0;
+}
+
+.lp-auth-form[hidden],
+.lp-auth-in[hidden],
+.lp-auth-msg[hidden] {
+  display: none;
+}
+
+.lp-auth-row {
+  display: flex;
+  gap: 5px;
+}
+
+.lp-auth-pw {
+  flex: 1 1 auto;
+  min-width: 0;
+  appearance: none;
+  border: 1px solid var(--panel-border);
+  border-radius: 6px;
+  background: transparent;
+  color: inherit;
+  font: 500 12px/1 inherit;
+  padding: 7px 8px;
+}
+
+.lp-auth-go {
+  appearance: none;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  background: var(--toggle-active-bg);
+  color: var(--toggle-active-fg);
+  font: 700 11.5px/1 inherit;
+  padding: 7px 11px;
+  cursor: pointer;
+}
+
+.lp-auth-go:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.lp-auth-cancel {
+  appearance: none;
+  border: 1px solid var(--panel-border);
+  border-radius: 6px;
+  background: transparent;
+  color: inherit;
+  font: 700 13px/1 inherit;
+  padding: 0 9px;
+  cursor: pointer;
+}
+
+.lp-auth-msg {
+  font: 600 11px/1.3 inherit;
+  color: var(--uva-orange);
+}
+
+.lp-auth-in {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.lp-auth-who {
+  font: 700 11.5px/1.2 inherit;
+  letter-spacing: 0.01em;
+}
+
+.lp-check {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 4px;
+  border-radius: 6px;
+  font: 600 12px/1.2 inherit;
+  cursor: pointer;
+}
+
+/* [hidden] has to beat the class's display:flex (e.g. the dispatcher-only
+   "Bus labels" row for a public viewer). */
+.lp-check[hidden] {
+  display: none;
+}
+
+.lp-check:hover {
+  background: var(--hover-bg);
+}
+
+.lp-check input {
+  accent-color: var(--uva-navy);
+  width: 14px;
+  height: 14px;
+  flex: 0 0 auto;
+  cursor: pointer;
+}
+
+:root[data-theme='dark'] .lp-check input {
+  accent-color: var(--uva-orange);
+}
+
+.lp-bulk {
+  display: flex;
+  gap: 4px;
+}
+
+.lp-bulk button {
+  appearance: none;
+  border: 1px solid var(--panel-border);
+  border-radius: 5px;
+  background: transparent;
+  color: inherit;
+  font: 600 9.5px/1 inherit;
+  letter-spacing: 0;
+  padding: 4px 7px;
+  cursor: pointer;
+  transition: background-color 0.14s ease;
+}
+
+.lp-bulk button:hover {
+  background: rgba(127, 127, 127, 0.16);
+}
+
+.lp-row {
+  appearance: none;
+  border: 0;
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 6px;
+  border-radius: 6px;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+  text-align: left;
+  font: 600 12px/1.2 inherit;
+  transition: background-color 0.12s ease;
+}
+
+.lp-row:hover {
+  background: var(--hover-bg);
+}
+
+.lp-sw {
+  width: 12px;
+  height: 12px;
+  border-radius: 3px;
+  flex: 0 0 auto;
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.22) inset;
+}
+
+.lp-name-wrap {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  overflow: hidden;
+}
+
+.lp-name {
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.lp-note {
+  flex: 0 0 auto;
+  font-size: 9.5px;
+  font-weight: 600;
+  opacity: 0.5;
+  letter-spacing: 0.02em;
+}
+
+.lp-row.is-idle {
+  opacity: 0.68;
+}
+
+.lp-row.is-idle .lp-sw {
+  filter: grayscale(0.45);
+}
+
+.lp-eye {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  flex: 0 0 auto;
+  background: var(--uva-orange);
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.15) inset;
+}
+
+.lp-row.is-off {
+  opacity: 0.5;
+}
+
+.lp-row.is-off .lp-sw {
+  filter: grayscale(1);
+}
+
+.lp-row.is-off .lp-eye {
+  background: transparent;
+  box-shadow: 0 0 0 1.5px currentColor inset;
+  opacity: 0.6;
+}
+
+.lp-empty {
+  padding: 8px 6px;
+  font-size: 11.5px;
+  opacity: 0.7;
+}
+
+/* --- status panel body --------------------------------------------------- */
+
+.livemap-panel--status[hidden] {
+  display: none;
+}
+
+.st-group {
+  padding: 6px 10px 8px;
+  border-top: 1px solid var(--panel-border);
+}
+
+.st-group:first-child {
+  border-top: 0;
+}
+
+.st-group-label {
+  font: 700 10px/1 inherit;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  opacity: 0.55;
+  margin-bottom: 5px;
+}
+
+.st-line {
+  font-size: 11.5px;
+  margin: 3px 0;
+  line-height: 1.35;
+}
+
+.st-key {
+  opacity: 0.6;
+  margin-right: 3px;
+}
+
+.st-next {
+  opacity: 0.7;
+  font-style: italic;
+}
+
+.st-empty {
+  opacity: 0.5;
+}
+
+.st-cond {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 11.5px;
+  margin: 4px 0;
+}
+
+.st-cond--warn {
+  color: #e5a100;
+}
+
+.st-ind {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex: 0 0 auto;
+  background: #9aa4b2;
+}
+
+.st-ind--online {
+  background: #35c26b;
+}
+
+.st-ind--offline {
+  background: #e5533b;
+}
+
+/* --- service alerts ----------------------------------------------------------- */
+
+.livemap-panel--alerts[hidden] {
+  display: none;
+}
+
+.lp-alerts-body {
+  padding: 0;
+  gap: 0;
+  max-height: 34vh;
+  overflow-y: auto;
+}
+
+.lp-alerts-body .lp-empty {
+  padding: 8px 10px;
+}
+
+.lp-badge {
+  min-width: 16px;
+  height: 16px;
+  padding: 0 4px;
+  border-radius: 8px;
+  font: 700 10px/16px inherit;
+  text-align: center;
+  background: rgba(127, 127, 127, 0.22);
+  color: inherit;
+}
+
+.lp-badge.is-active {
+  background: #e5a100;
+  color: #1a2233;
+}
+
+.sa-item {
+  padding: 7px 10px;
+  border-top: 1px solid var(--panel-border);
+}
+
+.sa-item:first-child {
+  border-top: 0;
+}
+
+.sa-title {
+  font-weight: 700;
+  font-size: 12px;
+}
+
+.sa-msg {
+  font-size: 11.5px;
+  line-height: 1.4;
+  margin-top: 3px;
+  opacity: 0.9;
+}
+
+.sa-when {
+  font-size: 10.5px;
+  opacity: 0.6;
+  margin-top: 4px;
+  font-variant-numeric: tabular-nums;
+}
+
+/* --- edge tabs --------------------------------------------------------------- */
+
+.livemap-panel-tab {
+  position: absolute;
+  top: 14px;
+  z-index: 449;
+  appearance: none;
+  width: 20px;
+  height: 44px;
+  padding: 0;
+  border: 1px solid var(--panel-border);
+  background: var(--panel-bg);
+  box-shadow: var(--panel-shadow);
+  backdrop-filter: blur(6px);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: left 0.22s ease, right 0.22s ease;
+}
+
+.livemap-panel-tab--left {
+  left: 244px;
+  border-radius: 0 7px 7px 0;
+  border-left: 0;
+}
+
+.livemap-panel-tab--right {
+  right: 252px;
+  border-radius: 7px 0 0 7px;
+  border-right: 0;
+}
+
+.livemap-panel-tab--left.is-away {
+  left: 0;
+}
+
+.livemap-panel-tab--right.is-away {
+  right: 0;
+}
+
+.lpt-arrow {
+  width: 0;
+  height: 0;
+  border-top: 5px solid transparent;
+  border-bottom: 5px solid transparent;
+  opacity: 0.6;
+}
+
+.livemap-panel-tab--left .lpt-arrow {
+  border-right: 6px solid currentColor;
+}
+
+.livemap-panel-tab--right .lpt-arrow {
+  border-left: 6px solid currentColor;
+}
+
+.livemap-panel-tab--left.is-away .lpt-arrow {
+  border-right: 0;
+  border-left: 6px solid currentColor;
+}
+
+.livemap-panel-tab--right.is-away .lpt-arrow {
+  border-left: 0;
+  border-right: 6px solid currentColor;
+}
+
+/* --- building search --------------------------------------------------------- */
+
+.livemap-search {
+  position: absolute;
+  top: 10px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 455;
+  width: clamp(230px, 38vw, 380px);
+  font-family: inherit;
+}
+
+.lsb-field {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 0 8px 0 10px;
+  height: 38px;
+  border-radius: 10px;
+  background: var(--panel-bg);
+  border: 1px solid var(--panel-border);
+  box-shadow: var(--panel-shadow);
+  backdrop-filter: blur(6px);
+}
+
+.lsb-icon {
+  width: 13px;
+  height: 13px;
+  flex: 0 0 auto;
+  border: 2px solid currentColor;
+  border-radius: 50%;
+  opacity: 0.5;
+  position: relative;
+}
+
+.lsb-icon::after {
+  content: '';
+  position: absolute;
+  right: -4px;
+  bottom: -4px;
+  width: 6px;
+  height: 2px;
+  background: currentColor;
+  transform: rotate(45deg);
+  border-radius: 1px;
+}
+
+/* The loading state just spins the magnifying-glass glyph itself (the ::after is
+   the handle whipping around). The user loves this — keep it forever. */
+.livemap-search.is-loading .lsb-icon {
+  animation: livemap-spin 0.8s linear infinite;
+}
+
+.lsb-input {
+  flex: 1 1 auto;
+  min-width: 0;
+  appearance: none;
+  border: 0;
+  background: transparent;
+  color: var(--panel-fg);
+  font: 500 13px/1 inherit;
+  outline: none;
+}
+
+.lsb-input::placeholder {
+  color: var(--panel-fg);
+  opacity: 0.5;
+}
+
+.lsb-clear {
+  appearance: none;
+  border: 0;
+  background: transparent;
+  color: var(--panel-fg);
+  font-size: 17px;
+  line-height: 1;
+  padding: 4px 6px;
+  cursor: pointer;
+  opacity: 0.6;
+}
+
+.lsb-clear:hover {
+  opacity: 1;
+}
+
+.lsb-results {
+  margin-top: 6px;
+  border-radius: 10px;
+  background: var(--panel-bg);
+  border: 1px solid var(--panel-border);
+  box-shadow: var(--panel-shadow);
+  backdrop-filter: blur(6px);
+  overflow: hidden;
+  max-height: 46vh;
+  overflow-y: auto;
+}
+
+.lsb-item {
+  appearance: none;
+  border: 0;
+  width: 100%;
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  gap: 9px;
+  padding: 8px 11px;
+  background: transparent;
+  color: var(--panel-fg);
+  cursor: pointer;
+  text-align: left;
+  border-top: 1px solid var(--panel-border);
+}
+
+.lsb-item:first-child {
+  border-top: 0;
+}
+
+.lsb-item:hover,
+.lsb-item.is-active {
+  background: var(--hover-bg);
+}
+
+.lsb-text {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 0;
+}
+
+.lsb-swatch {
+  flex: 0 0 auto;
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  border: 2px solid rgba(255, 255, 255, 0.9);
+  box-shadow: 0 0 0 1px rgba(35, 45, 75, 0.25);
+}
+
+.lsb-head {
+  padding: 6px 11px 3px;
+  font-size: 9.5px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  opacity: 0.5;
+}
+
+.lsb-head + .lsb-item {
+  border-top: 0;
+}
+
+.lsb-name {
+  font-weight: 700;
+  font-size: 12.5px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 100%;
+}
+
+.lsb-meta {
+  font-size: 11px;
+  opacity: 0.62;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 100%;
+}
+
+.lsb-empty {
+  padding: 9px 11px;
+  font-size: 11.5px;
+  opacity: 0.7;
+}
+
+/* --- overlapping-marker menu ---------------------------------------------- */
+
+.livemap-marker-menu {
+  position: absolute;
+  z-index: 460;
+  pointer-events: none;
+  transform: translate(-50%, -50%);
+  opacity: 0;
+  transition: opacity 0.15s ease;
+}
+
+.livemap-marker-menu.is-open {
+  opacity: 1;
+}
+
+.livemap-marker-menu.is-open .lmm-chip,
+.livemap-marker-menu.is-open .lmm-center {
+  pointer-events: auto;
+}
+
+.lmm-center {
+  position: absolute;
+  left: 0;
+  top: 0;
+  transform: translate(-50%, -50%);
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  border: 1px solid var(--panel-border);
+  background: var(--panel-bg);
+  color: var(--panel-fg);
+  font: 700 13px/1 inherit;
+  cursor: pointer;
+  box-shadow: var(--panel-shadow);
+}
+
+.lmm-chip {
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: 92px;
+  height: 92px;
+  padding: 9px;
+  border-radius: 50%;
+  border: 2px solid #fff;
+  box-shadow: 0 2px 10px rgba(20, 26, 40, 0.35);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  overflow: hidden;
+  transition: transform 0.12s ease, filter 0.12s ease;
+}
+
+.lmm-chip:hover {
+  filter: brightness(1.08);
+  z-index: 1;
+}
+
+.lmm-text {
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  font: 700 9px/1.15 inherit;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.4);
+}
+
+.lmm-sub {
+  display: block;
+  font-weight: 600;
+  font-size: 8px;
+  opacity: 0.85;
+  margin-top: 1px;
+}
+
+.livemap-marker-menu.lmm-hint {
+  pointer-events: none;
+  padding: 6px 11px;
+  border-radius: 999px;
+  background: var(--panel-bg);
+  border: 1px solid var(--panel-border);
+  box-shadow: var(--panel-shadow);
+  color: var(--panel-fg);
+  font: 700 11px/1 inherit;
+  white-space: nowrap;
+}
+
+/* --- credit line --------------------------------------------------------- */
+
+.credit {
+  position: absolute;
+  left: 8px;
+  bottom: 6px;
+  z-index: 400;
+  font-size: 10px;
+  line-height: 1.3;
+  padding: 3px 7px;
+  border-radius: 5px;
+  color: var(--panel-fg);
+  background: var(--panel-bg);
+  border: 1px solid var(--panel-border);
+  pointer-events: none;
+  max-width: 60vw;
+}
+
+/* --- operator modes (kiosk / embed) ------------------------------------- */
+
+/* No chrome, no hand-driven camera: the map fills the screen and the cursor
+   stops advertising drag. */
+:root[data-mode='kiosk'] .credit,
+:root[data-mode='adminKiosk'] .credit,
+:root[data-mode='embed'] .credit {
+  display: none;
+}
+
+.livemap-map--locked .maplibregl-canvas,
+.livemap-map--locked .maplibregl-canvas-container {
+  cursor: default;
+}
+
+/* Full-screen kiosk status overlay — shown only when the bus feed is down or
+   is up with nothing to show. Matches the legacy testmap .kiosk-status-message:
+   big centred text, navy scrim, fades in via .is-visible. */
+.livemap-kiosk-status {
+  position: fixed;
+  inset: 0;
+  z-index: 2400;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin: clamp(0.5rem, 3vw, 2.5rem);
+  padding: clamp(1rem, 5vw, 3rem);
+  text-align: center;
+  white-space: pre-line;
+  font: 700 clamp(1.5rem, 8vw, 4.5rem) / 1.2 inherit;
+  color: #f8fafc;
+  background: rgba(35, 45, 75, 0.82);
+  backdrop-filter: blur(3px);
+  border-radius: clamp(0.5rem, 3vw, 2.5rem);
+  box-shadow: 0 24px 60px rgba(15, 23, 42, 0.35);
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
+  transition: opacity 0.25s ease, visibility 0.25s ease;
+}
+
+.livemap-kiosk-status.is-visible {
+  opacity: 1;
+  visibility: visible;
+}
+
+/* Read-only route legend for the kiosk shells (top-left). */
+.livemap-route-legend {
+  position: fixed;
+  top: 10px;
+  left: 10px;
+  z-index: 460;
+  max-width: 240px;
+  max-height: 78vh;
+  overflow-y: auto;
+  padding: 12px 14px 14px;
+  border-radius: 16px;
+  color: var(--panel-fg);
+  background: var(--panel-bg);
+  border: 1px solid var(--panel-border);
+  box-shadow: var(--panel-shadow);
+  font: 600 15px/1.2 inherit;
+}
+
+.livemap-route-legend[hidden] {
+  display: none;
+}
+
+.livemap-route-legend .lrl-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 7px 8px;
+  border-radius: 10px;
+}
+
+.livemap-route-legend .lrl-item + .lrl-item {
+  margin-top: 6px;
+}
+
+.livemap-route-legend .lrl-dot {
+  width: 16px;
+  height: 16px;
+  flex: 0 0 auto;
+  border-radius: 50%;
+  border: 2px solid rgba(255, 255, 255, 0.9);
+  box-shadow: 0 0 0 1px rgba(35, 45, 75, 0.25);
+}
+
+.livemap-route-legend .lrl-name {
+  overflow-wrap: anywhere;
+}
+
+.livemap-route-legend .lrl-qr-sep {
+  height: 1px;
+  margin: 13px 0 11px;
+  background: var(--panel-border);
+}
+
+.livemap-route-legend .lrl-qr-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.livemap-route-legend .lrl-qr-code {
+  display: block;
+  flex: 0 0 auto;
+  width: 66px;
+  height: 66px;
+  padding: 3px;
+  border-radius: 6px;
+  background: #fff;
+  line-height: 0;
+}
+
+.livemap-route-legend .lrl-qr-code svg {
+  width: 100%;
+  height: 100%;
+}
+
+.livemap-route-legend .lrl-qr-label {
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.livemap-route-legend .lrl-qr-url {
+  margin-top: 3px;
+  font-size: 11px;
+  font-weight: 600;
+  opacity: 0.7;
+  overflow-wrap: anywhere;
+}

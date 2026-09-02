@@ -1,0 +1,30 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Live Map — Kiosk — UVATransit Operations Dashboard</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no" />
+    <meta name="robots" content="noindex" />
+    <link rel="icon" type="image/png" href="/media/favicon.ico" />
+    <link rel="apple-touch-icon" sizes="180x180" href="/media/apple-touch-icon-180.png" />
+
+    <link rel="stylesheet" href="/livemap-vendor/maplibre-gl.css" />
+    <link rel="stylesheet" href="/livemap.css" />
+
+    <!-- MapLibre GL + the PMTiles protocol shim; both attach a global. -->
+    <script src="/livemap-vendor/maplibre-gl.js"></script>
+    <script src="/livemap-vendor/pmtiles.js"></script>
+  </head>
+  <body>
+    <div id="map"></div>
+
+    <div id="loadingOverlay" class="loading-overlay" aria-live="polite" aria-busy="true">
+      <div class="loading-overlay__inner">
+        <div class="loading-overlay__spinner" aria-hidden="true"></div>
+        <div class="loading-overlay__text">Loading the map…</div>
+      </div>
+    </div>
+
+    <script type="module" src="/livemap-src/apps/kiosk.js"></script>
+  </body>
+</html>

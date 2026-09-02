@@ -32,7 +32,7 @@ from datetime import date, datetime, timedelta, time as dtime, timezone
 from email.utils import parsedate_to_datetime
 from zoneinfo import ZoneInfo
 import httpx
-from collections import deque, defaultdict
+from collections import deque, defaultdict, OrderedDict
 import xml.etree.ElementTree as ET
 from Crypto.Cipher import AES
 from Crypto.Util.Padding import unpad
@@ -1741,6 +1741,11 @@ app = FastAPI(title="UVATransit Operations Dashboard")
 # awareness, since it has none -- it compresses any response that clears minimum_size.
 _SSE_STREAM_PATH_PREFIXES = ("/v1/stream/", "/stream/")
 
+# Paths that must bypass gzip: it re-buffers the response and drops the 206
+# Partial Content / Range handling that the PMTiles client depends on (and the
+# .pmtiles archive is already internally gzip-compressed, so it's wasted work).
+_GZIP_BYPASS_PATH_PREFIXES = ("/livemap-vendor/",)
+
 
 class _ConditionalGZipMiddleware:
     def __init__(self, app, minimum_size: int = 500):
@@ -1749,7 +1754,9 @@ class _ConditionalGZipMiddleware:
 
     async def __call__(self, scope, receive, send):
         path = scope.get("path", "") if scope.get("type") == "http" else ""
-        if path.startswith(_SSE_STREAM_PATH_PREFIXES):
+        if path.startswith(_SSE_STREAM_PATH_PREFIXES) or path.startswith(
+            _GZIP_BYPASS_PATH_PREFIXES
+        ):
             await self._plain_app(scope, receive, send)
         else:
             await self._gzip_app(scope, receive, send)
@@ -1864,6 +1871,9 @@ DRIVER_HTML = _load_html("driver.html")
 DISPATCHER_HTML = _load_html("dispatcher.html")
 MAP_HTML = _load_html("map.html")
 TESTMAP_HTML = _load_html("testmap.html")
+LIVEMAP_HTML = _load_html("livemap.html")
+LIVEMAP_KIOSK_HTML = _load_html("livemap-kiosk.html")
+LIVEMAP_EMBED_HTML = _load_html("livemap-embed.html")
 KIOSKMAP_HTML = _load_html("kioskmap.html")
 CATTESTMAP_HTML = _load_html("cattestmap.html")
 DASHMAP_HTML = _load_html("dashmap.html")
@@ -12473,11 +12483,15 @@ async def anti_bunching_status(request: Request):
 # REST: On-Duty Personnel
 # ---------------------------
 
-# Position codes for on-duty personnel lookup
+# Position codes for on-duty personnel lookup. "FlexRide Dispatch" and
+# "OnDemand Dispatch" are two W2W positions covering the same demand-response
+# dispatch role; we fold them into one "dispatcher" bucket for display.
 ON_DUTY_POSITION_CODES = {
     "Sup": "Supervisor",
-    "OnDemand Dispatch": "OnDemand Dispatcher",
+    "OnDemand Dispatch": "Dispatcher",
+    "FlexRide Dispatch": "Dispatcher",
 }
+_DISPATCH_POSITION_CODES = {"OnDemand Dispatch", "FlexRide Dispatch"}
 
 
 def _get_current_and_next_shifts(
@@ -12660,8 +12674,21 @@ async def _fetch_on_duty_personnel() -> Dict[str, Any]:
 
             if position_key == "Sup":
                 all_supervisors.append(person)
-            elif position_key == "OnDemand Dispatch":
+            elif position_key in _DISPATCH_POSITION_CODES:
                 all_dispatchers.append(person)
+
+        # Fold the two dispatch positions together: if one person is scheduled on
+        # both FlexRide and OnDemand dispatch for an overlapping window, show them
+        # once.
+        seen_disp: Set[Tuple[str, int, int]] = set()
+        deduped_dispatchers = []
+        for p in all_dispatchers:
+            key = (p["name"], p["start_ts"], p["end_ts"])
+            if key in seen_disp:
+                continue
+            seen_disp.add(key)
+            deduped_dispatchers.append(p)
+        all_dispatchers = deduped_dispatchers
 
         # Determine current and next for each position type
         current_sups, next_sups = _get_current_and_next_shifts(all_supervisors, now_ts)
@@ -12703,6 +12730,91 @@ async def uts_on_duty(request: Request):
     """
     _require_dispatcher_access(request)
     return await _fetch_on_duty_personnel()
+
+
+# ---------------------------
+# REST: UVA building / facility search (backs the livemap search box)
+# ---------------------------
+
+_UVA_FACILITY_SEARCH_URL = (
+    "https://fm-atlas.eservices.virginia.edu/server/rest/services/"
+    "Public/PublicFacilitiesSearch/MapServer/0/query"
+)
+_uva_facility_cache = PerKeyTTLCache(ttl=6 * 3600, max_keys=300)
+_UVA_QUERY_OK = re.compile(r"[^A-Za-z0-9 &./@'\-]")
+
+
+def _facility_bbox(rings: List[List[List[float]]]):
+    xs: List[float] = []
+    ys: List[float] = []
+    for ring in rings or []:
+        for pt in ring:
+            if isinstance(pt, (list, tuple)) and len(pt) >= 2:
+                xs.append(float(pt[0]))
+                ys.append(float(pt[1]))
+    if not xs or not ys:
+        return None
+    return [min(xs), min(ys), max(xs), max(ys)]
+
+
+@app.get("/v1/uva/facility_search")
+async def uva_facility_search(q: str = Query(..., min_length=2, max_length=80)):
+    """Type-ahead search of UVA building footprints for the livemap search box.
+
+    Proxies UVA Facilities Management's public PublicFacilitiesSearch MapServer
+    (same service the official Visitor Map uses) — no token. We proxy rather
+    than hit it from the browser because that service does per-Origin CORS.
+    Returns trimmed GeoJSON polygons + bbox.
+    """
+    cleaned = _UVA_QUERY_OK.sub("", q).strip()
+    if len(cleaned) < 2:
+        return {"results": []}
+    like = cleaned.replace("'", "''").upper()
+
+    async def _fetch():
+        where = (
+            f"(UPPER(FacilityName) LIKE UPPER('%{like}%')) OR "
+            f"(UPPER(FacilityNumber) LIKE UPPER('%{like}%')) OR "
+            f"(UPPER(FullAddress) LIKE UPPER('%{like}%'))"
+        )
+        params = {
+            "f": "json",
+            "where": where,
+            "outFields": "FacilityName,FacilityNumber,FullAddress",
+            "returnGeometry": "true",
+            "outSR": "4326",
+            "resultRecordCount": "12",
+        }
+        async with httpx.AsyncClient() as client:
+            resp = await client.get(_UVA_FACILITY_SEARCH_URL, params=params, timeout=15)
+        record_api_call("GET", str(resp.request.url), resp.status_code)
+        resp.raise_for_status()
+        data = resp.json()
+
+        results = []
+        for feat in (data.get("features") or [])[:12]:
+            attrs = feat.get("attributes") or {}
+            rings = (feat.get("geometry") or {}).get("rings")
+            if not rings:
+                continue
+            bbox = _facility_bbox(rings)
+            if not bbox:
+                continue
+            results.append(
+                {
+                    "name": (attrs.get("FacilityName") or "").strip() or "Building",
+                    "number": (attrs.get("FacilityNumber") or "").strip(),
+                    "address": " ".join((attrs.get("FullAddress") or "").split()),
+                    "geometry": {"type": "Polygon", "coordinates": rings},
+                    "bbox": bbox,
+                }
+            )
+        return {"results": results}
+
+    try:
+        return await _uva_facility_cache.get(like, _fetch)
+    except httpx.HTTPError as exc:
+        raise HTTPException(status_code=502, detail=f"facility search upstream error: {exc}") from exc
 
 
 # ---------------------------
@@ -13172,6 +13284,174 @@ async def marker_selection_menu_min_js():
 @app.get("/scripts/push-notifications.js", include_in_schema=False)
 async def push_notifications_js():
     return _serve_js_asset("push-notifications.js")
+
+
+# ---------------------------
+# New Live Map (livemap/*) — MapLibre GL rewrite of testmap. Served as native
+# ES modules (no build step): one guarded path route for the module tree, plus
+# the vendored MapLibre GL bundle. Edit sources under scripts/livemap/.
+# ---------------------------
+_LIVEMAP_SRC_DIR = (SCRIPT_DIR / "livemap").resolve()
+_LIVEMAP_VENDOR_DIR = (SCRIPT_DIR / "vendor").resolve()
+
+
+@app.get("/livemap.css", include_in_schema=False)
+async def livemap_css():
+    return _serve_css_asset("livemap.css")
+
+
+_LIVEMAP_VENDOR_MEDIA = {
+    "maplibre-gl.js": "application/javascript",
+    "maplibre-gl.css": "text/css",
+    "pmtiles.js": "application/javascript",
+    # Charlottesville/Albemarle street basemap (Protomaps extract of OSM). Served
+    # with Range support (Starlette FileResponse) so the pmtiles client can fetch
+    # only the byte ranges it needs.
+    "albemarle.pmtiles": "application/octet-stream",
+}
+
+
+def _range_file_response(request: Request, path: Path, media_type: str) -> Response:
+    """Serve a file with HTTP Range support.
+
+    Starlette only grew Range support for FileResponse in 0.45; this app pins an
+    older FastAPI/Starlette, and the PMTiles client hard-requires byte serving.
+    So we parse a single "bytes=start-end" range ourselves and 206 it.
+    """
+    size = path.stat().st_size
+    base_headers = {"Cache-Control": "public, max-age=86400", "Accept-Ranges": "bytes"}
+    rng = request.headers.get("range")
+    if rng and rng.strip().lower().startswith("bytes="):
+        spec = rng.split("=", 1)[1].split(",", 1)[0].strip()
+        start_s, _, end_s = spec.partition("-")
+        try:
+            if start_s == "":
+                # suffix range: last N bytes
+                length = int(end_s)
+                start = max(0, size - length)
+                end = size - 1
+            else:
+                start = int(start_s)
+                end = int(end_s) if end_s else size - 1
+        except ValueError:
+            start, end = 0, size - 1
+        end = min(end, size - 1)
+        if start > end or start >= size:
+            return Response(
+                status_code=416,
+                headers={**base_headers, "Content-Range": f"bytes */{size}"},
+            )
+        length = end - start + 1
+
+        def _iter():
+            with open(path, "rb") as fh:
+                fh.seek(start)
+                remaining = length
+                while remaining > 0:
+                    chunk = fh.read(min(65536, remaining))
+                    if not chunk:
+                        break
+                    remaining -= len(chunk)
+                    yield chunk
+
+        return StreamingResponse(
+            _iter(),
+            status_code=206,
+            media_type=media_type,
+            headers={
+                **base_headers,
+                "Content-Range": f"bytes {start}-{end}/{size}",
+                "Content-Length": str(length),
+            },
+        )
+    return FileResponse(path, media_type=media_type, headers=base_headers)
+
+
+@app.get("/livemap-vendor/{name}", include_in_schema=False)
+async def livemap_vendor_asset(name: str, request: Request):
+    media = _LIVEMAP_VENDOR_MEDIA.get(name)
+    if media is None:
+        raise HTTPException(status_code=404, detail="Not found")
+    return _range_file_response(request, _LIVEMAP_VENDOR_DIR / name, media)
+
+
+@app.get("/livemap-src/{path:path}", include_in_schema=False)
+async def livemap_src_asset(path: str):
+    if ".." in path or not re.fullmatch(r"[A-Za-z0-9_./-]+", path):
+        raise HTTPException(status_code=404, detail="Not found")
+    target = (_LIVEMAP_SRC_DIR / path).resolve()
+    if _LIVEMAP_SRC_DIR not in target.parents:
+        raise HTTPException(status_code=404, detail="Not found")
+    if target.suffix != ".js" or not target.is_file():
+        raise HTTPException(status_code=404, detail="Not found")
+    return FileResponse(
+        target,
+        media_type="application/javascript",
+        headers={"Cache-Control": "no-cache"},
+    )
+
+
+# City of Charlottesville GIS cartographic basemap (real road/sidewalk/alley
+# polygons) for the livemap. It's a cached ArcGIS raster service whose LOD
+# numbering is offset from the standard XYZ scheme by 12 (City LOD N == web
+# zoom N+12), so it can't be pointed at directly from MapLibre — we remap here
+# and cache tiles in-process so kiosks don't re-hammer the City server.
+_CVILLE_BASEMAP_TILE_URL = (
+    "https://gisweb.charlottesville.org/arcgis/rest/services/"
+    "basemap_world_mercator_expanded/MapServer/tile/{lod}/{y}/{x}"
+)
+_CVILLE_BASEMAP_ZOOM_OFFSET = 12
+_CVILLE_BASEMAP_MIN_Z = 12
+_CVILLE_BASEMAP_MAX_Z = 21
+_cville_basemap_cache: "OrderedDict[str, tuple[bytes, str]]" = OrderedDict()
+_CVILLE_BASEMAP_CACHE_MAX = 4000
+_cville_basemap_client: Optional[httpx.AsyncClient] = None
+
+
+@app.get("/citybasemap/{z}/{x}/{y}", include_in_schema=False)
+async def city_basemap_tile(z: int, x: int, y: int):
+    if not (_CVILLE_BASEMAP_MIN_Z <= z <= _CVILLE_BASEMAP_MAX_Z) or x < 0 or y < 0:
+        # Out of the City basemap's range — MapLibre falls back to the layer
+        # beneath (the Protomaps street basemap).
+        return Response(status_code=404)
+
+    key = f"{z}/{x}/{y}"
+    cached = _cville_basemap_cache.get(key)
+    if cached is not None:
+        _cville_basemap_cache.move_to_end(key)
+        body, ctype = cached
+        return Response(
+            content=body,
+            media_type=ctype,
+            headers={"Cache-Control": "public, max-age=604800"},
+        )
+
+    global _cville_basemap_client
+    if _cville_basemap_client is None:
+        _cville_basemap_client = httpx.AsyncClient(timeout=10.0)
+
+    url = _CVILLE_BASEMAP_TILE_URL.format(
+        lod=z - _CVILLE_BASEMAP_ZOOM_OFFSET, x=x, y=y
+    )
+    try:
+        upstream = await _cville_basemap_client.get(url)
+    except httpx.HTTPError:
+        return Response(status_code=502)
+    if upstream.status_code != 200 or not upstream.content:
+        return Response(status_code=404)
+
+    ctype = upstream.headers.get("content-type", "image/jpeg")
+    body = upstream.content
+    _cville_basemap_cache[key] = (body, ctype)
+    _cville_basemap_cache.move_to_end(key)
+    while len(_cville_basemap_cache) > _CVILLE_BASEMAP_CACHE_MAX:
+        _cville_basemap_cache.popitem(last=False)
+
+    return Response(
+        content=body,
+        media_type=ctype,
+        headers={"Cache-Control": "public, max-age=604800"},
+    )
 
 
 @app.get("/scripts/countdown.js", include_in_schema=False)
@@ -14407,6 +14687,22 @@ async def wv511_cameras():
 @app.get("/testmap")
 async def testmap_page():
     return HTMLResponse(TESTMAP_HTML)
+
+@app.get("/livemap")
+async def livemap_page():
+    return HTMLResponse(LIVEMAP_HTML)
+
+@app.get("/livemap/kiosk")
+async def livemap_kiosk_page():
+    # Hands-off public display: shares the livemap core, forces kiosk mode in
+    # scripts/livemap/apps/kiosk.js. See core/modes.js for the URL knobs.
+    return HTMLResponse(LIVEMAP_KIOSK_HTML)
+
+@app.get("/livemap/embed")
+async def livemap_embed_page():
+    # Stripped map for an <iframe> on another page (apps/embed.js forces
+    # embed mode). Camera stays interactive unless ?lock is set.
+    return HTMLResponse(LIVEMAP_EMBED_HTML)
 
 @app.get("/kioskmap")
 async def kioskmap_page():
