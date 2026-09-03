@@ -7,41 +7,110 @@
 
 :root {
   --uva-navy: #232d4b;
+  --uva-navy-dark: #161d33;
   --uva-orange: #e57200;
+
+  /* Accent (the "live / active" orange) as a family. Fill only — never body
+     text: orange fails AA on white. */
+  --accent: #e57200;
+  --accent-bright: #ff9c3e;
+  --accent-soft: rgba(229, 114, 0, 0.28);
+
+  /* Feed / state colours */
+  --ok: #35c26b;
+  --warn: #e5a100;
+  --bad: #e5533b;
 
   /* Light (day) chrome */
   --panel-bg: rgba(255, 255, 255, 0.94);
+  --panel-surface: linear-gradient(180deg, rgba(255, 255, 255, 0.97), rgba(244, 247, 253, 0.95));
   --panel-fg: #1c2333;
+  --panel-heading: #10192e;
+  --panel-muted: rgba(28, 35, 51, 0.62);
   --panel-border: rgba(35, 45, 75, 0.14);
-  --panel-shadow: 0 1px 2px rgba(20, 26, 40, 0.1), 0 8px 24px -6px rgba(20, 26, 40, 0.22);
+  --panel-hairline: rgba(35, 45, 75, 0.08);
+  --panel-shadow: 0 2px 6px rgba(20, 26, 40, 0.08), 0 18px 44px -14px rgba(20, 26, 40, 0.32);
   --hover-bg: rgba(35, 45, 75, 0.07);
   --toggle-active-bg: var(--uva-navy);
   --toggle-active-fg: #ffffff;
   --overlay-bg: rgba(243, 239, 230, 0.82);
   --overlay-fg: #1c2333;
+  --scrollbar-thumb: rgba(35, 45, 75, 0.24);
+  --scrollbar-thumb-hover: rgba(35, 45, 75, 0.4);
 
   /* Shared motion — one decelerating curve for panels, carets, hovers. */
   --ease: cubic-bezier(0.22, 0.61, 0.36, 1);
   --dur: 0.24s;
-  --radius: 12px;
+  --dur-fast: 0.12s;
+
+  --radius: 12px; /* inner cards / rows */
+  --radius-lg: 14px; /* whole panels */
+  --radius-sm: 7px; /* small buttons, swatches, pills */
+  --radius-pill: 999px;
+
+  --focus-ring: 0 0 0 3px var(--accent-soft);
+  --panel-blur: blur(10px);
 }
 
 :root[data-theme='dark'] {
   --panel-bg: rgba(26, 34, 51, 0.92);
+  --panel-surface: linear-gradient(180deg, rgba(30, 41, 59, 0.95), rgba(15, 23, 42, 0.95));
   --panel-fg: #dfe6f1;
+  --panel-heading: #f2f6fc;
+  --panel-muted: rgba(223, 230, 241, 0.6);
   --panel-border: rgba(150, 170, 210, 0.2);
-  --panel-shadow: 0 1px 2px rgba(0, 0, 0, 0.3), 0 10px 28px -6px rgba(0, 0, 0, 0.5);
+  --panel-hairline: rgba(150, 170, 210, 0.12);
+  --panel-shadow: 0 2px 6px rgba(0, 0, 0, 0.32), 0 20px 46px -14px rgba(0, 0, 0, 0.62);
   --hover-bg: rgba(150, 170, 210, 0.12);
   --toggle-active-bg: var(--uva-orange);
   --toggle-active-fg: #1a2233;
   --overlay-bg: rgba(20, 26, 40, 0.82);
   --overlay-fg: #dfe6f1;
+  --scrollbar-thumb: rgba(150, 170, 210, 0.26);
+  --scrollbar-thumb-hover: rgba(150, 170, 210, 0.44);
 }
 
 @media (prefers-reduced-motion: reduce) {
   :root {
     --dur: 0.01ms;
+    --dur-fast: 0.01ms;
   }
+}
+
+/* Custom scrollbars anywhere a panel body scrolls. */
+.livemap-panel *,
+.livemap-panel {
+  scrollbar-width: thin;
+  scrollbar-color: var(--scrollbar-thumb) transparent;
+}
+
+.livemap-panel *::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+.livemap-panel *::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.livemap-panel *::-webkit-scrollbar-thumb {
+  background: var(--scrollbar-thumb);
+  border-radius: var(--radius-pill);
+}
+
+.livemap-panel *::-webkit-scrollbar-thumb:hover {
+  background: var(--scrollbar-thumb-hover);
+}
+
+/* One real focus ring for every control in the chrome (keyboard only). */
+.livemap-panel button:focus-visible,
+.livemap-panel input:focus-visible,
+.livemap-panel label:focus-visible,
+.livemap-panel [tabindex]:focus-visible,
+.livemap-theme-toggle button:focus-visible,
+.livemap-panel-tab:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring);
 }
 
 * {
@@ -452,14 +521,16 @@ body {
 /* --- panels (left control · right column) ------------------------------------ */
 
 .livemap-panel {
-  border-radius: var(--radius);
+  border-radius: var(--radius-lg);
   color: var(--panel-fg);
   background: var(--panel-bg);
+  background: var(--panel-surface);
   border: 1px solid var(--panel-border);
   box-shadow: var(--panel-shadow);
-  backdrop-filter: blur(6px);
+  backdrop-filter: var(--panel-blur);
   overflow: hidden;
   font-family: inherit;
+  font-variant-numeric: tabular-nums;
 }
 
 .livemap-panel--left {
@@ -538,17 +609,17 @@ body {
 }
 
 .lp-dot.is-live {
-  background: #35c26b;
+  background: var(--ok);
   box-shadow: 0 0 0 3px rgba(53, 194, 107, 0.28);
 }
 
 .lp-dot.is-polling {
-  background: #e5a100;
+  background: var(--warn);
   box-shadow: 0 0 0 3px rgba(229, 161, 0, 0.28);
 }
 
 .lp-dot.is-down {
-  background: #e5533b;
+  background: var(--bad);
   box-shadow: 0 0 0 3px rgba(229, 83, 59, 0.28);
 }
 
@@ -633,7 +704,7 @@ body {
   appearance: none;
   flex: 1 1 0;
   border: 1px solid var(--panel-border);
-  border-radius: 6px;
+  border-radius: var(--radius-sm);
   background: transparent;
   color: inherit;
   font: 600 11px/1 inherit;
@@ -655,7 +726,7 @@ body {
 .lp-btn {
   appearance: none;
   border: 1px solid var(--panel-border);
-  border-radius: 6px;
+  border-radius: var(--radius-sm);
   background: transparent;
   color: inherit;
   font: 600 11.5px/1 inherit;
@@ -704,7 +775,7 @@ body {
   min-width: 0;
   appearance: none;
   border: 1px solid var(--panel-border);
-  border-radius: 6px;
+  border-radius: var(--radius-sm);
   background: transparent;
   color: inherit;
   font: 500 12px/1 inherit;
@@ -714,7 +785,7 @@ body {
 .lp-auth-go {
   appearance: none;
   border: 1px solid transparent;
-  border-radius: 6px;
+  border-radius: var(--radius-sm);
   background: var(--toggle-active-bg);
   color: var(--toggle-active-fg);
   font: 700 11.5px/1 inherit;
@@ -730,7 +801,7 @@ body {
 .lp-auth-cancel {
   appearance: none;
   border: 1px solid var(--panel-border);
-  border-radius: 6px;
+  border-radius: var(--radius-sm);
   background: transparent;
   color: inherit;
   font: 700 13px/1 inherit;
@@ -760,7 +831,7 @@ body {
   align-items: center;
   gap: 8px;
   padding: 5px 4px;
-  border-radius: 6px;
+  border-radius: var(--radius-sm);
   font: 600 12px/1.2 inherit;
   cursor: pointer;
 }
@@ -817,7 +888,7 @@ body {
   align-items: center;
   gap: 8px;
   padding: 6px 6px;
-  border-radius: 6px;
+  border-radius: var(--radius-sm);
   background: transparent;
   color: inherit;
   cursor: pointer;
@@ -1491,7 +1562,7 @@ body {
   width: 66px;
   height: 66px;
   padding: 3px;
-  border-radius: 6px;
+  border-radius: var(--radius-sm);
   background: #fff;
   line-height: 0;
 }
