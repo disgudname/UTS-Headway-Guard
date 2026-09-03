@@ -626,6 +626,14 @@ body {
   letter-spacing: 0.3px;
 }
 
+/* White UVATransit wordmark, sits directly on the navy brand header. */
+.lp-wordmark {
+  height: 19px;
+  width: auto;
+  display: block;
+  flex: 0 0 auto;
+}
+
 .lp-title {
   font: 700 12.5px/1 inherit;
   letter-spacing: 0.02em;

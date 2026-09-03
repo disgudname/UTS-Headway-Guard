@@ -485,6 +485,7 @@ function streetBasemapLayers(theme) {
             id: 'cv-city-raster',
             type: 'raster',
             source: 'citybasemap',
+            minzoom: 12, // matches the source; never overzoom it into a blurry hillshade
             paint: { 'raster-opacity': 1 },
           },
         ]

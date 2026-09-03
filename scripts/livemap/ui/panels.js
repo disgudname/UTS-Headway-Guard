@@ -158,7 +158,7 @@ function buildLeft() {
   el.className = 'livemap-panel livemap-panel--left';
   el.innerHTML = `
     <div class="lp-head lp-head--brand">
-      <span class="lp-head-title">Live Map</span>
+      <img class="lp-wordmark" src="/media/UVATransitWordmark.png" alt="UVATransit" />
       <span class="lp-feed" title="Live vehicle feed">
         <span class="lp-dot" aria-hidden="true"></span><span class="lp-feed-text">Connecting…</span>
       </span>

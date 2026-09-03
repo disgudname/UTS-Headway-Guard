@@ -25,10 +25,13 @@ export const SATELLITE = Object.freeze({
     'Maxar, Earthstar Geographics, USDA FSA, USGS &amp; the GIS User Community',
 });
 
-// The UVA campus tiles cover z11-16; the Protomaps street basemap under them
-// covers z0-15 over the Albemarle extract. z9 lets you pull back for regional
-// context (whole service area) without hitting the edge of the pmtiles bbox.
-export const MIN_ZOOM = 9;
+// The UVA campus tiles cover z11-16; the City of Charlottesville cartographic
+// raster covers z12+. Below z12 the only basemap is the Albemarle Protomaps
+// extract, whose low-zoom `water` tiles are malformed — big blocky blue slabs
+// where there's no real water — and the City raster overzooms into a blurry
+// hillshade. Both regimes looked broken, so the floor is z12, where the City
+// raster serves native tiles and the whole service area still fits. (Was z9.)
+export const MIN_ZOOM = 12;
 export const MAX_ZOOM = 20;
 
 // Where the map first looks: central Grounds. Matches the legacy testmap default.
