@@ -31,8 +31,19 @@ import { startVehicleFeed, onRoutes, onVehicles, getRoutes } from '../data/trans
 import { ROUTE_SOURCE_ID as SRC } from './route-style.js';
 import { stripeRoutes, plainRouteFeatures } from './route-overlap.js';
 
-const HIDDEN_KEY = 'livemap.routes.hidden';
-const PINNED_KEY = 'livemap.routes.pinned';
+// v2: the v1 keys were written by the old name-grouped picker, which pinned
+// EVERY schedule variant of a line when you turned that line on. Read back into
+// the per-RouteID picker that reads as "Gold Line on 2×, Purple Line on 3×"
+// even when only one variant has buses. Start clean and drop the stale keys.
+const HIDDEN_KEY = 'livemap.routes.hidden.v2';
+const PINNED_KEY = 'livemap.routes.pinned.v2';
+try {
+  for (const k of ['livemap.routes.hidden', 'livemap.routes.pinned', 'livemap.routes.offshown']) {
+    localStorage.removeItem(k);
+  }
+} catch {
+  /* private mode / storage disabled */
+}
 
 const bus = emitter();
 const hidden = loadSet(HIDDEN_KEY); // RouteIDs the user explicitly turned OFF
