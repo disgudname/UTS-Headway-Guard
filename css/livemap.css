@@ -567,7 +567,18 @@ body {
   pointer-events: none;
 }
 
+/* Right-column vertical budget: Status + Service alerts take their natural
+   height and never shrink; the route lists absorb whatever's left and scroll
+   internally. Without this every panel shrinks proportionally when the column
+   overflows and `overflow:hidden` clips their text (Status losing its last
+   line). */
+.livemap-panel--status,
+.livemap-panel--alerts {
+  flex: 0 0 auto;
+}
+
 .livemap-panel--routes {
+  flex: 1 1 auto;
   min-height: 0;
   display: flex;
   flex-direction: column;
