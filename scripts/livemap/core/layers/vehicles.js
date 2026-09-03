@@ -862,9 +862,11 @@ function buildComposite(id, spec, pinCv) {
 // --- pills (bubble shape + centred text, drawn onto a canvas) --------------
 
 const LBL_FONT_STACK = '"Libre Franklin", system-ui, "Segoe UI", Roboto, sans-serif';
+// Trimmed ~10% from the first composite-marker pass (which was deliberately
+// generous) — the block/speed pills were reading heavier than the teardrop.
 const LBL_CFG = {
-  name: { fontPx: 22 * DPR, h: 39 * DPR, padX: 9.5 * DPR },
-  speed: { fontPx: 18 * DPR, h: 32 * DPR, padX: 8 * DPR },
+  name: { fontPx: 20 * DPR, h: 35 * DPR, padX: 9 * DPR },
+  speed: { fontPx: 16.5 * DPR, h: 29 * DPR, padX: 7.5 * DPR },
 };
 
 let _measureCtx = null;

@@ -37,6 +37,9 @@
   --panel-muted: #4b5563;
   --panel-border: rgba(35, 45, 75, 0.12);
   --panel-hairline: rgba(35, 45, 75, 0.08);
+  /* Edge ring on a small filled indicator (route swatch, eye dot) so it stays
+     defined against the panel in either theme — dark ink on the light panel. */
+  --indicator-keyline: rgba(0, 0, 0, 0.22);
   --panel-shadow: 0 20px 45px rgba(15, 23, 42, 0.25);
   --hover-bg: rgba(35, 45, 75, 0.07);
   /* Selected pill = orange, both themes (matches /map's active theme button) */
@@ -104,6 +107,7 @@
   --panel-muted: #94a3b8;
   --panel-border: rgba(150, 170, 210, 0.2);
   --panel-hairline: rgba(150, 170, 210, 0.12);
+  --indicator-keyline: rgba(255, 255, 255, 0.3);
   --panel-shadow: 0 20px 45px rgba(0, 0, 0, 0.4);
   --hover-bg: rgba(150, 170, 210, 0.12);
   --toggle-active-bg: var(--uva-orange);
@@ -1351,7 +1355,7 @@ body {
   border-radius: 3px;
   flex: 0 0 auto;
   margin-top: 2px; /* optically centre on the first text line (rows top-align) */
-  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.22) inset;
+  box-shadow: 0 0 0 1px var(--indicator-keyline) inset;
 }
 
 .lp-name-wrap {
@@ -1407,7 +1411,7 @@ body {
   flex: 0 0 auto;
   margin-top: 4px; /* optically centre on the first text line (rows top-align) */
   background: var(--uva-orange);
-  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.15) inset;
+  box-shadow: 0 0 0 1px var(--indicator-keyline) inset;
 }
 
 .lp-row.is-off {
