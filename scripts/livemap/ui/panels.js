@@ -179,7 +179,7 @@ function buildLeft() {
 
   const cat = section('cat', 'Charlottesville Area Transit');
   cat.body.innerHTML = `
-    <label class="lp-check"><input type="checkbox" data-t="cat" /> <span>Show CAT buses, routes &amp; stops</span></label>`;
+    <label class="lp-check"><input type="checkbox" data-t="cat" /> <span>CAT buses, routes &amp; stops</span></label>`;
 
   // Dispatcher-only: only revealed once an authed /api/ondemand fetch succeeds.
   const micro = section('micro', 'UVA Ride & FlexRide');
@@ -194,7 +194,8 @@ function buildLeft() {
     <label class="lp-check"><input type="checkbox" data-t="trafficInc" /> <span>Traffic incidents</span></label>
     <label class="lp-check"><input type="checkbox" data-t="trafficFlow" /> <span>Traffic congestion</span></label>`;
 
-  el.append(mapView.wrap, layers.wrap, cat.wrap, micro.wrap, safety.wrap);
+  // CAT last — least-used feature.
+  el.append(mapView.wrap, layers.wrap, micro.wrap, safety.wrap, cat.wrap);
 
   const themeBtns = [...mapView.body.querySelectorAll('[data-mode]')];
   themeBtns.forEach((b) => b.addEventListener('click', () => setThemeMode(b.dataset.mode)));

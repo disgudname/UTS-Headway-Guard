@@ -971,36 +971,73 @@ body {
   letter-spacing: 0.01em;
 }
 
+/* Layer toggles are chip toggles, not checkboxes: a full-width pill with an
+   ON/OFF state badge. The native <input> stays (hidden) as the state + event
+   source so nothing in panels.js changes; :has() drives the visual state. */
 .lp-check {
   display: flex;
   align-items: center;
   gap: 8px;
-  padding: 6px 6px;
-  border-radius: var(--radius-sm);
+  padding: 7px 8px 7px 12px;
+  border-radius: var(--radius); /* rounded chip — pill would look odd on a 2-line label */
+  border: 1px solid var(--btn-border);
+  background: var(--btn-bg);
+  color: var(--btn-fg);
   font: 600 var(--fs-sm)/1.3 inherit;
   cursor: pointer;
+  transition: background-color var(--dur-fast) var(--ease),
+    border-color var(--dur-fast) var(--ease), color var(--dur-fast) var(--ease);
 }
 
 /* [hidden] has to beat the class's display:flex (e.g. the dispatcher-only
-   "Bus labels" row for a public viewer). */
+   "Vehicle labels" row for a public viewer). */
 .lp-check[hidden] {
   display: none;
 }
 
 .lp-check:hover {
-  background: var(--hover-bg);
+  background: var(--btn-hover-bg);
 }
 
 .lp-check input {
-  accent-color: var(--uva-navy);
-  width: 14px;
-  height: 14px;
-  flex: 0 0 auto;
-  cursor: pointer;
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  opacity: 0;
+  pointer-events: none;
 }
 
-:root[data-theme='dark'] .lp-check input {
-  accent-color: var(--uva-orange);
+.lp-check span {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.lp-check::after {
+  content: 'OFF';
+  flex: 0 0 auto;
+  padding: 2px 8px;
+  border-radius: var(--radius-pill);
+  font-size: var(--fs-micro);
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  background: var(--panel-hairline);
+  color: var(--panel-muted);
+}
+
+.lp-check:has(input:checked) {
+  background: var(--accent-soft);
+  border-color: var(--accent);
+  color: var(--panel-heading);
+}
+
+.lp-check:has(input:checked)::after {
+  content: 'ON';
+  background: var(--accent);
+  color: #1a2233;
+}
+
+.lp-check:focus-within {
+  box-shadow: var(--focus-ring);
 }
 
 .lp-bulk {
