@@ -78,7 +78,7 @@ export function microTripLayerDefs(theme) {
       minzoom: 13.5,
       layout: { visibility: 'none' },
       paint: {
-        'circle-radius': ['interpolate', ['linear'], ['zoom'], 12, 7, 16, 9.5, 19, 12],
+        'circle-radius': ['interpolate', ['linear'], ['zoom'], 12, 8, 16, 11, 19, 13.5],
         'circle-color': ['get', 'color'],
         'circle-stroke-width': ['match', ['get', 'role'], 'dropoff', 3.5, 2],
         'circle-stroke-color': [
@@ -99,13 +99,19 @@ export function microTripLayerDefs(theme) {
         visibility: 'none',
         'text-field': ['get', 'seq'],
         'text-font': LABEL_FONT,
-        'text-size': ['interpolate', ['linear'], ['zoom'], 12, 9, 16, 12, 19, 14],
+        'text-size': ['interpolate', ['linear'], ['zoom'], 12, 10, 16, 13, 19, 15],
         'text-allow-overlap': true,
         'text-ignore-placement': true,
       },
       paint: {
-        'text-color': '#ffffff',
-        'text-halo-color': 'rgba(0,0,0,0.45)',
+        // per-badge readable colour (set in micro-trips.js from the van livery)
+        'text-color': ['coalesce', ['get', 'textColor'], '#ffffff'],
+        'text-halo-color': [
+          'case',
+          ['==', ['get', 'textColor'], '#1b2130'],
+          'rgba(255,255,255,0.6)',
+          'rgba(0,0,0,0.45)',
+        ],
         'text-halo-width': 1.2,
       },
     },

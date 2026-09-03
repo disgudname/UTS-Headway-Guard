@@ -10,6 +10,7 @@
 
 import { getMap, onStyleReady } from '../map.js';
 import { registerMarkerLayer } from '../marker-menu.js';
+import { parseColor, luminance } from '../util.js';
 import {
   startMicrotransitFeed,
   isMicroEnabled,
@@ -96,6 +97,7 @@ function syncTrips() {
 
 function ptFeature(t, role, coord) {
   const seq = role === 'pickup' ? t.pickupSeq : t.dropoffSeq;
+  const color = t.vanColor || '#7c3aed';
   return {
     type: 'Feature',
     geometry: { type: 'Point', coordinates: coord },
@@ -104,7 +106,13 @@ function ptFeature(t, role, coord) {
       role,
       tag: role === 'pickup' ? 'Pickup' : 'Drop-off',
       seq: seq ? String(seq) : '',
-      color: t.vanColor || '#7c3aed',
+      color,
+      // Readable seq digit whatever the van livery colour is (yellow/pale vans
+      // washed out white-on-light with only the halo before this).
+      textColor:
+        luminance(parseColor(color) || { r: 124, g: 58, b: 237 }) > 0.6
+          ? '#1b2130'
+          : '#ffffff',
       rider: t.rider || '',
       addr: role === 'pickup' ? t.pickupAddr : t.dropoffAddr,
       eta: role === 'pickup' ? t.pickupEta : t.dropoffEta,
