@@ -33,8 +33,9 @@
   --panel-hairline: rgba(35, 45, 75, 0.08);
   --panel-shadow: 0 20px 45px rgba(15, 23, 42, 0.25);
   --hover-bg: rgba(35, 45, 75, 0.07);
-  --toggle-active-bg: var(--uva-navy);
-  --toggle-active-fg: #ffffff;
+  /* Selected pill = orange, both themes (matches /map's active theme button) */
+  --toggle-active-bg: var(--uva-orange);
+  --toggle-active-fg: #1a2233;
   --overlay-bg: rgba(243, 239, 230, 0.82);
   --overlay-fg: #1c2333;
   --scrollbar-thumb: rgba(35, 45, 75, 0.35);
@@ -773,6 +774,8 @@ body {
   transition: transform var(--dur) var(--ease);
   opacity: 0.55;
   flex: 0 0 auto;
+  order: 3; /* sits at the far right of the section head, like /map's chevron */
+  margin-left: 4px;
 }
 
 /* When a collapsible section IS a whole right-column panel (Service alerts,
