@@ -119,14 +119,6 @@ function nearAnyRoute(lat, lng) {
   return false;
 }
 
-// Same rule testmap uses (INCIDENT_UNIT_ACTIVE_STATUS_KEYS): show an incident
-// only while a unit is En Route (ER), On Scene (OS) or Available On Scene (AE).
-// Dispatched/Acknowledged/Transport/Cleared don't qualify.
-const ACTIVE_UNIT = /^(ER|OS|AE)$/i;
-function hasLiveUnit(units) {
-  return (units || []).some((u) => !u.cleared && ACTIVE_UNIT.test((u.status || '').trim()));
-}
-
 export const isSafetyOn = (key) => !!enabled[key];
 
 /**
@@ -134,7 +126,7 @@ export const isSafetyOn = (key) => !!enabled[key];
  *   - toggle ON  -> every active incident, anywhere (the override)
  *   - toggle OFF -> only those near a route, or (FlexRide on) in the FlexRide
  *                   service area — the automatic transit-relevant set.
- * `pulsePoint` already holds only incidents with committed responders.
+ * `pulsePoint` is PulsePoint's `active` list (recent/cleared excluded).
  */
 export const getPulsePoint = () => {
   if (!isDispatcher()) return [];
@@ -248,6 +240,10 @@ async function pollPulsePoint() {
     const r = await fetch(PULSEPOINT_URL, { cache: 'no-store' });
     if (!r.ok) return;
     const data = await r.json();
+    // Active incidents only — recent/cleared calls live under `incidents.recent`
+    // and aren't shown (matches testmap, which renders the `active` list as-is
+    // with no unit-status gate). The near-route / service-area filtering for the
+    // auto-show happens at emit time in getPulsePoint().
     const active = (data && data.incidents && data.incidents.active) || [];
     const now = Date.now();
     const out = [];
@@ -264,10 +260,6 @@ async function pollPulsePoint() {
             cleared: !!u.UnitClearedDateTime,
           })).filter((u) => u.id)
         : [];
-      // Keep only incidents with responders still committed; the near-route /
-      // service-area gating happens at emit time (getPulsePoint) so it can
-      // react to route geometry + the FlexRide zone without a re-poll.
-      if (!hasLiveUnit(units)) continue;
       out.push({
         id: String(inc.ID || `${lat},${lng}`),
         lat,

@@ -72,38 +72,36 @@ function onRebuilt() {
   wire();
 }
 
-/** A neutral teardrop pin, generated once, used for incident type codes that
- *  have no PulsePoint respond icon. Same silhouette as the real PNGs so the
- *  fallback doesn't jump. */
+/** A neutral teardrop pin, generated once, for incident type codes with no
+ *  PulsePoint respond icon. Drawn at the same ~180 px source scale as the real
+ *  respond-icon PNGs (pixelRatio 1) so it sizes identically under `icon-size`. */
 function ensureFallbackPin() {
   const map = getMap();
   if (!map || map.hasImage(PULSEPOINT_FALLBACK_IMAGE)) return;
-  const D = 2;
-  const w = 46 * D;
-  const h = 58 * D;
-  const r = 19 * D;
+  const w = 168;
+  const h = 200;
+  const r = 70;
   const cx = w / 2;
-  const cy = r + 3 * D;
+  const cy = r + 10;
   const cv = document.createElement('canvas');
   cv.width = w;
   cv.height = h;
   const g = cv.getContext('2d');
   g.beginPath();
   g.arc(cx, cy, r, Math.PI * 0.86, Math.PI * 0.14, false);
-  g.lineTo(cx, h - 2 * D); // taper to the tip
+  g.lineTo(cx, h - 8); // taper to the tip
   g.closePath();
   g.fillStyle = '#6b7280';
   g.fill();
-  g.lineWidth = 3 * D;
+  g.lineWidth = 12;
   g.strokeStyle = '#ffffff';
   g.stroke();
-  // inner dot
   g.beginPath();
   g.arc(cx, cy, r * 0.42, 0, Math.PI * 2);
   g.fillStyle = '#ffffff';
   g.fill();
   try {
-    map.addImage(PULSEPOINT_FALLBACK_IMAGE, g.getImageData(0, 0, w, h), { pixelRatio: D });
+    map.addImage(PULSEPOINT_FALLBACK_IMAGE, g.getImageData(0, 0, w, h));
   } catch (err) {
     /* already added in a race — fine */
   }

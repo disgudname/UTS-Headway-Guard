@@ -107,7 +107,10 @@ export function pulsePointLayerDefs(/* theme */) {
           ['image', ['get', 'icon']],
           ['image', PULSEPOINT_FALLBACK_IMAGE],
         ],
-        'icon-size': ['interpolate', ['linear'], ['zoom'], 10, 0.34, 14, 0.52, 18, 0.74],
+        // Respond icons + the fallback pin are ~180 px source art; testmap
+        // renders them near 0.25 scale (~46 px). Keep close to that, with a
+        // gentle zoom taper so they don't crowd the dense central view.
+        'icon-size': ['interpolate', ['linear'], ['zoom'], 10, 0.2, 13, 0.24, 16, 0.3, 19, 0.36],
         'icon-anchor': 'bottom',
         'icon-allow-overlap': true,
         'icon-ignore-placement': true,
