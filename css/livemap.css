@@ -690,6 +690,49 @@ body {
     padding-top: 13px;
     padding-bottom: 13px;
   }
+
+  /* Edge tabs: bigger, lower (thumb zone), and — when a panel is open —
+     the tab flips to a CLOSE tab pinned to the far screen edge while the
+     other panel's tab is hidden (you can't open it over the open one). */
+  .livemap-panel-tab {
+    top: auto;
+    bottom: 96px;
+    width: 30px;
+    height: 68px;
+    z-index: 451; /* the close tab sits over the open panel's edge */
+    background: var(--panel-surface);
+    backdrop-filter: var(--panel-blur);
+  }
+
+  .livemap-panel--left:not(.is-away) ~ .livemap-panel-tab--left {
+    left: auto;
+    right: 0;
+    border-radius: 8px 0 0 8px;
+    border: 1px solid var(--panel-border);
+    border-right: 0;
+  }
+  .livemap-panel--left:not(.is-away) ~ .livemap-panel-tab--left .lpt-arrow {
+    border-right: 0;
+    border-left: 6px solid currentColor;
+  }
+  .livemap-panel--left:not(.is-away) ~ .livemap-panel-tab--right {
+    display: none;
+  }
+
+  .livemap-right-column:not(.is-away) ~ .livemap-panel-tab--right {
+    right: auto;
+    left: 0;
+    border-radius: 0 8px 8px 0;
+    border: 1px solid var(--panel-border);
+    border-left: 0;
+  }
+  .livemap-right-column:not(.is-away) ~ .livemap-panel-tab--right .lpt-arrow {
+    border-left: 0;
+    border-right: 6px solid currentColor;
+  }
+  .livemap-right-column:not(.is-away) ~ .livemap-panel-tab--left {
+    display: none;
+  }
 }
 
 /* Right-column vertical budget: Status + Service alerts take their natural

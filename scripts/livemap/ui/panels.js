@@ -73,6 +73,31 @@ export class Panels {
       applyAway(this._right, K.right, true);
     }
 
+    // Edge tabs: toggle their own panel; on a phone, opening one closes the
+    // other (they'd overlap at near-full width).
+    const wireTab = (self, other, key, otherKey) => {
+      self.tab.addEventListener('click', () => {
+        const opening = self._away;
+        toggleAway(self, key);
+        if (opening && isCompactViewport() && !other._away) {
+          applyAway(other, otherKey, true);
+          lsSet(otherKey, '1');
+        }
+      });
+    };
+    wireTab(this._left, this._right, K.left, K.right);
+    wireTab(this._right, this._left, K.right, K.left);
+
+    // If a wide-screen session (both panels open) is resized down to a phone,
+    // don't leave them overlapping with no reachable close tab.
+    this._onResize = () => {
+      if (isCompactViewport() && !this._left._away && !this._right._away) {
+        applyAway(this._right, K.right, true);
+        lsSet(K.right, '1');
+      }
+    };
+    window.addEventListener('resize', this._onResize);
+
     this._offRoutes = onRouteVisibility((groups) => this._right.renderRoutes(groups));
     this._offCatRoutes = onCatRouteVisibility((groups) => this._right.renderCatRoutes(groups));
     this._offCatShown = onCatEnabled((on) => this._right.setCatRoutesVisible(on));
@@ -95,6 +120,7 @@ export class Panels {
   }
 
   unmount() {
+    window.removeEventListener('resize', this._onResize);
     this._offRoutes?.();
     this._offCatRoutes?.();
     this._offCatShown?.();
@@ -274,7 +300,7 @@ function buildLeft() {
       themeBtns.forEach((b) => b.classList.toggle('is-active', b.dataset.mode === mode));
     },
   };
-  api.tab = edgeTab('left', () => toggleAway(api, K.left));
+  api.tab = edgeTab('left');
   return api;
 }
 
@@ -474,7 +500,7 @@ function buildRight() {
       catRoutes.wrap.hidden = !v;
     },
   };
-  api.tab = edgeTab('right', () => toggleAway(api, K.right));
+  api.tab = edgeTab('right');
   return api;
 }
 
@@ -646,14 +672,14 @@ function section(id, title, opts = {}) {
   return { wrap, body };
 }
 
-/** A screen-edge tab that slides its panel away. */
-function edgeTab(side, onToggle) {
+/** A screen-edge tab that slides its panel away. Click behaviour is wired in
+ *  Panels.mount() so it can also close the sibling panel on a phone. */
+function edgeTab(side) {
   const btn = document.createElement('button');
   btn.type = 'button';
   btn.className = `livemap-panel-tab livemap-panel-tab--${side}`;
   btn.setAttribute('aria-label', side === 'left' ? 'Toggle controls' : 'Toggle routes');
   btn.innerHTML = '<span class="lpt-arrow" aria-hidden="true"></span>';
-  btn.addEventListener('click', onToggle);
   return btn;
 }
 
