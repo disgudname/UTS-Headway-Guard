@@ -48,7 +48,9 @@ import {
 
 // Same-origin proxy of UVA GIS's VectorTileServer (app.py). Keeps the basemap
 // reachable from a locked-down signage network that can't hit tiles.arcgis.com.
-const VTS_BASE = '/v1/livemap/basemap';
+// Must be an ABSOLUTE url: the style is handed to MapLibre as an object, and
+// its tile/glyph workers have no base to resolve a root-relative path against.
+const VTS_BASE = new URL('/v1/livemap/basemap', location.href).href;
 
 // The UVA vector tiles carry real geometry only through LOD 16; MapLibre
 // overzooms past that for z16-20.
