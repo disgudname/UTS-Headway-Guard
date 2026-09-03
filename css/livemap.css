@@ -79,6 +79,17 @@
   --head-bg: linear-gradient(135deg, var(--uva-navy), var(--uva-navy-dark));
   --head-sheen: rgba(255, 255, 255, 0.1);
   --head-hairline: rgba(35, 45, 75, 0.5);
+
+  /* Map popups — the /map (testmap) look: navy card, thick white rim, orange
+     round close, big soft shadow. Deliberately theme-independent (same on day
+     and night, like testmap). */
+  --pop-bg: linear-gradient(135deg, var(--uva-navy), var(--uva-navy-dark));
+  --pop-edge: rgba(255, 255, 255, 0.92);
+  --pop-fg: #f8fafc;
+  --pop-muted: rgba(248, 250, 252, 0.72);
+  --pop-hairline: rgba(255, 255, 255, 0.16);
+  --pop-inset: rgba(255, 255, 255, 0.08);
+  --pop-shadow: 0 18px 36px rgba(15, 23, 42, 0.42);
 }
 
 :root[data-theme='dark'] {
@@ -299,27 +310,72 @@ body {
   }
 }
 
-/* --- vehicle popup ------------------------------------------------------- */
+/* --- map popups (vehicle · stop · CAT · incident · van) -------------------- */
+/* One shared skin for every popup on the map, matching /map (testmap): a navy
+   gradient card with a thick white rim, a white tip, big soft shadow, light
+   text, and an orange round close button. */
 
-.livemap-vehicle-popup .maplibregl-popup-content {
-  padding: 12px 14px 13px;
-  border-radius: var(--radius);
-  background: var(--panel-surface);
-  color: var(--panel-fg);
-  border: 1px solid var(--panel-border);
-  box-shadow: var(--panel-shadow);
+.livemap-vehicle-popup .maplibregl-popup-content,
+.livemap-stop-popup .maplibregl-popup-content {
+  padding: 13px 15px 14px;
+  border-radius: var(--radius-card);
+  background: var(--pop-bg);
+  color: var(--pop-fg);
+  border: 3px solid var(--pop-edge);
+  box-shadow: var(--pop-shadow), inset 0 1px 0 var(--pop-inset);
   font-family: inherit;
+  font-variant-numeric: tabular-nums;
 }
 
-.livemap-vehicle-popup .maplibregl-popup-tip {
-  border-top-color: var(--panel-bg);
-  border-bottom-color: var(--panel-bg);
+/* White tip to read as the card's rim carrying on past the corner. Covers all
+   four cardinal anchors (MapLibre colours only the pointing side). */
+.livemap-vehicle-popup .maplibregl-popup-anchor-bottom .maplibregl-popup-tip,
+.livemap-stop-popup .maplibregl-popup-anchor-bottom .maplibregl-popup-tip {
+  border-top-color: var(--pop-edge);
+}
+.livemap-vehicle-popup .maplibregl-popup-anchor-top .maplibregl-popup-tip,
+.livemap-stop-popup .maplibregl-popup-anchor-top .maplibregl-popup-tip {
+  border-bottom-color: var(--pop-edge);
+}
+.livemap-vehicle-popup .maplibregl-popup-anchor-left .maplibregl-popup-tip,
+.livemap-stop-popup .maplibregl-popup-anchor-left .maplibregl-popup-tip {
+  border-right-color: var(--pop-edge);
+}
+.livemap-vehicle-popup .maplibregl-popup-anchor-right .maplibregl-popup-tip,
+.livemap-stop-popup .maplibregl-popup-anchor-right .maplibregl-popup-tip {
+  border-left-color: var(--pop-edge);
 }
 
-.livemap-vehicle-popup .maplibregl-popup-close-button {
-  color: var(--panel-fg);
-  font-size: var(--fs-xl);
-  padding: 2px 6px;
+.livemap-vehicle-popup .maplibregl-popup-close-button,
+.livemap-stop-popup .maplibregl-popup-close-button {
+  top: 7px;
+  right: 7px;
+  width: 21px;
+  height: 21px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  border: 0;
+  background: linear-gradient(135deg, var(--accent), var(--accent-bright));
+  color: #1f1300;
+  font-size: 14px;
+  line-height: 1;
+  box-shadow: 0 8px 18px rgba(229, 114, 0, 0.42);
+  transition: transform var(--dur-fast) var(--ease), box-shadow var(--dur-fast) var(--ease);
+}
+
+.livemap-vehicle-popup .maplibregl-popup-close-button:hover,
+.livemap-stop-popup .maplibregl-popup-close-button:hover {
+  transform: translateY(-1px);
+  background: linear-gradient(135deg, var(--accent), var(--accent-bright));
+  box-shadow: 0 12px 24px rgba(229, 114, 0, 0.52);
+}
+
+/* First line in either popup clears the round close button in the corner. */
+.lv-pop > :first-child,
+.ls-pop > :first-child {
+  padding-right: 22px;
 }
 
 .lv-route {
@@ -335,7 +391,7 @@ body {
   height: 10px;
   border-radius: 3px;
   flex: 0 0 auto;
-  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.2) inset;
+  box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.35) inset;
 }
 
 .lv-name {
@@ -361,7 +417,7 @@ body {
 
 .lv-manifest {
   margin-top: 8px;
-  border-top: 1px solid var(--panel-border);
+  border-top: 1px solid var(--pop-hairline);
   padding-top: 6px;
 }
 
@@ -381,7 +437,7 @@ body {
 }
 
 .lv-manifest-row + .lv-manifest-row {
-  border-top: 1px dashed var(--panel-border);
+  border-top: 1px dashed var(--pop-hairline);
 }
 
 .lv-manifest-n {
@@ -394,11 +450,12 @@ body {
 .lv-manifest-k {
   font-weight: 700;
 }
+/* Brighter tints than the light-panel --ok/--bad so they carry on the navy card. */
 .lv-manifest-k--p {
-  color: var(--ok);
+  color: #7bd95f;
 }
 .lv-manifest-k--d {
-  color: var(--bad);
+  color: #ff6b81;
 }
 
 .lv-manifest-addr {
@@ -433,24 +490,25 @@ body {
   margin-top: 10px;
   width: 100%;
   appearance: none;
-  border: 1px solid var(--panel-border);
-  border-radius: 7px;
-  padding: 7px 10px;
+  border: 1px solid var(--pop-hairline);
+  border-radius: var(--radius-sm);
+  padding: 8px 10px;
   font: 600 var(--fs-sm)/1 inherit;
-  color: var(--panel-fg);
-  background: transparent;
+  color: var(--pop-fg);
+  background: rgba(255, 255, 255, 0.1);
   cursor: pointer;
-  transition: background-color 0.14s ease;
+  transition: background-color var(--dur-fast) var(--ease), box-shadow var(--dur-fast) var(--ease);
 }
 
 .lv-follow:hover {
-  background: var(--hover-bg);
+  background: rgba(255, 255, 255, 0.18);
 }
 
 .lv-follow.is-on {
-  background: var(--uva-orange);
-  color: #1a2233;
+  background: linear-gradient(135deg, var(--accent), var(--accent-bright));
+  color: #1f1300;
   border-color: transparent;
+  box-shadow: 0 10px 20px rgba(229, 114, 0, 0.35);
 }
 
 /* --- follow chip ------------------------------------------------------------ */
@@ -501,7 +559,7 @@ body {
   background: rgba(127, 127, 127, 0.3);
 }
 
-/* --- popups (stop / vehicle) ---------------------------------------------- */
+/* --- popup contents ----------------------------------------------------------- */
 
 @keyframes livemap-pop-in {
   from {
@@ -519,32 +577,10 @@ body {
   animation: livemap-pop-in var(--dur) var(--ease);
 }
 
-.livemap-stop-popup .maplibregl-popup-content {
-  padding: 11px 13px 12px;
-  border-radius: var(--radius);
-  background: var(--panel-surface);
-  color: var(--panel-fg);
-  border: 1px solid var(--panel-border);
-  box-shadow: var(--panel-shadow);
-  font-family: inherit;
-}
-
-.livemap-stop-popup .maplibregl-popup-tip {
-  border-top-color: var(--panel-bg);
-  border-bottom-color: var(--panel-bg);
-}
-
-.livemap-stop-popup .maplibregl-popup-close-button {
-  color: var(--panel-fg);
-  font-size: var(--fs-xl);
-  padding: 2px 6px;
-}
-
 .ls-name {
   font-size: var(--fs-md);
   font-weight: 700;
   margin-bottom: 6px;
-  padding-right: 12px;
 }
 
 .ls-row {
@@ -560,7 +596,7 @@ body {
   height: 9px;
   border-radius: 50%;
   flex: 0 0 auto;
-  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.2) inset;
+  box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.35) inset;
 }
 
 .ls-route {
@@ -589,18 +625,19 @@ body {
   opacity: 0.7;
 }
 
-/* CAT stop / vehicle popup accents (shares .livemap-stop-popup chrome) */
+/* Agency chip in a popup heading (CAT / UVA RIDE / PULSEPOINT / …). */
 .ls-tag {
   display: inline-block;
   margin-left: 4px;
-  padding: 1px 5px;
-  border-radius: 4px;
+  padding: 1px 6px;
+  border-radius: var(--radius-pill);
   font-size: var(--fs-micro);
   font-weight: 700;
   letter-spacing: 0.04em;
   vertical-align: middle;
-  background: rgba(127, 127, 127, 0.22);
-  color: var(--panel-fg);
+  background: rgba(255, 255, 255, 0.16);
+  border: 1px solid rgba(255, 255, 255, 0.22);
+  color: var(--pop-fg);
 }
 
 .ls-dir {
@@ -1703,13 +1740,12 @@ body {
   width: 22px;
   height: 22px;
   border-radius: 50%;
-  border: 1px solid var(--panel-border);
-  background: var(--panel-surface);
-  color: var(--panel-fg);
+  border: 2px solid var(--pop-edge);
+  background: var(--pop-bg);
+  color: var(--pop-fg);
   font: 700 var(--fs-md)/1 inherit;
   cursor: pointer;
-  box-shadow: var(--panel-shadow);
-  backdrop-filter: var(--panel-blur);
+  box-shadow: var(--pop-shadow);
 }
 
 .lmm-chip {
@@ -1755,13 +1791,12 @@ body {
 
 .livemap-marker-menu.lmm-hint {
   pointer-events: none;
-  padding: 6px 11px;
+  padding: 6px 12px;
   border-radius: var(--radius-pill);
-  background: var(--panel-surface);
-  border: 1px solid var(--panel-border);
-  box-shadow: var(--panel-shadow);
-  backdrop-filter: var(--panel-blur);
-  color: var(--panel-fg);
+  background: var(--pop-bg);
+  border: 2px solid var(--pop-edge);
+  box-shadow: var(--pop-shadow);
+  color: var(--pop-fg);
   font: 700 var(--fs-xs)/1 inherit;
   white-space: nowrap;
 }
