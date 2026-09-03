@@ -12740,7 +12740,20 @@ _UVA_FACILITY_SEARCH_URL = (
     "https://fm-atlas.eservices.virginia.edu/server/rest/services/"
     "Public/PublicFacilitiesSearch/MapServer/0/query"
 )
-_uva_facility_cache = PerKeyTTLCache(ttl=6 * 3600, max_keys=300)
+# The whole PublicFacilitiesSearch layer is only ~822 rows / <1 MB with geometry.
+# A per-keystroke leading-wildcard `LIKE '%term%'` across three UPPER()-wrapped
+# columns costs ~3 s upstream (no index can serve it); an unfiltered
+# `where=1=1` dump of the entire layer costs ~250 ms. So we pull the layer once,
+# hold it in memory, and match substrings locally. Refreshed on a long TTL
+# (buildings don't move) with a stale-while-revalidate swap. The old per-query
+# upstream search survives only as a fallback for when the bulk fetch has never
+# succeeded.
+_UVA_FACILITY_TTL_S = 12 * 3600
+_uva_facility_rows: Optional[List[Dict[str, Any]]] = None  # trimmed rows + geometry
+_uva_facility_fetched_at: float = 0.0                      # time.monotonic() stamp
+_uva_facility_lock = asyncio.Lock()
+_uva_facility_refreshing = False
+_uva_facility_fallback_cache = PerKeyTTLCache(ttl=6 * 3600, max_keys=300)
 _UVA_QUERY_OK = re.compile(r"[^A-Za-z0-9 &./@'\-]")
 
 
@@ -12757,18 +12770,114 @@ def _facility_bbox(rings: List[List[List[float]]]):
     return [min(xs), min(ys), max(xs), max(ys)]
 
 
-@app.get("/v1/uva/facility_search")
-async def uva_facility_search(q: str = Query(..., min_length=2, max_length=80)):
-    """Type-ahead search of UVA building footprints for the livemap search box.
+def _trim_facility_feature(feat: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+    """One ArcGIS feature -> the shape the livemap search box consumes, plus a
+    precomputed uppercase `_hay` string for local substring matching."""
+    attrs = feat.get("attributes") or {}
+    rings = (feat.get("geometry") or {}).get("rings")
+    if not rings:
+        return None
+    bbox = _facility_bbox(rings)
+    if not bbox:
+        return None
+    name = (attrs.get("FacilityName") or "").strip() or "Building"
+    number = (attrs.get("FacilityNumber") or "").strip()
+    address = " ".join((attrs.get("FullAddress") or "").split())
+    return {
+        "name": name,
+        "number": number,
+        "address": address,
+        "geometry": {"type": "Polygon", "coordinates": rings},
+        "bbox": bbox,
+        "_hay": f"{name}\n{number}\n{address}".upper(),
+    }
 
-    Proxies UVA Facilities Management's public PublicFacilitiesSearch MapServer
-    (same service the official Visitor Map uses) — no token. We proxy rather
-    than hit it from the browser because that service does per-Origin CORS.
-    Returns trimmed GeoJSON polygons + bbox.
+
+async def _fetch_facility_layer() -> List[Dict[str, Any]]:
+    """Pull the entire PublicFacilitiesSearch layer (all rows + geometry)."""
+    params = {
+        "f": "json",
+        "where": "1=1",
+        "outFields": "FacilityName,FacilityNumber,FullAddress",
+        "returnGeometry": "true",
+        "outSR": "4326",
+        "resultRecordCount": "5000",
+    }
+    async with httpx.AsyncClient() as client:
+        resp = await client.get(_UVA_FACILITY_SEARCH_URL, params=params, timeout=30)
+    record_api_call("GET", str(resp.request.url), resp.status_code)
+    resp.raise_for_status()
+    data = resp.json()
+    if data.get("exceededTransferLimit"):
+        print("[facility] WARNING: layer fetch hit the server record cap — "
+              "search index is truncated")
+    rows: List[Dict[str, Any]] = []
+    for feat in data.get("features") or []:
+        row = _trim_facility_feature(feat)
+        if row:
+            rows.append(row)
+    return rows
+
+
+async def _refresh_facility_rows(*, force_wait: bool) -> None:
+    """Populate / replace the in-memory facility list.
+
+    force_wait=True  -> load synchronously (first ever load, or startup warm).
+    force_wait=False -> if a list already exists, kick a background refresh and
+                        return immediately (stale-while-revalidate).
     """
-    cleaned = _UVA_QUERY_OK.sub("", q).strip()
-    if len(cleaned) < 2:
-        return {"results": []}
+    global _uva_facility_rows, _uva_facility_fetched_at, _uva_facility_refreshing
+
+    if _uva_facility_rows is not None and not force_wait:
+        if _uva_facility_refreshing:
+            return
+        _uva_facility_refreshing = True
+
+        async def _bg():
+            global _uva_facility_rows, _uva_facility_fetched_at, _uva_facility_refreshing
+            try:
+                async with _uva_facility_lock:
+                    rows = await _fetch_facility_layer()
+                _uva_facility_rows = rows
+                _uva_facility_fetched_at = time.monotonic()
+                print(f"[facility] refreshed {len(rows)} buildings")
+            except Exception as e:  # keep serving the stale list
+                print(f"[facility] background refresh failed: {e}")
+            finally:
+                _uva_facility_refreshing = False
+
+        asyncio.create_task(_bg())
+        return
+
+    async with _uva_facility_lock:
+        fresh = _uva_facility_rows is not None and (
+            time.monotonic() - _uva_facility_fetched_at
+        ) < _UVA_FACILITY_TTL_S
+        if fresh:
+            return  # another waiter already loaded it
+        rows = await _fetch_facility_layer()
+        _uva_facility_rows = rows
+        _uva_facility_fetched_at = time.monotonic()
+        print(f"[facility] loaded {len(rows)} buildings")
+
+
+async def _facility_rows_or_none() -> Optional[List[Dict[str, Any]]]:
+    """The current in-memory list — loading it if absent, refreshing if stale.
+    Returns None only when we have nothing and the load failed."""
+    if _uva_facility_rows is None:
+        try:
+            await _refresh_facility_rows(force_wait=True)
+        except Exception as e:
+            print(f"[facility] initial load failed, using live fallback: {e}")
+            return None
+    elif (time.monotonic() - _uva_facility_fetched_at) >= _UVA_FACILITY_TTL_S:
+        await _refresh_facility_rows(force_wait=False)  # stale-while-revalidate
+    return _uva_facility_rows
+
+
+async def _live_facility_query(cleaned: str) -> Dict[str, Any]:
+    """Fallback only: the original per-query upstream LIKE search. Used when the
+    bulk layer fetch has never succeeded, so search still works (slowly)."""
     like = cleaned.replace("'", "''").upper()
 
     async def _fetch():
@@ -12789,32 +12898,66 @@ async def uva_facility_search(q: str = Query(..., min_length=2, max_length=80)):
             resp = await client.get(_UVA_FACILITY_SEARCH_URL, params=params, timeout=15)
         record_api_call("GET", str(resp.request.url), resp.status_code)
         resp.raise_for_status()
-        data = resp.json()
-
         results = []
-        for feat in (data.get("features") or [])[:12]:
-            attrs = feat.get("attributes") or {}
-            rings = (feat.get("geometry") or {}).get("rings")
-            if not rings:
-                continue
-            bbox = _facility_bbox(rings)
-            if not bbox:
-                continue
-            results.append(
-                {
-                    "name": (attrs.get("FacilityName") or "").strip() or "Building",
-                    "number": (attrs.get("FacilityNumber") or "").strip(),
-                    "address": " ".join((attrs.get("FullAddress") or "").split()),
-                    "geometry": {"type": "Polygon", "coordinates": rings},
-                    "bbox": bbox,
-                }
-            )
+        for feat in (resp.json().get("features") or [])[:12]:
+            row = _trim_facility_feature(feat)
+            if row:
+                row.pop("_hay", None)
+                results.append(row)
         return {"results": results}
 
-    try:
-        return await _uva_facility_cache.get(like, _fetch)
-    except httpx.HTTPError as exc:
-        raise HTTPException(status_code=502, detail=f"facility search upstream error: {exc}") from exc
+    return await _uva_facility_fallback_cache.get(like, _fetch)
+
+
+@app.get("/v1/uva/facility_search")
+async def uva_facility_search(q: str = Query(..., min_length=2, max_length=80)):
+    """Type-ahead search of UVA building footprints for the livemap search box.
+
+    Backed by an in-memory copy of UVA Facilities Management's public
+    PublicFacilitiesSearch layer (same service the official Visitor Map uses,
+    no token). The whole layer (~822 rows) is pulled once and refreshed on a
+    12 h TTL; each request is a local substring match — no upstream call. If the
+    bulk fetch has never succeeded we fall back to a live per-query search.
+    """
+    cleaned = _UVA_QUERY_OK.sub("", q).strip()
+    if len(cleaned) < 2:
+        return {"results": []}
+
+    rows = await _facility_rows_or_none()
+    if rows is None:
+        try:
+            return await _live_facility_query(cleaned)
+        except httpx.HTTPError as exc:
+            raise HTTPException(
+                status_code=502, detail=f"facility search upstream error: {exc}"
+            ) from exc
+
+    needle = cleaned.upper()
+    matches = []
+    for row in rows:
+        if needle not in row["_hay"]:
+            continue
+        nm = row["name"].upper()
+        # Name-prefix hits first, then name-substring, then address-only.
+        rank = 0 if nm.startswith(needle) else (1 if needle in nm else 2)
+        matches.append((rank, row["name"], row))
+    matches.sort(key=lambda m: (m[0], m[1]))
+    results = [
+        {k: v for k, v in row.items() if k != "_hay"} for _, _, row in matches[:12]
+    ]
+    return {"results": results}
+
+
+@app.on_event("startup")
+async def _warm_facility_layer() -> None:
+    """Pull the building layer at boot so the first search is already instant."""
+    async def _warm():
+        try:
+            await _refresh_facility_rows(force_wait=True)
+        except Exception as e:
+            print(f"[facility] startup warm failed (will lazy-load on first search): {e}")
+
+    asyncio.create_task(_warm())
 
 
 # ---------------------------
