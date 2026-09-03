@@ -123,7 +123,7 @@ function ensureFallbackPin() {
   g.arc(cx, cy, r, Math.PI * 0.86, Math.PI * 0.14, false);
   g.lineTo(cx, h - 8); // taper to the tip
   g.closePath();
-  g.fillStyle = '#6b7280';
+  g.fillStyle = '#666666'; // UVA Text Gray
   g.fill();
   g.lineWidth = 12;
   g.strokeStyle = '#ffffff';
@@ -218,11 +218,12 @@ function wire() {
         key: `pp:${p.id}`,
         label: p.type || 'Incident',
         sublabel: 'PulsePoint',
+        // UVA palette: Emergency / Cyan / Orange / Text Gray.
         color:
-          p.kind === 'fire' ? '#dc2626'
-          : p.kind === 'medical' ? '#2563eb'
-          : p.kind === 'traffic' ? '#ea580c'
-          : '#6b7280',
+          p.kind === 'fire' ? '#df1e43'
+          : p.kind === 'medical' ? '#009fdf'
+          : p.kind === 'traffic' ? '#e57200'
+          : '#666666',
         open: () => openPulsePopup(p.id, f.geometry.coordinates),
       };
     },

@@ -290,7 +290,8 @@ const TT_CAT = {
 };
 function ttColor(mag) {
   const m = Number(mag);
-  return m >= 4 ? '#b91c1c' : m === 3 ? '#dc2626' : m === 2 ? '#ea580c' : m === 1 ? '#f59e0b' : '#6b7280';
+  // UVA palette: Emergency → Emergency → Orange → Yellow → Text Gray.
+  return m >= 4 ? '#df1e43' : m === 3 ? '#df1e43' : m === 2 ? '#e57200' : m === 1 ? '#fdda24' : '#666666';
 }
 
 async function pollTrafficInc() {
