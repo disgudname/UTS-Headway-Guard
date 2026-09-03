@@ -514,6 +514,7 @@ function renderRouteRows(bodyEl, groups, onToggle, emptyText) {
   bodyEl.textContent = '';
   for (const g of groups) {
     const idle = g.active === false;
+    const infos = Array.isArray(g.infos) ? g.infos : [];
     const row = document.createElement('button');
     row.type = 'button';
     row.className = 'lp-row' + (g.hidden ? ' is-off' : '') + (idle ? ' is-idle' : '');
@@ -523,9 +524,19 @@ function renderRouteRows(bodyEl, groups, onToggle, emptyText) {
       <span class="lp-name-wrap">
         <span class="lp-name"></span>
         ${idle ? '<span class="lp-note">no buses</span>' : ''}
+        ${infos
+          .map(
+            (it) =>
+              `<span class="lp-route-info${it.shown ? '' : ' is-off'}" data-info></span>`,
+          )
+          .join('')}
       </span>
       <span class="lp-eye" aria-hidden="true"></span>`;
     row.querySelector('.lp-name').textContent = g.name;
+    // Per-route InfoText (schedule-variant routings) — set as text, not HTML.
+    row.querySelectorAll('[data-info]').forEach((el, i) => {
+      el.textContent = infos[i].text;
+    });
     row.addEventListener('click', () => onToggle(g.name, !g.hidden));
     bodyEl.appendChild(row);
   }

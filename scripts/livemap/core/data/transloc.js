@@ -119,6 +119,10 @@ async function loadMetadata() {
       const id = String(route.RouteID);
       const color = normalizeHex(route.MapLineColor);
       const name = route.Description || route.RouteName || '';
+      // TransLoc's per-route service note. Several RouteIDs can share a name
+      // (schedule variants of one line); their InfoText is what tells the
+      // routings apart, so it's carried per RouteID, not per name.
+      const info = typeof route.InfoText === 'string' ? route.InfoText.trim() : '';
       if (color && routeColor.get(id) !== color) {
         routeColor.set(id, color);
         changed = true;
@@ -134,6 +138,7 @@ async function loadMetadata() {
           name: name || routeName.get(id) || `Route ${id}`,
           color: color || routeColor.get(id) || NO_ROUTE_COLOR,
           coords,
+          info,
         });
       }
     }
@@ -203,7 +208,7 @@ function commitStops(raw) {
 /** Swap in a fresh set of route shapes, emitting only when it actually differs. */
 function commitRouteShapes(shapes) {
   const sig = [...shapes.values()]
-    .map((s) => `${s.id}:${s.color}:${s.coords.length}`)
+    .map((s) => `${s.id}:${s.color}:${s.coords.length}:${s.info || ''}`)
     .sort()
     .join('|');
   if (sig === routeShapeSig) return;

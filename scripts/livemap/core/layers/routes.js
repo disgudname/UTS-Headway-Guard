@@ -32,17 +32,26 @@ import { stripeRoutes, plainRouteFeatures } from './route-overlap.js';
 
 const HIDDEN_KEY = 'livemap.routes.hidden';
 const PINNED_KEY = 'livemap.routes.pinned';
+const OFF_SNAPSHOT_KEY = 'livemap.routes.offshown';
 
 const bus = emitter();
 const hidden = loadSet(HIDDEN_KEY); // RouteIDs the user explicitly turned OFF
 const pinned = loadSet(PINNED_KEY); // idle RouteIDs the user explicitly turned ON
-let routes = []; // [{ id, name, color, coords }]
+// name -> [RouteID,...] that were actually drawing when the user last switched
+// this line OFF, so switching it back ON restores exactly those variants and
+// not every schedule variant of the line.
+const offSnapshot = loadSnapshot();
+let routes = []; // [{ id, name, color, coords, info }]
 // RouteIDs with a bus on them in the LATEST vehicle report. A route line is a
 // live diagnostic — "is this route's line drawn?" answers "are its buses tagged
 // to it?" — so there is NO linger: lose the last bus, lose the line this tick.
 let activeRouteIds = new Set();
 
-/** fn(groups) — [{ name, color, ids, active, hidden }], active groups first. */
+/** fn(groups) — active groups first. Each group:
+ *  { name, color, ids, active, hidden,
+ *    variants: [{ id, info, active, shown }],
+ *    infos:    [{ text, shown }]  // distinct non-empty InfoText for the line
+ *  } */
 export const onRouteVisibility = (fn) => {
   const off = bus.on('change', fn);
   fn(groups());
@@ -121,18 +130,49 @@ export function installRouteLayer() {
 export function setGroupHidden(name, hide) {
   const ids = routes.filter((r) => r.name === name).map((r) => r.id);
   if (!ids.length) return;
-  for (const id of ids) {
-    if (hide) {
+  if (hide) {
+    // Remember which variants were actually on the map, then hide the line.
+    const wasShown = ids.filter((id) => lineShows(id));
+    if (wasShown.length) offSnapshot.set(name, wasShown);
+    else offSnapshot.delete(name);
+    for (const id of ids) {
       hidden.add(id);
       pinned.delete(id);
-    } else {
-      hidden.delete(id);
-      if (!routeActive(id)) pinned.add(id); // idle route -> pin so its line shows
+    }
+  } else {
+    const restore = new Set(offSnapshot.get(name) || []);
+    offSnapshot.delete(name);
+    for (const id of ids) hidden.delete(id);
+    if (restore.size) {
+      // Bring back exactly the variants that were showing before it was hidden
+      // (active ones redraw on their own; idle ones need a pin).
+      for (const id of ids) if (restore.has(id) && !routeActive(id)) pinned.add(id);
+    } else if (!ids.some((id) => routeActive(id))) {
+      // No snapshot and the whole line is idle -> pin ONE representative
+      // variant so the line shows, not every schedule variant of it.
+      const rep = repVariantId(ids);
+      if (rep) pinned.add(rep);
     }
   }
   persist();
   syncSource();
   bus.emit('change', groups());
+}
+
+/** The "canonical" variant of a name-group: the RouteID with the most shape
+ *  points (same choice visibleReps() makes for striping). */
+function repVariantId(ids) {
+  let best = null;
+  let bestLen = -1;
+  for (const id of ids) {
+    const r = routes.find((x) => x.id === id);
+    const len = r && Array.isArray(r.coords) ? r.coords.length : 0;
+    if (len > bestLen) {
+      bestLen = len;
+      best = id;
+    }
+  }
+  return best;
 }
 
 export function setAllHidden(hide) {
@@ -166,15 +206,31 @@ function groups() {
   for (const r of routes) {
     let g = byName.get(r.name);
     if (!g) {
-      g = { name: r.name, color: r.color, ids: [] };
+      g = { name: r.name, color: r.color, ids: [], variants: [] };
       byName.set(r.name, g);
     }
     g.ids.push(r.id);
+    g.variants.push({
+      id: r.id,
+      info: r.info || '',
+      active: routeActive(r.id),
+      shown: lineShows(r.id),
+    });
   }
   const out = [...byName.values()];
   for (const g of out) {
     g.active = g.ids.some((id) => routeActive(id));
     g.hidden = !g.ids.some((id) => lineShows(id)); // "off" = nothing drawing
+    g.variants.sort((a, b) => (a.active === b.active ? 0 : a.active ? -1 : 1));
+    // Distinct non-empty InfoText strings for this line, each flagged by
+    // whether a variant carrying it is currently drawn. Riders never see the
+    // RouteID split; this is how the differing routings surface in the picker.
+    const seen = new Map(); // text -> shown (OR across variants with that text)
+    for (const v of g.variants) {
+      if (!v.info) continue;
+      seen.set(v.info, (seen.get(v.info) || false) || v.shown);
+    }
+    g.infos = [...seen].map(([text, shown]) => ({ text, shown }));
   }
   // Active lines first, then A–Z within each block.
   out.sort((a, b) => (a.active === b.active ? a.name.localeCompare(b.name) : a.active ? -1 : 1));
@@ -223,6 +279,12 @@ function pruneHidden() {
   const live = new Set(routes.map((r) => r.id));
   for (const id of [...hidden]) if (!live.has(id)) hidden.delete(id);
   for (const id of [...pinned]) if (!live.has(id)) pinned.delete(id);
+  const liveNames = new Set(routes.map((r) => r.name));
+  for (const [name, ids] of [...offSnapshot]) {
+    const kept = liveNames.has(name) ? ids.filter((id) => live.has(id)) : [];
+    if (kept.length) offSnapshot.set(name, kept);
+    else offSnapshot.delete(name);
+  }
 }
 
 function loadSet(key) {
@@ -234,7 +296,23 @@ function loadSet(key) {
   }
 }
 
+function loadSnapshot() {
+  try {
+    const arr = JSON.parse(lsGet(OFF_SNAPSHOT_KEY, '[]'));
+    return new Map(
+      Array.isArray(arr)
+        ? arr
+            .filter((e) => Array.isArray(e) && e.length === 2)
+            .map(([k, v]) => [String(k), (Array.isArray(v) ? v : []).map(String)])
+        : [],
+    );
+  } catch {
+    return new Map();
+  }
+}
+
 function persist() {
   lsSet(HIDDEN_KEY, JSON.stringify([...hidden]));
   lsSet(PINNED_KEY, JSON.stringify([...pinned]));
+  lsSet(OFF_SNAPSHOT_KEY, JSON.stringify([...offSnapshot]));
 }
