@@ -48,6 +48,16 @@
   --radius-sm: 7px; /* small buttons, swatches, pills */
   --radius-pill: 999px;
 
+  /* Type scale — 6 steps. micro: sub-labels & "no buses"; xs: uppercase
+     section subheads; sm: body (rows, checks, buttons); md: names & panel
+     titles; lg: brand header; xl: popup close glyphs. */
+  --fs-micro: 10px;
+  --fs-xs: 11px;
+  --fs-sm: 12px;
+  --fs-md: 13px;
+  --fs-lg: 15px;
+  --fs-xl: 16px;
+
   --focus-ring: 0 0 0 3px var(--accent-soft);
   --panel-blur: blur(10px);
 
@@ -260,7 +270,7 @@ body {
 
 .livemap-vehicle-popup .maplibregl-popup-close-button {
   color: var(--panel-fg);
-  font-size: 16px;
+  font-size: var(--fs-xl);
   padding: 2px 6px;
 }
 
@@ -269,7 +279,7 @@ body {
   align-items: center;
   gap: 6px;
   font-weight: 700;
-  font-size: 13px;
+  font-size: var(--fs-md);
 }
 
 .lv-swatch {
@@ -281,13 +291,13 @@ body {
 }
 
 .lv-name {
-  font-size: 15px;
+  font-size: var(--fs-lg);
   font-weight: 700;
   margin-top: 3px;
 }
 
 .lv-meta {
-  font-size: 11.5px;
+  font-size: var(--fs-sm);
   opacity: 0.75;
   margin-top: 2px;
 }
@@ -308,7 +318,7 @@ body {
 }
 
 .lv-manifest-h {
-  font-size: 10px;
+  font-size: var(--fs-micro);
   font-weight: 700;
   letter-spacing: 0.06em;
   text-transform: uppercase;
@@ -317,7 +327,7 @@ body {
 }
 
 .lv-manifest-row {
-  font-size: 11.5px;
+  font-size: var(--fs-sm);
   padding: 3px 0;
   line-height: 1.35;
 }
@@ -366,7 +376,7 @@ body {
 }
 
 .lv-occ-label {
-  font-size: 10.5px;
+  font-size: var(--fs-xs);
   opacity: 0.7;
   margin-top: 3px;
 }
@@ -378,7 +388,7 @@ body {
   border: 1px solid var(--panel-border);
   border-radius: 7px;
   padding: 7px 10px;
-  font: 600 12px/1 inherit;
+  font: 600 var(--fs-sm)/1 inherit;
   color: var(--panel-fg);
   background: transparent;
   cursor: pointer;
@@ -408,7 +418,7 @@ body {
   gap: 8px;
   padding: 7px 8px 7px 14px;
   border-radius: var(--radius-pill);
-  font: 600 12.5px/1 inherit;
+  font: 600 var(--fs-md)/1 inherit;
   color: var(--panel-fg);
   background: var(--panel-surface);
   border: 1px solid var(--panel-border);
@@ -432,7 +442,7 @@ body {
   width: 22px;
   height: 22px;
   border-radius: 50%;
-  font-size: 15px;
+  font-size: var(--fs-lg);
   line-height: 1;
   cursor: pointer;
   color: var(--panel-fg);
@@ -478,12 +488,12 @@ body {
 
 .livemap-stop-popup .maplibregl-popup-close-button {
   color: var(--panel-fg);
-  font-size: 16px;
+  font-size: var(--fs-xl);
   padding: 2px 6px;
 }
 
 .ls-name {
-  font-size: 13px;
+  font-size: var(--fs-md);
   font-weight: 700;
   margin-bottom: 6px;
   padding-right: 12px;
@@ -494,7 +504,7 @@ body {
   align-items: center;
   gap: 7px;
   padding: 3px 0;
-  font-size: 12px;
+  font-size: var(--fs-sm);
 }
 
 .ls-sw {
@@ -527,7 +537,7 @@ body {
 }
 
 .ls-empty {
-  font-size: 11.5px;
+  font-size: var(--fs-sm);
   opacity: 0.7;
 }
 
@@ -537,7 +547,7 @@ body {
   margin-left: 4px;
   padding: 1px 5px;
   border-radius: 4px;
-  font-size: 9.5px;
+  font-size: var(--fs-micro);
   font-weight: 700;
   letter-spacing: 0.04em;
   vertical-align: middle;
@@ -548,7 +558,7 @@ body {
 .ls-dir {
   font-weight: 500;
   opacity: 0.6;
-  font-size: 11px;
+  font-size: var(--fs-xs);
 }
 
 /* --- panels (left control · right column) ------------------------------------ */
@@ -645,7 +655,7 @@ body {
 }
 
 .lp-head-title {
-  font: 700 15px/1 inherit;
+  font: 700 var(--fs-lg)/1 inherit;
   letter-spacing: 0.3px;
 }
 
@@ -658,12 +668,12 @@ body {
 }
 
 .lp-title {
-  font: 700 12.5px/1 inherit;
+  font: 700 var(--fs-md)/1 inherit;
   letter-spacing: 0.02em;
 }
 
 .lp-head--plain .lp-title {
-  font-size: 14px;
+  font-size: var(--fs-lg);
   letter-spacing: 0.3px;
 }
 
@@ -671,7 +681,7 @@ body {
   display: flex;
   align-items: center;
   gap: 7px;
-  font: 700 12px/1 inherit;
+  font: 700 var(--fs-sm)/1 inherit;
   letter-spacing: 0.02em;
 }
 
@@ -725,7 +735,7 @@ body {
   align-items: center;
   gap: 8px;
   padding: 10px 11px;
-  font: 700 10.5px/1.35 inherit;
+  font: 700 var(--fs-xs)/1.35 inherit;
   letter-spacing: 0.075em;
   text-transform: uppercase;
 }
@@ -757,7 +767,7 @@ body {
   padding: 12px 14px;
   background: var(--head-bg);
   color: #fff;
-  font-size: 11px;
+  font-size: var(--fs-xs);
   box-shadow: inset 0 1px 0 var(--head-sheen), 0 1px 0 var(--head-hairline);
 }
 
@@ -822,7 +832,7 @@ body {
   border-radius: var(--radius-sm);
   background: transparent;
   color: inherit;
-  font: 600 11px/1 inherit;
+  font: 600 var(--fs-xs)/1 inherit;
   padding: 6px 4px;
   cursor: pointer;
   transition: background-color 0.14s ease, color 0.14s ease;
@@ -844,7 +854,7 @@ body {
   border-radius: var(--radius-sm);
   background: transparent;
   color: inherit;
-  font: 600 11.5px/1 inherit;
+  font: 600 var(--fs-sm)/1 inherit;
   padding: 7px 8px;
   margin-top: 3px;
   cursor: pointer;
@@ -893,7 +903,7 @@ body {
   border-radius: var(--radius-sm);
   background: transparent;
   color: inherit;
-  font: 500 12px/1 inherit;
+  font: 500 var(--fs-sm)/1 inherit;
   padding: 7px 8px;
 }
 
@@ -903,7 +913,7 @@ body {
   border-radius: var(--radius-sm);
   background: var(--toggle-active-bg);
   color: var(--toggle-active-fg);
-  font: 700 11.5px/1 inherit;
+  font: 700 var(--fs-sm)/1 inherit;
   padding: 7px 11px;
   cursor: pointer;
 }
@@ -919,13 +929,13 @@ body {
   border-radius: var(--radius-sm);
   background: transparent;
   color: inherit;
-  font: 700 13px/1 inherit;
+  font: 700 var(--fs-md)/1 inherit;
   padding: 0 9px;
   cursor: pointer;
 }
 
 .lp-auth-msg {
-  font: 600 11px/1.3 inherit;
+  font: 600 var(--fs-xs)/1.3 inherit;
   color: var(--uva-orange);
 }
 
@@ -937,7 +947,7 @@ body {
 }
 
 .lp-auth-who {
-  font: 700 11.5px/1.2 inherit;
+  font: 700 var(--fs-sm)/1.2 inherit;
   letter-spacing: 0.01em;
 }
 
@@ -947,7 +957,7 @@ body {
   gap: 8px;
   padding: 6px 6px;
   border-radius: var(--radius-sm);
-  font: 600 12px/1.3 inherit;
+  font: 600 var(--fs-sm)/1.3 inherit;
   cursor: pointer;
 }
 
@@ -984,7 +994,7 @@ body {
   border-radius: 5px;
   background: transparent;
   color: inherit;
-  font: 600 9.5px/1 inherit;
+  font: 600 var(--fs-micro)/1 inherit;
   letter-spacing: 0;
   padding: 4px 7px;
   cursor: pointer;
@@ -1008,7 +1018,7 @@ body {
   color: inherit;
   cursor: pointer;
   text-align: left;
-  font: 600 12px/1.3 inherit;
+  font: 600 var(--fs-sm)/1.3 inherit;
   transition: background-color var(--dur-fast) var(--ease);
 }
 
@@ -1042,7 +1052,7 @@ body {
 
 .lp-note {
   flex: 0 0 auto;
-  font-size: 10px;
+  font-size: var(--fs-micro);
   font-weight: 600;
   color: var(--panel-muted);
   letter-spacing: 0.02em;
@@ -1081,7 +1091,7 @@ body {
 
 .lp-empty {
   padding: 8px 7px;
-  font-size: 11.5px;
+  font-size: var(--fs-sm);
   color: var(--panel-muted);
 }
 
@@ -1101,7 +1111,7 @@ body {
 }
 
 .st-group-label {
-  font: 700 10.5px/1.35 inherit;
+  font: 700 var(--fs-xs)/1.35 inherit;
   letter-spacing: 0.075em;
   text-transform: uppercase;
   color: var(--panel-muted);
@@ -1109,7 +1119,7 @@ body {
 }
 
 .st-line {
-  font-size: 11.5px;
+  font-size: var(--fs-sm);
   margin: 3px 0;
   line-height: 1.4;
 }
@@ -1132,7 +1142,7 @@ body {
   display: flex;
   align-items: center;
   gap: 7px;
-  font-size: 11.5px;
+  font-size: var(--fs-sm);
   margin: 4px 0;
 }
 
@@ -1178,7 +1188,7 @@ body {
   height: 16px;
   padding: 0 4px;
   border-radius: 8px;
-  font: 700 10px/16px inherit;
+  font: 700 var(--fs-micro)/16px inherit;
   text-align: center;
   background: rgba(127, 127, 127, 0.22);
   color: inherit;
@@ -1200,18 +1210,18 @@ body {
 
 .sa-title {
   font-weight: 700;
-  font-size: 12px;
+  font-size: var(--fs-sm);
 }
 
 .sa-msg {
-  font-size: 11.5px;
+  font-size: var(--fs-sm);
   line-height: 1.4;
   margin-top: 3px;
   opacity: 0.9;
 }
 
 .sa-when {
-  font-size: 10.5px;
+  font-size: var(--fs-xs);
   opacity: 0.6;
   margin-top: 4px;
   font-variant-numeric: tabular-nums;
@@ -1344,7 +1354,7 @@ body {
   border: 0;
   background: transparent;
   color: var(--panel-fg);
-  font: 500 13px/1 inherit;
+  font: 500 var(--fs-md)/1 inherit;
   outline: none;
 }
 
@@ -1358,7 +1368,7 @@ body {
   border: 0;
   background: transparent;
   color: var(--panel-fg);
-  font-size: 17px;
+  font-size: var(--fs-xl);
   line-height: 1;
   padding: 4px 6px;
   cursor: pointer;
@@ -1438,7 +1448,7 @@ body {
 
 .lsb-head {
   padding: 6px 11px 3px;
-  font-size: 9.5px;
+  font-size: var(--fs-micro);
   font-weight: 700;
   letter-spacing: 0.06em;
   text-transform: uppercase;
@@ -1451,7 +1461,7 @@ body {
 
 .lsb-name {
   font-weight: 700;
-  font-size: 12.5px;
+  font-size: var(--fs-md);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -1459,7 +1469,7 @@ body {
 }
 
 .lsb-meta {
-  font-size: 11px;
+  font-size: var(--fs-xs);
   opacity: 0.62;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -1469,7 +1479,7 @@ body {
 
 .lsb-empty {
   padding: 9px 11px;
-  font-size: 11.5px;
+  font-size: var(--fs-sm);
   opacity: 0.7;
 }
 
@@ -1504,7 +1514,7 @@ body {
   border: 1px solid var(--panel-border);
   background: var(--panel-bg);
   color: var(--panel-fg);
-  font: 700 13px/1 inherit;
+  font: 700 var(--fs-md)/1 inherit;
   cursor: pointer;
   box-shadow: var(--panel-shadow);
 }
@@ -1538,14 +1548,14 @@ body {
   -webkit-line-clamp: 3;
   -webkit-box-orient: vertical;
   overflow: hidden;
-  font: 700 9px/1.15 inherit;
+  font: 700 var(--fs-micro)/1.15 inherit;
   text-shadow: 0 1px 2px rgba(0, 0, 0, 0.4);
 }
 
 .lmm-sub {
   display: block;
   font-weight: 600;
-  font-size: 8px;
+  font-size: var(--fs-micro);
   opacity: 0.85;
   margin-top: 1px;
 }
@@ -1558,7 +1568,7 @@ body {
   border: 1px solid var(--panel-border);
   box-shadow: var(--panel-shadow);
   color: var(--panel-fg);
-  font: 700 11px/1 inherit;
+  font: 700 var(--fs-xs)/1 inherit;
   white-space: nowrap;
 }
 
@@ -1569,7 +1579,7 @@ body {
   left: 8px;
   bottom: 6px;
   z-index: 400;
-  font-size: 10px;
+  font-size: var(--fs-micro);
   line-height: 1.3;
   padding: 3px 7px;
   border-radius: 5px;
@@ -1641,7 +1651,7 @@ body {
   background: var(--panel-bg);
   border: 1px solid var(--panel-border);
   box-shadow: var(--panel-shadow);
-  font: 600 15px/1.2 inherit;
+  font: 600 var(--fs-lg)/1.2 inherit;
 }
 
 .livemap-route-legend[hidden] {
@@ -1702,13 +1712,13 @@ body {
 }
 
 .livemap-route-legend .lrl-qr-label {
-  font-size: 13px;
+  font-size: var(--fs-md);
   font-weight: 700;
 }
 
 .livemap-route-legend .lrl-qr-url {
   margin-top: 3px;
-  font-size: 11px;
+  font-size: var(--fs-xs);
   font-weight: 600;
   opacity: 0.7;
   overflow-wrap: anywhere;
