@@ -13,6 +13,7 @@
 import { createMap } from '../core/map.js';
 import { initTheme } from '../core/theme.js';
 import { getOperatorMode, isChromeHidden, isKioskLike } from '../core/modes.js';
+import { startKioskSchedule } from '../core/kiosk-schedule.js';
 import { RouteLegend } from '../ui/route-legend.js';
 import { installMarkerMenu } from '../core/marker-menu.js';
 import { installSatelliteLayer } from '../core/layers/satellite.js';
@@ -65,6 +66,9 @@ async function boot() {
       new RouteLegend({ qr: getOperatorMode() === 'kiosk' }).mount();
       new KioskStatus().mount();
     }
+    // A dispatcher wall display has nobody to flip overlays — run the UVA Ride
+    // overlay on a clock (overnight), like testmap's admin kiosk.
+    if (getOperatorMode() === 'adminKiosk') startKioskSchedule();
   } else {
     new Panels().mount();
     new SearchBox().mount();
