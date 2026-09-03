@@ -14831,21 +14831,66 @@ async def wv511_cameras():
 async def testmap_page():
     return HTMLResponse(TESTMAP_HTML)
 
+# Query-string params that carry a dispatch password for non-interactive
+# signage. There's no keyboard on a lobby screen, so the kiosk URL itself can
+# log the display in: /livemap/kiosk?adminKiosk&key=SECRET . On the first hit we
+# verify the password, set the normal dispatcher cookie, and 302 to the same URL
+# with the secret stripped, so it doesn't linger in the address bar / history /
+# Referer after that. It still lands in the server access log for that one
+# request — treat the URL as the secret, and give signage its own dispatch
+# password (the auth table supports several) so it can be rotated on its own.
+_KIOSK_AUTH_PARAMS = ("key", "k", "dispatchkey", "dispatchKey", "password", "pw")
+
+
+def _livemap_page_response(request: Request, html: str) -> Response:
+    qp = request.query_params
+    provided = None
+    for name in _KIOSK_AUTH_PARAMS:
+        if name in qp:
+            provided = qp[name]
+            break
+    if provided is None:
+        return HTMLResponse(html)
+
+    _refresh_dispatch_passwords()
+    secret_info = _normalize_dispatch_password(provided)
+    kept = [(k, v) for k, v in qp.multi_items() if k not in _KIOSK_AUTH_PARAMS]
+    target = request.url.path + (("?" + urlencode(kept)) if kept else "")
+    resp = RedirectResponse(url=target, status_code=302)
+    resp.headers["Cache-Control"] = "no-store"
+    if secret_info is not None:
+        label, access_type = secret_info
+        cookie_value = _dispatcher_cookie_value_for_label(label, access_type)
+        if cookie_value:
+            resp.set_cookie(
+                DISPATCH_COOKIE_NAME,
+                cookie_value,
+                max_age=DISPATCH_COOKIE_MAX_AGE,
+                httponly=True,
+                secure=DISPATCH_COOKIE_SECURE,
+                samesite="lax",
+            )
+    # A wrong password just redirects with no cookie -> signage shows the public
+    # view rather than erroring on a wall.
+    return resp
+
+
 @app.get("/livemap")
-async def livemap_page():
-    return HTMLResponse(LIVEMAP_HTML)
+async def livemap_page(request: Request):
+    return _livemap_page_response(request, LIVEMAP_HTML)
 
 @app.get("/livemap/kiosk")
-async def livemap_kiosk_page():
+async def livemap_kiosk_page(request: Request):
     # Hands-off public display: shares the livemap core, forces kiosk mode in
-    # scripts/livemap/apps/kiosk.js. See core/modes.js for the URL knobs.
-    return HTMLResponse(LIVEMAP_KIOSK_HTML)
+    # scripts/livemap/apps/kiosk.js (?adminKiosk upgrades it to the dispatcher
+    # wall display). See core/modes.js for the URL knobs; ?key= logs it in.
+    return _livemap_page_response(request, LIVEMAP_KIOSK_HTML)
 
 @app.get("/livemap/embed")
-async def livemap_embed_page():
+async def livemap_embed_page(request: Request):
     # Stripped map for an <iframe> on another page (apps/embed.js forces
     # embed mode). Camera stays interactive unless ?lock is set.
-    return HTMLResponse(LIVEMAP_EMBED_HTML)
+    return _livemap_page_response(request, LIVEMAP_EMBED_HTML)
 
 @app.get("/kioskmap")
 async def kioskmap_page():
