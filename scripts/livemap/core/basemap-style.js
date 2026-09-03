@@ -401,7 +401,29 @@ function streetBasemapLayers(theme) {
       type: 'fill',
       source: S,
       'source-layer': 'water',
+      // The `water` source-layer mixes polygon water bodies with river/stream
+      // CENTRELINES (LineStrings). A fill layer rendering those linestrings
+      // closes each path into a huge triangular wedge — the stray blue slabs
+      // across the county when zoomed out. Fill polygons only.
+      filter: ['==', ['geometry-type'], 'Polygon'],
       paint: { 'fill-color': p.water },
+    },
+    {
+      // River / stream centrelines as thin lines (kept off the fill layer above).
+      id: 'cv-waterway',
+      type: 'line',
+      source: S,
+      'source-layer': 'water',
+      filter: [
+        'all',
+        ['==', ['geometry-type'], 'LineString'],
+        ['match', ['get', 'kind'], ['river', 'stream', 'canal', 'ditch', 'drain'], true, false],
+      ],
+      layout: { 'line-cap': 'round', 'line-join': 'round' },
+      paint: {
+        'line-color': p.water,
+        'line-width': ['interpolate', ['linear'], ['zoom'], 11, 0.6, 14, 1.6, 17, 3.5],
+      },
     },
     {
       id: 'cv-park',
