@@ -36,7 +36,6 @@ export const MICRO_TRIP_LAYER_IDS = [
 const MICRO = '#7c3aed';
 const PICKUP = '#16a34a';
 const DROPOFF = '#dc2626';
-const LABEL_FONT = ['Corbel Bold', 'Corbel Regular'];
 
 /** Coverage polygon. Sits low (just above the street basemap). */
 export function microZoneLayerDefs(theme) {
@@ -91,28 +90,21 @@ export function microTripLayerDefs(theme) {
       },
     },
     {
+      // The seq digit is a pre-rendered canvas glyph (micro-trips.js), NOT a
+      // MapLibre `text-field`: this style's SDF glyphs intermittently fail to
+      // parse in the worker ("Unimplemented type: 3"), and the local-font
+      // fallback mis-centres a single character badly. Same reason the vehicle
+      // pills and stop pies bake their text.
       id: MICRO_TRIP_LABEL_LAYER,
       type: 'symbol',
       source: MICRO_TRIP_SOURCE_ID,
       minzoom: 13.5,
       layout: {
         visibility: 'none',
-        'text-field': ['get', 'seq'],
-        'text-font': LABEL_FONT,
-        'text-size': ['interpolate', ['linear'], ['zoom'], 12, 10, 16, 13, 19, 15],
-        'text-allow-overlap': true,
-        'text-ignore-placement': true,
-      },
-      paint: {
-        // per-badge readable colour (set in micro-trips.js from the van livery)
-        'text-color': ['coalesce', ['get', 'textColor'], '#ffffff'],
-        'text-halo-color': [
-          'case',
-          ['==', ['get', 'textColor'], '#1b2130'],
-          'rgba(255,255,255,0.6)',
-          'rgba(0,0,0,0.45)',
-        ],
-        'text-halo-width': 1.2,
+        'icon-image': ['get', 'numIcon'],
+        'icon-size': ['interpolate', ['linear'], ['zoom'], 12, 0.7, 16, 1, 19, 1.2],
+        'icon-allow-overlap': true,
+        'icon-ignore-placement': true,
       },
     },
   ];
