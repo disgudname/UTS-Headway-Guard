@@ -975,8 +975,10 @@ async function rasterisePin(id, color, stopped, dim) {
 
 /** Recolour busmarker.svg for a route; mark "stopped" and/or "stale". */
 function themePinSvg(svgText, color, stopped, dim) {
-  const base = dim ? mutedColor(color) : color;
-  const bodyFill = stopped ? darken(base, 0.55) : base;
+  // Stopped vehicles keep their full route colour — only the centre-ring→square
+  // swap below signals "stopped". (Darkening the body read as a different route
+  // when the colour-coded pills aren't visible to compare against.)
+  const bodyFill = dim ? mutedColor(color) : color;
   // The marks drawn ON the teardrop body (centre ring, heading arrow, stopped
   // square) flip white->dark when the route colour is light — the same contrast
   // rule the pills use. #halo stays white: it's the outline against the basemap.
@@ -1001,17 +1003,6 @@ function themePinSvg(svgText, color, stopped, dim) {
           out.replace(/<\/svg>\s*$/, `${SQUARE}</svg>`);
   }
   return out;
-}
-
-function darken(hex, factor) {
-  const m = /^#?([0-9a-f]{6})$/i.exec(String(hex));
-  if (!m) return hex;
-  const n = parseInt(m[1], 16);
-  const d = (v) => Math.round(v * factor);
-  const r = d((n >> 16) & 255);
-  const g = d((n >> 8) & 255);
-  const b = d(n & 255);
-  return `#${[r, g, b].map((v) => v.toString(16).padStart(2, '0')).join('')}`;
 }
 
 function svgToImageData(svgText, w, h) {
