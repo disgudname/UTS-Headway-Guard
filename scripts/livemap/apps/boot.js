@@ -29,11 +29,50 @@ import { Panels } from '../ui/panels.js';
 import { SearchBox } from '../ui/search.js';
 import { KioskStatus } from '../ui/kiosk-status.js';
 
+/** MapLibre GL v5 renders only through WebGL 2. */
+function hasWebGL2() {
+  try {
+    return (
+      !!window.WebGL2RenderingContext &&
+      !!document.createElement('canvas').getContext('webgl2')
+    );
+  } catch {
+    return false;
+  }
+}
+
+/** Hand a kiosk / embed shell to the Leaflet map (/map) — raster tiles, no GPU
+ *  — so a display that can't do WebGL 2 still shows a live map. Carries the
+ *  framing params across. Returns true once it has navigated away. */
+function redirectToLeafletMap() {
+  const mode = getOperatorMode();
+  if (mode !== 'kiosk' && mode !== 'adminKiosk' && mode !== 'embed') return false;
+  const src = new URLSearchParams(location.search);
+  const dst = new URL('/map', location.origin);
+  if (mode === 'adminKiosk') dst.searchParams.set('adminKioskMode', 'true');
+  else if (mode === 'kiosk') dst.searchParams.set('kioskMode', 'true');
+  for (const k of ['theme', 'centerLat', 'centerLon', 'centerZoom']) {
+    if (src.has(k)) dst.searchParams.set(k, src.get(k));
+  }
+  location.replace(dst.toString());
+  return true;
+}
+
 async function boot() {
   const loading = document.getElementById('loadingOverlay');
 
   // Let CSS and every module see which shell this is.
   document.documentElement.dataset.mode = getOperatorMode();
+
+  // Older digital-signage players (Raspberry Pi Chromium) have no WebGL 2, so
+  // MapLibre GL v5 can't run at all. Fall back to /map (Leaflet) for signage;
+  // tell an interactive visitor plainly.
+  if (!hasWebGL2()) {
+    console.warn('[livemap] WebGL 2 unavailable — this browser cannot render the vector map');
+    if (redirectToLeafletMap()) return;
+    showFatal('This display can’t render the vector map (it needs WebGL 2). Open /map instead.');
+    return;
+  }
 
   let initialStyle;
   try {
@@ -44,7 +83,15 @@ async function boot() {
     return;
   }
 
-  const map = await createMap('map', initialStyle);
+  let map;
+  try {
+    map = await createMap('map', initialStyle);
+  } catch (err) {
+    console.error('[livemap] map init failed', err);
+    if (redirectToLeafletMap()) return;
+    showFatal('The map failed to start. Open /map instead.');
+    return;
+  }
 
   installSatelliteLayer();
   installBuildingHighlight();
