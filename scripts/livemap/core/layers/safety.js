@@ -6,6 +6,7 @@
 // and owns the PulsePoint / incident popups.
 // -----------------------------------------------------------------------------
 
+import { API_BASE } from '../config.js';
 import { getMap, onStyleReady } from '../map.js';
 import { registerMarkerLayer } from '../marker-menu.js';
 import {
@@ -24,8 +25,15 @@ import {
   TRAFFIC_INC_LINE_LAYER,
   PULSEPOINT_SOURCE_ID,
   PULSEPOINT_DOT_LAYER,
-  PULSEPOINT_LABEL_LAYER,
+  PULSEPOINT_FALLBACK_IMAGE,
 } from './safety-style.js';
+
+// PulsePoint respond-icon PNGs, lazy-loaded per type code the first time a
+// feature references one. `ppTried` stops us re-fetching a code whose icon
+// 404s (many prose call-types have no icon) — cleared on style rebuild since a
+// theme swap wipes the image registry.
+const PP_ICON_BASE = `${API_BASE}/v1/pulsepoint/respond_icons/`;
+const ppTried = new Set();
 
 let pulse = [];
 let inc = [];
@@ -56,10 +64,49 @@ export function installSafetyLayer() {
 }
 
 function onRebuilt() {
+  ppTried.clear(); // style rebuild wiped the image atlas
+  ensureFallbackPin();
   syncPulse();
   syncInc();
   applyVis();
   wire();
+}
+
+/** A neutral teardrop pin, generated once, used for incident type codes that
+ *  have no PulsePoint respond icon. Same silhouette as the real PNGs so the
+ *  fallback doesn't jump. */
+function ensureFallbackPin() {
+  const map = getMap();
+  if (!map || map.hasImage(PULSEPOINT_FALLBACK_IMAGE)) return;
+  const D = 2;
+  const w = 46 * D;
+  const h = 58 * D;
+  const r = 19 * D;
+  const cx = w / 2;
+  const cy = r + 3 * D;
+  const cv = document.createElement('canvas');
+  cv.width = w;
+  cv.height = h;
+  const g = cv.getContext('2d');
+  g.beginPath();
+  g.arc(cx, cy, r, Math.PI * 0.86, Math.PI * 0.14, false);
+  g.lineTo(cx, h - 2 * D); // taper to the tip
+  g.closePath();
+  g.fillStyle = '#6b7280';
+  g.fill();
+  g.lineWidth = 3 * D;
+  g.strokeStyle = '#ffffff';
+  g.stroke();
+  // inner dot
+  g.beginPath();
+  g.arc(cx, cy, r * 0.42, 0, Math.PI * 2);
+  g.fillStyle = '#ffffff';
+  g.fill();
+  try {
+    map.addImage(PULSEPOINT_FALLBACK_IMAGE, g.getImageData(0, 0, w, h), { pixelRatio: D });
+  } catch (err) {
+    /* already added in a race — fine */
+  }
 }
 
 function applyVis() {
@@ -75,7 +122,6 @@ function applyVis() {
   set(TRAFFIC_INC_CASING_LAYER, isSafetyOn('trafficInc'));
   set(TRAFFIC_INC_LINE_LAYER, isSafetyOn('trafficInc'));
   set(PULSEPOINT_DOT_LAYER, ppOn);
-  set(PULSEPOINT_LABEL_LAYER, ppOn);
   if (!ppOn && popupKey && popupKey.startsWith('pp:')) closePopup();
   if (!isSafetyOn('trafficInc') && popupKey && popupKey.startsWith('ti:')) closePopup();
 }
@@ -94,6 +140,9 @@ function syncPulse() {
         idx,
         id: x.id,
         kind: x.kind,
+        // Image name for the symbol layer: the PulsePoint respond-icon code, or
+        // absent -> the layer's coalesce falls back to the generated pin.
+        ...(x.iconType ? { icon: `pp-${x.iconType}` } : {}),
         type: x.type || 'Incident',
         address: x.address || '',
         units: (x.units || [])
@@ -118,6 +167,26 @@ function wire() {
   const map = getMap();
   if (!map || wired) return;
   wired = true;
+
+  // Lazy-load each PulsePoint respond-icon PNG the first time a feature asks
+  // for it. Survives theme swaps (map-level listener); ppTried is reset in
+  // onRebuilt so the images get re-fetched into the fresh atlas.
+  map.on('styleimagemissing', (e) => {
+    const id = e && e.id;
+    if (!id || !id.startsWith('pp-') || ppTried.has(id) || map.hasImage(id)) return;
+    const code = id.slice(3);
+    if (!/^[a-z0-9]{1,6}$/.test(code)) return;
+    ppTried.add(id);
+    map
+      .loadImage(`${PP_ICON_BASE}${code}_map_active.png`)
+      .then((res) => {
+        const data = res && res.data;
+        if (data && !map.hasImage(id)) map.addImage(id, data);
+      })
+      .catch(() => {
+        /* no icon for this code — the layer's coalesce uses the fallback pin */
+      });
+  });
 
   registerMarkerLayer({
     layer: PULSEPOINT_DOT_LAYER,

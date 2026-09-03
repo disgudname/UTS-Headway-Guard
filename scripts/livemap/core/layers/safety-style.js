@@ -18,8 +18,11 @@ export const TRAFFIC_INC_CASING_LAYER = 'livemap-traffic-inc-casing';
 export const TRAFFIC_INC_LINE_LAYER = 'livemap-traffic-inc-line';
 
 export const PULSEPOINT_SOURCE_ID = 'livemap-pulsepoint';
+// Kept the id `...-dot` for continuity (toggle logic, marker-menu registration),
+// but it's now a symbol layer drawing the PulsePoint "respond icon" pins — the
+// same PNG markers testmap and vandispatch use.
 export const PULSEPOINT_DOT_LAYER = 'livemap-pulsepoint-dot';
-export const PULSEPOINT_LABEL_LAYER = 'livemap-pulsepoint-label';
+export const PULSEPOINT_FALLBACK_IMAGE = 'livemap-pp-pin';
 
 export const TRAFFIC_FLOW_SOURCE_DEF = {
   type: 'raster',
@@ -43,16 +46,6 @@ export const SAFETY_LAYER_IDS = [
   TRAFFIC_INC_CASING_LAYER,
   TRAFFIC_INC_LINE_LAYER,
   PULSEPOINT_DOT_LAYER,
-  PULSEPOINT_LABEL_LAYER,
-];
-
-const LABEL_FONT = ['Corbel Bold', 'Corbel Regular'];
-const PP_COLOR = [
-  'match', ['get', 'kind'],
-  'fire', '#dc2626',
-  'medical', '#2563eb',
-  'traffic', '#ea580c',
-  /* other */ '#6b7280',
 ];
 
 /** The traffic-flow raster. Sits just above the street basemap. */
@@ -95,41 +88,29 @@ export function trafficIncLayerDefs(theme) {
   ];
 }
 
-/** PulsePoint incident dots + a small call-type label. Above the vehicles. */
-export function pulsePointLayerDefs(theme) {
-  const dark = theme === 'dark';
+/** PulsePoint incidents as the standard "respond icon" pins (PNG teardrops, the
+ *  same markers testmap / vandispatch use). Icons are lazy-loaded per type code
+ *  by safety.js via `styleimagemissing`; anything without a real icon falls back
+ *  to a generated neutral pin. Anchored at the tip, above the vehicles. */
+export function pulsePointLayerDefs(/* theme */) {
   return [
     {
       id: PULSEPOINT_DOT_LAYER,
-      type: 'circle',
-      source: PULSEPOINT_SOURCE_ID,
-      layout: { visibility: 'none' },
-      paint: {
-        'circle-radius': ['interpolate', ['linear'], ['zoom'], 10, 4, 14, 6.5, 18, 9],
-        'circle-color': PP_COLOR,
-        'circle-stroke-width': 2,
-        'circle-stroke-color': dark ? '#0b0f18' : '#ffffff',
-        'circle-opacity': 0.95,
-      },
-    },
-    {
-      id: PULSEPOINT_LABEL_LAYER,
       type: 'symbol',
       source: PULSEPOINT_SOURCE_ID,
-      minzoom: 12,
       layout: {
         visibility: 'none',
-        'text-field': ['get', 'type'],
-        'text-font': LABEL_FONT,
-        'text-size': 10,
-        'text-offset': [0, 1.1],
-        'text-anchor': 'top',
-        'text-allow-overlap': false,
-      },
-      paint: {
-        'text-color': dark ? '#e7ecf5' : '#1b2130',
-        'text-halo-color': dark ? '#0b0f18' : '#ffffff',
-        'text-halo-width': 1.4,
+        // `['image', …]` lets coalesce fall through to the fallback pin while a
+        // real respond-icon PNG is still lazy-loading (or the type has none).
+        'icon-image': [
+          'coalesce',
+          ['image', ['get', 'icon']],
+          ['image', PULSEPOINT_FALLBACK_IMAGE],
+        ],
+        'icon-size': ['interpolate', ['linear'], ['zoom'], 10, 0.34, 14, 0.52, 18, 0.74],
+        'icon-anchor': 'bottom',
+        'icon-allow-overlap': true,
+        'icon-ignore-placement': true,
       },
     },
   ];

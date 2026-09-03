@@ -208,6 +208,41 @@ function ppKind(type) {
   return 'other';
 }
 
+// The short type code that keys the PulsePoint "respond icon" PNGs
+// (/v1/pulsepoint/respond_icons/{code}_map_active.png) — the same markers
+// testmap and vandispatch use. Ported from testmap's inferPulsePointMarkerType:
+// the CallType field is sometimes a bare code, sometimes prose, sometimes an
+// id, so try a run of candidate fields and coerce each to a 1-6 char code.
+function ppIconType(rec) {
+  const candidates = [
+    rec.PulsePointIncidentCallTypePrimaryCode,
+    rec.PulsePointIncidentCallTypeCode,
+    rec.PulsePointIncidentCallTypeID,
+    rec.PulsePointIncidentTypeCode,
+    rec.PulsePointIncidentType,
+    rec.CallTypeCode,
+    rec.TypeCode,
+    rec.CallType,
+    rec.Type,
+    rec.IncidentType,
+    rec.PulsePointIncidentCallType,
+  ];
+  for (const value of candidates) {
+    if (value == null) continue;
+    const trimmed = String(value).trim();
+    if (!trimmed) continue;
+    if (/^[A-Za-z0-9]{1,6}$/.test(trimmed)) return trimmed.toLowerCase();
+    const firstToken = trimmed.split(/[\s/-]+/)[0];
+    if (firstToken && /^[A-Za-z0-9]{1,4}$/.test(firstToken)) return firstToken.toLowerCase();
+    const words = trimmed.match(/[A-Za-z0-9]+/g);
+    if (words && words.length >= 2) {
+      const acronym = words.map((w) => w[0]).join('');
+      if (/^[A-Za-z0-9]{1,4}$/.test(acronym)) return acronym.toLowerCase();
+    }
+  }
+  return '';
+}
+
 async function pollPulsePoint() {
   try {
     const r = await fetch(PULSEPOINT_URL, { cache: 'no-store' });
@@ -239,6 +274,7 @@ async function pollPulsePoint() {
         lng,
         nearRoute: nearAnyRoute(lat, lng),
         kind: ppKind(type),
+        iconType: ppIconType(inc),
         type,
         address: (inc.FullDisplayAddress || inc.MedicalEmergencyDisplayAddress || '').toString(),
         units,
