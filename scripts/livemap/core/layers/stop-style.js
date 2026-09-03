@@ -30,8 +30,6 @@ export const STOP_SOURCE_DEF = {
 const PIE_SIZE_BY_ZOOM = ['interpolate', ['linear'], ['zoom'], 12, 0.5, 14, 0.72, 16, 0.95, 19, 1.15];
 const CLUSTER_RADIUS = ['step', ['get', 'point_count'], 12, 10, 15, 25, 19];
 
-const CLUSTER_FONT = ['Corbel Bold', 'Corbel Regular'];
-
 /** `theme` is 'light' | 'dark'. */
 export function stopLayerDefs(theme) {
   const dark = theme === 'dark';
@@ -52,18 +50,19 @@ export function stopLayerDefs(theme) {
       },
     },
     {
+      // Count is a pre-rendered canvas glyph (stops.js), not a `text-field` —
+      // this basemap's SDF glyphs intermittently fail to parse in the worker,
+      // and the local-font fallback mis-centres the digits. `styleimagemissing`
+      // draws `livemap-count-<n>` on demand.
       id: STOP_CLUSTER_COUNT_LAYER,
       type: 'symbol',
       source: STOP_SOURCE_ID,
       filter: ['has', 'point_count'],
       layout: {
-        'text-field': ['get', 'point_count_abbreviated'],
-        'text-font': CLUSTER_FONT,
-        'text-size': 12,
-        'text-allow-overlap': true,
-      },
-      paint: {
-        'text-color': '#ffffff',
+        'icon-image': ['concat', 'livemap-count-', ['to-string', ['get', 'point_count_abbreviated']]],
+        'icon-size': 1,
+        'icon-allow-overlap': true,
+        'icon-ignore-placement': true,
       },
     },
     {

@@ -101,8 +101,11 @@ function wireInteractions() {
   wired = true;
 
   map.on('styleimagemissing', (e) => {
-    if (e.id && e.id.startsWith('livemap-pie-')) {
+    if (!e.id) return;
+    if (e.id.startsWith('livemap-pie-')) {
       putPie(e.id.slice('livemap-pie-'.length).split('_'));
+    } else if (e.id.startsWith('livemap-count-')) {
+      putCount(e.id.slice('livemap-count-'.length));
     }
   });
 
@@ -216,6 +219,54 @@ function putPie(colors) {
     else map.addImage(id, img, { pixelRatio: DPR });
   } catch (err) {
     console.warn('[livemap] pie image failed', id, err && err.message);
+  }
+}
+
+// --- cluster count glyphs -----------------------------------------------------
+// Baked as canvas glyphs, not a MapLibre `text-field`: this basemap's SDF glyphs
+// intermittently fail to parse in the worker, and the local-font fallback
+// mis-centres the digits. Drawn on demand by the styleimagemissing handler,
+// centred on the glyph's true ink box.
+
+const COUNT_PX = 26 * DPR;
+const COUNT_FONT = '"Libre Franklin", system-ui, "Segoe UI", Roboto, sans-serif';
+
+function drawCount(text) {
+  const cv = document.createElement('canvas');
+  cv.width = COUNT_PX;
+  cv.height = COUNT_PX;
+  const g = cv.getContext('2d');
+  const fpx = 13 * DPR;
+  g.font = `700 ${fpx}px ${COUNT_FONT}`;
+  g.textAlign = 'left';
+  g.textBaseline = 'alphabetic';
+  const s = String(text);
+  const m = g.measureText(s);
+  const l = m.actualBoundingBoxLeft ?? 0;
+  const r = m.actualBoundingBoxRight ?? m.width;
+  const asc = m.actualBoundingBoxAscent ?? fpx * 0.72;
+  const desc = m.actualBoundingBoxDescent ?? 0;
+  const x = (COUNT_PX - (l + r)) / 2 + l;
+  const y = (COUNT_PX - (asc + desc)) / 2 + asc;
+  g.lineJoin = 'round';
+  g.lineWidth = 2.5 * DPR;
+  g.strokeStyle = 'rgba(11, 15, 24, 0.55)'; // faint edge against the navy disc
+  g.strokeText(s, x, y);
+  g.fillStyle = '#ffffff';
+  g.fillText(s, x, y);
+  return g.getImageData(0, 0, COUNT_PX, COUNT_PX);
+}
+
+function putCount(text) {
+  const map = getMap();
+  if (!map || !text) return;
+  const id = `livemap-count-${text}`;
+  try {
+    const img = drawCount(text);
+    if (map.hasImage(id)) map.updateImage(id, img);
+    else map.addImage(id, img, { pixelRatio: DPR });
+  } catch (err) {
+    console.warn('[livemap] cluster count image failed', id, err && err.message);
   }
 }
 
