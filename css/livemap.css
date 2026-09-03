@@ -651,6 +651,47 @@ body {
   pointer-events: none;
 }
 
+/* --- narrow / phone layout -------------------------------------------------
+   Both panels already start collapsed under ~760px wide (panels.js). Here we
+   make them usable when opened: near-full-width slide-overs that scroll, with
+   larger touch targets. The map + search stay reachable — close a panel to
+   see them. */
+@media (max-width: 620px) {
+  .livemap-panel--left,
+  .livemap-right-column {
+    width: min(360px, calc(100vw - 20px));
+    max-height: calc(100% - 20px);
+  }
+
+  .livemap-panel--left {
+    overflow-y: auto;
+  }
+
+  .livemap-search {
+    width: calc(100vw - 24px);
+    max-width: 360px;
+  }
+
+  .lsb-field {
+    height: 44px;
+  }
+
+  /* ≥44px touch targets */
+  .lp-check,
+  .lp-row,
+  .lp-section-head,
+  .lp-btn,
+  .lp-pills button,
+  .lp-check + .lp-btn {
+    min-height: 42px;
+  }
+
+  .lp-section-head {
+    padding-top: 13px;
+    padding-bottom: 13px;
+  }
+}
+
 /* Right-column vertical budget: Status + Service alerts take their natural
    height and never shrink; the route lists absorb whatever's left and scroll
    internally. Without this every panel shrinks proportionally when the column
