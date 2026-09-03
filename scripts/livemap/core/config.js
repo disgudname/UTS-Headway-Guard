@@ -33,11 +33,18 @@ export const SATELLITE = Object.freeze({
 export const MIN_ZOOM = 9;
 export const MAX_ZOOM = 20;
 
-// Where the map first looks: central Grounds. Matches the legacy testmap default.
+// Where the map first looks: central Grounds. Centre matches the legacy
+// testmap default exactly; the interactive view sits one notch wider than
+// testmap's zoom 15.
 export const DEFAULT_VIEW = Object.freeze({
   center: [-78.50981502838886, 38.03799212281404], // [lng, lat] — MapLibre order
   zoom: 14.5,
 });
+
+// Kiosk / signage first-look zoom. A lobby screen should frame Grounds the way
+// testmap's kiosk does — its INITIAL_MAP_VIEW is this same centre at zoom 15.
+// Still overridden by ?centerZoom=.
+export const KIOSK_ZOOM = 15;
 
 // Matches the Albemarle Protomaps extract's bounding box, so the camera can't
 // pan into un-tiled void.

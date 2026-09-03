@@ -9,9 +9,9 @@
 // after the initial load and after every theme swap.
 // -----------------------------------------------------------------------------
 
-import { DEFAULT_VIEW, MIN_ZOOM, MAX_ZOOM, MAX_BOUNDS } from './config.js';
+import { DEFAULT_VIEW, KIOSK_ZOOM, MIN_ZOOM, MAX_ZOOM, MAX_BOUNDS } from './config.js';
 import { paramNum } from './util.js';
-import { isInteractionLocked } from './modes.js';
+import { isInteractionLocked, isKioskLike } from './modes.js';
 
 let map = null;
 const styleReadyBuilders = new Set(); // Set<fn(map)>
@@ -112,7 +112,8 @@ export function createMap(containerId, initialStyle) {
     paramNum('centerLon', DEFAULT_VIEW.center[0]),
     paramNum('centerLat', DEFAULT_VIEW.center[1]),
   ];
-  const zoom = paramNum('centerZoom', DEFAULT_VIEW.zoom);
+  // Kiosk / signage frames Grounds a notch tighter — matches testmap's kiosk.
+  const zoom = paramNum('centerZoom', isKioskLike() ? KIOSK_ZOOM : DEFAULT_VIEW.zoom);
 
   map = new maplibregl.Map({
     container: containerId,
