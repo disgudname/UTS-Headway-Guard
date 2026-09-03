@@ -37,9 +37,12 @@ const MATCH_TOL_MAX_M = Math.max(MATCH_TOL_PARALLEL_M, MATCH_TOL_ANTIPARALLEL_M)
 const HEADING_TOL_RAD = (20 * Math.PI) / 180;
 const DASH_PX = 16; // one colour's run length on screen
 const MIN_DASH_PX = 0.5;
-// A deferred shared run this far (m) from its owner's actual group polyline is
-// an orphan — the owner isn't drawing there, so the route fills it solid itself.
-const GAP_FILL_TOL_M = 8;
+// A deferred segment whose own colour isn't on the owner's stripe within this
+// many metres is "orphaned" (the owner's line diverged) — but only a *run* of
+// them at least MIN_ORPHAN_FILL_M long gets filled solid, so a 1-segment corridor
+// wobble doesn't sprout a crumb beside the stripe.
+const GAP_FILL_TOL_M = 3.5;
+const MIN_ORPHAN_FILL_M = 24;
 const TILE = 512;
 
 // --- projection (local equirectangular, metres) --------------------------------
@@ -272,29 +275,42 @@ function detectGroups(routes, proj) {
 
   for (const [key, segs] of segsByKey) {
     const ordered = segs.slice().sort((a, b) => a.cum - b.cum);
-    let run = null;
-    const flushRun = () => {
-      if (run && run.length >= 2) {
+    let run = null; // { pts:[[x,y]…], orphanLen } — a stretch where `key` deferred
+    let coveredSince = 0; // consecutive covered segments since the last orphan
+    const flush = () => {
+      if (run && run.orphanLen >= MIN_ORPHAN_FILL_M && run.pts.length >= 2) {
         let len = 0;
-        for (let i = 1; i < run.length; i++) len += dist(run[i - 1], run[i]);
-        groups.push({ keys: [key], ptsM: run.slice(), lenM: len });
+        for (let i = 1; i < run.pts.length; i++) len += dist(run.pts[i - 1], run.pts[i]);
+        groups.push({ keys: [key], ptsM: run.pts.slice(), lenM: len });
       }
       run = null;
+      coveredSince = 0;
     };
     for (const s of ordered) {
       const set = [...s.sharedWith].sort();
-      const orphan = set[0] !== key && !coveredFor(key, s.mid);
-      if (!orphan) {
-        flushRun();
+      if (set[0] === key) {
+        flush(); // this route owns the stretch; not a deferred run
         continue;
       }
-      if (run && dist(run[run.length - 1], s.a) <= SAMPLE_STEP_M * 1.5) run.push(s.b);
-      else {
-        flushRun();
-        run = [s.a, s.b];
+      const orphan = !coveredFor(key, s.mid);
+      const segLen = dist(s.a, s.b);
+      if (orphan) {
+        if (run && dist(run.pts[run.pts.length - 1], s.a) <= SAMPLE_STEP_M * 1.5) {
+          run.pts.push(s.b);
+          run.orphanLen += segLen;
+        } else {
+          flush();
+          run = { pts: [s.a, s.b], orphanLen: segLen };
+        }
+        coveredSince = 0;
+      } else if (run) {
+        // a covered blip — bridge one, then give up (a real re-merge)
+        coveredSince += 1;
+        if (coveredSince > 1) flush();
+        else run.pts.push(s.b);
       }
     }
-    flushRun();
+    flush();
   }
 
   return groups;
