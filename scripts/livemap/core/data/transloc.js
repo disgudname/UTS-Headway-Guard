@@ -145,6 +145,28 @@ async function loadMetadata() {
   }
 }
 
+/**
+ * The rider-facing name of a TransLoc stop record. Prefer `Description` (that's
+ * the human name — matches /map / testmap), fall back to `Name` / `StopName`,
+ * strip a "Stop Name: " prefix, and skip the stray-timestamp junk TransLoc
+ * sometimes parks in a name field (e.g. "- Mar 6th 2026 13:03:72").
+ */
+function goodStopName(s) {
+  for (const raw of [s.Description, s.Name, s.StopName]) {
+    if (typeof raw !== 'string') continue;
+    const n = raw.replace(/^stop name:\s*/i, '').trim();
+    if (!n) continue;
+    // Whole value is basically a date (optionally + a time) -> junk, not a name.
+    if (
+      /^[-\s]*[A-Za-z]{3,4}\.?\s+\d{1,2}(st|nd|rd|th)?,?\s+\d{4}(\s+\d{1,2}:\d{2}(:\d{1,2})?)?[-\s.]*$/i.test(n)
+    ) {
+      continue;
+    }
+    return n;
+  }
+  return '';
+}
+
 /** Fold the per-route stop list into physical stops and emit on change. */
 function commitStops(raw) {
   const byLoc = new Map();
@@ -157,8 +179,12 @@ function commitStops(raw) {
     const routeStopId = String(s.RouteStopID ?? s.StopID ?? '');
     let g = byLoc.get(key);
     if (!g) {
-      g = { key, lat, lng, name: s.Name || s.Description || 'Stop', routeIds: [], members: [] };
+      g = { key, lat, lng, name: goodStopName(s) || 'Stop', routeIds: [], members: [] };
       byLoc.set(key, g);
+    } else if (g.name === 'Stop') {
+      // First route-stop at this spot had no usable name — a sibling might.
+      const nm = goodStopName(s);
+      if (nm) g.name = nm;
     }
     g.members.push({ routeStopId, routeId });
     if (routeId && !g.routeIds.includes(routeId)) g.routeIds.push(routeId);
