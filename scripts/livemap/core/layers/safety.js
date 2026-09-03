@@ -267,8 +267,8 @@ function openPulsePopup(id, lngLat) {
   popup = new maplibregl.Popup({
     offset: 12,
     closeButton: true,
-    className: 'livemap-stop-popup livemap-cat-popup',
-    maxWidth: '280px',
+    className: 'livemap-stop-popup livemap-cat-popup livemap-incident-popup',
+    maxWidth: '340px',
   })
     .setLngLat(lngLat || [x.lng, x.lat])
     .setHTML(pulsePopupHTML(x))
@@ -307,18 +307,108 @@ function clearPopup() {
   popupKey = null;
 }
 
+// Order units run through in the popup's grouped list.
+const PP_UNIT_ORDER = ['OS', 'AE', 'SG', 'ER', 'TR', 'TA', 'DP', 'AK', 'AR'];
+
+/** PulsePoint incident popup — structured like testmap's `.incident-popup`:
+ *  respond-icon + title + meta, "Routes Nearby" pills, units grouped by status. */
 function pulsePopupHTML(x) {
-  const rows = [];
-  if (x.ageMin != null) rows.push(row('Reported', x.ageMin === 0 ? 'just now' : `${x.ageMin} min ago`));
-  const active = (x.units || []).filter((u) => !u.cleared);
-  if (active.length) rows.push(row('Units', active.map((u) => `${u.id}${u.status ? ` ${u.status}` : ''}`).join(', ')));
-  const addr = x.address ? `<div class="ls-empty">${esc(x.address)}</div>` : '';
+  const code = String(x.iconType || '').toLowerCase();
+  const iconUrl = code ? `${PP_ICON_BASE}${code}_list.png` : '';
+  const icon = iconUrl
+    ? `<div class="incident-popup__icon"><img src="${esc(iconUrl)}" alt="" onerror="this.style.display='none'"></div>`
+    : `<div class="incident-popup__icon"><span class="incident-popup__icon-fallback">${esc(
+        (x.label || 'I').charAt(0),
+      )}</span></div>`;
+
+  const meta = [];
+  if (x.ageMin != null) {
+    const rel = x.ageMin === 0 ? 'just now' : `${x.ageMin} min ago`;
+    const abs = x.receivedAt
+      ? new Date(x.receivedAt).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })
+      : '';
+    meta.push(metaLine(`Received ${rel}${abs ? ` · ${abs}` : ''}`));
+  }
+  const onScene = (x.units || []).filter((u) => u.onScene && !u.cleared).length;
+  if (onScene) meta.push(metaLine(`${onScene} unit${onScene > 1 ? 's' : ''} on scene`));
+  if (x.status) meta.push(metaLine(`Status: ${esc(x.status)}`));
+  if (x.address) meta.push(metaLine(`Location: ${esc(x.address)}`));
+
+  const routePills = (x.routes || [])
+    .map(
+      (r) =>
+        `<span class="incident-popup__route" style="background:${esc(r.color || '#334')};border-color:${esc(
+          r.color || '#334',
+        )};color:${contrastText(r.color)}">${esc(r.name)}</span>`,
+    )
+    .join('');
+  const routesSection = routePills
+    ? `<div class="incident-popup__section">
+         <div class="incident-popup__section-title">Routes Nearby</div>
+         <div class="incident-popup__routes-list">${routePills}</div>
+       </div>`
+    : '';
+
+  const unitsSection = renderUnitGroups(x.units || []);
+
   return `
-    <div class="ls-pop">
-      <div class="ls-name">${esc(x.type || 'Incident')} <span class="ls-tag">PULSEPOINT</span></div>
-      ${addr}
-      ${rows.join('')}
+    <div class="incident-popup">
+      <div class="incident-popup__header">
+        ${icon}
+        <div class="incident-popup__details">
+          <div class="incident-popup__title">${esc(x.label || x.type || 'Incident')}</div>
+          ${meta.length ? `<div class="incident-popup__meta">${meta.join('')}</div>` : ''}
+        </div>
+      </div>
+      ${routesSection}
+      ${unitsSection}
     </div>`;
+}
+
+function metaLine(html) {
+  return `<div class="incident-popup__meta-line">${html}</div>`;
+}
+
+function renderUnitGroups(units) {
+  const live = units.filter((u) => u.id && !u.cleared);
+  if (!live.length) return '';
+  const byKey = new Map();
+  for (const u of live) {
+    const k = u.statusKey || u.statusLabel || '?';
+    if (!byKey.has(k)) byKey.set(k, { label: u.statusLabel, color: u.statusColor, key: u.statusKey, units: [] });
+    byKey.get(k).units.push(u);
+  }
+  const groups = [...byKey.values()].sort(
+    (a, b) =>
+      (PP_UNIT_ORDER.indexOf(a.key) + 1 || 99) - (PP_UNIT_ORDER.indexOf(b.key) + 1 || 99),
+  );
+  const body = groups
+    .map(
+      (g) => `
+      <div class="incident-popup__unit-status-group">
+        <div class="incident-popup__unit-status-title">${esc(g.label)}</div>
+        <div class="incident-popup__unit-list">${g.units
+          .map(
+            (u) =>
+              `<span class="incident-unit" style="color:${esc(g.color)};border-color:${esc(
+                g.color,
+              )}">${esc(u.id)}</span>`,
+          )
+          .join('')}</div>
+      </div>`,
+    )
+    .join('');
+  return `<div class="incident-popup__section incident-popup__units">
+    <div class="incident-popup__section-title">Units</div>${body}</div>`;
+}
+
+/** Black or white text for a solid hex background (YIQ). */
+function contrastText(hex) {
+  const m = /^#?([0-9a-f]{6})$/i.exec(String(hex || ''));
+  if (!m) return '#f8fafc';
+  const n = parseInt(m[1], 16);
+  const yiq = (((n >> 16) & 255) * 299 + ((n >> 8) & 255) * 587 + (n & 255) * 114) / 1000;
+  return yiq >= 150 ? '#1b1f27' : '#f8fafc';
 }
 
 function incPopupHTML(p) {

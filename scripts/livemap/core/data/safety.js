@@ -49,12 +49,16 @@ let timer = 0;
 let pulsePoint = [];
 let trafficInc = [];
 
-// Flat list of route polylines for the near-route filter; refreshed on change.
-let routePaths = []; // [[lng,lat], ...][]
+// Route polylines for the near-route filter + the incident popup's "routes
+// nearby" pills; refreshed on change.
+let routePaths = []; // [{ coords:[[lng,lat],...], name, color }]
 function refreshRoutePaths() {
   const paths = [];
-  for (const r of getRoutes()) if (Array.isArray(r.coords) && r.coords.length > 1) paths.push(r.coords);
-  for (const r of getCatRoutes()) if (Array.isArray(r.coords) && r.coords.length > 1) paths.push(r.coords);
+  for (const r of [...getRoutes(), ...getCatRoutes()]) {
+    if (Array.isArray(r.coords) && r.coords.length > 1) {
+      paths.push({ coords: r.coords, name: r.name || '', color: r.color || '' });
+    }
+  }
   routePaths = paths;
 }
 
@@ -93,30 +97,51 @@ function inFlexZone(lat, lng) {
 }
 
 // --- point ↔ route distance (local equirectangular approx, fine at ~200 m) ---
-function nearAnyRoute(lat, lng) {
-  if (!routePaths.length) return true; // no routes loaded yet -> don't hide everything
+/** Squared metres from (lat,lng) to the nearest segment of `coords`. */
+function minDist2ToPath(lat, lng, coords) {
   const mPerLat = 111_320;
   const mPerLng = 111_320 * Math.cos((lat * Math.PI) / 180);
   const px = lng * mPerLng;
   const py = lat * mPerLat;
-  const limit2 = NEAR_ROUTE_M * NEAR_ROUTE_M;
-  for (const path of routePaths) {
-    for (let i = 1; i < path.length; i++) {
-      const ax = path[i - 1][0] * mPerLng;
-      const ay = path[i - 1][1] * mPerLat;
-      const bx = path[i][0] * mPerLng;
-      const by = path[i][1] * mPerLat;
-      const dx = bx - ax;
-      const dy = by - ay;
-      const len2 = dx * dx + dy * dy;
-      let t = len2 ? ((px - ax) * dx + (py - ay) * dy) / len2 : 0;
-      t = t < 0 ? 0 : t > 1 ? 1 : t;
-      const ex = px - (ax + t * dx);
-      const ey = py - (ay + t * dy);
-      if (ex * ex + ey * ey <= limit2) return true;
-    }
+  let best = Infinity;
+  for (let i = 1; i < coords.length; i++) {
+    const ax = coords[i - 1][0] * mPerLng;
+    const ay = coords[i - 1][1] * mPerLat;
+    const bx = coords[i][0] * mPerLng;
+    const by = coords[i][1] * mPerLat;
+    const dx = bx - ax;
+    const dy = by - ay;
+    const len2 = dx * dx + dy * dy;
+    let t = len2 ? ((px - ax) * dx + (py - ay) * dy) / len2 : 0;
+    t = t < 0 ? 0 : t > 1 ? 1 : t;
+    const ex = px - (ax + t * dx);
+    const ey = py - (ay + t * dy);
+    const d2 = ex * ex + ey * ey;
+    if (d2 < best) best = d2;
   }
+  return best;
+}
+
+function nearAnyRoute(lat, lng) {
+  if (!routePaths.length) return true; // no routes loaded yet -> don't hide everything
+  const limit2 = NEAR_ROUTE_M * NEAR_ROUTE_M;
+  for (const p of routePaths) if (minDist2ToPath(lat, lng, p.coords) <= limit2) return true;
   return false;
+}
+
+/** Named routes whose line passes within NEAR_ROUTE_M of the point, de-duped by
+ *  name, nearest first — for the incident popup's "Routes Nearby" pills. */
+export function routesNear(lat, lng) {
+  const limit2 = NEAR_ROUTE_M * NEAR_ROUTE_M;
+  const byName = new Map();
+  for (const p of routePaths) {
+    if (!p.name) continue;
+    const d2 = minDist2ToPath(lat, lng, p.coords);
+    if (d2 > limit2) continue;
+    const cur = byName.get(p.name);
+    if (!cur || d2 < cur.d2) byName.set(p.name, { name: p.name, color: p.color, d2 });
+  }
+  return [...byName.values()].sort((a, b) => a.d2 - b.d2).map(({ name, color }) => ({ name, color }));
 }
 
 export const isSafetyOn = (key) => !!enabled[key];
@@ -207,6 +232,67 @@ function ppKind(type) {
   return 'other';
 }
 
+// PulsePoint call-type code -> human label (subset of testmap's map covering the
+// codes that actually show up around Grounds; unknown codes fall back to the
+// raw CallType string).
+const PP_TYPE_LABELS = {
+  AED: 'AED Alarm', OA: 'Alarm', AR: 'Animal Rescue', AF: 'Appliance Fire',
+  CMA: 'Carbon Monoxide', CHIM: 'Chimney Fire', TCP: 'Collision Involving Pedestrian',
+  TCS: 'Collision Involving Structure', CF: 'Commercial Fire', CL: 'Commercial Lockout',
+  EE: 'Electrical Emergency', ELF: 'Electrical Fire', ELR: 'Elevator Rescue',
+  EER: 'Elevator/Escalator Rescue', EM: 'Emergency', TCE: 'Expanded Traffic Collision',
+  EX: 'Explosion', EF: 'Extinguished Fire', FIRE: 'Fire', FA: 'Fire Alarm',
+  GAS: 'Gas Leak', HC: 'Hazardous Condition', HMR: 'Hazardous Response',
+  LA: 'Lift Assist', LO: 'Lockout', MA: 'Manual Alarm', ME: 'Medical Emergency',
+  MCI: 'Multi Casualty', OI: 'Odor Investigation', OF: 'Outside Fire', PF: 'Pole Fire',
+  PS: 'Public Service', RES: 'Rescue', RF: 'Residential Fire', RL: 'Residential Lockout',
+  SD: 'Smoke Detector', SI: 'Smoke Investigation', STBY: 'Standby', SC: 'Structural Collapse',
+  SF: 'Structure Fire', TR: 'Technical Rescue', TC: 'Traffic Collision', TD: 'Tree Down',
+  VEG: 'Vegetation Fire', VF: 'Vehicle Fire', VL: 'Vehicle Lockout', WE: 'Water Emergency',
+  WR: 'Water Rescue', WFA: 'Waterflow Alarm', WA: 'Wires Arching', WD: 'Wires Down',
+  WDA: 'Wires Down/Arcing', WSF: 'Confirmed Structure Fire', WF: 'Confirmed Fire',
+};
+function ppTypeLabel(inc) {
+  const raw =
+    inc.PulsePointIncidentCallTypePrimaryCode ||
+    inc.PulsePointIncidentCallTypeCode ||
+    inc.PulsePointIncidentCallType ||
+    inc.CallType ||
+    inc.Type ||
+    '';
+  const code = String(raw).replace(/[^A-Za-z0-9]/g, '').toUpperCase();
+  if (code && PP_TYPE_LABELS[code]) return PP_TYPE_LABELS[code];
+  const prose = String(inc.PulsePointIncidentCallType || inc.CallType || inc.Type || '').trim();
+  return prose || code || 'Incident';
+}
+
+// PulsePoint unit dispatch-status code -> { label, colour }. Section order runs
+// most-engaged first. Aliases cover the prose forms PulsePoint sometimes sends.
+const PP_UNIT_STATUS = {
+  OS: { label: 'On Scene', color: '#ff6b81' },
+  AE: { label: 'Available On Scene', color: '#ff6b81' },
+  SG: { label: 'Staged', color: '#ff6b81' },
+  ER: { label: 'En Route', color: '#7bd95f' },
+  TR: { label: 'Transport', color: '#fdda24' },
+  TA: { label: 'Transport Arrived', color: '#4aa3ff' },
+  DP: { label: 'Dispatched', color: '#ffb060' },
+  AK: { label: 'Acknowledged', color: '#ffb060' },
+  AR: { label: 'Cleared', color: '#9aa4b2' },
+};
+const PP_UNIT_ALIAS = {
+  DISPATCHED: 'DP', DISPATCH: 'DP', ACK: 'AK', ACKNOWLEDGED: 'AK',
+  'EN ROUTE': 'ER', ENROUTE: 'ER', STAGED: 'SG', 'ON SCENE': 'OS', 'ON-SCENE': 'OS',
+  ONSCENE: 'OS', 'AVAILABLE ON SCENE': 'AE', TRANSPORT: 'TR', TRANSPORTING: 'TR',
+  'TRANSPORT ARRIVED': 'TA', CLEARED: 'AR', 'CLEARED FROM INCIDENT': 'AR',
+};
+function resolveUnitStatus(raw) {
+  const s = String(raw || '').trim();
+  const up = s.toUpperCase();
+  const key = PP_UNIT_STATUS[up] ? up : PP_UNIT_ALIAS[up] || '';
+  if (key) return { key, label: PP_UNIT_STATUS[key].label, color: PP_UNIT_STATUS[key].color };
+  return { key: '', label: s || 'Status unknown', color: '#9aa4b2' };
+}
+
 // The short type code that keys the PulsePoint "respond icon" PNGs
 // (/v1/pulsepoint/respond_icons/{code}_map_active.png) — the same markers
 // testmap and vandispatch use. Ported from testmap's inferPulsePointMarkerType:
@@ -261,22 +347,35 @@ async function pollPulsePoint() {
       const type = inc.PulsePointIncidentCallType || inc.CallType || '';
       const t = Date.parse(inc.CallReceivedDateTime || '');
       const units = Array.isArray(inc.Unit)
-        ? inc.Unit.map((u) => ({
-            id: (u.UnitID || '').toString(),
-            status: (u.PulsePointDispatchStatus || '').toString(),
-            cleared: !!u.UnitClearedDateTime,
-          })).filter((u) => u.id)
+        ? inc.Unit.map((u) => {
+            const st = resolveUnitStatus(u.PulsePointDispatchStatus);
+            return {
+              id: (u.UnitID || '').toString(),
+              statusKey: st.key,
+              statusLabel: st.label,
+              statusColor: st.color,
+              onScene: st.key === 'OS' || st.key === 'AE',
+              cleared: !!u.UnitClearedDateTime,
+            };
+          }).filter((u) => u.id)
         : [];
+      const statusText = String(
+        inc.PulsePointIncidentStatus || inc.IncidentStatus || inc.Status || inc.Stage || '',
+      ).trim();
       out.push({
         id: String(inc.ID || `${lat},${lng}`),
         lat,
         lng,
         nearRoute: nearAnyRoute(lat, lng),
+        routes: routesNear(lat, lng),
         kind: ppKind(type),
         iconType: ppIconType(inc),
         type,
+        label: ppTypeLabel(inc),
+        status: statusText,
         address: (inc.FullDisplayAddress || inc.MedicalEmergencyDisplayAddress || '').toString(),
         units,
+        receivedAt: Number.isNaN(t) ? null : t,
         ageMin: Number.isNaN(t) ? null : Math.max(0, Math.round((now - t) / 60_000)),
       });
     }
