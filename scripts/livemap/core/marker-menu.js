@@ -16,7 +16,7 @@ import { isMenuSuppressed } from './modes.js';
 
 const HIT_RADIUS_PX = 22;
 const MENU_MAX = 7; // 8+ -> zoom hint
-const CHIP_PX = 92; // round chip diameter
+const CHIP_PX = 116; // round chip diameter
 
 const sources = []; // { layer, resolve(feature) -> target | null }
 let wired = false;
@@ -162,7 +162,7 @@ function showMenu(point, lngLat, targets) {
   // Even spacing on a full circle; grow the ring so the round chips never touch
   // and carry a bit of air between them.
   const n = targets.length;
-  const ring = Math.max(72, CHIP_PX / 2 / Math.sin(Math.PI / n) + 14);
+  const ring = Math.max(84, CHIP_PX / 2 / Math.sin(Math.PI / n) + 16);
 
   targets.forEach((t, i) => {
     const a = -Math.PI / 2 + (i / n) * Math.PI * 2;

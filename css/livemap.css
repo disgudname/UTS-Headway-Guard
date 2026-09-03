@@ -1767,9 +1767,9 @@ body {
   position: absolute;
   left: 0;
   top: 0;
-  width: 92px;
-  height: 92px;
-  padding: 9px;
+  width: 116px;
+  height: 116px;
+  padding: 13px;
   border-radius: 50%;
   border: 2px solid #fff;
   box-shadow: 0 2px 10px rgba(20, 26, 40, 0.35);
@@ -1789,17 +1789,20 @@ body {
 
 .lmm-text {
   display: -webkit-box;
-  -webkit-line-clamp: 3;
+  -webkit-line-clamp: 4;
   -webkit-box-orient: vertical;
   overflow: hidden;
-  font: 700 var(--fs-micro)/1.15 inherit;
+  /* 9px is under the type scale's 10px floor on purpose — this text lives
+     inside a round chip and has to fit long stop names like
+     "Massie Rd @ Faulkner Apts (Northbound)" without clipping the direction. */
+  font: 700 9px/1.12 inherit;
   text-shadow: 0 1px 2px rgba(0, 0, 0, 0.4);
 }
 
 .lmm-sub {
   display: block;
   font-weight: 600;
-  font-size: var(--fs-micro);
+  font-size: 9px;
   opacity: 0.85;
   margin-top: 1px;
 }
