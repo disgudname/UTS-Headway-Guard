@@ -245,8 +245,8 @@ body {
 
 .livemap-vehicle-popup .maplibregl-popup-content {
   padding: 12px 14px 13px;
-  border-radius: 10px;
-  background: var(--panel-bg);
+  border-radius: var(--radius);
+  background: var(--panel-surface);
   color: var(--panel-fg);
   border: 1px solid var(--panel-border);
   box-shadow: var(--panel-shadow);
@@ -397,10 +397,6 @@ body {
 
 /* --- follow chip ------------------------------------------------------------ */
 
-.livemap-follow-chip[hidden] {
-  display: none;
-}
-
 .livemap-follow-chip {
   position: absolute;
   left: 50%;
@@ -411,12 +407,23 @@ body {
   align-items: center;
   gap: 8px;
   padding: 7px 8px 7px 14px;
-  border-radius: 999px;
+  border-radius: var(--radius-pill);
   font: 600 12.5px/1 inherit;
   color: var(--panel-fg);
-  background: var(--panel-bg);
+  background: var(--panel-surface);
   border: 1px solid var(--panel-border);
   box-shadow: var(--panel-shadow);
+  backdrop-filter: var(--panel-blur);
+  transition: opacity var(--dur) var(--ease), transform var(--dur) var(--ease);
+}
+
+/* Slides up + fades rather than snapping in/out. Kept in the layout while
+   hidden (opacity/pointer-events do the hiding) so the exit can animate. */
+.livemap-follow-chip[hidden] {
+  display: flex;
+  opacity: 0;
+  transform: translateX(-50%) translateY(12px);
+  pointer-events: none;
 }
 
 .livemap-follow-chip .lfc-x {
@@ -436,12 +443,28 @@ body {
   background: rgba(127, 127, 127, 0.3);
 }
 
-/* --- stop popup -------------------------------------------------------------- */
+/* --- popups (stop / vehicle) ---------------------------------------------- */
+
+@keyframes livemap-pop-in {
+  from {
+    opacity: 0;
+    transform: translateY(4px) scale(0.97);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+.livemap-stop-popup .maplibregl-popup-content,
+.livemap-vehicle-popup .maplibregl-popup-content {
+  animation: livemap-pop-in var(--dur) var(--ease);
+}
 
 .livemap-stop-popup .maplibregl-popup-content {
   padding: 11px 13px 12px;
-  border-radius: 10px;
-  background: var(--panel-bg);
+  border-radius: var(--radius);
+  background: var(--panel-surface);
   color: var(--panel-fg);
   border: 1px solid var(--panel-border);
   box-shadow: var(--panel-shadow);
@@ -1279,11 +1302,11 @@ body {
   gap: 7px;
   padding: 0 8px 0 10px;
   height: 38px;
-  border-radius: 10px;
-  background: var(--panel-bg);
+  border-radius: var(--radius);
+  background: var(--panel-surface);
   border: 1px solid var(--panel-border);
   box-shadow: var(--panel-shadow);
-  backdrop-filter: blur(6px);
+  backdrop-filter: var(--panel-blur);
 }
 
 .lsb-icon {
@@ -1348,14 +1371,27 @@ body {
 
 .lsb-results {
   margin-top: 6px;
-  border-radius: 10px;
-  background: var(--panel-bg);
+  border-radius: var(--radius);
+  background: var(--panel-surface);
   border: 1px solid var(--panel-border);
   box-shadow: var(--panel-shadow);
-  backdrop-filter: blur(6px);
+  backdrop-filter: var(--panel-blur);
   overflow: hidden;
   max-height: 46vh;
   overflow-y: auto;
+  animation: livemap-results-in var(--dur) var(--ease);
+  transform-origin: top center;
+}
+
+@keyframes livemap-results-in {
+  from {
+    opacity: 0;
+    transform: translateY(-6px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
 }
 
 .lsb-item {
@@ -1371,7 +1407,8 @@ body {
   color: var(--panel-fg);
   cursor: pointer;
   text-align: left;
-  border-top: 1px solid var(--panel-border);
+  border-top: 1px solid var(--panel-hairline);
+  transition: background-color var(--dur-fast) var(--ease);
 }
 
 .lsb-item:first-child {
