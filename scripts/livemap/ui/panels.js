@@ -205,7 +205,7 @@ function buildLeft() {
 
   const cat = section('cat', 'Charlottesville Area Transit');
   cat.body.innerHTML = `
-    <label class="lp-check"><input type="checkbox" data-t="cat" /> <span>CAT buses, routes &amp; stops</span></label>`;
+    <label class="lp-check"><input type="checkbox" data-t="cat" /> <span>Buses, routes &amp; stops</span></label>`;
 
   // Dispatcher-only: only revealed once an authed /api/ondemand fetch succeeds.
   const micro = section('micro', 'UVA Ride & FlexRide');
