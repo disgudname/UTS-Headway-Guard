@@ -26,7 +26,14 @@ import { simplifyPath } from '../util.js';
 // Tuning — metres for detection, screen px for the dash cadence.
 const SIMPLIFY_TOL_M = 3; // drop polyline noise below this
 const SAMPLE_STEP_M = 14; // resample spacing
-const MATCH_TOL_M = 12; // two routes this close (and same heading) = same corridor
+// Two routes closer than this (and roughly aligned) = one corridor. Opposite
+// directions get a looser bound: that's the divided-road case (two carriageways
+// either side of a planted median, e.g. JPA at Observatory Ave), where the
+// polyline centrelines are genuinely ~15-20 m apart but riders read it as one
+// street. Same direction stays tight so parallel nearby streets don't merge.
+const MATCH_TOL_PARALLEL_M = 13;
+const MATCH_TOL_ANTIPARALLEL_M = 22;
+const MATCH_TOL_MAX_M = Math.max(MATCH_TOL_PARALLEL_M, MATCH_TOL_ANTIPARALLEL_M);
 const HEADING_TOL_RAD = (20 * Math.PI) / 180;
 const DASH_PX = 16; // one colour's run length on screen
 const MIN_DASH_PX = 0.5;
@@ -114,30 +121,34 @@ function buildSegments(key, samples) {
   return segs;
 }
 
-function headingClose(h1, h2) {
+/** 0 = not aligned, 1 = same direction, -1 = opposite direction. */
+function alignment(h1, h2) {
   let d = Math.abs(h1 - h2) % (Math.PI * 2);
   if (d > Math.PI) d = Math.PI * 2 - d;
-  // same direction OR opposite direction (same street, other way) both count
-  return d <= HEADING_TOL_RAD || Math.abs(Math.PI - d) <= HEADING_TOL_RAD;
+  if (d <= HEADING_TOL_RAD) return 1;
+  if (Math.abs(Math.PI - d) <= HEADING_TOL_RAD) return -1;
+  return 0;
 }
 
 function segmentsOverlap(a, b) {
-  if (dist(a.mid, b.mid) > MATCH_TOL_M) return false;
-  if (!headingClose(a.heading, b.heading)) return false;
+  const align = alignment(a.heading, b.heading);
+  if (align === 0) return false;
+  const tol = align < 0 ? MATCH_TOL_ANTIPARALLEL_M : MATCH_TOL_PARALLEL_M;
+  if (dist(a.mid, b.mid) > tol) return false;
   const m = Math.min(
     dist(a.a, b.a),
     dist(a.b, b.b),
     dist(a.a, b.b),
     dist(a.b, b.a),
   );
-  return m <= MATCH_TOL_M * 2;
+  return m <= tol * 2;
 }
 
 // --- shared-corridor detection (zoom-independent) ---------------------------
 
 function detectGroups(routes, proj) {
   const segsByKey = new Map();
-  const cell = MATCH_TOL_M * 2;
+  const cell = MATCH_TOL_MAX_M * 2;
   const grid = new Map(); // "gx,gy" -> segment[]
   const cellKey = (p) => `${Math.floor(p[0] / cell)},${Math.floor(p[1] / cell)}`;
 
