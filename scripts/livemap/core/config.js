@@ -5,12 +5,11 @@
 // change belongs in here so it is easy to find.
 // -----------------------------------------------------------------------------
 
-// UVA GIS's own stylized vector basemap (ArcGIS Online, public, no token).
-// This is the "root.json" MapLibre style document; MapLibre resolves the
-// relative sprite/glyph/tile URLs inside it against this URL automatically.
-export const UVA_BASEMAP_STYLE_URL =
-  'https://tiles.arcgis.com/tiles/lipaMyHWQlV3h6yZ/arcgis/rest/services/' +
-  'VTP_UVABasemap_Stylized/VectorTileServer/resources/styles/root.json';
+// UVA GIS's stylized vector basemap (ArcGIS Online, public, no token), proxied
+// same-origin by app.py so digital signage on a locked-down network still gets
+// a basemap. basemap-style.js rewrites the style's glyph/sprite/tile URLs to
+// the matching /v1/livemap/basemap/* proxy paths.
+export const UVA_BASEMAP_STYLE_URL = '/v1/livemap/basemap/style.json';
 
 // Satellite view — Esri World Imagery, plus Esri's transparent reference tiles
 // (roads + place labels) laid back on top so the photo isn't label-less.

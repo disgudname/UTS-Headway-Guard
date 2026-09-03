@@ -46,13 +46,18 @@ import {
   pulsePointLayerDefs,
 } from './layers/safety-style.js';
 
-const VTS_BASE =
-  'https://tiles.arcgis.com/tiles/lipaMyHWQlV3h6yZ/arcgis/rest/services/' +
-  'VTP_UVABasemap_Stylized/VectorTileServer';
+// Same-origin proxy of UVA GIS's VectorTileServer (app.py). Keeps the basemap
+// reachable from a locked-down signage network that can't hit tiles.arcgis.com.
+const VTS_BASE = '/v1/livemap/basemap';
 
 // The UVA vector tiles carry real geometry only through LOD 16; MapLibre
 // overzooms past that for z16-20.
 const SOURCE_MAXZOOM = 16;
+
+// Deep-clone for plain JSON style fragments (sources, layer defs). Hand-rolled
+// rather than structuredClone(): signage players run older Chromium where that
+// global is missing, and there's nothing here JSON can't round-trip.
+const clone = (o) => JSON.parse(JSON.stringify(o));
 
 let _cache = null; // Promise<{ light, dark }>
 
@@ -84,10 +89,10 @@ export function loadBasemapTreatments() {
  * everything up front and pin the source to an explicit XYZ tile template.
  */
 function normalizeBase(style) {
-  const s = structuredClone(style);
+  const s = clone(style);
 
-  s.glyphs = `${VTS_BASE}/resources/fonts/{fontstack}/{range}.pbf`;
-  s.sprite = `${VTS_BASE}/resources/sprites/sprite`;
+  s.glyphs = `${VTS_BASE}/fonts/{fontstack}/{range}.pbf`;
+  s.sprite = `${VTS_BASE}/sprites/sprite`;
 
   s.sources = s.sources || {};
   for (const [id, src] of Object.entries(s.sources)) {
@@ -130,16 +135,16 @@ function normalizeBase(style) {
   // Live-vehicle + route GeoJSON sources, baked in so they tile reliably (see
   // layers/vehicle-style.js, layers/route-style.js). The feature modules only
   // ever setData() them.
-  s.sources[VEHICLE_SOURCE_ID] = structuredClone(VEHICLE_SOURCE_DEF);
-  s.sources[ROUTE_SOURCE_ID] = structuredClone(ROUTE_SOURCE_DEF);
-  s.sources[STOP_SOURCE_ID] = structuredClone(STOP_SOURCE_DEF);
-  s.sources[CAT_ROUTE_SOURCE_ID] = structuredClone(CAT_ROUTE_SOURCE_DEF);
-  s.sources[CAT_STOP_SOURCE_ID] = structuredClone(CAT_STOP_SOURCE_DEF);
-  s.sources[MICRO_ZONE_SOURCE_ID] = structuredClone(MICRO_ZONE_SOURCE_DEF);
-  s.sources[MICRO_TRIP_SOURCE_ID] = structuredClone(MICRO_TRIP_SOURCE_DEF);
-  s.sources[TRAFFIC_FLOW_SOURCE_ID] = structuredClone(TRAFFIC_FLOW_SOURCE_DEF);
-  s.sources[TRAFFIC_INC_SOURCE_ID] = structuredClone(TRAFFIC_INC_SOURCE_DEF);
-  s.sources[PULSEPOINT_SOURCE_ID] = structuredClone(PULSEPOINT_SOURCE_DEF);
+  s.sources[VEHICLE_SOURCE_ID] = clone(VEHICLE_SOURCE_DEF);
+  s.sources[ROUTE_SOURCE_ID] = clone(ROUTE_SOURCE_DEF);
+  s.sources[STOP_SOURCE_ID] = clone(STOP_SOURCE_DEF);
+  s.sources[CAT_ROUTE_SOURCE_ID] = clone(CAT_ROUTE_SOURCE_DEF);
+  s.sources[CAT_STOP_SOURCE_ID] = clone(CAT_STOP_SOURCE_DEF);
+  s.sources[MICRO_ZONE_SOURCE_ID] = clone(MICRO_ZONE_SOURCE_DEF);
+  s.sources[MICRO_TRIP_SOURCE_ID] = clone(MICRO_TRIP_SOURCE_DEF);
+  s.sources[TRAFFIC_FLOW_SOURCE_ID] = clone(TRAFFIC_FLOW_SOURCE_DEF);
+  s.sources[TRAFFIC_INC_SOURCE_ID] = clone(TRAFFIC_INC_SOURCE_DEF);
+  s.sources[PULSEPOINT_SOURCE_ID] = clone(PULSEPOINT_SOURCE_DEF);
   s.sources[BUILDING_SOURCE_ID] = {
     type: 'geojson',
     data: { type: 'FeatureCollection', features: [] },
@@ -235,49 +240,49 @@ function addSatelliteLayers(style) {
 
 /** Append the live-vehicle symbol layers on top of everything. */
 function addVehicleLayers(style) {
-  for (const def of VEHICLE_LAYER_DEFS) style.layers.push(structuredClone(def));
+  for (const def of VEHICLE_LAYER_DEFS) style.layers.push(clone(def));
 }
 
 /** Append the route casing + line layers (above the basemap, below vehicles). */
 function addRouteLayers(style, theme) {
-  for (const def of routeLayerDefs(theme)) style.layers.push(structuredClone(def));
+  for (const def of routeLayerDefs(theme)) style.layers.push(clone(def));
 }
 
 /** Append the stop bead + cluster layers (above routes, below vehicles). */
 function addStopLayers(style, theme) {
-  for (const def of stopLayerDefs(theme)) style.layers.push(structuredClone(def));
+  for (const def of stopLayerDefs(theme)) style.layers.push(clone(def));
 }
 
 /** Append the CAT overlay route + stop layers (start hidden). CAT vehicles ride
  *  the shared UTS vehicle layers, so there's nothing for them here. */
 function addCatLayers(style, theme) {
-  for (const def of catRouteLayerDefs(theme)) style.layers.push(structuredClone(def));
-  style.layers.push(structuredClone(catStopLayerDef(theme)));
+  for (const def of catRouteLayerDefs(theme)) style.layers.push(clone(def));
+  style.layers.push(clone(catStopLayerDef(theme)));
 }
 
 /** Spare coverage polygon — sits just above the street basemap. */
 function addMicroZoneLayers(style, theme) {
-  for (const def of microZoneLayerDefs(theme)) style.layers.push(structuredClone(def));
+  for (const def of microZoneLayerDefs(theme)) style.layers.push(clone(def));
 }
 
 /** Microtransit pickup/drop-off point layers — above stops, below vehicles. */
 function addMicroTripLayers(style, theme) {
-  for (const def of microTripLayerDefs(theme)) style.layers.push(structuredClone(def));
+  for (const def of microTripLayerDefs(theme)) style.layers.push(clone(def));
 }
 
 /** TomTom congestion raster — just above the street basemap. */
 function addTrafficFlowLayer(style) {
-  style.layers.push(structuredClone(trafficFlowLayerDef()));
+  style.layers.push(clone(trafficFlowLayerDef()));
 }
 
 /** TomTom incident lines — above routes/stops, below vehicles. */
 function addTrafficIncLayers(style, theme) {
-  for (const def of trafficIncLayerDefs(theme)) style.layers.push(structuredClone(def));
+  for (const def of trafficIncLayerDefs(theme)) style.layers.push(clone(def));
 }
 
 /** PulsePoint incident dots — on top of everything (safety info stays visible). */
 function addPulsePointLayers(style, theme) {
-  for (const def of pulsePointLayerDefs(theme)) style.layers.push(structuredClone(def));
+  for (const def of pulsePointLayerDefs(theme)) style.layers.push(clone(def));
 }
 
 /** Splice the street-basemap layers in just above the background layer. */

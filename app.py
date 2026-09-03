@@ -13597,6 +13597,122 @@ async def city_basemap_tile(z: int, x: int, y: int):
     )
 
 
+# UVA GIS's stylized vector basemap (ArcGIS Online, public, no token) — the
+# campus-detail layer under the livemap. Proxied same-origin so a locked-down
+# signage network (Yodeck etc.) that can't reach tiles.arcgis.com still gets a
+# basemap. Style JSON is held in memory (24 h); tiles / glyphs / sprites are
+# LRU-cached so kiosks don't re-hammer the upstream.
+_UVA_VTS_BASE = (
+    "https://tiles.arcgis.com/tiles/lipaMyHWQlV3h6yZ/arcgis/rest/services/"
+    "VTP_UVABasemap_Stylized/VectorTileServer"
+)
+_UVA_BASEMAP_STYLE_TTL_S = 24 * 3600
+_UVA_BASEMAP_TILE_CACHE_MAX = 6000
+_uva_basemap_client: Optional[httpx.AsyncClient] = None
+_uva_basemap_style_cache: Optional[Tuple[bytes, float]] = None  # (json bytes, monotonic)
+_uva_basemap_asset_cache: "OrderedDict[str, tuple[bytes, str]]" = OrderedDict()
+
+
+async def _uva_basemap_get(path: str) -> httpx.Response:
+    global _uva_basemap_client
+    if _uva_basemap_client is None:
+        _uva_basemap_client = httpx.AsyncClient(timeout=15.0)
+    return await _uva_basemap_client.get(f"{_UVA_VTS_BASE}{path}")
+
+
+def _uva_basemap_cached_asset(key: str, ctype_default: str):
+    hit = _uva_basemap_asset_cache.get(key)
+    if hit is None:
+        return None
+    _uva_basemap_asset_cache.move_to_end(key)
+    body, ctype = hit
+    return Response(
+        content=body,
+        media_type=ctype or ctype_default,
+        headers={"Cache-Control": "public, max-age=604800"},
+    )
+
+
+async def _uva_basemap_proxy_asset(path: str, key: str, ctype_default: str):
+    cached = _uva_basemap_cached_asset(key, ctype_default)
+    if cached is not None:
+        return cached
+    try:
+        r = await _uva_basemap_get(path)
+    except httpx.HTTPError:
+        return Response(status_code=502)
+    if r.status_code == 404 or not r.content:
+        return Response(status_code=404)
+    if r.status_code != 200:
+        return Response(status_code=r.status_code)
+    ctype = r.headers.get("content-type", ctype_default)
+    _uva_basemap_asset_cache[key] = (r.content, ctype)
+    _uva_basemap_asset_cache.move_to_end(key)
+    while len(_uva_basemap_asset_cache) > _UVA_BASEMAP_TILE_CACHE_MAX:
+        _uva_basemap_asset_cache.popitem(last=False)
+    return Response(
+        content=r.content,
+        media_type=ctype,
+        headers={"Cache-Control": "public, max-age=604800"},
+    )
+
+
+@app.get("/v1/livemap/basemap/style.json", include_in_schema=False)
+async def uva_basemap_style():
+    global _uva_basemap_style_cache
+    now = time.monotonic()
+    if _uva_basemap_style_cache and now - _uva_basemap_style_cache[1] < _UVA_BASEMAP_STYLE_TTL_S:
+        body = _uva_basemap_style_cache[0]
+    else:
+        try:
+            r = await _uva_basemap_get("/resources/styles/root.json")
+            r.raise_for_status()
+            body = r.content
+            _uva_basemap_style_cache = (body, now)
+        except httpx.HTTPError as exc:
+            if _uva_basemap_style_cache:
+                body = _uva_basemap_style_cache[0]  # serve stale rather than fail the wall
+            else:
+                raise HTTPException(
+                    status_code=502, detail=f"UVA basemap style upstream error: {exc}"
+                ) from exc
+    return Response(
+        content=body,
+        media_type="application/json",
+        headers={"Cache-Control": "public, max-age=86400"},
+    )
+
+
+@app.get("/v1/livemap/basemap/tile/{z}/{y}/{x}.pbf", include_in_schema=False)
+async def uva_basemap_tile(z: int, y: int, x: int):
+    if z < 0 or y < 0 or x < 0 or z > 22:
+        return Response(status_code=404)
+    return await _uva_basemap_proxy_asset(
+        f"/tile/{z}/{y}/{x}.pbf", f"t/{z}/{y}/{x}", "application/x-protobuf"
+    )
+
+
+@app.get("/v1/livemap/basemap/fonts/{fontstack}/{grange}.pbf", include_in_schema=False)
+async def uva_basemap_font(fontstack: str, grange: str):
+    if not re.fullmatch(r"[0-9]{1,5}-[0-9]{1,5}", grange):
+        raise HTTPException(status_code=404, detail="Not found")
+    return await _uva_basemap_proxy_asset(
+        f"/resources/fonts/{quote(fontstack, safe='')}/{grange}.pbf",
+        f"f/{fontstack}/{grange}",
+        "application/x-protobuf",
+    )
+
+
+@app.get("/v1/livemap/basemap/sprites/{name}", include_in_schema=False)
+async def uva_basemap_sprite(name: str):
+    if not re.fullmatch(r"sprite(@2x)?\.(json|png)", name):
+        raise HTTPException(status_code=404, detail="Not found")
+    default_ct = "application/json" if name.endswith(".json") else "image/png"
+    return await _uva_basemap_proxy_asset(
+        f"/resources/sprites/{name}", f"s/{name}", default_ct
+    )
+
+
 @app.get("/scripts/countdown.js", include_in_schema=False)
 async def countdown_js():
     return _serve_js_asset("countdown.js")
