@@ -237,12 +237,18 @@ body {
   background: var(--overlay-bg);
   color: var(--overlay-fg);
   z-index: 500;
-  transition: opacity 0.3s ease;
+  transition: opacity 0.35s var(--ease), visibility 0s linear 0s;
 }
 
 .loading-overlay.is-hidden {
   opacity: 0;
   pointer-events: none;
+  visibility: hidden;
+  transition: opacity 0.35s var(--ease), visibility 0s linear 0.35s;
+}
+
+.loading-overlay.is-hidden .loading-overlay__mark {
+  transform: scale(0.96);
 }
 
 .loading-overlay__inner {
@@ -263,6 +269,7 @@ body {
   border-radius: var(--radius-card);
   background: var(--head-bg);
   box-shadow: 0 14px 34px rgba(15, 23, 42, 0.22), inset 0 1px 0 var(--head-sheen);
+  transition: transform 0.35s var(--ease);
 }
 
 .loading-overlay__mark img {
