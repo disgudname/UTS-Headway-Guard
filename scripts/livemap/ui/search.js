@@ -43,6 +43,7 @@ export class SearchBox {
     this._items = [];
     this._active = -1;
     this._reqSeq = 0;
+    this._loading = false; // a building fetch is in flight for the current query
 
     this._input.addEventListener('input', () => {
       this._clear.hidden = !this._input.value;
@@ -68,14 +69,18 @@ export class SearchBox {
 
   async _search(q) {
     if (q.length < MIN_CHARS) {
+      this._loading = false;
       this._render([]);
       return;
     }
     const seq = ++this._reqSeq;
 
     // Vehicles resolve instantly off the in-memory index — show them right away,
-    // then fold the building results in when the fetch lands.
+    // then fold the building results in when the fetch lands. Until it does we're
+    // still "Searching…" — never say "No matches" while the building lookup is in
+    // flight, or a building-only query flashes a wrong empty state first.
     const vehicles = matchVehicles(q);
+    this._loading = true;
     this._render(vehicles);
 
     this._el.classList.add('is-loading');
@@ -93,9 +98,13 @@ export class SearchBox {
         geometry: b.geometry,
         bbox: b.bbox,
       }));
+      this._loading = false;
       this._render([...vehicles, ...buildings]);
     } catch {
-      if (seq === this._reqSeq) this._render(vehicles);
+      if (seq === this._reqSeq) {
+        this._loading = false;
+        this._render(vehicles);
+      }
     } finally {
       if (seq === this._reqSeq) this._el.classList.remove('is-loading');
     }
@@ -106,10 +115,10 @@ export class SearchBox {
     this._active = -1;
 
     if (!items.length) {
-      this._results.innerHTML =
-        this._input.value.trim().length >= MIN_CHARS
-          ? '<div class="lsb-empty">No matches</div>'
-          : '';
+      const long = this._input.value.trim().length >= MIN_CHARS;
+      this._results.innerHTML = long
+        ? `<div class="lsb-empty">${this._loading ? 'Searching…' : 'No matches'}</div>`
+        : '';
       this._results.hidden = !this._results.innerHTML;
       return;
     }
@@ -228,6 +237,8 @@ export class SearchBox {
     this._input.value = '';
     this._clear.hidden = true;
     this._items = [];
+    this._loading = false;
+    this._reqSeq++; // abandon any in-flight building fetch
     this._render([]);
     this._closeResults();
     clearBuildingHighlight();
