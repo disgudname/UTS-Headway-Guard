@@ -711,14 +711,8 @@ body {
     overflow-y: auto;
   }
 
-  .livemap-search {
-    width: calc(100vw - 24px);
-    max-width: 360px;
-  }
-
-  .lsb-field {
-    height: 44px;
-  }
+  /* (phone search-bar rules live in a 2nd @media below, AFTER the base
+     .livemap-search / .lsb-field rules — same specificity, source order wins.) */
 
   /* ≥44px touch targets */
   .lp-check,
@@ -1710,6 +1704,26 @@ body {
   padding: 9px 11px;
   font-size: var(--fs-sm);
   opacity: 0.7;
+}
+
+/* Phone search bar — MUST come after the base .livemap-search / .lsb-field
+   rules above (same specificity → later wins; the base width clamp was
+   otherwise clipping the placeholder). Near-full-width, taller field, and it
+   gets out of the way entirely while either panel is open. */
+@media (max-width: 620px) {
+  .livemap-search {
+    width: calc(100vw - 16px);
+    max-width: none;
+  }
+
+  .lsb-field {
+    height: 44px;
+  }
+
+  .livemap-panel--left:not(.is-away) ~ .livemap-search,
+  .livemap-right-column:not(.is-away) ~ .livemap-search {
+    display: none;
+  }
 }
 
 /* --- overlapping-marker menu ---------------------------------------------- */
