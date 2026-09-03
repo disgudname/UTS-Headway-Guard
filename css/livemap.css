@@ -530,7 +530,13 @@ body {
   border: 1px solid var(--panel-border);
   box-shadow: var(--panel-shadow);
   backdrop-filter: var(--panel-blur);
-  transition: opacity var(--dur) var(--ease), transform var(--dur) var(--ease);
+  cursor: pointer; /* the whole chip releases the follow lock */
+  transition: opacity var(--dur) var(--ease), transform var(--dur) var(--ease),
+    background-color var(--dur-fast) var(--ease);
+}
+
+.livemap-follow-chip:hover {
+  background: var(--btn-hover-bg);
 }
 
 /* Slides up + fades rather than snapping in/out. Kept in the layout while
@@ -545,8 +551,8 @@ body {
 .livemap-follow-chip .lfc-x {
   appearance: none;
   border: 0;
-  width: 22px;
-  height: 22px;
+  width: 24px;
+  height: 24px;
   border-radius: 50%;
   font-size: var(--fs-lg);
   line-height: 1;
@@ -555,6 +561,7 @@ body {
   background: rgba(127, 127, 127, 0.16);
 }
 
+.livemap-follow-chip:hover .lfc-x,
 .livemap-follow-chip .lfc-x:hover {
   background: rgba(127, 127, 127, 0.3);
 }

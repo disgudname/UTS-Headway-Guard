@@ -259,11 +259,17 @@ function wireInteractions(map) {
   map.on('mouseleave', HIT_LAYER, () => {
     map.getCanvas().style.cursor = '';
   });
-  // Panning away from a followed bus releases the lock (our own setCenter
-  // doesn't emit dragstart, so this only fires for real user drags).
-  map.on('dragstart', () => {
-    if (!programmaticMove) stopFollow();
-  });
+  // Any real user camera gesture releases the follow lock — pan, wheel / pinch
+  // zoom, right-drag rotate, tilt. A user gesture carries `originalEvent` (the
+  // DOM event); our own setCenter / flyTo don't, so following isn't self-
+  // released. Zoom counts now too: previously you could scroll-zoom while still
+  // locked and the camera kept yanking back to the bus.
+  const releaseOnGesture = (e) => {
+    if (followId && !programmaticMove && e && e.originalEvent) stopFollow();
+  };
+  for (const ev of ['dragstart', 'zoomstart', 'rotatestart', 'pitchstart']) {
+    map.on(ev, releaseOnGesture);
+  }
 }
 
 // --- data ingest + animation -----------------------------------------------
@@ -1204,7 +1210,11 @@ function ensureFollowChip() {
   followChip.hidden = true;
   followChip.innerHTML =
     '<span class="lfc-text"></span><button type="button" class="lfc-x" aria-label="Stop following">&times;</button>';
-  followChip.querySelector('.lfc-x').addEventListener('click', stopFollow);
+  // The whole chip is the release target, not just the tiny ×.
+  followChip.addEventListener('click', stopFollow);
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape' && followId) stopFollow();
+  });
   document.body.appendChild(followChip);
 }
 
