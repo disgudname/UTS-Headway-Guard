@@ -28,12 +28,15 @@ import {
   PULSEPOINT_FALLBACK_IMAGE,
 } from './safety-style.js';
 
-// PulsePoint respond-icon PNGs, lazy-loaded per type code the first time a
-// feature references one. `ppTried` stops us re-fetching a code whose icon
-// 404s (many prose call-types have no icon) — cleared on style rebuild since a
-// theme swap wipes the image registry.
+// PulsePoint respond-icon PNGs (the real /v1/pulsepoint/respond_icons/*.png
+// teardrops testmap uses). We load them EAGERLY as incident data arrives rather
+// than leaning on `styleimagemissing` — the layer's icon-image wraps names in
+// `['image', …]` so a missing one silently resolves to null instead of firing
+// that event. `ppDone` = codes we've loaded or that 404'd; cleared on style
+// rebuild since a theme swap wipes the image registry.
 const PP_ICON_BASE = `${API_BASE}/v1/pulsepoint/respond_icons/`;
-const ppTried = new Set();
+const ppDone = new Set();
+let lastPulseFC = null;
 
 let pulse = [];
 let inc = [];
@@ -64,12 +67,41 @@ export function installSafetyLayer() {
 }
 
 function onRebuilt() {
-  ppTried.clear(); // style rebuild wiped the image atlas
+  ppDone.clear(); // style rebuild wiped the image atlas
   ensureFallbackPin();
   syncPulse();
   syncInc();
   applyVis();
   wire();
+}
+
+/** Load one PulsePoint respond-icon PNG into the map's image registry, keyed
+ *  `pp-<code>`. On success, re-push the last incident FeatureCollection so the
+ *  symbol layer re-lays-out with the now-present image. Codes with no icon
+ *  (the endpoint returns an HTML fallback, not a PNG) are marked done so we
+ *  don't retry — those features fall back to the generated pin. */
+function ensurePpIcon(code) {
+  const map = getMap();
+  const id = `pp-${code}`;
+  if (!map || !code || ppDone.has(id) || map.hasImage(id)) return;
+  if (!/^[a-z0-9]{1,6}$/.test(code)) {
+    ppDone.add(id);
+    return;
+  }
+  ppDone.add(id);
+  map
+    .loadImage(`${PP_ICON_BASE}${code}_map_active.png`)
+    .then((res) => {
+      const data = res && res.data;
+      if (!data || map.hasImage(id)) return;
+      map.addImage(id, data);
+      if (lastPulseFC && map.getSource(PULSEPOINT_SOURCE_ID)) {
+        map.getSource(PULSEPOINT_SOURCE_ID).setData(lastPulseFC);
+      }
+    })
+    .catch(() => {
+      /* no PNG for this code — the layer's coalesce uses the fallback pin */
+    });
 }
 
 /** A neutral teardrop pin, generated once, for incident type codes with no
@@ -127,9 +159,10 @@ function applyVis() {
 // --- sources ------------------------------------------------------------
 
 function syncPulse() {
-  const src = getMap()?.getSource(PULSEPOINT_SOURCE_ID);
+  const map = getMap();
+  const src = map?.getSource(PULSEPOINT_SOURCE_ID);
   if (!src) return;
-  src.setData({
+  const fc = {
     type: 'FeatureCollection',
     features: pulse.map((x, idx) => ({
       type: 'Feature',
@@ -149,7 +182,10 @@ function syncPulse() {
         ageMin: x.ageMin == null ? '' : String(x.ageMin),
       },
     })),
-  });
+  };
+  lastPulseFC = fc;
+  src.setData(fc);
+  for (const code of new Set(pulse.map((x) => x.iconType).filter(Boolean))) ensurePpIcon(code);
   if (popupKey && popupKey.startsWith('pp:')) refreshPopup();
 }
 
@@ -166,24 +202,12 @@ function wire() {
   if (!map || wired) return;
   wired = true;
 
-  // Lazy-load each PulsePoint respond-icon PNG the first time a feature asks
-  // for it. Survives theme swaps (map-level listener); ppTried is reset in
-  // onRebuilt so the images get re-fetched into the fresh atlas.
+  // Backstop: if anything still asks for a `pp-<code>` image we haven't loaded
+  // (eager loading in syncPulse is the primary path), fetch it. Map-level
+  // listener — survives theme swaps.
   map.on('styleimagemissing', (e) => {
     const id = e && e.id;
-    if (!id || !id.startsWith('pp-') || ppTried.has(id) || map.hasImage(id)) return;
-    const code = id.slice(3);
-    if (!/^[a-z0-9]{1,6}$/.test(code)) return;
-    ppTried.add(id);
-    map
-      .loadImage(`${PP_ICON_BASE}${code}_map_active.png`)
-      .then((res) => {
-        const data = res && res.data;
-        if (data && !map.hasImage(id)) map.addImage(id, data);
-      })
-      .catch(() => {
-        /* no icon for this code — the layer's coalesce uses the fallback pin */
-      });
+    if (id && id.startsWith('pp-')) ensurePpIcon(id.slice(3));
   });
 
   registerMarkerLayer({
