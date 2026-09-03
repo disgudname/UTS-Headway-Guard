@@ -13608,9 +13608,17 @@ _UVA_VTS_BASE = (
 )
 _UVA_BASEMAP_STYLE_TTL_S = 24 * 3600
 _UVA_BASEMAP_TILE_CACHE_MAX = 6000
+# Disk cache on the Fly volume so a deploy / restart doesn't re-pull the whole
+# basemap from UVA GES. The in-memory LRU above is still the fast path; this just
+# survives restarts. The service is versioned, so tiles / glyphs / sprites never
+# change under a fixed URL — only the style JSON gets a TTL.
+_UVA_BASEMAP_DISK_DIR = PRIMARY_DATA_DIR / "livemap_basemap"
+_UVA_BASEMAP_DISK_MAX_BYTES = 256 * 1024 * 1024
+_UVA_BASEMAP_STYLE_KEY = "style"
 _uva_basemap_client: Optional[httpx.AsyncClient] = None
 _uva_basemap_style_cache: Optional[Tuple[bytes, float]] = None  # (json bytes, monotonic)
 _uva_basemap_asset_cache: "OrderedDict[str, tuple[bytes, str]]" = OrderedDict()
+_uva_basemap_disk_writes = 0
 
 
 async def _uva_basemap_get(path: str) -> httpx.Response:
@@ -13618,6 +13626,85 @@ async def _uva_basemap_get(path: str) -> httpx.Response:
     if _uva_basemap_client is None:
         _uva_basemap_client = httpx.AsyncClient(timeout=15.0)
     return await _uva_basemap_client.get(f"{_UVA_VTS_BASE}{path}")
+
+
+def _basemap_ctype_for_key(key: str, default: str = "application/octet-stream") -> str:
+    if key == _UVA_BASEMAP_STYLE_KEY or key.endswith(".json"):
+        return "application/json"
+    if key.endswith(".png"):
+        return "image/png"
+    if key.startswith(("t/", "f/")):
+        return "application/x-protobuf"
+    return default
+
+
+def _basemap_disk_path(key: str) -> Path:
+    return _UVA_BASEMAP_DISK_DIR / hashlib.sha1(key.encode("utf-8")).hexdigest()
+
+
+def _basemap_disk_age(key: str) -> Optional[float]:
+    try:
+        st = _basemap_disk_path(key).stat()
+        return max(0.0, time.time() - st.st_mtime)
+    except OSError:
+        return None
+
+
+def _basemap_disk_read(key: str, *, touch: bool = True) -> Optional[bytes]:
+    try:
+        p = _basemap_disk_path(key)
+        data = p.read_bytes()
+        if touch:
+            try:
+                os.utime(p, None)  # keep hot assets young for the size-cap prune
+            except OSError:
+                pass
+        return data or None
+    except OSError:
+        return None
+
+
+def _basemap_disk_prune() -> None:
+    try:
+        entries = []
+        total = 0
+        for p in _UVA_BASEMAP_DISK_DIR.iterdir():
+            try:
+                st = p.stat()
+            except OSError:
+                continue
+            entries.append((st.st_mtime, st.st_size, p))
+            total += st.st_size
+        if total <= _UVA_BASEMAP_DISK_MAX_BYTES:
+            return
+        entries.sort()  # oldest first
+        for _mtime, size, p in entries:
+            if total <= _UVA_BASEMAP_DISK_MAX_BYTES:
+                break
+            try:
+                p.unlink()
+                total -= size
+            except OSError:
+                pass
+    except OSError:
+        pass
+
+
+def _basemap_disk_write(key: str, body: bytes) -> None:
+    global _uva_basemap_disk_writes
+    if not body:
+        return
+    try:
+        _UVA_BASEMAP_DISK_DIR.mkdir(parents=True, exist_ok=True)
+        p = _basemap_disk_path(key)
+        tmp = p.with_name(p.name + ".tmp")
+        tmp.write_bytes(body)
+        tmp.replace(p)
+        _uva_basemap_disk_writes += 1
+        if _uva_basemap_disk_writes % 150 == 0:
+            _basemap_disk_prune()
+    except OSError:
+        pass  # read-only volume — the in-memory LRU still covers this run
 
 
 def _uva_basemap_cached_asset(key: str, ctype_default: str):
@@ -13633,10 +13720,25 @@ def _uva_basemap_cached_asset(key: str, ctype_default: str):
     )
 
 
+def _uva_basemap_remember(key: str, body: bytes, ctype: str):
+    _uva_basemap_asset_cache[key] = (body, ctype)
+    _uva_basemap_asset_cache.move_to_end(key)
+    while len(_uva_basemap_asset_cache) > _UVA_BASEMAP_TILE_CACHE_MAX:
+        _uva_basemap_asset_cache.popitem(last=False)
+    return Response(
+        content=body,
+        media_type=ctype,
+        headers={"Cache-Control": "public, max-age=604800"},
+    )
+
+
 async def _uva_basemap_proxy_asset(path: str, key: str, ctype_default: str):
     cached = _uva_basemap_cached_asset(key, ctype_default)
     if cached is not None:
         return cached
+    disk = _basemap_disk_read(key)
+    if disk is not None:
+        return _uva_basemap_remember(key, disk, _basemap_ctype_for_key(key, ctype_default))
     try:
         r = await _uva_basemap_get(path)
     except httpx.HTTPError:
@@ -13646,15 +13748,8 @@ async def _uva_basemap_proxy_asset(path: str, key: str, ctype_default: str):
     if r.status_code != 200:
         return Response(status_code=r.status_code)
     ctype = r.headers.get("content-type", ctype_default)
-    _uva_basemap_asset_cache[key] = (r.content, ctype)
-    _uva_basemap_asset_cache.move_to_end(key)
-    while len(_uva_basemap_asset_cache) > _UVA_BASEMAP_TILE_CACHE_MAX:
-        _uva_basemap_asset_cache.popitem(last=False)
-    return Response(
-        content=r.content,
-        media_type=ctype,
-        headers={"Cache-Control": "public, max-age=604800"},
-    )
+    _basemap_disk_write(key, r.content)
+    return _uva_basemap_remember(key, r.content, ctype)
 
 
 @app.get("/v1/livemap/basemap/style.json", include_in_schema=False)
@@ -13664,18 +13759,29 @@ async def uva_basemap_style():
     if _uva_basemap_style_cache and now - _uva_basemap_style_cache[1] < _UVA_BASEMAP_STYLE_TTL_S:
         body = _uva_basemap_style_cache[0]
     else:
-        try:
-            r = await _uva_basemap_get("/resources/styles/root.json")
-            r.raise_for_status()
-            body = r.content
-            _uva_basemap_style_cache = (body, now)
-        except httpx.HTTPError as exc:
-            if _uva_basemap_style_cache:
-                body = _uva_basemap_style_cache[0]  # serve stale rather than fail the wall
-            else:
-                raise HTTPException(
-                    status_code=502, detail=f"UVA basemap style upstream error: {exc}"
-                ) from exc
+        body = None
+        disk_age = _basemap_disk_age(_UVA_BASEMAP_STYLE_KEY)
+        if disk_age is not None and disk_age < _UVA_BASEMAP_STYLE_TTL_S:
+            body = _basemap_disk_read(_UVA_BASEMAP_STYLE_KEY, touch=False)
+            if body:
+                _uva_basemap_style_cache = (body, now)
+        if body is None:
+            try:
+                r = await _uva_basemap_get("/resources/styles/root.json")
+                r.raise_for_status()
+                body = r.content
+                _uva_basemap_style_cache = (body, now)
+                _basemap_disk_write(_UVA_BASEMAP_STYLE_KEY, body)
+            except httpx.HTTPError as exc:
+                # serve stale (memory, then disk) rather than fail the wall
+                body = (
+                    (_uva_basemap_style_cache[0] if _uva_basemap_style_cache else None)
+                    or _basemap_disk_read(_UVA_BASEMAP_STYLE_KEY, touch=False)
+                )
+                if body is None:
+                    raise HTTPException(
+                        status_code=502, detail=f"UVA basemap style upstream error: {exc}"
+                    ) from exc
     return Response(
         content=body,
         media_type="application/json",
