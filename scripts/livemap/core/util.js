@@ -163,3 +163,56 @@ export function decodePolyline(str, precision = 5) {
   }
   return coords;
 }
+
+/**
+ * Douglas–Peucker simplify of a pixel-space path `[[x,y], ...]`, dropping points
+ * that sit within `tol` px of the line between the points that survive. Used by
+ * the route-overlap renderer before resampling. Returns a new array.
+ */
+export function simplifyPath(points, tol) {
+  if (!Array.isArray(points) || points.length < 3 || !(tol > 0)) {
+    return Array.isArray(points) ? points.slice() : [];
+  }
+  const tol2 = tol * tol;
+  const keep = new Uint8Array(points.length);
+  keep[0] = 1;
+  keep[points.length - 1] = 1;
+
+  const stack = [[0, points.length - 1]];
+  while (stack.length) {
+    const [lo, hi] = stack.pop();
+    if (hi - lo < 2) continue;
+    const [ax, ay] = points[lo];
+    const [bx, by] = points[hi];
+    const dx = bx - ax;
+    const dy = by - ay;
+    const len2 = dx * dx + dy * dy;
+    let far = -1;
+    let farD = tol2;
+    for (let i = lo + 1; i < hi; i++) {
+      const [px, py] = points[i];
+      let d2;
+      if (len2 === 0) {
+        d2 = (px - ax) * (px - ax) + (py - ay) * (py - ay);
+      } else {
+        let t = ((px - ax) * dx + (py - ay) * dy) / len2;
+        t = t < 0 ? 0 : t > 1 ? 1 : t;
+        const ex = px - (ax + t * dx);
+        const ey = py - (ay + t * dy);
+        d2 = ex * ex + ey * ey;
+      }
+      if (d2 > farD) {
+        farD = d2;
+        far = i;
+      }
+    }
+    if (far !== -1) {
+      keep[far] = 1;
+      stack.push([lo, far], [far, hi]);
+    }
+  }
+
+  const out = [];
+  for (let i = 0; i < points.length; i++) if (keep[i]) out.push(points[i]);
+  return out;
+}

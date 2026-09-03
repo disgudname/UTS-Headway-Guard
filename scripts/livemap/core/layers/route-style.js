@@ -11,6 +11,12 @@
 //   casing — a wide neutral halo that separates the coloured line from the map
 //   line   — the route-coloured stroke itself (colour comes per-feature)
 //
+// The source is fed by route-overlap.js's striping engine: every feature carries
+// `kind` ('casing' | 'line'), and the shared-corridor stretches arrive as short
+// alternating-colour LineString pieces. The line layer is butt-capped so those
+// pieces meet flush and read as one continuous stroke; the casing stays round so
+// the halo is unbroken.
+//
 // Both sit above the basemap but below the vehicle symbols (basemap-style.js
 // appends the vehicle layers after these).
 // -----------------------------------------------------------------------------
@@ -30,13 +36,12 @@ const LINE_WIDTH = ['interpolate', ['linear'], ['zoom'], 10, 1.6, 13, 3, 16, 6, 
 /** The two route line layers, themed. `theme` is 'light' | 'dark'. */
 export function routeLayerDefs(theme) {
   const casing = theme === 'dark' ? '#0b0f18' : '#ffffff';
-  const only = ['==', ['get', 'visible'], 1];
   return [
     {
       id: ROUTE_CASING_LAYER,
       type: 'line',
       source: ROUTE_SOURCE_ID,
-      filter: only,
+      filter: ['==', ['get', 'kind'], 'casing'],
       layout: { 'line-cap': 'round', 'line-join': 'round' },
       paint: {
         'line-color': casing,
@@ -47,8 +52,8 @@ export function routeLayerDefs(theme) {
       id: ROUTE_LINE_LAYER,
       type: 'line',
       source: ROUTE_SOURCE_ID,
-      filter: only,
-      layout: { 'line-cap': 'round', 'line-join': 'round' },
+      filter: ['==', ['get', 'kind'], 'line'],
+      layout: { 'line-cap': 'butt', 'line-join': 'round' },
       paint: {
         'line-color': ['get', 'color'],
         'line-width': LINE_WIDTH,

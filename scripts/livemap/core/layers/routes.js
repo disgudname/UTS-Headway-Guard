@@ -16,16 +16,19 @@
 // idle route "pins" it so its line appears the moment a bus shows up (and, for
 // convenience, right away if geometry is known).
 //
-// Overlap striping (where two lines run the same street) is deliberately not
-// done yet — see the project plan. For now the later-drawn colour wins on a
-// shared segment; features are emitted in a stable id order so it doesn't
-// flicker between reports.
+// Overlap striping: where two lines follow the same street, that stretch is
+// drawn as an alternating cycle of every sharing line's colour (the
+// TransLoc-patented look, US7920967B1). route-overlap.js does the detection and
+// geometry slicing; syncSource() just hands it the visible name-group
+// representatives and drops the result into the source. The whole striping call
+// is wrapped so a bug there degrades to plain solid lines, never a blank map.
 // -----------------------------------------------------------------------------
 
 import { getMap, onStyleReady } from '../map.js';
-import { lsGet, lsSet, emitter } from '../util.js';
+import { lsGet, lsSet, emitter, debounce } from '../util.js';
 import { startVehicleFeed, onRoutes, onVehicles, getRoutes } from '../data/transloc.js';
 import { ROUTE_SOURCE_ID as SRC } from './route-style.js';
+import { stripeRoutes, plainRouteFeatures } from './route-overlap.js';
 
 const HIDDEN_KEY = 'livemap.routes.hidden';
 const PINNED_KEY = 'livemap.routes.pinned';
@@ -57,8 +60,23 @@ function sameSet(a, b) {
   return true;
 }
 
+const zoomSync = debounce(() => syncSource(), 120);
+let zoomWired = false;
+
 export function installRouteLayer() {
-  onStyleReady(() => syncSource());
+  onStyleReady(() => {
+    // Pixel-space dash cadence changes with zoom — recompute the striping on
+    // zoom settle (pan does not need it). Attach once; map-level listeners
+    // survive a style/theme swap.
+    if (!zoomWired) {
+      const map = getMap();
+      if (map) {
+        map.on('zoomend', zoomSync);
+        zoomWired = true;
+      }
+    }
+    syncSource();
+  });
   onRoutes((list) => {
     routes = list;
     pruneHidden();
@@ -155,20 +173,42 @@ function groups() {
   return out;
 }
 
+/** One representative polyline per visible line (name-group): the RouteID
+ *  variant with the most shape points. Striping works on lines, not schedule
+ *  variants, so a line never "overlaps itself". */
+function visibleReps() {
+  const byName = new Map();
+  for (const r of routes) {
+    if (!lineShows(r.id)) continue;
+    if (!Array.isArray(r.coords) || r.coords.length < 2) continue;
+    const cur = byName.get(r.name);
+    if (!cur || r.coords.length > cur.coords.length) {
+      byName.set(r.name, { key: r.name, color: r.color, coords: r.coords });
+    }
+  }
+  return [...byName.values()];
+}
+
 function syncSource() {
   const map = getMap();
   const src = map && map.getSource(SRC);
   if (!src) return;
-  const features = routes
-    .slice()
-    .filter((r) => lineShows(r.id))
-    .sort((a, b) => a.id.localeCompare(b.id))
-    .map((r) => ({
-      type: 'Feature',
-      geometry: { type: 'LineString', coordinates: r.coords },
-      properties: { id: r.id, name: r.name, color: r.color, visible: 1 },
-    }));
-  src.setData({ type: 'FeatureCollection', features });
+  const reps = visibleReps();
+
+  let features;
+  try {
+    const zoom = typeof map.getZoom === 'function' ? map.getZoom() : 14;
+    const centerLat = map.getCenter ? map.getCenter().lat : 38.035;
+    features = stripeRoutes(reps, zoom, centerLat).features;
+    if (reps.length && (!Array.isArray(features) || features.length === 0)) {
+      features = plainRouteFeatures(reps);
+    }
+  } catch (err) {
+    console.error('[livemap] route striping failed; drawing plain lines', err);
+    features = plainRouteFeatures(reps);
+  }
+
+  src.setData({ type: 'FeatureCollection', features: features || [] });
 }
 
 function pruneHidden() {
