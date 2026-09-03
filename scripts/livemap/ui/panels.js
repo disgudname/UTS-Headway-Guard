@@ -157,7 +157,8 @@ function buildLeft() {
   const el = document.createElement('div');
   el.className = 'livemap-panel livemap-panel--left';
   el.innerHTML = `
-    <div class="lp-head">
+    <div class="lp-head lp-head--brand">
+      <span class="lp-head-title">Live Map</span>
       <span class="lp-feed" title="Live vehicle feed">
         <span class="lp-dot" aria-hidden="true"></span><span class="lp-feed-text">Connecting…</span>
       </span>
