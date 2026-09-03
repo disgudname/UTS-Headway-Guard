@@ -322,15 +322,11 @@ function pulsePopupHTML(x) {
       )}</span></div>`;
 
   const meta = [];
-  if (x.ageMin != null) {
-    const rel = x.ageMin === 0 ? 'just now' : `${x.ageMin} min ago`;
-    const abs = x.receivedAt
-      ? new Date(x.receivedAt).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })
-      : '';
-    meta.push(metaLine(`Received ${rel}${abs ? ` · ${abs}` : ''}`));
+  if (x.ageMin != null) meta.push(metaLine(`Received ${fmtWhen(x.receivedAt, x.ageMin)}`));
+  if (x.firstOnScene) {
+    const mins = Math.max(0, Math.round((Date.now() - x.firstOnScene) / 60_000));
+    meta.push(metaLine(`First unit on scene ${fmtWhen(x.firstOnScene, mins)}`));
   }
-  const onScene = (x.units || []).filter((u) => u.onScene && !u.cleared).length;
-  if (onScene) meta.push(metaLine(`${onScene} unit${onScene > 1 ? 's' : ''} on scene`));
   if (x.status) meta.push(metaLine(`Status: ${esc(x.status)}`));
   if (x.address) meta.push(metaLine(`Location: ${esc(x.address)}`));
 
@@ -367,6 +363,15 @@ function pulsePopupHTML(x) {
 
 function metaLine(html) {
   return `<div class="incident-popup__meta-line">${html}</div>`;
+}
+
+/** "8 min ago · 4:12 PM" (or "just now · …"). ms may be null. */
+function fmtWhen(ms, mins) {
+  const rel = mins <= 0 ? 'just now' : `${mins} min ago`;
+  const abs = ms
+    ? new Date(ms).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })
+    : '';
+  return abs ? `${rel} · ${abs}` : rel;
 }
 
 function renderUnitGroups(units) {

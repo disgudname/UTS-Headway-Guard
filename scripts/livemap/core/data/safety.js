@@ -362,6 +362,11 @@ async function pollPulsePoint() {
       const statusText = String(
         inc.PulsePointIncidentStatus || inc.IncidentStatus || inc.Status || inc.Stage || '',
       ).trim();
+      // Server-side first-on-scene tracking — app.py's _update_pulsepoint_first_on_scene
+      // injects _firstOnSceneTimestamp (ms epoch) the first time an incident has a
+      // unit at scene, and persists it. Same data testmap's popup uses.
+      const fosRaw = Number(inc._firstOnSceneTimestamp);
+      const firstOnScene = Number.isFinite(fosRaw) && fosRaw > 0 ? fosRaw : null;
       out.push({
         id: String(inc.ID || `${lat},${lng}`),
         lat,
@@ -377,6 +382,8 @@ async function pollPulsePoint() {
         units,
         receivedAt: Number.isNaN(t) ? null : t,
         ageMin: Number.isNaN(t) ? null : Math.max(0, Math.round((now - t) / 60_000)),
+        firstOnScene,
+        firstOnSceneSource: firstOnScene ? String(inc._firstOnSceneTimestampSource || '') : '',
       });
     }
     pulsePoint = out;
