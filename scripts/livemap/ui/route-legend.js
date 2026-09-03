@@ -62,7 +62,14 @@ export class RouteLegend {
 
   _rows() {
     const rows = [];
-    for (const g of this._uts) if (g && !g.hidden) rows.push({ name: g.name, color: g.color });
+    // UTS arrives one entry per RouteID now (schedule variants are separate);
+    // the legend only wants the line shown once.
+    const seen = new Set();
+    for (const g of this._uts) {
+      if (!g || g.hidden || seen.has(g.name)) continue;
+      seen.add(g.name);
+      rows.push({ name: g.name, color: g.color });
+    }
     if (this._catOn) {
       for (const g of this._cat) if (g && !g.hidden) rows.push({ name: g.name, color: g.color });
     }

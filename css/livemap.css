@@ -1228,9 +1228,9 @@ body {
   letter-spacing: 0.02em;
 }
 
-/* Per-route InfoText — a line's schedule-variant routing note. Each distinct
-   one gets its own wrapped line under the route name; dimmed + struck when
-   that routing isn't currently drawn. */
+/* Per-route InfoText — the schedule-variant routing note (e.g. "Fontaine
+   Service"). Wraps onto its own line under the route name. The whole row dims
+   via .lp-row.is-off when that route isn't currently drawn. */
 .lp-route-info {
   flex: 1 0 100%;
   font-size: var(--fs-micro);
@@ -1239,11 +1239,6 @@ body {
   color: var(--panel-muted);
   white-space: normal;
   overflow-wrap: anywhere;
-}
-
-.lp-route-info.is-off {
-  opacity: 0.55;
-  text-decoration: line-through;
 }
 
 .lp-row.is-idle {

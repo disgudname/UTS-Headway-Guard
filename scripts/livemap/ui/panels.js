@@ -16,7 +16,7 @@ import { getMap } from '../core/map.js';
 import { lsGet, lsSet } from '../core/util.js';
 import { onStatus, onVehicles } from '../core/data/transloc.js';
 import { getThemeMode, setThemeMode, onThemeChange } from '../core/theme.js';
-import { onRouteVisibility, setGroupHidden, setAllHidden } from '../core/layers/routes.js';
+import { onRouteVisibility, setRouteHidden, setAllHidden } from '../core/layers/routes.js';
 import { areStopsVisible, setStopsVisible } from '../core/layers/stops.js';
 import { areLabelsVisible, setLabelsVisible } from '../core/layers/vehicles.js';
 import { isSatelliteVisible, setSatelliteVisible } from '../core/layers/satellite.js';
@@ -490,8 +490,8 @@ function buildRight() {
         ? list.map(alertItemHtml).join('')
         : '<div class="lp-empty">No active alerts</div>';
     },
-    renderRoutes(groups) {
-      renderRouteRows(routes.body, groups, setGroupHidden, 'No routes running');
+    renderRoutes(list) {
+      renderRouteRows(routes.body, list, setRouteHidden, 'No routes running');
     },
     renderCatRoutes(groups) {
       renderRouteRows(catRoutes.body, groups, setCatGroupHidden, 'No CAT routes');
@@ -504,40 +504,36 @@ function buildRight() {
   return api;
 }
 
-/** Fill a section body with one toggle row per route group. Groups arrive
- *  active-first; idle routes (no bus right now) render dimmed with a note. */
-function renderRouteRows(bodyEl, groups, onToggle, emptyText) {
-  if (!groups.length) {
+/** Fill a section body with one toggle row per route. UTS rows are per RouteID
+ *  (schedule variants are separate, keyed by `id`); CAT rows stay name-keyed.
+ *  Rows arrive active-first; idle routes (no bus right now) render dimmed with a
+ *  note. A route's InfoText, when present, shows as a wrapped subtitle. */
+function renderRouteRows(bodyEl, rows, onToggle, emptyText) {
+  if (!rows.length) {
     bodyEl.innerHTML = `<div class="lp-empty">${esc(emptyText)}</div>`;
     return;
   }
   bodyEl.textContent = '';
-  for (const g of groups) {
-    const idle = g.active === false;
-    const infos = Array.isArray(g.infos) ? g.infos : [];
+  for (const r of rows) {
+    const key = r.id != null ? r.id : r.name;
+    const idle = r.active === false;
+    const info = r.info || '';
     const row = document.createElement('button');
     row.type = 'button';
-    row.className = 'lp-row' + (g.hidden ? ' is-off' : '') + (idle ? ' is-idle' : '');
-    row.setAttribute('aria-pressed', String(!g.hidden));
+    row.className = 'lp-row' + (r.hidden ? ' is-off' : '') + (idle ? ' is-idle' : '');
+    row.setAttribute('aria-pressed', String(!r.hidden));
     row.innerHTML = `
-      <span class="lp-sw" style="background:${g.color}"></span>
+      <span class="lp-sw" style="background:${r.color}"></span>
       <span class="lp-name-wrap">
         <span class="lp-name"></span>
         ${idle ? '<span class="lp-note">no buses</span>' : ''}
-        ${infos
-          .map(
-            (it) =>
-              `<span class="lp-route-info${it.shown ? '' : ' is-off'}" data-info></span>`,
-          )
-          .join('')}
+        ${info ? '<span class="lp-route-info" data-info></span>' : ''}
       </span>
       <span class="lp-eye" aria-hidden="true"></span>`;
-    row.querySelector('.lp-name').textContent = g.name;
-    // Per-route InfoText (schedule-variant routings) — set as text, not HTML.
-    row.querySelectorAll('[data-info]').forEach((el, i) => {
-      el.textContent = infos[i].text;
-    });
-    row.addEventListener('click', () => onToggle(g.name, !g.hidden));
+    row.querySelector('.lp-name').textContent = r.name;
+    const infoEl = row.querySelector('[data-info]');
+    if (infoEl) infoEl.textContent = info; // set as text, never HTML
+    row.addEventListener('click', () => onToggle(key, !r.hidden));
     bodyEl.appendChild(row);
   }
 }
