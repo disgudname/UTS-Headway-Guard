@@ -37,9 +37,12 @@ const MATCH_TOL_MAX_M = Math.max(MATCH_TOL_PARALLEL_M, MATCH_TOL_ANTIPARALLEL_M)
 const HEADING_TOL_RAD = (20 * Math.PI) / 180;
 const DASH_PX = 16; // one colour's run length on screen
 const MIN_DASH_PX = 0.5;
-// A deferred shared run this far (m) from its owner's actual group polyline is
-// an orphan — the owner isn't drawing there, so the route fills it solid itself.
-const GAP_FILL_TOL_M = 8;
+// Two polylines this close here = genuinely coincident: safe for one to borrow
+// the other's stripe. Beyond it (up to MATCH_TOL) they still count as the same
+// corridor for detection, but each draws its own path — otherwise a gap opens
+// where they fork apart. Sized to clear TransLoc shape noise (~2-5 m) but split
+// a divided road / a widening fork.
+const TIGHT_M = 8;
 const TILE = 512;
 
 // --- projection (local equirectangular, metres) --------------------------------
@@ -118,7 +121,10 @@ function buildSegments(key, samples) {
       b,
       mid: [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2],
       heading: Math.atan2(b[1] - a[1], b[0] - a[0]),
-      sharedWith: new Set([key]),
+      // Routes whose polyline is right next to this one here (overlap test +
+      // ≤ TIGHT_M). A run of this route's segments is drawn once, striped
+      // through its tight set, owned by the lowest key in it.
+      tightWith: new Set([key]),
     });
   }
   return segs;
@@ -187,25 +193,30 @@ function detectGroups(routes, proj) {
             if (seenPair.has(pk)) continue;
             seenPair.add(pk);
             if (!segmentsOverlap(s, o)) continue;
-            s.sharedWith.add(o.key);
-            o.sharedWith.add(s.key);
+            if (dist(s.mid, o.mid) <= TIGHT_M) {
+              s.tightWith.add(o.key);
+              o.tightWith.add(s.key);
+            }
           }
         }
       }
     }
   }
 
-  // Smooth single-sample dropouts: a shared corridor where the overlap test
-  // flickers off for one or two samples (a kink, resample phase) would
-  // otherwise leave a stray solid crumb of one route's colour sitting beside
-  // the striped line. If a short run's shared set differs from both its
-  // neighbours and they agree, adopt theirs.
+  // Smooth single-sample dropouts: where the tight test flickers off for a
+  // sample or two (a kink, resample phase), relabel the short run to match its
+  // agreeing neighbours so it doesn't leave a stray crumb beside the stripe.
   for (const segs of segsByKey.values()) {
-    smoothSharedSets(segs.slice().sort((a, b) => a.cum - b.cum));
+    smoothSets(segs.slice().sort((a, b) => a.cum - b.cum), 'tightWith');
   }
 
-  // Walk each route's segments in order; a run with the same sharedWith set is
-  // one group, owned by the lowest key in the set so it's emitted once.
+  // Walk each route's own segments. It renders a run of them unless a TIGHT
+  // lower-keyed route is right beside it there (safe to borrow that route's
+  // stripe). "Tight lower-keyed" — not just "lower-keyed" — is the whole fix:
+  // at a fork the owner's polyline has drifted 10-18 m off, so it's no longer
+  // tight, so this route stops borrowing and draws its own path → no gap.
+  // A rendered run's `keys` is the set of routes tight here, so the stripe
+  // reflects who's actually coincident, and it's owned by the lowest of those.
   const groups = [];
   for (const [key, segs] of segsByKey) {
     const ordered = segs.slice().sort((a, b) => a.cum - b.cum);
@@ -219,82 +230,23 @@ function detectGroups(routes, proj) {
       cur = null;
     };
     for (const s of ordered) {
-      const set = [...s.sharedWith].sort();
-      if (set[0] !== key) {
-        flush(); // this stretch belongs to a lower-keyed owner; break our run
+      const tight = [...s.tightWith].sort();
+      // Borrow another route's stripe only if that route is BOTH lower-keyed
+      // AND tight to us here.
+      if (tight[0] !== key) {
+        flush();
         continue;
       }
-      const sameSet = cur && cur.keys.length === set.length && cur.keys.every((k, i) => k === set[i]);
+      const sameSet = cur && cur.keys.length === tight.length && cur.keys.every((k, i) => k === tight[i]);
       const contiguous = cur && dist(cur.pts[cur.pts.length - 1], s.a) <= SAMPLE_STEP_M * 1.5;
       if (!sameSet || !contiguous) {
         flush();
-        cur = { keys: set, pts: [s.a, s.b] };
+        cur = { keys: tight, pts: [s.a, s.b] };
       } else {
         cur.pts.push(s.b);
       }
     }
     flush();
-  }
-
-  // Coverage pass. A route that deferred a shared run to a lower-keyed owner
-  // ends up with NOTHING of ITS OWN COLOUR drawn there if the owner's geometry
-  // diverges — the owner matched a different nearby segment, so its group is
-  // elsewhere (a T/Y junction where one line turns wide). A nearby *green* solo
-  // line does not count as covering *orange*, so the index is per-key: a group
-  // contributes its points to each of its member keys only. Any deferred
-  // segment with no same-colour group point within GAP_FILL_TOL_M is an orphan
-  // and gets emitted solid in the route's own colour.
-  const gcell = Math.max(GAP_FILL_TOL_M, SAMPLE_STEP_M);
-  const ptsByKey = new Map(); // key -> Map<"gx,gy", [x,y][]>
-  const addPt = (k, p) => {
-    let grid = ptsByKey.get(k);
-    if (!grid) ptsByKey.set(k, (grid = new Map()));
-    const cell = `${Math.floor(p[0] / gcell)},${Math.floor(p[1] / gcell)}`;
-    if (!grid.has(cell)) grid.set(cell, []);
-    grid.get(cell).push(p);
-  };
-  for (const g of groups) for (const k of g.keys) for (const p of g.ptsM) addPt(k, p);
-
-  const coveredFor = (key, pt) => {
-    const grid = ptsByKey.get(key);
-    if (!grid) return false;
-    const gx = Math.floor(pt[0] / gcell);
-    const gy = Math.floor(pt[1] / gcell);
-    for (let dx = -1; dx <= 1; dx++) {
-      for (let dy = -1; dy <= 1; dy++) {
-        const bucket = grid.get(`${gx + dx},${gy + dy}`);
-        if (!bucket) continue;
-        for (const p of bucket) if (dist(p, pt) <= GAP_FILL_TOL_M) return true;
-      }
-    }
-    return false;
-  };
-
-  for (const [key, segs] of segsByKey) {
-    const ordered = segs.slice().sort((a, b) => a.cum - b.cum);
-    let run = null;
-    const flushRun = () => {
-      if (run && run.length >= 2) {
-        let len = 0;
-        for (let i = 1; i < run.length; i++) len += dist(run[i - 1], run[i]);
-        groups.push({ keys: [key], ptsM: run.slice(), lenM: len });
-      }
-      run = null;
-    };
-    for (const s of ordered) {
-      const set = [...s.sharedWith].sort();
-      const orphan = set[0] !== key && !coveredFor(key, s.mid);
-      if (!orphan) {
-        flushRun();
-        continue;
-      }
-      if (run && dist(run[run.length - 1], s.a) <= SAMPLE_STEP_M * 1.5) run.push(s.b);
-      else {
-        flushRun();
-        run = [s.a, s.b];
-      }
-    }
-    flushRun();
   }
 
   return groups;
@@ -308,12 +260,12 @@ function setSig(set) {
   return [...set].sort().join('|');
 }
 
-function smoothSharedSets(ordered) {
+function smoothSets(ordered, field) {
   if (ordered.length < 3) return;
-  // collapse into runs of identical shared-set signature
+  // collapse into runs of identical set signature for `field`
   const runs = [];
   for (const s of ordered) {
-    const sig = setSig(s.sharedWith);
+    const sig = setSig(s[field]);
     if (runs.length && runs[runs.length - 1].sig === sig) runs[runs.length - 1].segs.push(s);
     else runs.push({ sig, segs: [s] });
   }
@@ -324,8 +276,8 @@ function smoothSharedSets(ordered) {
       runs[i - 1].sig === runs[i + 1].sig &&
       run.sig !== runs[i - 1].sig
     ) {
-      const donor = runs[i - 1].segs[0].sharedWith;
-      for (const s of run.segs) s.sharedWith = new Set(donor);
+      const donor = runs[i - 1].segs[0][field];
+      for (const s of run.segs) s[field] = new Set(donor);
       run.sig = runs[i - 1].sig;
     }
   }
