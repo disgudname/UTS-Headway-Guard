@@ -237,32 +237,39 @@ function detectGroups(routes, proj) {
   }
 
   // Coverage pass. A route that deferred a shared run to a lower-keyed owner
-  // ends up with NOTHING drawn there if the owner's own geometry diverges — the
-  // owner matched a different nearby segment, so its group polyline isn't
-  // actually at this route's position (a T/Y junction where one line turns
-  // wide). Find those orphaned runs — skipped segments with no owner group
-  // point within GAP_FILL_TOL_M — and emit them solid in the route's colour.
-  const ownerPts = [];
-  for (const g of groups) for (const p of g.ptsM) ownerPts.push(p);
+  // ends up with NOTHING of ITS OWN COLOUR drawn there if the owner's geometry
+  // diverges — the owner matched a different nearby segment, so its group is
+  // elsewhere (a T/Y junction where one line turns wide). A nearby *green* solo
+  // line does not count as covering *orange*, so the index is per-key: a group
+  // contributes its points to each of its member keys only. Any deferred
+  // segment with no same-colour group point within GAP_FILL_TOL_M is an orphan
+  // and gets emitted solid in the route's own colour.
   const gcell = Math.max(GAP_FILL_TOL_M, SAMPLE_STEP_M);
-  const ggrid = new Map();
-  for (const p of ownerPts) {
-    const k = `${Math.floor(p[0] / gcell)},${Math.floor(p[1] / gcell)}`;
-    if (!ggrid.has(k)) ggrid.set(k, []);
-    ggrid.get(k).push(p);
-  }
-  const ownerCovers = (pt) => {
+  const ptsByKey = new Map(); // key -> Map<"gx,gy", [x,y][]>
+  const addPt = (k, p) => {
+    let grid = ptsByKey.get(k);
+    if (!grid) ptsByKey.set(k, (grid = new Map()));
+    const cell = `${Math.floor(p[0] / gcell)},${Math.floor(p[1] / gcell)}`;
+    if (!grid.has(cell)) grid.set(cell, []);
+    grid.get(cell).push(p);
+  };
+  for (const g of groups) for (const k of g.keys) for (const p of g.ptsM) addPt(k, p);
+
+  const coveredFor = (key, pt) => {
+    const grid = ptsByKey.get(key);
+    if (!grid) return false;
     const gx = Math.floor(pt[0] / gcell);
     const gy = Math.floor(pt[1] / gcell);
     for (let dx = -1; dx <= 1; dx++) {
       for (let dy = -1; dy <= 1; dy++) {
-        const bucket = ggrid.get(`${gx + dx},${gy + dy}`);
+        const bucket = grid.get(`${gx + dx},${gy + dy}`);
         if (!bucket) continue;
         for (const p of bucket) if (dist(p, pt) <= GAP_FILL_TOL_M) return true;
       }
     }
     return false;
   };
+
   for (const [key, segs] of segsByKey) {
     const ordered = segs.slice().sort((a, b) => a.cum - b.cum);
     let run = null;
@@ -276,7 +283,7 @@ function detectGroups(routes, proj) {
     };
     for (const s of ordered) {
       const set = [...s.sharedWith].sort();
-      const orphan = set[0] !== key && !ownerCovers(s.mid);
+      const orphan = set[0] !== key && !coveredFor(key, s.mid);
       if (!orphan) {
         flushRun();
         continue;
