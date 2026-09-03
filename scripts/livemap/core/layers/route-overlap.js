@@ -192,6 +192,15 @@ function detectGroups(routes, proj) {
     }
   }
 
+  // Smooth single-sample dropouts: a shared corridor where the overlap test
+  // flickers off for one or two samples (a kink, resample phase) would
+  // otherwise leave a stray solid crumb of one route's colour sitting beside
+  // the striped line. If a short run's shared set differs from both its
+  // neighbours and they agree, adopt theirs.
+  for (const segs of segsByKey.values()) {
+    smoothSharedSets(segs.slice().sort((a, b) => a.cum - b.cum));
+  }
+
   // Walk each route's segments in order; a run with the same sharedWith set is
   // one group, owned by the lowest key in the set so it's emitted once.
   const groups = [];
@@ -224,6 +233,37 @@ function detectGroups(routes, proj) {
     flush();
   }
   return groups;
+}
+
+const CRUMB_MAX_SEGS = 4; // a solo run this short (~56 m), sandwiched between two
+                          // shared runs of the same set, is a detection dropout —
+                          // relabel it so it stripes with its neighbours
+
+function setSig(set) {
+  return [...set].sort().join('|');
+}
+
+function smoothSharedSets(ordered) {
+  if (ordered.length < 3) return;
+  // collapse into runs of identical shared-set signature
+  const runs = [];
+  for (const s of ordered) {
+    const sig = setSig(s.sharedWith);
+    if (runs.length && runs[runs.length - 1].sig === sig) runs[runs.length - 1].segs.push(s);
+    else runs.push({ sig, segs: [s] });
+  }
+  for (let i = 1; i < runs.length - 1; i++) {
+    const run = runs[i];
+    if (
+      run.segs.length <= CRUMB_MAX_SEGS &&
+      runs[i - 1].sig === runs[i + 1].sig &&
+      run.sig !== runs[i - 1].sig
+    ) {
+      const donor = runs[i - 1].segs[0].sharedWith;
+      for (const s of run.segs) s.sharedWith = new Set(donor);
+      run.sig = runs[i - 1].sig;
+    }
+  }
 }
 
 // --- slice a metres polyline into fixed-length arc pieces ------------------
@@ -286,33 +326,32 @@ export function stripeRoutes(routes, zoom, centerLat) {
 
   const features = [];
 
-  // Casing: one continuous halo per visible route (full raw shape).
-  for (const r of valid) {
-    features.push({
-      type: 'Feature',
-      geometry: { type: 'LineString', coordinates: r.coords },
-      properties: { kind: 'casing', key: r.key },
-    });
-  }
-
-  // Colour lines from the detected groups.
   for (const g of groups) {
     const keys = g.keys;
-    const toLL = (pts) => pts.map(proj.toLngLat);
-    if (keys.length === 1) {
-      features.push(lineFeat(toLL(g.ptsM), colorOf.get(keys[0]), keys[0]));
-      continue;
-    }
     const n = keys.length;
-    if (g.lenM < dashM * n) {
-      // too short for a full cycle — solid, owner's colour
-      features.push(lineFeat(toLL(g.ptsM), colorOf.get(keys[0]), keys[0]));
+    const path = g.ptsM.map(proj.toLngLat);
+
+    // Casing follows the GROUP geometry, not each raw route — where a shared
+    // corridor is collapsed onto the owner's alignment, the other route has no
+    // group there and so contributes no casing. (Emitting casing per raw route
+    // left a bare halo line running down the empty side of a merged divided
+    // road — invisible in day mode, an obvious dark stripe at night.)
+    features.push({
+      type: 'Feature',
+      geometry: { type: 'LineString', coordinates: path },
+      properties: { kind: 'casing', key: keys[0] },
+    });
+
+    if (n === 1 || g.lenM < dashM * n) {
+      // solo run, or too short for one full colour cycle → solid owner colour
+      features.push(lineFeat(path, colorOf.get(keys[0]), keys[0]));
       continue;
     }
+
     // one MultiLineString per colour: all the dash pieces that land on it
     const byColor = keys.map(() => []);
     sliceByArc(g.ptsM, dashM).forEach((piece, i) => {
-      byColor[i % n].push(toLL(piece));
+      byColor[i % n].push(piece.map(proj.toLngLat));
     });
     keys.forEach((k, i) => {
       if (!byColor[i].length) return;
