@@ -37,6 +37,9 @@ const MATCH_TOL_MAX_M = Math.max(MATCH_TOL_PARALLEL_M, MATCH_TOL_ANTIPARALLEL_M)
 const HEADING_TOL_RAD = (20 * Math.PI) / 180;
 const DASH_PX = 16; // one colour's run length on screen
 const MIN_DASH_PX = 0.5;
+// A deferred shared run this far (m) from its owner's actual group polyline is
+// an orphan — the owner isn't drawing there, so the route fills it solid itself.
+const GAP_FILL_TOL_M = 8;
 const TILE = 512;
 
 // --- projection (local equirectangular, metres) --------------------------------
@@ -232,6 +235,61 @@ function detectGroups(routes, proj) {
     }
     flush();
   }
+
+  // Coverage pass. A route that deferred a shared run to a lower-keyed owner
+  // ends up with NOTHING drawn there if the owner's own geometry diverges — the
+  // owner matched a different nearby segment, so its group polyline isn't
+  // actually at this route's position (a T/Y junction where one line turns
+  // wide). Find those orphaned runs — skipped segments with no owner group
+  // point within GAP_FILL_TOL_M — and emit them solid in the route's colour.
+  const ownerPts = [];
+  for (const g of groups) for (const p of g.ptsM) ownerPts.push(p);
+  const gcell = Math.max(GAP_FILL_TOL_M, SAMPLE_STEP_M);
+  const ggrid = new Map();
+  for (const p of ownerPts) {
+    const k = `${Math.floor(p[0] / gcell)},${Math.floor(p[1] / gcell)}`;
+    if (!ggrid.has(k)) ggrid.set(k, []);
+    ggrid.get(k).push(p);
+  }
+  const ownerCovers = (pt) => {
+    const gx = Math.floor(pt[0] / gcell);
+    const gy = Math.floor(pt[1] / gcell);
+    for (let dx = -1; dx <= 1; dx++) {
+      for (let dy = -1; dy <= 1; dy++) {
+        const bucket = ggrid.get(`${gx + dx},${gy + dy}`);
+        if (!bucket) continue;
+        for (const p of bucket) if (dist(p, pt) <= GAP_FILL_TOL_M) return true;
+      }
+    }
+    return false;
+  };
+  for (const [key, segs] of segsByKey) {
+    const ordered = segs.slice().sort((a, b) => a.cum - b.cum);
+    let run = null;
+    const flushRun = () => {
+      if (run && run.length >= 2) {
+        let len = 0;
+        for (let i = 1; i < run.length; i++) len += dist(run[i - 1], run[i]);
+        groups.push({ keys: [key], ptsM: run.slice(), lenM: len });
+      }
+      run = null;
+    };
+    for (const s of ordered) {
+      const set = [...s.sharedWith].sort();
+      const orphan = set[0] !== key && !ownerCovers(s.mid);
+      if (!orphan) {
+        flushRun();
+        continue;
+      }
+      if (run && dist(run[run.length - 1], s.a) <= SAMPLE_STEP_M * 1.5) run.push(s.b);
+      else {
+        flushRun();
+        run = [s.a, s.b];
+      }
+    }
+    flushRun();
+  }
+
   return groups;
 }
 
