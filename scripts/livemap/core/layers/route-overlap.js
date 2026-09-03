@@ -31,8 +31,8 @@ const SAMPLE_STEP_M = 14; // resample spacing
 // either side of a planted median, e.g. JPA at Observatory Ave), where the
 // polyline centrelines are genuinely ~15-20 m apart but riders read it as one
 // street. Same direction stays tight so parallel nearby streets don't merge.
-const MATCH_TOL_PARALLEL_M = 13;
-const MATCH_TOL_ANTIPARALLEL_M = 22;
+const MATCH_TOL_PARALLEL_M = 18;
+const MATCH_TOL_ANTIPARALLEL_M = 28;
 const MATCH_TOL_MAX_M = Math.max(MATCH_TOL_PARALLEL_M, MATCH_TOL_ANTIPARALLEL_M);
 const HEADING_TOL_RAD = (20 * Math.PI) / 180;
 const DASH_PX = 16; // one colour's run length on screen

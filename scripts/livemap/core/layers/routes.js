@@ -54,6 +54,14 @@ export function isRouteHidden(routeId) {
   return hidden.has(String(routeId));
 }
 
+/** Is this RouteID's line actually drawn right now — i.e. its row in the route
+ *  selector is checked (it has a bus or is pinned, and isn't switched off)?
+ *  Stops key their visibility off this so a stop only shows when a route the
+ *  user is actually looking at serves it. */
+export function isRouteShown(routeId) {
+  return lineShows(routeId);
+}
+
 function sameSet(a, b) {
   if (a.size !== b.size) return false;
   for (const x of a) if (!b.has(x)) return false;

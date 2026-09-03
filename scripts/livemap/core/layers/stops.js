@@ -23,7 +23,7 @@ import {
   getRouteColor,
   getRouteName,
 } from '../data/transloc.js';
-import { isRouteHidden, onRouteVisibility } from './routes.js';
+import { isRouteShown, onRouteVisibility } from './routes.js';
 import {
   STOP_SOURCE_ID as SRC,
   STOP_POINT_LAYER as POINT,
@@ -144,11 +144,13 @@ function wireInteractions() {
 
 // --- source ---------------------------------------------------------------
 
-/** Distinct route colours for this stop's *visible* routes, in route order. */
+/** Distinct route colours for this stop's *shown* routes, in route order. A
+ *  stop with no shown route is dropped from the source entirely (see
+ *  syncSource) — stops track the route selector, not just the hidden set. */
 function visibleColors(stop) {
   const out = [];
   for (const rid of stop.routeIds) {
-    if (isRouteHidden(rid)) continue;
+    if (!isRouteShown(rid)) continue;
     const c = getRouteColor(rid);
     if (!out.includes(c)) out.push(c);
   }
@@ -337,7 +339,7 @@ function popupHTML(stop) {
   // Gather ETAs per route from this physical stop's member route-stops.
   const rows = [];
   for (const m of stop.members) {
-    if (isRouteHidden(m.routeId)) continue;
+    if (!isRouteShown(m.routeId)) continue;
     const a = arrivals.get(String(m.routeStopId));
     const routeId = a?.routeId || m.routeId;
     const name = a?.routeDescription || getRouteName(routeId) || `Route ${routeId}`;
