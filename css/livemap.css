@@ -1980,3 +1980,53 @@ body {
   opacity: 0.7;
   overflow-wrap: anywhere;
 }
+
+/* --- shared nav bar (scripts/nav-bar.js) -------------------------------------
+   The site-wide nav only loads on the full /livemap (not the kiosk / embed
+   shells, and not ?kiosk/?embed/?ui=none). It's a LEFT RAIL at >=769px (width
+   -> --hg-nav-left-offset) and a BOTTOM BAR at <=768px (height ->
+   --hg-nav-bottom-offset), and it adds `body.hg-nav-active`. #map is absolute
+   vs the viewport so it just runs under the nav like Leaflet does on /map;
+   these rules only nudge livemap's own floating chrome clear of it. The two
+   media blocks match nav-bar.js's own breakpoint so they never fight the
+   620px phone-chrome rules above. */
+@media (min-width: 769px) {
+  body.hg-nav-active .livemap-panel--left {
+    left: calc(10px + var(--hg-nav-left-offset, 0px));
+  }
+  body.hg-nav-active .livemap-panel-tab--left {
+    left: calc(244px + var(--hg-nav-left-offset, 0px));
+  }
+  body.hg-nav-active .livemap-panel-tab--left.is-away {
+    left: var(--hg-nav-left-offset, 0px);
+  }
+  /* keep the centred chrome centred over the *visible* map, not the viewport */
+  body.hg-nav-active .livemap-search,
+  body.hg-nav-active .livemap-follow-chip {
+    left: calc(50% + var(--hg-nav-left-offset, 0px) / 2);
+  }
+  body.hg-nav-active .credit {
+    left: calc(8px + var(--hg-nav-left-offset, 0px));
+  }
+  body.hg-nav-active .maplibregl-ctrl-top-left,
+  body.hg-nav-active .maplibregl-ctrl-bottom-left {
+    margin-left: var(--hg-nav-left-offset, 0px);
+  }
+}
+
+@media (max-width: 768px) {
+  body.hg-nav-active .livemap-panel--left,
+  body.hg-nav-active .livemap-right-column {
+    max-height: calc(100% - 20px - var(--hg-nav-bottom-offset, 0px));
+  }
+  body.hg-nav-active .livemap-follow-chip {
+    bottom: calc(22px + var(--hg-nav-bottom-offset, 0px));
+  }
+  body.hg-nav-active .credit {
+    bottom: calc(6px + var(--hg-nav-bottom-offset, 0px));
+  }
+  body.hg-nav-active .maplibregl-ctrl-bottom-left,
+  body.hg-nav-active .maplibregl-ctrl-bottom-right {
+    margin-bottom: var(--hg-nav-bottom-offset, 0px);
+  }
+}

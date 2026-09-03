@@ -17,6 +17,22 @@
     return;
   }
 
+  // Live Map hides its own chrome for kiosk / embed / ?ui=none loads — mirror
+  // that here. (The /livemap/kiosk and /livemap/embed shells don't load this
+  // script at all; this only covers the params on the full /livemap page.)
+  if (path === '/livemap') {
+    const paramOn = (name) => {
+      if (!params.has(name)) return false;
+      const v = (params.get(name) || '').toLowerCase();
+      return v !== 'false' && v !== '0';
+    };
+    const ui = (params.get('ui') || '').toLowerCase();
+    if (ui === 'none') return;
+    if (ui !== 'full' && (paramOn('kiosk') || paramOn('adminKiosk') || paramOn('embed'))) {
+      return;
+    }
+  }
+
   const NAV_THEME_DEFAULT = {
     primary: '#232D4B',
     accent: '#E57200',

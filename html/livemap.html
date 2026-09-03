@@ -21,6 +21,10 @@
     <!-- MapLibre GL + the PMTiles protocol shim; both attach a global. -->
     <script src="/livemap-vendor/maplibre-gl.js"></script>
     <script src="/livemap-vendor/pmtiles.js"></script>
+
+    <!-- Site-wide nav bar (self-hides for ?kiosk / ?embed / ?ui=none; the
+         /livemap/kiosk and /livemap/embed shells don't load it at all). -->
+    <script defer src="/nav-bar.js"></script>
   </head>
   <body>
     <div id="map"></div>
