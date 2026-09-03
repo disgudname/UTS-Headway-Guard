@@ -21,22 +21,30 @@
   --warn: #e5a100;
   --bad: #e5533b;
 
-  /* Light (day) chrome */
+  /* Light (day) chrome — the panel design language matches /map (testmap):
+     gradient surface, one big soft shadow, 18px radius, 12px blur, filled
+     button chips. Values reproduced, not the (Codex-written) CSS. */
   --panel-bg: rgba(255, 255, 255, 0.94);
-  --panel-surface: linear-gradient(180deg, rgba(255, 255, 255, 0.97), rgba(244, 247, 253, 0.95));
-  --panel-fg: #1c2333;
-  --panel-heading: #10192e;
-  --panel-muted: rgba(28, 35, 51, 0.62);
-  --panel-border: rgba(35, 45, 75, 0.14);
+  --panel-surface: linear-gradient(180deg, rgba(255, 255, 255, 0.96), rgba(245, 248, 255, 0.96));
+  --panel-fg: #1f2937;
+  --panel-heading: var(--uva-navy);
+  --panel-muted: #4b5563;
+  --panel-border: rgba(35, 45, 75, 0.12);
   --panel-hairline: rgba(35, 45, 75, 0.08);
-  --panel-shadow: 0 2px 6px rgba(20, 26, 40, 0.08), 0 18px 44px -14px rgba(20, 26, 40, 0.32);
+  --panel-shadow: 0 20px 45px rgba(15, 23, 42, 0.25);
   --hover-bg: rgba(35, 45, 75, 0.07);
   --toggle-active-bg: var(--uva-navy);
   --toggle-active-fg: #ffffff;
   --overlay-bg: rgba(243, 239, 230, 0.82);
   --overlay-fg: #1c2333;
-  --scrollbar-thumb: rgba(35, 45, 75, 0.24);
-  --scrollbar-thumb-hover: rgba(35, 45, 75, 0.4);
+  --scrollbar-thumb: rgba(35, 45, 75, 0.35);
+  --scrollbar-thumb-hover: rgba(35, 45, 75, 0.5);
+
+  /* Button chips (testmap's --btn-* family) */
+  --btn-bg: rgba(35, 45, 75, 0.1);
+  --btn-fg: #1b2540;
+  --btn-border: rgba(35, 45, 75, 0.18);
+  --btn-hover-bg: rgba(35, 45, 75, 0.18);
 
   /* Shared motion — one decelerating curve for panels, carets, hovers. */
   --ease: cubic-bezier(0.22, 0.61, 0.36, 1);
@@ -44,8 +52,8 @@
   --dur-fast: 0.12s;
 
   --radius: 12px; /* inner cards / rows */
-  --radius-lg: 14px; /* whole panels */
-  --radius-sm: 7px; /* small buttons, swatches, pills */
+  --radius-lg: 18px; /* whole panels — matches testmap */
+  --radius-sm: 8px; /* small buttons, swatches, pills */
   --radius-pill: 999px;
 
   /* Type scale — 6 steps. micro: sub-labels & "no buses"; xs: uppercase
@@ -59,7 +67,9 @@
   --fs-xl: 16px;
 
   --focus-ring: 0 0 0 3px var(--accent-soft);
-  --panel-blur: blur(10px);
+  --panel-blur: blur(12px);
+
+  --radius-card: 16px; /* inner blocks (alerts, cards) — testmap's 16-18 */
 
   /* Panel identity header (navy bar) */
   --head-bg: linear-gradient(135deg, var(--uva-navy), var(--uva-navy-dark));
@@ -69,20 +79,25 @@
 
 :root[data-theme='dark'] {
   --panel-bg: rgba(26, 34, 51, 0.92);
-  --panel-surface: linear-gradient(180deg, rgba(30, 41, 59, 0.95), rgba(15, 23, 42, 0.95));
-  --panel-fg: #dfe6f1;
-  --panel-heading: #f2f6fc;
-  --panel-muted: rgba(223, 230, 241, 0.6);
+  --panel-surface: linear-gradient(180deg, rgba(30, 41, 59, 0.96), rgba(15, 23, 42, 0.96));
+  --panel-fg: #e2e8f0;
+  --panel-heading: #f1f5f9;
+  --panel-muted: #94a3b8;
   --panel-border: rgba(150, 170, 210, 0.2);
   --panel-hairline: rgba(150, 170, 210, 0.12);
-  --panel-shadow: 0 2px 6px rgba(0, 0, 0, 0.32), 0 20px 46px -14px rgba(0, 0, 0, 0.62);
+  --panel-shadow: 0 20px 45px rgba(0, 0, 0, 0.4);
   --hover-bg: rgba(150, 170, 210, 0.12);
   --toggle-active-bg: var(--uva-orange);
   --toggle-active-fg: #1a2233;
   --overlay-bg: rgba(20, 26, 40, 0.82);
   --overlay-fg: #dfe6f1;
-  --scrollbar-thumb: rgba(150, 170, 210, 0.26);
-  --scrollbar-thumb-hover: rgba(150, 170, 210, 0.44);
+  --scrollbar-thumb: rgba(148, 163, 184, 0.3);
+  --scrollbar-thumb-hover: rgba(148, 163, 184, 0.46);
+
+  --btn-bg: rgba(148, 163, 184, 0.15);
+  --btn-fg: #e2e8f0;
+  --btn-border: rgba(148, 163, 184, 0.2);
+  --btn-hover-bg: rgba(148, 163, 184, 0.25);
 
   /* Lighter, bluer navy so the header separates from the dark slate panel body */
   --head-bg: linear-gradient(135deg, #35466f, #283755);
@@ -158,10 +173,12 @@ body {
 /* --- MapLibre control skin ---------------------------------------------- */
 
 .maplibregl-ctrl-group {
-  background: var(--panel-bg);
+  background: var(--panel-surface);
   border: 1px solid var(--panel-border);
   box-shadow: var(--panel-shadow);
-  backdrop-filter: blur(6px);
+  backdrop-filter: var(--panel-blur);
+  border-radius: var(--radius-sm);
+  overflow: hidden;
 }
 
 .maplibregl-ctrl-group button + button {
@@ -644,7 +661,7 @@ body {
    Used on the left panel's brand bar and the right column's Status panel. */
 .lp-head--brand,
 .lp-head--plain {
-  padding: 12px 14px;
+  padding: 14px 16px 15px;
   background: var(--head-bg);
   color: #fff;
   box-shadow: inset 0 1px 0 var(--head-sheen), 0 1px 0 var(--head-hairline);
@@ -661,7 +678,7 @@ body {
 
 /* White UVATransit wordmark, sits directly on the navy brand header. */
 .lp-wordmark {
-  height: 19px;
+  height: 21px;
   width: auto;
   display: block;
   flex: 0 0 auto;
@@ -801,10 +818,10 @@ body {
 }
 
 .lp-section-body {
-  padding: 4px 12px 12px;
+  padding: 6px 14px 13px;
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  gap: 5px;
 }
 
 .livemap-panel--routes .lp-section {
@@ -828,18 +845,18 @@ body {
 .lp-pills button {
   appearance: none;
   flex: 1 1 0;
-  border: 1px solid var(--panel-border);
+  border: 1px solid var(--btn-border);
   border-radius: var(--radius-sm);
-  background: transparent;
-  color: inherit;
+  background: var(--btn-bg);
+  color: var(--btn-fg);
   font: 600 var(--fs-xs)/1 inherit;
   padding: 6px 4px;
   cursor: pointer;
-  transition: background-color 0.14s ease, color 0.14s ease;
+  transition: background-color var(--dur-fast) var(--ease), color var(--dur-fast) var(--ease);
 }
 
 .lp-pills button:hover {
-  background: var(--hover-bg);
+  background: var(--btn-hover-bg);
 }
 
 .lp-pills button.is-active {
@@ -850,19 +867,19 @@ body {
 
 .lp-btn {
   appearance: none;
-  border: 1px solid var(--panel-border);
+  border: 1px solid var(--btn-border);
   border-radius: var(--radius-sm);
-  background: transparent;
-  color: inherit;
+  background: var(--btn-bg);
+  color: var(--btn-fg);
   font: 600 var(--fs-sm)/1 inherit;
   padding: 7px 8px;
   margin-top: 3px;
   cursor: pointer;
-  transition: background-color 0.14s ease;
+  transition: background-color var(--dur-fast) var(--ease);
 }
 
 .lp-btn:hover {
-  background: var(--hover-bg);
+  background: var(--btn-hover-bg);
 }
 
 .lp-btn:disabled {
