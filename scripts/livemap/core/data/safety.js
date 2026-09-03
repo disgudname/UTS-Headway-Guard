@@ -25,10 +25,10 @@ import { isDispatcher, onDispatcher } from './session.js';
 const PULSEPOINT_URL = `${API_BASE}/v1/testmap/pulsepoint`;
 const TRAFFIC_INC_URL = `${API_BASE}/api/traffic/incidents`;
 const POLL_MS = 60_000;
-// "Near a route" for the auto-show (matches testmap's
-// INCIDENT_ROUTE_PROXIMITY_THRESHOLD_METERS) — it's a transit map, not a
-// scanner feed.
-const NEAR_ROUTE_M = 180;
+// "Near a route" for the auto-show + the popup's "Routes Nearby" pills — matches
+// testmap's INCIDENT_ROUTE_PROXIMITY_THRESHOLD_METERS (150 m). It's a transit
+// map, not a scanner feed.
+const NEAR_ROUTE_M = 150;
 
 const KEYS = ['pulsepoint', 'trafficInc', 'trafficFlow'];
 const lsKey = (k) => `livemap.safety.${k}`;
@@ -149,14 +149,18 @@ export const isSafetyOn = (key) => !!enabled[key];
 /**
  * PulsePoint incidents to render right now. Dispatcher-only.
  *   - toggle ON  -> every active incident, anywhere (the override)
- *   - toggle OFF -> only those near a route, or (FlexRide on) in the FlexRide
- *                   service area — the automatic transit-relevant set.
+ *   - toggle OFF -> only incidents that have a unit On Scene / En Route AND are
+ *                   near a route (150 m) or in the FlexRide service area — the
+ *                   automatic transit-relevant set. Matches testmap's
+ *                   incidentHasOnSceneOrEnRouteUnits + 150 m proximity gate.
  * `pulsePoint` is PulsePoint's `active` list (recent/cleared excluded).
  */
 export const getPulsePoint = () => {
   if (!isDispatcher()) return [];
   if (enabled.pulsepoint) return pulsePoint;
-  return pulsePoint.filter((x) => x.nearRoute || inFlexZone(x.lat, x.lng));
+  return pulsePoint.filter(
+    (x) => x.hasActiveUnit && (x.nearRoute || inFlexZone(x.lat, x.lng)),
+  );
 };
 // Traffic incidents + congestion are dispatcher-only, same as PulsePoint.
 export const getTrafficInc = () => (isDispatcher() && enabled.trafficInc ? trafficInc : []);
@@ -367,6 +371,10 @@ async function pollPulsePoint() {
       // unit at scene, and persists it. Same data testmap's popup uses.
       const fosRaw = Number(inc._firstOnSceneTimestamp);
       const firstOnScene = Number.isFinite(fosRaw) && fosRaw > 0 ? fosRaw : null;
+      // A unit is actually engaged: On Scene, Available-on-scene, or En Route.
+      const hasActiveUnit = units.some(
+        (u) => !u.cleared && (u.statusKey === 'OS' || u.statusKey === 'AE' || u.statusKey === 'ER'),
+      );
       out.push({
         id: String(inc.ID || `${lat},${lng}`),
         lat,
@@ -375,6 +383,7 @@ async function pollPulsePoint() {
         routes: routesNear(lat, lng),
         kind: ppKind(type),
         iconType: ppIconType(inc),
+        hasActiveUnit,
         type,
         label: ppTypeLabel(inc),
         status: statusText,
