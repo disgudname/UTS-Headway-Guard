@@ -690,50 +690,9 @@ body {
     padding-top: 13px;
     padding-bottom: 13px;
   }
-
-  /* Edge tabs: bigger, lower (thumb zone), and — when a panel is open —
-     the tab flips to a CLOSE tab pinned to the far screen edge while the
-     other panel's tab is hidden (you can't open it over the open one). */
-  .livemap-panel-tab {
-    top: auto;
-    bottom: 96px;
-    width: 30px;
-    height: 68px;
-    z-index: 451; /* the close tab sits over the open panel's edge */
-    background: var(--panel-surface);
-    backdrop-filter: var(--panel-blur);
-  }
-
-  .livemap-panel--left:not(.is-away) ~ .livemap-panel-tab--left {
-    left: auto;
-    right: 0;
-    border-radius: 8px 0 0 8px;
-    border: 1px solid var(--panel-border);
-    border-right: 0;
-  }
-  .livemap-panel--left:not(.is-away) ~ .livemap-panel-tab--left .lpt-arrow {
-    border-right: 0;
-    border-left: 6px solid currentColor;
-  }
-  .livemap-panel--left:not(.is-away) ~ .livemap-panel-tab--right {
-    display: none;
-  }
-
-  .livemap-right-column:not(.is-away) ~ .livemap-panel-tab--right {
-    right: auto;
-    left: 0;
-    border-radius: 0 8px 8px 0;
-    border: 1px solid var(--panel-border);
-    border-left: 0;
-  }
-  .livemap-right-column:not(.is-away) ~ .livemap-panel-tab--right .lpt-arrow {
-    border-left: 0;
-    border-right: 6px solid currentColor;
-  }
-  .livemap-right-column:not(.is-away) ~ .livemap-panel-tab--left {
-    display: none;
-  }
 }
+/* (edge-tab phone rules live in a 2nd @media below, AFTER the base .livemap-panel-tab
+   rules — same specificity, so source order decides.) */
 
 /* Right-column vertical budget: Status + Service alerts take their natural
    height and never shrink; the route lists absorb whatever's left and scroll
@@ -1456,6 +1415,67 @@ body {
 .livemap-panel-tab--right.is-away .lpt-arrow {
   border-left: 0;
   border-right: 6px solid currentColor;
+}
+
+/* Phone edge tabs — MUST come after the base .livemap-panel-tab rules above
+   (same specificity → later wins). Big, dropped into the thumb zone, and while
+   a panel is open its tab becomes a plain ✕ close button riding that panel's
+   inner edge; the other panel's tab is hidden. */
+@media (max-width: 620px) {
+  .livemap-panel-tab {
+    top: auto;
+    bottom: 28vh;
+    width: 34px;
+    height: 88px;
+    z-index: 456; /* over the open panel (450) and the search (455) */
+    background: var(--panel-surface);
+    backdrop-filter: var(--panel-blur);
+  }
+
+  /* open state: ✕ instead of a triangle, sitting just past the panel edge */
+  :root {
+    --mobile-panel-w: min(340px, calc(100vw - 64px));
+  }
+  .livemap-panel--left:not(.is-away),
+  .livemap-right-column:not(.is-away) {
+    width: var(--mobile-panel-w);
+  }
+
+  .livemap-panel--left:not(.is-away) ~ .livemap-panel-tab--left {
+    left: calc(10px + var(--mobile-panel-w));
+    right: auto;
+    border-radius: 0 8px 8px 0;
+    border: 1px solid var(--panel-border);
+    border-left: 0;
+  }
+  .livemap-right-column:not(.is-away) ~ .livemap-panel-tab--right {
+    right: calc(10px + var(--mobile-panel-w));
+    left: auto;
+    border-radius: 8px 0 0 8px;
+    border: 1px solid var(--panel-border);
+    border-right: 0;
+  }
+
+  .livemap-panel--left:not(.is-away) ~ .livemap-panel-tab--left .lpt-arrow,
+  .livemap-right-column:not(.is-away) ~ .livemap-panel-tab--right .lpt-arrow {
+    width: auto;
+    height: auto;
+    border: 0;
+    opacity: 0.75;
+  }
+  .livemap-panel--left:not(.is-away) ~ .livemap-panel-tab--left .lpt-arrow::before,
+  .livemap-right-column:not(.is-away) ~ .livemap-panel-tab--right .lpt-arrow::before {
+    content: '\00d7'; /* × */
+    font-size: 22px;
+    font-weight: 700;
+    line-height: 1;
+  }
+
+  /* one open ⇒ the other's tab is out of reach anyway */
+  .livemap-panel--left:not(.is-away) ~ .livemap-panel-tab--right,
+  .livemap-right-column:not(.is-away) ~ .livemap-panel-tab--left {
+    display: none;
+  }
 }
 
 /* --- building search --------------------------------------------------------- */
