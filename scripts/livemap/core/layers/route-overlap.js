@@ -33,7 +33,7 @@ const SAMPLE_STEP_M = 14; // resample spacing
 // either side of a planted median, e.g. JPA at Observatory Ave), where the
 // polyline centrelines are genuinely ~15-20 m apart but riders read it as one
 // street. Same direction stays tight so parallel nearby streets don't merge.
-const MATCH_TOL_PARALLEL_M = 18;
+const MATCH_TOL_PARALLEL_M = 13;
 const MATCH_TOL_ANTIPARALLEL_M = 28;
 const MATCH_TOL_MAX_M = Math.max(MATCH_TOL_PARALLEL_M, MATCH_TOL_ANTIPARALLEL_M);
 const HEADING_TOL_RAD = (20 * Math.PI) / 180;
@@ -352,11 +352,16 @@ export function stripeRoutes(routes, zoom, centerLat) {
     // Shared: keep this route's phase slot of the dash cycle. Rank = position in
     // the sorted shared-key set. Piece k is "on" for the route whose rank ==
     // k mod n, so N routes' runs interleave into an even A-B-C-A-B-C stripe.
+    // Every member also draws the first and last piece of its own run, so the
+    // membership-transition zones at run ends can't end up bare (the routes'
+    // arc parameterisations don't line up perfectly there) — a little colour
+    // doubling at a boundary beats a white gap.
     const rank = sharedKeys.indexOf(thisKey);
     const pieces = sliceByArc(ptsM, dashM);
+    const last = pieces.length - 1;
     const mine = [];
     for (let k = 0; k < pieces.length; k++) {
-      if (k % n === rank) mine.push(pieces[k].map(proj.toLngLat));
+      if (k % n === rank || k === 0 || k === last) mine.push(pieces[k].map(proj.toLngLat));
     }
     if (mine.length) {
       features.push({
