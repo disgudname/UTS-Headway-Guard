@@ -9,6 +9,7 @@
 import { API_BASE } from '../config.js';
 import { getMap, onStyleReady } from '../map.js';
 import { registerMarkerLayer } from '../marker-menu.js';
+import { isDispatcher, onDispatcher } from '../data/session.js';
 import {
   startSafetyFeed,
   isSafetyOn,
@@ -58,6 +59,7 @@ export function installSafetyLayer() {
   onSafety('pulsepoint', () => applyVis());
   onSafety('trafficInc', () => applyVis());
   onSafety('trafficFlow', () => applyVis());
+  onDispatcher(() => applyVis());
   startSafetyFeed();
 
   const p = getPulsePoint();
@@ -148,12 +150,15 @@ function applyVis() {
   // PulsePoint shows whenever there's anything to show — the near-route /
   // FlexRide-zone set auto-shows; the toggle only widens it to "everything".
   const ppOn = isSafetyOn('pulsepoint') || pulse.length > 0;
-  set(TRAFFIC_FLOW_LAYER, isSafetyOn('trafficFlow'));
-  set(TRAFFIC_INC_CASING_LAYER, isSafetyOn('trafficInc'));
-  set(TRAFFIC_INC_LINE_LAYER, isSafetyOn('trafficInc'));
+  // Traffic flow + incidents are dispatcher-only, regardless of a toggle state
+  // left behind in localStorage from an earlier authed session.
+  const disp = isDispatcher();
+  set(TRAFFIC_FLOW_LAYER, disp && isSafetyOn('trafficFlow'));
+  set(TRAFFIC_INC_CASING_LAYER, disp && isSafetyOn('trafficInc'));
+  set(TRAFFIC_INC_LINE_LAYER, disp && isSafetyOn('trafficInc'));
   set(PULSEPOINT_DOT_LAYER, ppOn);
   if (!ppOn && popupKey && popupKey.startsWith('pp:')) closePopup();
-  if (!isSafetyOn('trafficInc') && popupKey && popupKey.startsWith('ti:')) closePopup();
+  if ((!disp || !isSafetyOn('trafficInc')) && popupKey && popupKey.startsWith('ti:')) closePopup();
 }
 
 // --- sources ------------------------------------------------------------

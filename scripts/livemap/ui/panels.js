@@ -272,11 +272,11 @@ function buildLeft() {
       box.checked = on;
     });
   }
-  // PulsePoint is dispatcher-only (transit-relevant incidents already auto-show;
-  // the checkbox just widens it to "every incident"). Hide the row for the public.
-  const ppRow = safety.body.querySelector('[data-t="pulsepoint"]').closest('.lp-check');
+  // The whole Traffic & Incidents section is dispatcher-only — PulsePoint,
+  // traffic incidents and congestion are all ops tools, not public info. (The
+  // data layer independently refuses to render them for a non-dispatcher.)
   onDispatcher((isDisp) => {
-    if (ppRow) ppRow.hidden = !isDisp;
+    safety.wrap.hidden = !isDisp;
   });
   mapView.body.querySelector('[data-act="center"]').addEventListener('click', () => {
     getMap()?.flyTo({ center: DEFAULT_VIEW.center, zoom: DEFAULT_VIEW.zoom, duration: 800 });

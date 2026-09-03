@@ -1462,13 +1462,14 @@ body {
 }
 
 /* Phone edge tabs — MUST come after the base .livemap-panel-tab rules above
-   (same specificity → later wins). Big, dropped into the thumb zone, and while
-   a panel is open its tab becomes a plain ✕ close button riding that panel's
-   inner edge; the other panel's tab is hidden. */
+   (same specificity → later wins). Big, vertically centred, and while a panel
+   is open its tab becomes a plain ✕ close button riding that panel's inner
+   edge; the other panel's tab is hidden. */
 @media (max-width: 620px) {
   .livemap-panel-tab {
-    top: auto;
-    bottom: 28vh;
+    top: 50%;
+    bottom: auto;
+    transform: translateY(-50%);
     width: 34px;
     height: 88px;
     z-index: 456; /* over the open panel (450) and the search (455) */

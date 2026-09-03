@@ -133,7 +133,8 @@ export const getPulsePoint = () => {
   if (enabled.pulsepoint) return pulsePoint;
   return pulsePoint.filter((x) => x.nearRoute || inFlexZone(x.lat, x.lng));
 };
-export const getTrafficInc = () => (enabled.trafficInc ? trafficInc : []);
+// Traffic incidents + congestion are dispatcher-only, same as PulsePoint.
+export const getTrafficInc = () => (isDispatcher() && enabled.trafficInc ? trafficInc : []);
 
 export function setSafety(key, on) {
   on = !!on;
@@ -163,8 +164,10 @@ export function startSafetyFeed() {
   // or stops polling and showing.
   onDispatcher(() => {
     bus.emit('pulsepoint', getPulsePoint());
+    bus.emit('trafficInc', getTrafficInc());
     maybeStopTimer();
     if (wantPulsePoll()) pollPulsePoint();
+    if (wantTrafficPoll()) pollTrafficInc();
   });
   maybeStopTimer();
 }
@@ -175,8 +178,12 @@ function wantPulsePoll() {
   return isDispatcher();
 }
 
+function wantTrafficPoll() {
+  return isDispatcher() && enabled.trafficInc;
+}
+
 function maybeStopTimer() {
-  const wantPoll = wantPulsePoll() || enabled.trafficInc;
+  const wantPoll = wantPulsePoll() || wantTrafficPoll();
   if (wantPoll && !timer) {
     poll();
     timer = setInterval(poll, POLL_MS);
@@ -327,5 +334,5 @@ async function pollTrafficInc() {
 
 function poll() {
   if (wantPulsePoll()) pollPulsePoint();
-  if (enabled.trafficInc) pollTrafficInc();
+  if (wantTrafficPoll()) pollTrafficInc();
 }
