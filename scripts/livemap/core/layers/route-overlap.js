@@ -4,17 +4,19 @@
 // (US7920967B1): where two routes follow the same path, draw that stretch as a
 // repeating cycle of every sharing route's colour instead of one colour winning.
 //
-// Ported from testmap.js's `OverlapRouteRenderer` (proven on the same TransLoc
-// `EncodedPolyline` data), with two deliberate changes for livemap:
+// Model (after several failed "owner borrows geometry" variants that always left
+// a gap where routes split apart): EVERY route draws its OWN complete path.
+// Detection tags each ~14 m segment with the set of routes sharing it; a route's
+// path is then split into runs by that set. A run shared by N routes renders as
+// this route's phase-slot of a dash cycle (piece k is "on" for rank == k mod N),
+// so on a coincident corridor N routes' runs interleave into an A-B-C stripe and
+// where they diverge each simply traces its own path. Gap-free by construction.
 //
-//   1. Detection runs in a LOCAL METRES projection, zoom-independent, and is
-//      memoised on the route set. testmap re-detected in pixel space on every
-//      `zoomend`; keeping detection zoom-stable removes a flicker class and the
-//      per-zoom cost. Only the dash slicing (a screen-space thing) is redone
-//      per zoom.
-//   2. Render is GEOMETRY-LEVEL slicing, not Leaflet `dashArray` + `dashOffset`
-//      (MapLibre's `line-dasharray` is per-layer with no phase offset, so it
-//      can't stagger one route's dashes into another's gaps).
+// Two deliberate differences from testmap.js's `OverlapRouteRenderer`:
+//   1. Detection runs in a LOCAL METRES projection, zoom-independent, memoised
+//      on the route set. Only the dash slicing (screen-space) reruns per zoom.
+//   2. Render is GEOMETRY-LEVEL slicing, not Leaflet `dashArray`/`dashOffset`
+//      (MapLibre's `line-dasharray` is per-layer with no phase offset).
 //
 // `stripeRoutes(routes, zoom, centerLat)` -> { features }  for the
 // `livemap-routes` GeoJSON source. `features` carry `kind: 'casing' | 'line'`
@@ -37,9 +39,6 @@ const MATCH_TOL_MAX_M = Math.max(MATCH_TOL_PARALLEL_M, MATCH_TOL_ANTIPARALLEL_M)
 const HEADING_TOL_RAD = (20 * Math.PI) / 180;
 const DASH_PX = 16; // one colour's run length on screen
 const MIN_DASH_PX = 0.5;
-// A deferred shared run this far (m) from its owner's actual group polyline is
-// an orphan — the owner isn't drawing there, so the route fills it solid itself.
-const GAP_FILL_TOL_M = 8;
 const TILE = 512;
 
 // --- projection (local equirectangular, metres) --------------------------------
@@ -204,9 +203,13 @@ function detectGroups(routes, proj) {
     smoothSharedSets(segs.slice().sort((a, b) => a.cum - b.cum));
   }
 
-  // Walk each route's segments in order; a run with the same sharedWith set is
-  // one group, owned by the lowest key in the set so it's emitted once.
-  const groups = [];
+  // EVERY route emits its OWN complete path, split into runs by shared-set. No
+  // "owner" borrows geometry from another — that model always left a gap where
+  // routes split apart (one line's segments deferred to an owner whose polyline
+  // had turned away). A run shared by N routes is rendered as this route's Nth
+  // phase-slot of the dash cycle, so N routes' runs interleave into a stripe on
+  // a coincident corridor and each traces its own path where they diverge.
+  const runs = [];
   for (const [key, segs] of segsByKey) {
     const ordered = segs.slice().sort((a, b) => a.cum - b.cum);
     let cur = null;
@@ -214,16 +217,12 @@ function detectGroups(routes, proj) {
       if (cur && cur.pts.length >= 2) {
         let len = 0;
         for (let i = 1; i < cur.pts.length; i++) len += dist(cur.pts[i - 1], cur.pts[i]);
-        groups.push({ keys: cur.keys, ptsM: cur.pts, lenM: len });
+        runs.push({ thisKey: key, sharedKeys: cur.keys, ptsM: cur.pts, lenM: len });
       }
       cur = null;
     };
     for (const s of ordered) {
       const set = [...s.sharedWith].sort();
-      if (set[0] !== key) {
-        flush(); // this stretch belongs to a lower-keyed owner; break our run
-        continue;
-      }
       const sameSet = cur && cur.keys.length === set.length && cur.keys.every((k, i) => k === set[i]);
       const contiguous = cur && dist(cur.pts[cur.pts.length - 1], s.a) <= SAMPLE_STEP_M * 1.5;
       if (!sameSet || !contiguous) {
@@ -236,68 +235,7 @@ function detectGroups(routes, proj) {
     flush();
   }
 
-  // Coverage pass. A route that deferred a shared run to a lower-keyed owner
-  // ends up with NOTHING of ITS OWN COLOUR drawn there if the owner's geometry
-  // diverges — the owner matched a different nearby segment, so its group is
-  // elsewhere (a T/Y junction where one line turns wide). A nearby *green* solo
-  // line does not count as covering *orange*, so the index is per-key: a group
-  // contributes its points to each of its member keys only. Any deferred
-  // segment with no same-colour group point within GAP_FILL_TOL_M is an orphan
-  // and gets emitted solid in the route's own colour.
-  const gcell = Math.max(GAP_FILL_TOL_M, SAMPLE_STEP_M);
-  const ptsByKey = new Map(); // key -> Map<"gx,gy", [x,y][]>
-  const addPt = (k, p) => {
-    let grid = ptsByKey.get(k);
-    if (!grid) ptsByKey.set(k, (grid = new Map()));
-    const cell = `${Math.floor(p[0] / gcell)},${Math.floor(p[1] / gcell)}`;
-    if (!grid.has(cell)) grid.set(cell, []);
-    grid.get(cell).push(p);
-  };
-  for (const g of groups) for (const k of g.keys) for (const p of g.ptsM) addPt(k, p);
-
-  const coveredFor = (key, pt) => {
-    const grid = ptsByKey.get(key);
-    if (!grid) return false;
-    const gx = Math.floor(pt[0] / gcell);
-    const gy = Math.floor(pt[1] / gcell);
-    for (let dx = -1; dx <= 1; dx++) {
-      for (let dy = -1; dy <= 1; dy++) {
-        const bucket = grid.get(`${gx + dx},${gy + dy}`);
-        if (!bucket) continue;
-        for (const p of bucket) if (dist(p, pt) <= GAP_FILL_TOL_M) return true;
-      }
-    }
-    return false;
-  };
-
-  for (const [key, segs] of segsByKey) {
-    const ordered = segs.slice().sort((a, b) => a.cum - b.cum);
-    let run = null;
-    const flushRun = () => {
-      if (run && run.length >= 2) {
-        let len = 0;
-        for (let i = 1; i < run.length; i++) len += dist(run[i - 1], run[i]);
-        groups.push({ keys: [key], ptsM: run.slice(), lenM: len });
-      }
-      run = null;
-    };
-    for (const s of ordered) {
-      const set = [...s.sharedWith].sort();
-      const orphan = set[0] !== key && !coveredFor(key, s.mid);
-      if (!orphan) {
-        flushRun();
-        continue;
-      }
-      if (run && dist(run[run.length - 1], s.a) <= SAMPLE_STEP_M * 1.5) run.push(s.b);
-      else {
-        flushRun();
-        run = [s.a, s.b];
-      }
-    }
-    flushRun();
-  }
-
-  return groups;
+  return runs;
 }
 
 const CRUMB_MAX_SEGS = 4; // a solo run this short (~56 m), sandwiched between two
@@ -361,7 +299,7 @@ function sliceByArc(ptsM, pieceLen) {
 
 // --- public ---------------------------------------------------------------
 
-let _cache = null; // { sig, proj, groups }
+let _cache = null; // { sig, proj, runs }
 
 function routesSig(routes) {
   return routes.map((r) => `${r.key}:${r.coords.length}:${r.coords[0]?.join(',')}`).join('|');
@@ -383,49 +321,53 @@ export function stripeRoutes(routes, zoom, centerLat) {
   const sig = routesSig(valid);
   if (!_cache || _cache.sig !== sig) {
     const proj = makeProjection(valid);
-    _cache = { sig, proj, groups: detectGroups(valid, proj) };
+    _cache = { sig, proj, runs: detectGroups(valid, proj) };
   }
-  const { proj, groups } = _cache;
+  const { proj, runs } = _cache;
 
   const dashM = Math.max(MIN_DASH_PX, DASH_PX) * metresPerPx(zoom, centerLat);
 
   const features = [];
 
-  for (const g of groups) {
-    const keys = g.keys;
-    const n = keys.length;
-    const path = g.ptsM.map(proj.toLngLat);
+  for (const run of runs) {
+    const { thisKey, sharedKeys, ptsM } = run;
+    const n = sharedKeys.length;
+    const path = ptsM.map(proj.toLngLat);
+    const color = colorOf.get(thisKey);
 
-    // Casing follows the GROUP geometry, not each raw route — where a shared
-    // corridor is collapsed onto the owner's alignment, the other route has no
-    // group there and so contributes no casing. (Emitting casing per raw route
-    // left a bare halo line running down the empty side of a merged divided
-    // road — invisible in day mode, an obvious dark stripe at night.)
+    // Casing along THIS route's own path for every run — so the white halo is
+    // continuous under every route everywhere, including where it diverges.
     features.push({
       type: 'Feature',
       geometry: { type: 'LineString', coordinates: path },
-      properties: { kind: 'casing', key: keys[0] },
+      properties: { kind: 'casing', key: thisKey },
     });
 
-    if (n === 1 || g.lenM < dashM * n) {
-      // solo run, or too short for one full colour cycle → solid owner colour
-      features.push(lineFeat(path, colorOf.get(keys[0]), keys[0]));
+    if (n === 1 || run.lenM < dashM * 1.5) {
+      // alone here (or too short to cycle) → solid, this route's colour
+      features.push(lineFeat(path, color, thisKey));
       continue;
     }
 
-    // one MultiLineString per colour: all the dash pieces that land on it
-    const byColor = keys.map(() => []);
-    sliceByArc(g.ptsM, dashM).forEach((piece, i) => {
-      byColor[i % n].push(piece.map(proj.toLngLat));
-    });
-    keys.forEach((k, i) => {
-      if (!byColor[i].length) return;
+    // Shared: keep this route's phase slot of the dash cycle. Rank = position in
+    // the sorted shared-key set. Piece k is "on" for the route whose rank ==
+    // k mod n, so N routes' runs interleave into an even A-B-C-A-B-C stripe.
+    const rank = sharedKeys.indexOf(thisKey);
+    const pieces = sliceByArc(ptsM, dashM);
+    const mine = [];
+    for (let k = 0; k < pieces.length; k++) {
+      if (k % n === rank) mine.push(pieces[k].map(proj.toLngLat));
+    }
+    if (mine.length) {
       features.push({
         type: 'Feature',
-        geometry: { type: 'MultiLineString', coordinates: byColor[i] },
-        properties: { kind: 'line', color: colorOf.get(k), key: k },
+        geometry: { type: 'MultiLineString', coordinates: mine },
+        properties: { kind: 'line', color, key: thisKey },
       });
-    });
+    } else {
+      // never got a slot (very short run) → a thin solid so it isn't a gap
+      features.push(lineFeat(path, color, thisKey));
+    }
   }
 
   return { features };
