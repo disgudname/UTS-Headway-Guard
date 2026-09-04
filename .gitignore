@@ -10,3 +10,8 @@ claude's toybox/
 # Local dev DATA_DIR for the Node maintenance-ticketing service
 # (see CLAUDE.md: `DATA_DIR=./data-local PORT=8080 node src/server.js`)
 data-local-test*/
+
+# Ad-hoc local scratch files -- never meant to be committed/deployed
+NOVANEX_TIME_LOG_2026-07-08.md
+scratch_check3.py
+uts_bus_stops.txt
