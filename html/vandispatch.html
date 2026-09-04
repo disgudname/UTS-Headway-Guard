@@ -392,13 +392,46 @@
     }
 
     @media (max-width: 900px) {
+      /* The desktop layout gives .main-layout the full remaining viewport height
+         and splits it 45vh/1fr/1fr. On mobile that math breaks: the fixed
+         header plus nav-bar.js's bottom tab bar (see html, body { height: 100%; }
+         above and hg-nav's own bottom-offset padding) already eat a big chunk of
+         the 100vh the row heights are computed against, so 45vh for the map
+         alone can leave next to nothing for the 1fr rows -- Active Trips and the
+         Duty Roster end up cropped down to just their header strip. Switch to an
+         auto-height stack that scrolls as a whole instead of trying to fit three
+         independently-scrolling panes into whatever sliver of viewport remains. */
       .main-layout {
         grid-template-columns: 1fr;
-        grid-template-rows: 45vh 1fr 1fr;
+        grid-template-rows: auto auto auto;
+        /* Without this, Grid's default align-content:normal stretches the two
+           "auto" rows to fill whatever height .main-layout has (388px in the
+           example above), splitting the leftover evenly and re-creating the
+           same crush. align-content:start makes each row take its natural
+           content height instead, so Active Trips/Duty Roster show their real
+           card list and anything that doesn't fit scrolls via overflow-y below. */
+        align-content: start;
+        overflow-y: auto;
+        -webkit-overflow-scrolling: touch;
       }
-      #map-pane { grid-column: 1; grid-row: 1; }
-      #trip-board { grid-column: 1; grid-row: 2; border-right: none; border-top: 1px solid var(--border); }
-      #duty-roster { grid-column: 1; grid-row: 3; border-left: none; border-top: 1px solid var(--border); }
+      #map-pane {
+        grid-column: 1; grid-row: 1;
+        height: min(40vh, 320px);
+        min-height: 220px;
+      }
+      #map { min-height: 0; }
+      #trip-board {
+        grid-column: 1; grid-row: 2;
+        border-right: none; border-top: 1px solid var(--border);
+        overflow: visible;
+      }
+      #trip-board #trips-list { flex: none; overflow-y: visible; }
+      #duty-roster {
+        grid-column: 1; grid-row: 3;
+        border-left: none; border-top: 1px solid var(--border);
+        overflow: visible;
+      }
+      #duty-roster #duties-list { flex: none; overflow-y: visible; }
     }
 
     /* ondemand-driver-popup (matches testmap style) */
@@ -549,6 +582,17 @@
     .incident-unit--upd-notified {
       background: rgba(59,130,246,0.15) !important; border-color: rgba(59,130,246,0.45) !important; color: #93c5fd !important;
     }
+    /* Transient "coordinates copied" popup for the right-click-to-copy feature */
+    .leaflet-popup.coord-copy-popup .leaflet-popup-content-wrapper {
+      background: var(--card-bg); color: var(--text);
+      border: 1px solid var(--border); border-radius: 10px;
+      box-shadow: 0 12px 34px rgba(0,0,0,0.4);
+    }
+    .leaflet-popup.coord-copy-popup .leaflet-popup-content {
+      margin: 8px 12px; font-size: 0.8rem; font-weight: 600;
+      font-variant-numeric: tabular-nums; white-space: nowrap;
+    }
+    .leaflet-popup.coord-copy-popup .leaflet-popup-tip { background: var(--card-bg); border: 1px solid var(--border); }
   </style>
 </head>
 <body>
@@ -585,6 +629,24 @@
       attribution: '© OpenStreetMap © CARTO',
       subdomains: 'abcd', maxZoom: 19,
     }).addTo(map);
+
+    // ---- Right-click (long-press on touch) a spot on the map to copy its GPS
+    // coordinates -- handy for radioing a location in or dropping it into Spare. ----
+    let coordCopyPopup = null;
+    map.on('contextmenu', (e) => {
+      const { lat, lng } = e.latlng;
+      const coordText = `${lat.toFixed(6)}, ${lng.toFixed(6)}`;
+      navigator.clipboard.writeText(coordText).then(() => {
+        if (coordCopyPopup) map.closePopup(coordCopyPopup);
+        coordCopyPopup = L.popup({ closeButton: false, className: 'coord-copy-popup' })
+          .setLatLng(e.latlng)
+          .setContent(`📋 Copied ${coordText}`)
+          .openOn(map);
+        setTimeout(() => { if (coordCopyPopup) map.closePopup(coordCopyPopup); }, 1500);
+      }).catch((err) => {
+        console.error('Failed to copy coordinates to clipboard', err);
+      });
+    });
 
     // ---- Light/dark theme toggle ----
     const THEME_STORAGE_KEY = 'vandispatch-theme';

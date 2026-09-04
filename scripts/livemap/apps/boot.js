@@ -25,6 +25,7 @@ import { installCatLayer } from '../core/layers/cat.js';
 import { installMicroTripsLayer } from '../core/layers/micro-trips.js';
 import { installSafetyLayer } from '../core/layers/safety.js';
 import { installDispatcherBridge } from '../core/dispatcher-bridge.js';
+import { installCoordCopy } from '../core/coord-copy.js';
 import { Panels } from '../ui/panels.js';
 import { SearchBox } from '../ui/search.js';
 import { KioskStatus } from '../ui/kiosk-status.js';
@@ -119,6 +120,7 @@ async function boot() {
   } else {
     new Panels().mount();
     new SearchBox().mount();
+    installCoordCopy();
   }
 
   loading?.classList.add('is-hidden');
