@@ -114,6 +114,15 @@ function syncSpareSse() {
   else closeSpareSse();
 }
 
+/** Spare's `bearing` is signed, [-180, 180] (0=N, 90=E, ±180=S, -90=W) — NOT a
+ *  0-360 compass heading. Wrap it into 0-360 rather than discarding negatives
+ *  (west-of-north bearings) as invalid, which is why vans used to appear stuck
+ *  near due north and only briefly flash to their true heading when the raw
+ *  bearing happened to land positive. */
+function normalizeSpareBearing(hd) {
+  return Number.isFinite(hd) ? ((hd % 360) + 360) % 360 : 0;
+}
+
 /** A `vehicleLocation` webhook payload -> our normalized live-position record. */
 function parseSpareLoc(d) {
   if (!d || typeof d !== 'object') return null;
@@ -125,8 +134,8 @@ function parseSpareLoc(d) {
   if (!Number.isFinite(lng) || !Number.isFinite(lat)) return null;
   const tsRaw = Number(d.latestLocationUpdatedTs ?? d.locationUpdatedTs);
   const ts = Number.isFinite(tsRaw) ? (tsRaw < 1e12 ? tsRaw * 1000 : tsRaw) : Date.now();
-  const hd = Number(d.bearing);
-  return { vid: String(vid), lng, lat, heading: Number.isFinite(hd) && hd >= 0 ? hd : 0, ts };
+  const heading = normalizeSpareBearing(Number(d.bearing));
+  return { vid: String(vid), lng, lat, heading, ts };
 }
 
 function openSpareSse() {
@@ -296,7 +305,7 @@ async function poll() {
             cl.location && Array.isArray(cl.location.coordinates) ? cl.location.coordinates : null;
           lng = coords ? Number(coords[0]) : NaN;
           lat = coords ? Number(coords[1]) : NaN;
-          hd = Number(cl.bearing ?? v.bearing);
+          hd = normalizeSpareBearing(Number(cl.bearing ?? v.bearing));
           const fixTs = Number(cl.latestLocationUpdatedTs || cl.locationUpdatedTs);
           fixMs = Number.isFinite(fixTs) ? fixTs * 1000 : NaN;
         }
@@ -312,7 +321,7 @@ async function poll() {
           id: `sp:${v.id ?? v.identifier ?? `${lat},${lng}`}`,
           lat,
           lng,
-          heading: Number.isFinite(hd) && hd >= 0 ? hd : 0,
+          heading: hd, // already normalized to 0-360 above (live SSE fix or roster fallback)
           speedMph: 0,
           color: hex(v.markerColor) || DEFAULT_COLOR,
           label: v.identifier || v.licensePlate || 'Van',
