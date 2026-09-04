@@ -6,3 +6,7 @@ __pycache__/
 node_modules/
 .playwright-mcp/
 claude's toybox/
+
+# Local dev DATA_DIR for the Node maintenance-ticketing service
+# (see CLAUDE.md: `DATA_DIR=./data-local PORT=8080 node src/server.js`)
+data-local-test*/

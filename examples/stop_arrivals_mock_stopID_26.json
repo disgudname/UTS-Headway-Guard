@@ -1,0 +1,36 @@
+{
+  "_note": "Illustrates /v1/transloc/stop_arrivals?stopIDs=26 (\"Massie Rd @ JPJ South Lot\"). Pulled live from utsopsdashboard.com on 2026-07-09 via /v1/route-destinations, now that real destination tags exist: RouteID 67 (Gold Line - Detour Service - Pre-6PM) has Hereford/Barracks tagged, RouteID 58 (Silver Line) has John Paul Jones/Hospital/EIG tagged. RouteID, RouteStopId, RouteDescription, Color, and Destination are all real/computed from the live config. Times/VehicleId are still FABRICATED -- service had ended for the night, so GetStopArrivalTimes returned an empty array and there was nothing live to sample.",
+  "request": "GET /v1/transloc/stop_arrivals?stopIDs=26",
+  "response": [
+    {
+      "RouteID": 67,
+      "RouteStopId": 894,
+      "RouteDescription": "Gold Line",
+      "Color": "#ffdd00",
+      "Times": [
+        {
+          "VehicleId": 104,
+          "Seconds": 240,
+          "IsArriving": false,
+          "Text": "4 min"
+        }
+      ],
+      "Destination": "Hereford"
+    },
+    {
+      "RouteID": 58,
+      "RouteStopId": 720,
+      "RouteDescription": "Silver Line",
+      "Color": "#5f6367",
+      "Times": [
+        {
+          "VehicleId": 121,
+          "Seconds": 540,
+          "IsArriving": false,
+          "Text": "9 min"
+        }
+      ],
+      "Destination": "Hospital"
+    }
+  ]
+}
