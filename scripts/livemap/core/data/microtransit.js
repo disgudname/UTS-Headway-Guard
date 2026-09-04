@@ -242,13 +242,13 @@ async function poll() {
         const lat = Number(v.lat);
         const lng = Number(v.lng);
         if (!Number.isFinite(lat) || !Number.isFinite(lng)) continue;
-        // Drop stale ghosts — the feed keeps units in the roster for days after
-        // their last fix (e.g. a van "that hasn't existed in a long time"). Show
-        // only vehicles the backend still considers live, and belt-and-braces
-        // against an old lastUpdate.
+        // Tag stale ghosts rather than dropping them — the feed keeps units in
+        // the roster for days after their last fix (e.g. a van "that hasn't
+        // existed in a long time"). Hidden by default; livemap's "Show stale
+        // vehicles" toggle (vehicles.js) decides whether they're drawn.
         const updMs = Date.parse(v.lastUpdate || '');
         const ageMs = Number.isNaN(updMs) ? Infinity : Date.now() - updMs;
-        if (v.stale || ageMs > STALE_MAX_MS) continue;
+        const isStale = !!v.stale || ageMs > STALE_MAX_MS;
         const hd = Number(v.heading);
         const sp = Number(v.speed);
         out.push({
@@ -262,7 +262,7 @@ async function poll() {
           label: shortName(v.callName) || `Vehicle ${v.vehicleId ?? ''}`.trim(),
           driver: typeof v.driverName === 'string' ? v.driverName.trim() : '',
           descr: callDescr(v.callName), // "White Karsan eJest"
-          stale: !!v.stale,
+          stale: isStale,
         });
       }
     }
@@ -301,7 +301,8 @@ async function poll() {
           fixMs = Number.isFinite(fixTs) ? fixTs * 1000 : NaN;
         }
         if (!Number.isFinite(lat) || !Number.isFinite(lng)) continue; // no position pushed
-        if (Number.isFinite(fixMs) && Date.now() - fixMs > STALE_MAX_MS) continue;
+        // Tag rather than drop a stale fix — see the OnDemand branch above.
+        const isStale = Number.isFinite(fixMs) && Date.now() - fixMs > STALE_MAX_MS;
         const seats = Number(v.passengerSeats);
         const access = Array.isArray(v.accessibilityFeatures)
           ? v.accessibilityFeatures.filter(Boolean)
@@ -320,7 +321,7 @@ async function poll() {
           plate: (v.licensePlate || '').toString().trim(),
           seats: Number.isFinite(seats) && seats > 0 ? seats : 0,
           access,
-          stale: false,
+          stale: isStale,
         });
       }
     }

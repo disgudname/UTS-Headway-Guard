@@ -27,6 +27,7 @@ import {
   onMetadata,
   getRouteColor,
   getRouteName,
+  setShowStaleVehicles,
 } from '../data/transloc.js';
 import { isDispatcher, onDispatcher, startSession } from '../data/session.js';
 import {
@@ -65,6 +66,13 @@ const feeds = new Map(); // prefix -> { list, adapt }
 
 const LABELS_KEY = 'livemap.vehicles.labels';
 let labelsShown = lsGet(LABELS_KEY, '1') !== '0';
+
+// "Show stale vehicles": off by default. Reveals buses whose GPS fix is an
+// hour+ old (TransLoc's IsVeryStale) and On-Demand/Spare "ghost" vans whose
+// last fix is 3+ minutes old — all of which are otherwise dropped before they
+// ever reach ingest(). See setStaleVisible() below.
+const STALE_KEY = 'livemap.vehicles.showStale';
+let staleShown = lsGet(STALE_KEY, '0') === '1';
 
 const state = new Map(); // id -> anim record
 let rafId = 0;
@@ -111,6 +119,10 @@ export function installVehicleLayer() {
   startDispatchFeed();
   startVehicleFeed();
   startMicrotransitFeed(); // no-op output until a dispatcher enables the overlay
+  // A previous session left "Show stale vehicles" on (persisted) — put
+  // transloc.js's feed into polling mode right away rather than waiting for a
+  // checkbox toggle that may never come this load.
+  if (staleShown) setShowStaleVehicles(true);
 }
 
 const followBus = emitter();
@@ -229,6 +241,20 @@ function pillsWanted() {
   return labelsShown && isDispatcher();
 }
 
+// --- show / hide stale (ghost) vehicles --------------------------------------
+
+export function areStaleVisible() {
+  return staleShown;
+}
+
+export function setStaleVisible(v) {
+  staleShown = !!v;
+  lsSet(STALE_KEY, staleShown ? '1' : '0');
+  setShowStaleVehicles(staleShown); // switches transloc.js between SSE and ?stale=true polling
+  for (const prefix of feeds.keys()) reingest(prefix); // re-apply the filter to vans immediately
+  scheduleFrame();
+}
+
 let imageMissingWired = false;
 function wireImageMissing(map) {
   if (imageMissingWired) return;
@@ -301,6 +327,7 @@ function fromUts(v) {
     drivers: getDrivers(v.id),
     speedMph: v.speedMph,
     dim: v.stale || v.ageS > VEHICLE_STALE_S,
+    veryStale: !!v.veryStale,
     agency: 'uts',
     occupancy: v.occupancy,
     onboard: v.onboard,
@@ -325,6 +352,7 @@ function fromCat(v) {
     // polls, so the number is an estimate (shown with a ~).
     speedEstimated: !!v.speedEstimated,
     dim: false, // the CAT feed already drops stale units
+    veryStale: false, // ditto — never has a ghost to reveal
     agency: 'cat',
     occupancy: null,
     onboard: null,
@@ -348,6 +376,7 @@ function fromMicro(v) {
     speedMph: spd,
     speedEstimated: false,
     dim: !!v.stale,
+    veryStale: !!v.stale, // ghost vans have no "mildly stale" tier — one flag does both jobs
     agency: v.source === 'spare' ? 'spare' : 'ondemand',
     spareId: v.source === 'spare' ? String(v.id || '').replace(/^sp:/, '') : '',
     // rich-card fields
@@ -442,6 +471,10 @@ function ingest(rawList, prefix, adapt) {
   for (const raw of Array.isArray(rawList) ? rawList : []) {
     const v = adapt(raw);
     if (routeHiddenFor(prefix, v.routeId)) continue; // route switched off in the picker
+    // Ghost vehicles are a dispatcher diagnostic — gate on isDispatcher() too so
+    // a stray persisted toggle (e.g. this browser profile also runs a kiosk)
+    // never surfaces them on a public/signage view.
+    if (v.veryStale && !(staleShown && isDispatcher())) continue;
     // Hide no-route / out-of-service buses from the public (both agencies).
     if (
       !showOOS &&

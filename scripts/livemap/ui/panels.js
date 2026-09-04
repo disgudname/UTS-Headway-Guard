@@ -18,7 +18,12 @@ import { onStatus, onVehicles } from '../core/data/transloc.js';
 import { getThemeMode, setThemeMode, onThemeChange } from '../core/theme.js';
 import { onRouteVisibility, setRouteHidden, setAllHidden } from '../core/layers/routes.js';
 import { areStopsVisible, setStopsVisible } from '../core/layers/stops.js';
-import { areLabelsVisible, setLabelsVisible } from '../core/layers/vehicles.js';
+import {
+  areLabelsVisible,
+  setLabelsVisible,
+  areStaleVisible,
+  setStaleVisible,
+} from '../core/layers/vehicles.js';
 import { isSatelliteVisible, setSatelliteVisible } from '../core/layers/satellite.js';
 import {
   isCatEnabled,
@@ -201,7 +206,8 @@ function buildLeft() {
   const layers = section('layers', 'Layers');
   layers.body.innerHTML = `
     <label class="lp-check"><input type="checkbox" data-t="stops" /> <span>Stops</span></label>
-    <label class="lp-check"><input type="checkbox" data-t="labels" /> <span>Vehicle labels</span></label>`;
+    <label class="lp-check"><input type="checkbox" data-t="labels" /> <span>Vehicle labels</span></label>
+    <label class="lp-check"><input type="checkbox" data-t="stale" /> <span>Show stale vehicles</span></label>`;
 
   const cat = section('cat', 'Charlottesville Area Transit');
   cat.body.innerHTML = `
@@ -229,18 +235,24 @@ function buildLeft() {
   const satBox = mapView.body.querySelector('[data-t="sat"]');
   const stopsBox = layers.body.querySelector('[data-t="stops"]');
   const labelsBox = layers.body.querySelector('[data-t="labels"]');
+  const staleBox = layers.body.querySelector('[data-t="stale"]');
   satBox.checked = isSatelliteVisible();
   stopsBox.checked = areStopsVisible();
   labelsBox.checked = areLabelsVisible();
+  staleBox.checked = areStaleVisible();
   satBox.addEventListener('change', () => setSatelliteVisible(satBox.checked));
   stopsBox.addEventListener('change', () => setStopsVisible(stopsBox.checked));
   labelsBox.addEventListener('change', () => setLabelsVisible(labelsBox.checked));
+  staleBox.addEventListener('change', () => setStaleVisible(staleBox.checked));
 
-  // "Vehicle labels" toggles the dispatcher-only number/speed pills — hide the
-  // row for a public viewer, for whom it does nothing.
+  // "Vehicle labels" toggles the dispatcher-only number/speed pills, and
+  // "Show stale vehicles" reveals ghost buses/vans that are otherwise ops-only
+  // noise — hide both rows for a public viewer.
   const labelsRow = labelsBox.closest('.lp-check');
+  const staleRow = staleBox.closest('.lp-check');
   onDispatcher((isDisp) => {
     if (labelsRow) labelsRow.hidden = !isDisp;
+    if (staleRow) staleRow.hidden = !isDisp;
   });
 
   const catBox = cat.body.querySelector('[data-t="cat"]');

@@ -101,9 +101,35 @@ function emitVehicles(list) {
   const out = [];
   for (const v of Array.isArray(list) ? list : []) {
     const n = normalize(v);
-    if (Number.isFinite(n.lng) && Number.isFinite(n.lat) && !n.veryStale) out.push(n);
+    if (Number.isFinite(n.lng) && Number.isFinite(n.lat)) out.push(n);
   }
   bus.emit('vehicles', out);
+}
+
+// "Show stale vehicles": off by default, matching the legacy testmap toggle.
+// The SSE broadcast (below) never carries hour+-old (IsVeryStale) vehicles at
+// all — the backend strips them before fanning out to every subscriber — so
+// there's no way to reveal them by filtering client-side. Instead, turning
+// this on switches from SSE to polling `${VEHICLES_URL}?stale=true`, the same
+// query param testmap.js's "Stale Vehicles" button uses to get the
+// unfiltered roster. Vehicles.js owns the checkbox; this just switches feeds.
+let showStale = false;
+
+export function isShowStaleVehicles() {
+  return showStale;
+}
+
+export function setShowStaleVehicles(v) {
+  v = !!v;
+  if (v === showStale) return;
+  showStale = v;
+  if (!started) return;
+  if (showStale) {
+    startPolling(); // no-op if already polling; pollOnce() picks up ?stale=true either way
+  } else {
+    stopPolling();
+    pollOnce(); // refresh immediately rather than waiting on the next SSE beat
+  }
 }
 
 // --- metadata ------------------------------------------------------------------
@@ -239,11 +265,16 @@ function connectSSE() {
   source.onopen = () => {
     lastMessageAt = Date.now();
     setStatus('live');
-    stopPolling();
+    if (!showStale) stopPolling();
   };
   source.onmessage = (evt) => {
     lastMessageAt = Date.now();
     setStatus('live');
+    // SSE never carries very-stale vehicles (see setShowStaleVehicles above) —
+    // while stale mode is on, leave the dedicated stale poll loop running and
+    // ignore this message rather than overwriting its results with a filtered
+    // list.
+    if (showStale) return;
     stopPolling();
     try {
       const payload = JSON.parse(evt.data);
@@ -271,7 +302,8 @@ function connectSSE() {
 
 async function pollOnce() {
   try {
-    const r = await fetch(VEHICLES_URL, { cache: 'no-store' });
+    const url = showStale ? `${VEHICLES_URL}?stale=true` : VEHICLES_URL;
+    const r = await fetch(url, { cache: 'no-store' });
     if (!r.ok) throw new Error(`vehicles HTTP ${r.status}`);
     const data = await r.json();
     emitVehicles(data.vehicles);
