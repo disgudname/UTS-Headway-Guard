@@ -1157,6 +1157,18 @@
       return points;
     }
 
+    // Small pickup/dropoff pin markers used when there's no actual route line to draw
+    // (see the fallback in showRequestRoute/showOdRequestRoute below) -- just enough to
+    // mark the two points being framed, colored the same as the ride-popup P/D badges.
+    function addPinMarker(latlng, isPickup) {
+      const m = L.circleMarker(latlng, {
+        radius: 7, color: '#fff', weight: 2,
+        fillColor: isPickup ? '#4ade80' : '#f87171', fillOpacity: 1,
+      }).addTo(map);
+      activeRouteLayers.push(m);
+      return m;
+    }
+
     async function showRequestRoute(requestId) {
       clearRequestRoute();
       const req = spareTrips.find(t => t.id === requestId);
@@ -1164,15 +1176,14 @@
       const label = v.identifier || 'Van';
       const color = getVanColor(label, v.markerColor || '#E57200');
 
-      let data;
+      let data = null;
       try {
         const res = await fetch(`/api/spare/requests/${encodeURIComponent(requestId)}/route`);
-        if (!res.ok) return;
-        data = await res.json();
-      } catch (_) { return; }
+        if (res.ok) data = await res.json();
+      } catch (_) { /* fall through to the pickup/dropoff fallback below */ }
 
       const bounds = [];
-      const polylines = data.polylines || {};
+      const polylines = (data && data.polylines) || {};
       [['routeToPickup', '2 8'], ['routeToDropoff', null]].forEach(([key, dashArray]) => {
         const encoded = polylines[key];
         if (!encoded) return;
@@ -1182,11 +1193,43 @@
         activeRouteLayers.push(line);
         bounds.push(...pts);
       });
-      (data.stopovers || []).forEach(s => {
+      ((data && data.stopovers) || []).forEach(s => {
         const p = pointFromGeoJson(s.location);
         if (!p) return;
         const m = L.circleMarker(p, { radius: 5, color: '#fff', weight: 2, fillColor: color, fillOpacity: 1 }).addTo(map);
         activeRouteLayers.push(m);
+        bounds.push(p);
+      });
+
+      // Spare's currentRoute only works within ~20 minutes of the request's pickup (see
+      // the note above showVanFullRoute) -- it 400s for anything further out, and can
+      // also just come back empty. Either way, with no route to draw, fall back to
+      // marking and framing the pickup and dropoff themselves so the dispatcher still
+      // sees where the ride goes instead of nothing happening on click.
+      if (!bounds.length && req) {
+        const pu = pointFromGeoJson(req.scheduledPickupLocation || req.requestedPickupLocation);
+        const doP = pointFromGeoJson(req.scheduledDropoffLocation || req.requestedDropoffLocation);
+        if (pu) { addPinMarker(pu, true); bounds.push(pu); }
+        if (doP) { addPinMarker(doP, false); bounds.push(doP); }
+      }
+      if (bounds.length) map.fitBounds(bounds, { padding: [60, 60], maxZoom: 16 });
+    }
+
+    // OnDemand equivalent of showRequestRoute -- OnDemand provides no trip routing at
+    // all (no currentRoute analog), so this always just marks and frames the ride's
+    // pickup and dropoff. rideKey matches the key renderTrips uses (below) to group
+    // odStops rows into one ride card (rideId, falling back to vehicleId+riders).
+    function showOdRequestRoute(rideKeyEncoded) {
+      clearRequestRoute();
+      const rideKey = decodeURIComponent(rideKeyEncoded);
+      const bounds = [];
+      odStops.forEach(s => {
+        const rec = (s.rides && s.rides[0]) || {};
+        const key = s.rideId || rec.rideId || `${s.vehicleId}|${(s.riders || []).join(',')}`;
+        if (key !== rideKey) return;
+        if (!Number.isFinite(s.lat) || !Number.isFinite(s.lng)) return;
+        const p = [s.lat, s.lng];
+        addPinMarker(p, s.stopType === 'pickup');
         bounds.push(p);
       });
       if (bounds.length) map.fitBounds(bounds, { padding: [60, 60], maxZoom: 16 });
@@ -1913,7 +1956,7 @@
         r.pickupAddr  = r.pickupAddr  || s.pickupAddress  || rec.pickupAddress  || '';
         r.dropoffAddr = r.dropoffAddr || s.dropoffAddress || rec.dropoffAddress || '';
       }
-      for (const r of odRides.values()) {
+      for (const [rideKey, r] of odRides.entries()) {
         const cls = OD_STATUS_CLASS[r.status] || 'processing';
         const lbl = OD_STATUS_LABEL[r.status] || (r.status || 'Active');
         const pickedUp = r.status === 'in_progress' || r.status === 'inProgress';
@@ -1931,7 +1974,11 @@
         const puBadge = stopOrderBadgeHtml(r.pickupOrder, vanColor);
         const doBadge = stopOrderBadgeHtml(r.dropoffOrder, vanColor);
         const sortTs = ((pickedUp ? r.dropoffTs : r.pickupTs) || r.pickupTs || r.dropoffTs || Infinity);
-        items.push({ sortTs, html: `<div class="trip-card ${cls}" data-van-source="od" data-vehicle-id="${escHtml(r.vehicleId || '')}">
+        // encodeURIComponent doesn't escape the apostrophe (it's in RFC3986's unreserved
+        // set) but rider names in the vehicleId+riders fallback key can contain one --
+        // strip it separately so it can't break out of the single-quoted onclick arg.
+        const rideKeyArg = encodeURIComponent(rideKey).replace(/'/g, '%27');
+        items.push({ sortTs, html: `<div class="trip-card ${cls}" style="cursor:pointer" title="Click to show this ride's pickup/dropoff on the map" onclick="showOdRequestRoute('${rideKeyArg}')" data-van-source="od" data-vehicle-id="${escHtml(r.vehicleId || '')}">
           <div class="trip-header">
             <span class="status-pill ${cls}">${escHtml(lbl)}</span>
             <span class="rider-name">${escHtml(name)}</span>
