@@ -67,6 +67,48 @@ let sse = null; // EventSource | null
 const livePos = new Map(); // vehicleId -> { lng, lat, heading, ts (ms) }
 let reqPollTimer = 0;
 
+// Spare gives us a real heading but no speed at all (checked the full API spec —
+// there's no such field). Same technique as cat.js: remember each van's last
+// fix + wall-clock time and derive an EMA-smoothed speed from the displacement
+// between fixes. Keyed by the raw Spare vehicle id (no "sp:" prefix), so both
+// the poll() roster path and the SSE-driven applyLivePositions() path share one
+// running estimate per van instead of resetting each other.
+const spareKin = new Map(); // vehicleId -> { lat, lng, fixMs, speedMph }
+const SPARE_MOVE_MIN_M = 12; // displacement over an interval to count as "moving"
+const SPARE_SPEED_EMA = 0.5;
+
+const R_EARTH_M = 6371000;
+const toRad = (d) => (d * Math.PI) / 180;
+
+/** Great-circle distance in metres. */
+function haversineM(lat1, lon1, lat2, lon2) {
+  const dLat = toRad(lat2 - lat1);
+  const dLon = toRad(lon2 - lon1);
+  const a =
+    Math.sin(dLat / 2) ** 2 +
+    Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLon / 2) ** 2;
+  return 2 * R_EARTH_M * Math.asin(Math.min(1, Math.sqrt(a)));
+}
+
+/** EMA-smoothed mph for a Spare van from its last fix to (lat, lng) @ fixMs.
+ *  Idempotent for a repeated fixMs (same GPS sample seen via both the poll and
+ *  the SSE path) so calling it twice for one fix doesn't double-count. */
+function estimateSpareSpeedMph(id, lat, lng, fixMs) {
+  const prev = spareKin.get(id);
+  if (prev && prev.fixMs === fixMs) return prev.speedMph;
+  let speedMph = prev ? prev.speedMph || 0 : 0;
+  if (prev && Number.isFinite(fixMs) && Number.isFinite(prev.fixMs) && fixMs > prev.fixMs) {
+    const dt = (fixMs - prev.fixMs) / 1000;
+    const d = haversineM(prev.lat, prev.lng, lat, lng);
+    const moving = d > SPARE_MOVE_MIN_M && dt > 0.5;
+    const inst = moving ? (d / dt) * 2.2369363 : 0; // m/s -> mph
+    speedMph = (prev.speedMph || 0) + (inst - (prev.speedMph || 0)) * SPARE_SPEED_EMA;
+    if (speedMph < 1) speedMph = 0;
+  }
+  spareKin.set(id, { lat, lng, fixMs: Number.isFinite(fixMs) ? fixMs : (prev ? prev.fixMs : Date.now()), speedMph });
+  return speedMph;
+}
+
 export const isMicroAvailable = () => available;
 export const isRideOn = () => enabled.ride;
 export const isFlexOn = () => enabled.flex;
@@ -191,6 +233,7 @@ function closeSpareSse() {
     sse = null;
   }
   livePos.clear();
+  spareKin.clear(); // don't let a stale fix from before the gap skew the next speed sample
 }
 
 /** Patch the current Spare vehicles with any fresher SSE position and re-emit. */
@@ -200,12 +243,15 @@ function applyLivePositions() {
   let changed = false;
   for (const v of vehicles) {
     if (v.source !== 'spare') continue;
-    const p = livePos.get(String(v.id).replace(/^sp:/, ''));
+    const rawId = String(v.id).replace(/^sp:/, '');
+    const p = livePos.get(rawId);
     if (!p || now - p.ts > STALE_MAX_MS) continue;
-    if (v.lat !== p.lat || v.lng !== p.lng || v.heading !== p.heading) {
+    const speedMph = estimateSpareSpeedMph(rawId, p.lat, p.lng, p.ts);
+    if (v.lat !== p.lat || v.lng !== p.lng || v.heading !== p.heading || v.speedMph !== speedMph) {
       v.lat = p.lat;
       v.lng = p.lng;
       v.heading = p.heading;
+      v.speedMph = speedMph;
       changed = true;
     }
   }
@@ -285,13 +331,16 @@ async function poll() {
     else if (r.ok) {
       anyOk = true;
       const arr = await r.json();
+      const seenSpareIds = new Set();
       for (const v of Array.isArray(arr) ? arr : []) {
         // Position: prefer a fresher SSE fix (see /stream/spare) over the
         // roster's `currentLocation`. Spare merges the webhook-pushed position
         // in as `currentLocation` ({ location:{coordinates:[lng,lat]}, bearing,
         // latestLocationUpdatedTs } — NOT `v.location`; missing this is why the
         // vans never showed on livemap).
-        const live = livePos.get(String(v.id ?? v.identifier ?? ''));
+        const rawId = String(v.id ?? v.identifier ?? '');
+        seenSpareIds.add(rawId);
+        const live = livePos.get(rawId);
         let lng;
         let lat;
         let hd;
@@ -312,17 +361,22 @@ async function poll() {
         if (!Number.isFinite(lat) || !Number.isFinite(lng)) continue; // no position pushed
         // Tag rather than drop a stale fix — see the OnDemand branch above.
         const isStale = Number.isFinite(fixMs) && Date.now() - fixMs > STALE_MAX_MS;
+        // Spare has no speed field at all — estimate it from displacement between
+        // fixes (see estimateSpareSpeedMph above); marked speedEstimated so the
+        // marker shows it with a "~", same convention as CAT's derived speed.
+        const speedMph = estimateSpareSpeedMph(rawId, lat, lng, fixMs);
         const seats = Number(v.passengerSeats);
         const access = Array.isArray(v.accessibilityFeatures)
           ? v.accessibilityFeatures.filter(Boolean)
           : [];
         out.push({
           source: 'spare',
-          id: `sp:${v.id ?? v.identifier ?? `${lat},${lng}`}`,
+          id: `sp:${rawId || `${lat},${lng}`}`,
           lat,
           lng,
           heading: hd, // already normalized to 0-360 above (live SSE fix or roster fallback)
-          speedMph: 0,
+          speedMph,
+          speedEstimated: true,
           color: hex(v.markerColor) || DEFAULT_COLOR,
           label: v.identifier || v.licensePlate || 'Van',
           driver: '',
@@ -333,6 +387,7 @@ async function poll() {
           stale: isStale,
         });
       }
+      for (const id of [...spareKin.keys()]) if (!seenSpareIds.has(id)) spareKin.delete(id);
     }
   } catch {
     /* network hiccup */

@@ -374,7 +374,10 @@ function fromMicro(v) {
     routeName: v.source === 'spare' ? 'UVA FlexRide' : 'UVA Ride',
     label: String(v.label),
     speedMph: spd,
-    speedEstimated: false,
+    // Spare gives no speed field at all, so microtransit.js derives it from
+    // displacement between fixes and flags it — same "~" convention as CAT's
+    // derived speed. OnDemand's speed is real, so this stays false there.
+    speedEstimated: !!v.speedEstimated,
     dim: !!v.stale,
     veryStale: !!v.stale, // ghost vans have no "mildly stale" tier — one flag does both jobs
     agency: v.source === 'spare' ? 'spare' : 'ondemand',
