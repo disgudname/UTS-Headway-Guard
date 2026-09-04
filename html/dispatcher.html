@@ -20,20 +20,50 @@
    Teal #25CAD3, Yellow #FDDA24, Orange #E57200, Emergency #DF1E43. */
 @font-face{font-family:'FGDC';src:url('FGDC.ttf') format('truetype')}
 @font-face{font-family:'Antonio';src:url('ANTONIO.ttf') format('truetype');font-weight:400;font-style:normal;font-display:swap}
-:root{--route-color:#2a3442;--uva-blue:#232D4B;--uva-orange:#E57200;--ui-accent:#E57200;--ui-accent-ring:rgba(229,114,0,.45)}
+/* Theme: data-theme="light"/"dark" on <html>, toggled by #theme-toggle (see
+   the bottom script) and remembered in localStorage. The header stays UVA
+   Blue in both themes (matches vandispatch.html), so header-scoped rules
+   below (h1, #controls, .duty-group, select, the caret SVG) intentionally
+   keep their literal light-on-blue colors rather than following the
+   body/panel theme tokens. */
+:root{
+  color-scheme:dark;
+  --route-color:var(--card-bg-alt);--uva-blue:#232D4B;--uva-orange:#E57200;--ui-accent:#E57200;--ui-accent-ring:rgba(229,114,0,.45);
+  --bg:#0b0e11;--surface:#080b10;--surface-hover:#0f1520;
+  --card-bg:#10151c;--card-bg-alt:#0c1018;
+  --ink:#e8eef5;--text-dim:#9fb0c9;--text-faint:#6b7b92;--text-faintest:#556070;
+  --line:#2a3442;--line-soft:#1f2630;--hairline:rgba(255,255,255,.07);--hairline-strong:rgba(255,255,255,.16);
+  --chip-text:#cfe1ff;
+  --scrim:rgba(7,12,20,.68);
+  --popup-item-bg:rgba(16,21,28,.85);--popup-line:rgba(143,163,193,.25);--popup-line-soft:rgba(143,163,193,.22);--popup-hover:rgba(143,163,193,.12);
+  --err-bg:rgba(223,30,67,.16);--err-text:#ffb3c1;--err-border:rgba(223,30,67,.45);
+  --ok-text:#b6f0cb;--warn-text:#ffe29a;--bad-text:#ffb0b0;
+}
+:root[data-theme="light"]{
+  color-scheme:light;
+  --bg:#F1F1EF;--surface:#ffffff;--surface-hover:#e9ebf0;
+  --card-bg:#ffffff;--card-bg-alt:#ffffff;
+  --ink:#232D4B;--text-dim:#4b5566;--text-faint:#63697a;--text-faintest:#767c8c;
+  --line:#DADADA;--line-soft:#e3e5e9;--hairline:rgba(35,45,75,.12);--hairline-strong:rgba(35,45,75,.28);
+  --chip-text:#33415f;
+  --scrim:rgba(20,26,38,.45);
+  --popup-item-bg:#f5f6f8;--popup-line:#DADADA;--popup-line-soft:#e3e5e9;--popup-hover:rgba(35,45,75,.08);
+  --err-bg:rgba(223,30,67,.10);--err-text:#a3122c;--err-border:rgba(223,30,67,.4);
+  --ok-text:#1f7a43;--warn-text:#8a6300;--bad-text:#b02033;
+}
 /* Libre Franklin is the free web equivalent of Franklin Gothic that UVA
    itself endorses (brand.virginia.edu/design-assets/fonts). FGDC (Franklin
    Gothic Demi Condensed) is kept where it is set explicitly below -- block
    labels, mono readouts -- and Antonio stays on the big bus numbers. */
-body{font-family:'Libre Franklin','Franklin Gothic',Helvetica,Arial,sans-serif;font-size:17px;margin:0;background:#0b0e11;color:#e8eef5;display:flex;height:100vh;position:relative;overflow:hidden}
+body{font-family:'Libre Franklin','Franklin Gothic',Helvetica,Arial,sans-serif;font-size:17px;margin:0;background:var(--bg);color:var(--ink);display:flex;height:100vh;position:relative;overflow:hidden}
 body.howell-mode{font-family:'FGDC',system-ui;background:radial-gradient(circle at 12% 18%,rgba(255,153,102,.12)0,transparent 54%),radial-gradient(circle at 86% 84%,rgba(102,204,204,.1)0,transparent 60%),linear-gradient(130deg,#070b1a 0,#04060f 42%,#070b1a 100%)}
 body.howell-mode header h1{letter-spacing:.14em}
 
-#left{overflow:auto;flex:1 1 50%;min-width:260px;max-width:100%;background:#080b10}
-#splitter{flex:0 0 5px;cursor:col-resize;background:#080b10;border-left:1px solid rgba(255,255,255,.05);border-right:1px solid rgba(0,0,0,.4);position:relative;z-index:3;transition:background .15s}
-#splitter:hover,body.resizing #splitter{background:#0f1520}
+#left{overflow:auto;flex:1 1 50%;min-width:260px;max-width:100%;background:var(--surface)}
+#splitter{flex:0 0 5px;cursor:col-resize;background:var(--surface);border-left:1px solid var(--hairline);border-right:1px solid rgba(0,0,0,.4);position:relative;z-index:3;transition:background .15s}
+#splitter:hover,body.resizing #splitter{background:var(--surface-hover)}
 #splitter::after{content:"";position:absolute;top:50%;left:50%;width:2px;height:32px;background:rgba(143,163,193,.3);border-radius:999px;transform:translate(-50%,-50%)}
-iframe#map-frame{flex:1 1 0%;min-width:320px;border-left:1px solid rgba(255,255,255,.05);height:100%}
+iframe#map-frame{flex:1 1 0%;min-width:320px;border-left:1px solid var(--hairline);height:100%}
 body.resizing{cursor:col-resize;user-select:none}
 body.resizing iframe#map-frame{pointer-events:none}
 /* Header wraps: brand + Layout stay on row 1; the duty roster drops to its
@@ -54,9 +84,12 @@ header h1 .mark{width:4px;height:15px;border-radius:2px;background:var(--uva-ora
 .duty-group .duty-title{font-size:9.5px;font-weight:700;letter-spacing:.12em;text-transform:uppercase;color:rgba(255,255,255,.5);flex:0 0 auto}
 .duty-group .duty-name{display:inline-flex;align-items:center;gap:6px;font-size:12px;font-weight:600;color:#e8eef5;white-space:nowrap;min-width:0}
 .duty-group .duty-name+.duty-name{padding-left:9px;border-left:1px solid rgba(255,255,255,.15)}
-.duty-group .duty-dot{width:7px;height:7px;border-radius:50%;background:#5bb8ff;flex:0 0 auto}
+.duty-group .duty-dot{width:7px;height:7px;border-radius:50%;background:#009FDF;flex:0 0 auto}
 .duty-group.duty-empty .duty-name,.duty-group .duty-name.duty-empty{font-weight:400;color:#7c889b}
 .duty-group.duty-empty .duty-dot{background:#4a5568}
+.theme-toggle{background:transparent;border:1px solid rgba(255,255,255,.28);color:#f4f6fa;border-radius:999px;width:28px;height:28px;display:inline-flex;align-items:center;justify-content:center;font-size:13px;line-height:1;cursor:pointer;transition:background .15s,border-color .15s;flex:0 0 auto}
+.theme-toggle:hover{border-color:var(--uva-orange);background:rgba(229,114,0,.14)}
+.theme-toggle:focus-visible{outline:2px solid var(--ui-accent);outline-offset:2px}
 body.kiosk-mode #controls label.control-field{flex:0 0 auto}
 /* appearance:none so the native control chrome (which Windows paints with a
    light system fill, hence the washed-out look) is dropped for a solid dark
@@ -70,28 +103,34 @@ button{background:rgba(255,255,255,.05);color:#e8eef5;border:1px solid rgba(255,
 button:hover{background:rgba(255,255,255,.09);border-color:rgba(255,255,255,.18)}
 button:focus{outline:2px solid var(--ui-accent);outline-offset:2px}
 button:disabled{opacity:.65;cursor:not-allowed}
-.chip{display:inline-block;border:1px solid #2a3442;border-radius:999px;padding:2px 8px;margin-left:8px;color:#cfe1ff}
+.chip{display:inline-block;border:1px solid var(--line);border-radius:999px;padding:2px 8px;margin-left:8px;color:var(--chip-text)}
 table{width:100%;border-collapse:collapse;margin-top:8px}
-th,td{border-bottom:1px solid #1f2630;padding:8px 10px;text-align:left}
+th,td{border-bottom:1px solid var(--line-soft);padding:8px 10px;text-align:left}
 .panel.downed-panel{
-  --downed-bg:#101935;
-  --downed-alt:#152349;
-  --downed-soft:#142040;
-  --downed-ink:#f0f4ff;
-  --downed-muted:#9fb0c9;
-  --downed-line:rgba(159,176,201,0.25);
+  --downed-bg:var(--card-bg-alt);
+  --downed-alt:var(--card-bg);
+  --downed-soft:var(--card-bg-alt);
+  --downed-ink:var(--ink);
+  --downed-muted:var(--text-dim);
+  --downed-line:var(--hairline);
   --downed-pill-downed:#DF1E43;
   --downed-pill-hold:#FDDA24;
   --downed-pill-cosmetic:#009FDF;
   --downed-pill-comfort:#E57200;
   --downed-pill-up:#62BB46;
   --downed-pill-usable:#25CAD3;
+  --pill-neutral-bg:rgba(255,255,255,.08);
+  --pill-neutral-ring:rgba(255,255,255,.12);
   background:var(--downed-bg);
   border:1px solid var(--downed-line);
   border-radius:18px;
   box-shadow:0 18px 32px rgba(6,11,28,0.35);
   color:var(--downed-ink);
   overflow:hidden;
+}
+:root[data-theme="light"] .panel.downed-panel{
+  --pill-neutral-bg:rgba(35,45,75,.06);
+  --pill-neutral-ring:rgba(35,45,75,.14);
 }
 .panel.downed-panel h2{
   margin:0;
@@ -137,9 +176,9 @@ th,td{border-bottom:1px solid #1f2630;padding:8px 10px;text-align:left}
   text-transform:uppercase;
   letter-spacing:.08em;
   position:relative;
-  background:rgba(255,255,255,0.08);
+  background:var(--pill-neutral-bg);
   color:var(--downed-ink);
-  box-shadow:0 0 0 1px rgba(255,255,255,0.12) inset;
+  box-shadow:0 0 0 1px var(--pill-neutral-ring) inset;
 }
 .status-pill span+span{margin-left:6px}
 .status-pill.pulse-alert::after{
@@ -209,21 +248,29 @@ body.kiosk-mode .panel.downed-panel .downed-embed-wrapper{
 }
 #blocks-table{width:auto;table-layout:fixed}
 #blocks td{border:none;padding:2px 4px;text-align:center;width:12ch}
-#blocks td .cell{border-radius:4px;background:var(--route-color,transparent);color:var(--text-color,#e8eef5);display:flex;flex-direction:column;align-items:center;justify-content:flex-start;width:100%;min-height:2.6em;max-height:2.6em;padding:0;line-height:1.15;overflow:hidden}
+#blocks td .cell{border-radius:8px;background:var(--route-color,transparent);color:var(--text-color,var(--ink));display:flex;flex-direction:column;align-items:center;justify-content:flex-start;width:100%;min-height:2.6em;max-height:2.6em;padding:0;line-height:1.15;overflow:hidden}
 .blocks-grid{display:flex;flex-direction:column;gap:6px}
-.blocks-grid-status{font-size:13px;color:#6b7b92}
+.blocks-grid-status{font-size:13px;color:var(--text-faint)}
 .blocks-grid-status[hidden]{display:none}
 .blocks-grid-table{--grid-columns:4;display:grid;grid-template-columns:repeat(var(--grid-columns),minmax(80px,1fr));gap:5px}
-.blocks-grid .cell{background:#0c1018;border:1px solid rgba(255,255,255,.07);border-radius:12px;padding:0;min-height:72px;display:flex;flex-direction:column;align-items:center;justify-content:flex-start;text-align:center;gap:0;transition:filter .15s,border-color .15s,opacity .18s;overflow:hidden;position:relative;cursor:default}
-.blocks-grid .cell::before{content:"";position:absolute;inset:0;border-radius:inherit;background:linear-gradient(160deg,var(--tint,rgba(0,0,0,0)) 0%,transparent 55%);pointer-events:none;z-index:0}
-.blocks-grid .cell:hover{border-color:rgba(255,255,255,.16);filter:brightness(1.06)}
+/* Block/bus tiles read as a status board, not a HUD: a flat card plus a
+   full-strength color tag on top (.cell-accent) and a tinted label carry the
+   block's identity; the bus number itself stays plain ink instead of being
+   recolored per block, for consistent scanability. */
+.blocks-grid .cell{background:var(--card-bg-alt);border:1px solid var(--line-soft);border-radius:8px;padding:0;min-height:72px;display:flex;flex-direction:column;align-items:center;justify-content:flex-start;text-align:center;gap:0;transition:border-color .15s,opacity .18s;overflow:hidden;position:relative;cursor:default}
+.blocks-grid .cell:hover{border-color:var(--accent,var(--hairline-strong))}
 .blocks-grid .cell[data-empty="true"]{opacity:.45}
-.cell-accent{height:4px;width:100%;flex-shrink:0;background:var(--accent,#2a3442);border-radius:12px 12px 0 0}
-.blocks-grid .cell .block-label{font-size:12px;letter-spacing:.1em;text-transform:uppercase;color:var(--badge-color,rgba(255,255,255,.4));white-space:nowrap;overflow:hidden;text-overflow:ellipsis;width:100%;box-sizing:border-box;padding:0 4px;font-family:'FGDC',system-ui}
-.blocks-grid .cell .bus{font-size:26px;letter-spacing:.03em;color:var(--bus-color,#e8eef5);white-space:nowrap;font-family:'Antonio','FGDC',system-ui;line-height:1.1}
-.blocks-grid .cell .drivers{display:flex;flex-direction:column;gap:1px;font-size:10px;line-height:1.25;color:rgba(255,255,255,.55);align-items:center}
+.cell-accent{height:4px;width:100%;flex-shrink:0;background:var(--accent,var(--line));border-radius:8px 8px 0 0}
+.blocks-grid .cell .block-label{font-size:12px;letter-spacing:.08em;text-transform:uppercase;color:var(--badge-color,var(--text-faint));white-space:nowrap;overflow:hidden;text-overflow:ellipsis;width:100%;box-sizing:border-box;padding:0 4px;font-family:'FGDC',system-ui}
+/* The per-block --badge-color pastels are pre-lightened for legibility on
+   the near-black dark cards; that same pastel reads as low-contrast on the
+   light theme's white cards, so light mode uses the full-strength --accent
+   instead (still passes AA at this size against white for every block hue). */
+:root[data-theme="light"] .blocks-grid .cell .block-label{color:var(--accent,var(--text-faint))}
+.blocks-grid .cell .bus{font-size:26px;letter-spacing:.02em;color:var(--ink);white-space:nowrap;font-family:'Antonio','FGDC',system-ui;line-height:1.1}
+.blocks-grid .cell .drivers{display:flex;flex-direction:column;gap:1px;font-size:10px;line-height:1.25;color:var(--text-dim);align-items:center}
 .blocks-grid .cell .drivers[hidden]{display:none}
-#blocks td .cell .drivers{display:flex;flex-direction:column;gap:2px;font-size:12px;line-height:1.2;color:var(--driver-color,#cfe1ff);align-items:center}
+#blocks td .cell .drivers{display:flex;flex-direction:column;gap:2px;font-size:12px;line-height:1.2;color:var(--driver-color,var(--chip-text));align-items:center}
 #blocks td .cell .drivers[hidden]{display:none}
 .cell-map,.cell-driver-list{display:flex;flex-direction:column;align-items:center;justify-content:center;width:100%;gap:2px}
 .cell-map{cursor:pointer;user-select:none;padding:6px 8px 8px}
@@ -257,27 +304,27 @@ body.kiosk-mode .panel.downed-panel .downed-embed-wrapper{
 #blocks-grid .cell .mono{font-size:12px;letter-spacing:.08em}
 #blocks-grid .cell .mono+.drivers,#blocks-grid .cell .bus+.drivers{margin-top:2px}
 #blocks-grid .cell .drivers .driver-line{white-space:normal;word-break:keep-all}
-#blocks-grid .cell .status{font-size:12px;color:#9fb0c9}
+#blocks-grid .cell .status{font-size:12px;color:var(--text-dim)}
 #extra-buses{list-style:none;padding:0;margin:0;display:grid;grid-template-columns:repeat(auto-fill,minmax(10ch,1fr));gap:4px}
 .panel-body{position:relative}
-#extra-buses li{background:#10151c;border:1px solid #2a3442;border-radius:4px;padding:4px 6px;text-align:center;line-height:1.15;display:flex;align-items:center;justify-content:center;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-height:calc(1.2em + 8px)}
+#extra-buses li{background:var(--card-bg);border:1px solid var(--line);border-radius:4px;padding:4px 6px;text-align:center;line-height:1.15;display:flex;align-items:center;justify-content:center;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-height:calc(1.2em + 8px)}
 #extra-buses .hint{background:none;border:none;padding:0;grid-column:1/-1;text-align:left;display:block;white-space:normal;overflow:visible;text-overflow:clip;min-height:auto;line-height:inherit}
 .mono{font-family:FGDC,ui-monospace,Menlo,Consolas,monospace}
-.pill{display:inline-flex;gap:8px;align-items:center;border:1px solid #2a3442;border-radius:999px;padding:4px 8px;background:#10151c}
+.pill{display:inline-flex;gap:8px;align-items:center;border:1px solid var(--line);border-radius:999px;padding:4px 8px;background:var(--card-bg)}
 .dot{width:10px;height:10px;border-radius:50%}
-.ok{color:#b6f0cb}.ok .dot{background:#62BB46}
-.warn{color:#ffe29a}.warn .dot{background:#FDDA24}
-.bad{color:#ffb0b0}.bad .dot{background:#DF1E43}
-.hint{color:#9fb0c9}
+.ok{color:var(--ok-text)}.ok .dot{background:#62BB46}
+.warn{color:var(--warn-text)}.warn .dot{background:#FDDA24}
+.bad{color:var(--bad-text)}.bad .dot{background:#DF1E43}
+.hint{color:var(--text-dim)}
 /* Flows on its own full-width row (min-width:100% forces the wrap) instead of
    floating absolutely over the duty roster. */
 .banner{display:none;min-width:100%;box-sizing:border-box;padding:3px 8px;text-align:right;border-radius:6px;font-size:12px}
-.banner.error{background:#3b1f1f;color:#ffbfbf;border:1px solid #5a2b2b}
-.banner.info{background:transparent;color:#9fb0c9;border:none;padding:0}
-h2{font-size:10px;letter-spacing:.12em;text-transform:uppercase;color:#556070;font-weight:700;margin:0 0 8px;padding-bottom:8px;border-bottom:1px solid rgba(255,255,255,.05)}
+.banner.error{background:var(--err-bg);color:var(--err-text);border:1px solid var(--err-border)}
+.banner.info{background:transparent;color:var(--text-dim);border:none;padding:0}
+h2{font-size:10px;letter-spacing:.12em;text-transform:uppercase;color:var(--text-faintest);font-weight:700;margin:0 0 8px;padding-bottom:8px;border-bottom:1px solid var(--hairline)}
 #layout{display:flex}
 aside .panel{padding-top:16px}
-aside .panel+.panel{margin-top:4px;padding-top:16px;border-top:1px solid rgba(255,255,255,.05)}
+aside .panel+.panel{margin-top:4px;padding-top:16px;border-top:1px solid var(--hairline)}
 body.kiosk-mode{font-size:16px;--kiosk-block-height:2.6em;--kiosk-entry-padding:4px}
 body.kiosk-mode header{padding:10px 12px}
 body.kiosk-mode #controls{flex-wrap:wrap;padding-right:0}
@@ -287,7 +334,7 @@ body.kiosk-mode #left{overflow:hidden;display:flex;flex-direction:column}
 body.kiosk-mode #layout{flex:1;overflow:hidden}
 body.kiosk-mode main{display:none}
 body.kiosk-mode #layout aside{border-left:none;padding:12px;display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));grid-auto-rows:minmax(0,1fr);gap:12px}
-body.kiosk-mode #layout aside .panel{margin:0;display:flex;flex-direction:column;min-height:0;background:#0f141c;border:1px solid #1f2630;border-radius:10px;padding:12px}
+body.kiosk-mode #layout aside .panel{margin:0;display:flex;flex-direction:column;min-height:0;background:var(--card-bg);border:1px solid var(--line-soft);border-radius:10px;padding:12px}
 body.kiosk-mode #layout aside .panel h2{margin:0 0 8px;font-size:16px}
 body.kiosk-mode #layout aside .panel .panel-body{flex:1;min-height:0;display:flex;flex-direction:column;overflow:hidden}
 body.kiosk-mode #layout aside .panel .panel-body table{flex:1;overflow:auto;width:100%}
@@ -306,11 +353,11 @@ body.kiosk-mode #blocks-grid .cell .drivers{font-size:11px}
 body.kiosk-mode #extra-buses{grid-template-columns:repeat(auto-fill,minmax(11ch,1fr));grid-auto-rows:auto;gap:6px}
 body.kiosk-mode #extra-buses li{display:flex;align-items:center;justify-content:center;min-height:calc(1.2em + 2*var(--kiosk-entry-padding));padding:var(--kiosk-entry-padding) calc(var(--kiosk-entry-padding)*1.5)}
 body.kiosk-mode .downed-embed-frame{height:70vh}
-body.kiosk-mode iframe#map-frame{flex:1;border-left:1px solid #1f2630}
+body.kiosk-mode iframe#map-frame{flex:1;border-left:1px solid var(--line-soft)}
 body.kiosk-mode .credit{margin-top:auto;padding:8px 12px}
 @media(max-width:600px){
   #layout{flex-direction:column}
-  #layout aside{border-left:none !important;border-top:1px solid #1f2630}
+  #layout aside{border-left:none !important;border-top:1px solid var(--line-soft)}
 }
 @media(max-width:768px){
   body{flex-direction:column;align-items:stretch;height:auto;min-height:100vh;overflow:auto}
@@ -331,28 +378,28 @@ body.kiosk-mode .credit{margin-top:auto;padding:8px 12px}
     min-height:320px;
     max-height:360px;
     border-left:none;
-    border-bottom:1px solid #1f2630;
+    border-bottom:1px solid var(--line-soft);
   }
   #layout{flex-direction:column}
-  #layout aside{border-left:none !important;border-top:1px solid #1f2630;padding:12px 12px 24px !important}
+  #layout aside{border-left:none !important;border-top:1px solid var(--line-soft);padding:12px 12px 24px !important}
 }
-.credit{position:absolute;bottom:8px;right:8px;font-size:12px;color:var(--muted,#9fb0c9)}
+.credit{position:absolute;bottom:8px;right:8px;font-size:12px;color:var(--muted,var(--text-dim))}
 
-.driver-popup-overlay{position:fixed;inset:0;background:rgba(7,12,20,.68);display:flex;align-items:center;justify-content:center;padding:24px;z-index:1200;backdrop-filter:blur(6px)}
+.driver-popup-overlay{position:fixed;inset:0;background:var(--scrim);display:flex;align-items:center;justify-content:center;padding:24px;z-index:1200;backdrop-filter:blur(6px)}
 .driver-popup-overlay[hidden]{display:none}
-.driver-popup{background:#10151c;border:1px solid #2a3442;border-radius:16px;box-shadow:0 18px 42px rgba(0,0,0,.5);max-width:420px;width:min(420px,100%);display:flex;flex-direction:column;color:#e8eef5}
-.driver-popup-header{display:flex;align-items:center;justify-content:space-between;padding:16px 20px;border-bottom:1px solid rgba(143,163,193,.25)}
+.driver-popup{background:var(--card-bg);border:1px solid var(--line);border-radius:16px;box-shadow:0 18px 42px rgba(0,0,0,.5);max-width:420px;width:min(420px,100%);display:flex;flex-direction:column;color:var(--ink)}
+.driver-popup-header{display:flex;align-items:center;justify-content:space-between;padding:16px 20px;border-bottom:1px solid var(--popup-line)}
 .driver-popup-title{font-size:18px;font-weight:600;letter-spacing:.08em;text-transform:uppercase}
 .driver-popup-close{background:none;border:none;color:inherit;font-size:24px;line-height:1;padding:4px 6px;cursor:pointer;border-radius:8px}
-.driver-popup-close:hover{background:rgba(143,163,193,.12)}
+.driver-popup-close:hover{background:var(--popup-hover)}
 .driver-popup-body{padding:18px 20px 22px;display:flex;flex-direction:column;gap:14px}
-.driver-popup-subtitle{font-size:14px;color:#9fb0c9}
+.driver-popup-subtitle{font-size:14px;color:var(--text-dim)}
 .driver-popup-list{list-style:none;padding:0;margin:0;display:flex;flex-direction:column;gap:10px}
-.driver-popup-item{display:flex;flex-direction:column;align-items:flex-start;gap:4px;padding:10px 12px;border-radius:12px;background:rgba(16,21,28,.85);border:1px solid rgba(143,163,193,.22)}
+.driver-popup-item{display:flex;flex-direction:column;align-items:flex-start;gap:4px;padding:10px 12px;border-radius:12px;background:var(--popup-item-bg);border:1px solid var(--popup-line-soft)}
 .driver-popup-item.is-active{border-color:var(--ui-accent);background:rgba(229,114,0,.16)}
 .driver-popup-item .driver-name{font-weight:600;font-size:15px}
-.driver-popup-item .driver-time{font-size:13px;color:#9fb0c9}
-.driver-popup-empty{font-size:14px;color:#9fb0c9}
+.driver-popup-item .driver-time{font-size:13px;color:var(--text-dim)}
+.driver-popup-empty{font-size:14px;color:var(--text-dim)}
 
 
 
@@ -361,6 +408,7 @@ body.kiosk-mode .credit{margin-top:auto;padding:8px 12px}
 
 
  </style>
+<script>(function(){try{if(localStorage.getItem('dispatcher-theme')==='light'){document.documentElement.setAttribute('data-theme','light');}}catch(_){}})();</script>
 <body data-hg-nav-requires-auth="true">
 <div id="left" style="flex:1;position:relative">
 <header>
@@ -383,6 +431,7 @@ body.kiosk-mode .credit{margin-top:auto;padding:8px 12px}
       <span class="duty-name" id="dispatch-duty-name">—</span>
     </div>
   </div>
+  <button id="theme-toggle" class="theme-toggle" type="button" title="Toggle light/dark mode" aria-label="Toggle light/dark mode"></button>
   <div id="banner" class="banner info"></div>
 </header>
 <div id="layout">
@@ -422,6 +471,36 @@ body.kiosk-mode .credit{margin-top:auto;padding:8px 12px}
 <iframe id="map-frame" data-src="/testmap?dispatcher=true" style="flex:1;height:100%"></iframe>
 <script>
 const $ = s => document.querySelector(s);
+
+// ---- Light/dark theme toggle ----
+const THEME_STORAGE_KEY = 'dispatcher-theme';
+function themeIcon(theme) {
+  const body = theme === 'light'
+    ? '<circle cx="8" cy="8" r="3"/><path d="M8 1.2v1.6M8 13.2v1.6M1.2 8h1.6M13.2 8h1.6M3.3 3.3l1.1 1.1M11.6 11.6l1.1 1.1M12.7 3.3l-1.1 1.1M4.4 11.6l-1.1 1.1"/>'
+    : '<path d="M13.2 9.4A5.6 5.6 0 1 1 6.6 2.8a4.6 4.6 0 0 0 6.6 6.6z"/>';
+  return `<svg viewBox="0 0 16 16" width="1em" height="1em" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${body}</svg>`;
+}
+function applyTheme(theme) {
+  document.documentElement.setAttribute('data-theme', theme);
+  const btn = document.getElementById('theme-toggle');
+  if (btn) btn.innerHTML = themeIcon(theme);
+}
+function toggleTheme() {
+  const current = document.documentElement.getAttribute('data-theme') === 'light' ? 'light' : 'dark';
+  const next = current === 'light' ? 'dark' : 'light';
+  try { localStorage.setItem(THEME_STORAGE_KEY, next); } catch (_) { /* private browsing, etc. */ }
+  applyTheme(next);
+}
+(function initTheme() {
+  let saved = null;
+  try { saved = localStorage.getItem(THEME_STORAGE_KEY); } catch (_) { /* soft-fail */ }
+  applyTheme(saved === 'light' ? 'light' : 'dark');
+})();
+(function(){
+  const themeToggleBtn = document.getElementById('theme-toggle');
+  if (themeToggleBtn) themeToggleBtn.addEventListener('click', toggleTheme);
+})();
+
 const DOWNED_ENDPOINT = '/v1/dispatcher/downed_buses';
 const DOWNED_REFRESH_MS = 60000;
 const DOWNED_SUFFIXES = new Set(['12','31','32']);
@@ -3479,7 +3558,7 @@ function updateExtraBuses(){
   extra.innerHTML=unassigned.length
     ? unassigned.map(entry=>{
         const normalizedId=entry.id||'';
-        let bg='#EEE8AA';
+        let bg='#DADADA';
         if(normalizedId && OVERHEIGHT_BUSES.includes(normalizedId)){
           bg='#E57200';
         }else if(normalizedId && normalizedId.startsWith('24')){
