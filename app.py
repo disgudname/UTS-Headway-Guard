@@ -32,7 +32,7 @@ from datetime import date, datetime, timedelta, time as dtime, timezone
 from email.utils import parsedate_to_datetime
 from zoneinfo import ZoneInfo
 import httpx
-from collections import deque, defaultdict
+from collections import deque, defaultdict, OrderedDict
 import xml.etree.ElementTree as ET
 from Crypto.Cipher import AES
 from Crypto.Util.Padding import unpad
@@ -1741,6 +1741,11 @@ app = FastAPI(title="UVATransit Operations Dashboard")
 # awareness, since it has none -- it compresses any response that clears minimum_size.
 _SSE_STREAM_PATH_PREFIXES = ("/v1/stream/", "/stream/")
 
+# Paths that must bypass gzip: it re-buffers the response and drops the 206
+# Partial Content / Range handling that the PMTiles client depends on (and the
+# .pmtiles archive is already internally gzip-compressed, so it's wasted work).
+_GZIP_BYPASS_PATH_PREFIXES = ("/livemap-vendor/",)
+
 
 class _ConditionalGZipMiddleware:
     def __init__(self, app, minimum_size: int = 500):
@@ -1749,7 +1754,9 @@ class _ConditionalGZipMiddleware:
 
     async def __call__(self, scope, receive, send):
         path = scope.get("path", "") if scope.get("type") == "http" else ""
-        if path.startswith(_SSE_STREAM_PATH_PREFIXES):
+        if path.startswith(_SSE_STREAM_PATH_PREFIXES) or path.startswith(
+            _GZIP_BYPASS_PATH_PREFIXES
+        ):
             await self._plain_app(scope, receive, send)
         else:
             await self._gzip_app(scope, receive, send)
@@ -1864,6 +1871,9 @@ DRIVER_HTML = _load_html("driver.html")
 DISPATCHER_HTML = _load_html("dispatcher.html")
 MAP_HTML = _load_html("map.html")
 TESTMAP_HTML = _load_html("testmap.html")
+LIVEMAP_HTML = _load_html("livemap.html")
+LIVEMAP_KIOSK_HTML = _load_html("livemap-kiosk.html")
+LIVEMAP_EMBED_HTML = _load_html("livemap-embed.html")
 KIOSKMAP_HTML = _load_html("kioskmap.html")
 CATTESTMAP_HTML = _load_html("cattestmap.html")
 DASHMAP_HTML = _load_html("dashmap.html")
@@ -12473,11 +12483,15 @@ async def anti_bunching_status(request: Request):
 # REST: On-Duty Personnel
 # ---------------------------
 
-# Position codes for on-duty personnel lookup
+# Position codes for on-duty personnel lookup. "FlexRide Dispatch" and
+# "OnDemand Dispatch" are two W2W positions covering the same demand-response
+# dispatch role; we fold them into one "dispatcher" bucket for display.
 ON_DUTY_POSITION_CODES = {
     "Sup": "Supervisor",
-    "OnDemand Dispatch": "OnDemand Dispatcher",
+    "OnDemand Dispatch": "Dispatcher",
+    "FlexRide Dispatch": "Dispatcher",
 }
+_DISPATCH_POSITION_CODES = {"OnDemand Dispatch", "FlexRide Dispatch"}
 
 
 def _get_current_and_next_shifts(
@@ -12660,8 +12674,21 @@ async def _fetch_on_duty_personnel() -> Dict[str, Any]:
 
             if position_key == "Sup":
                 all_supervisors.append(person)
-            elif position_key == "OnDemand Dispatch":
+            elif position_key in _DISPATCH_POSITION_CODES:
                 all_dispatchers.append(person)
+
+        # Fold the two dispatch positions together: if one person is scheduled on
+        # both FlexRide and OnDemand dispatch for an overlapping window, show them
+        # once.
+        seen_disp: Set[Tuple[str, int, int]] = set()
+        deduped_dispatchers = []
+        for p in all_dispatchers:
+            key = (p["name"], p["start_ts"], p["end_ts"])
+            if key in seen_disp:
+                continue
+            seen_disp.add(key)
+            deduped_dispatchers.append(p)
+        all_dispatchers = deduped_dispatchers
 
         # Determine current and next for each position type
         current_sups, next_sups = _get_current_and_next_shifts(all_supervisors, now_ts)
@@ -12703,6 +12730,234 @@ async def uts_on_duty(request: Request):
     """
     _require_dispatcher_access(request)
     return await _fetch_on_duty_personnel()
+
+
+# ---------------------------
+# REST: UVA building / facility search (backs the livemap search box)
+# ---------------------------
+
+_UVA_FACILITY_SEARCH_URL = (
+    "https://fm-atlas.eservices.virginia.edu/server/rest/services/"
+    "Public/PublicFacilitiesSearch/MapServer/0/query"
+)
+# The whole PublicFacilitiesSearch layer is only ~822 rows / <1 MB with geometry.
+# A per-keystroke leading-wildcard `LIKE '%term%'` across three UPPER()-wrapped
+# columns costs ~3 s upstream (no index can serve it); an unfiltered
+# `where=1=1` dump of the entire layer costs ~250 ms. So we pull the layer once,
+# hold it in memory, and match substrings locally. Refreshed on a long TTL
+# (buildings don't move) with a stale-while-revalidate swap. The old per-query
+# upstream search survives only as a fallback for when the bulk fetch has never
+# succeeded.
+_UVA_FACILITY_TTL_S = 12 * 3600
+_uva_facility_rows: Optional[List[Dict[str, Any]]] = None  # trimmed rows + geometry
+_uva_facility_fetched_at: float = 0.0                      # time.monotonic() stamp
+_uva_facility_lock = asyncio.Lock()
+_uva_facility_refreshing = False
+_uva_facility_fallback_cache = PerKeyTTLCache(ttl=6 * 3600, max_keys=300)
+_UVA_QUERY_OK = re.compile(r"[^A-Za-z0-9 &./@'\-]")
+
+
+def _facility_bbox(rings: List[List[List[float]]]):
+    xs: List[float] = []
+    ys: List[float] = []
+    for ring in rings or []:
+        for pt in ring:
+            if isinstance(pt, (list, tuple)) and len(pt) >= 2:
+                xs.append(float(pt[0]))
+                ys.append(float(pt[1]))
+    if not xs or not ys:
+        return None
+    return [min(xs), min(ys), max(xs), max(ys)]
+
+
+def _trim_facility_feature(feat: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+    """One ArcGIS feature -> the shape the livemap search box consumes, plus a
+    precomputed uppercase `_hay` string for local substring matching."""
+    attrs = feat.get("attributes") or {}
+    rings = (feat.get("geometry") or {}).get("rings")
+    if not rings:
+        return None
+    bbox = _facility_bbox(rings)
+    if not bbox:
+        return None
+    name = (attrs.get("FacilityName") or "").strip() or "Building"
+    number = (attrs.get("FacilityNumber") or "").strip()
+    address = " ".join((attrs.get("FullAddress") or "").split())
+    return {
+        "name": name,
+        "number": number,
+        "address": address,
+        "geometry": {"type": "Polygon", "coordinates": rings},
+        "bbox": bbox,
+        "_hay": f"{name}\n{number}\n{address}".upper(),
+    }
+
+
+async def _fetch_facility_layer() -> List[Dict[str, Any]]:
+    """Pull the entire PublicFacilitiesSearch layer (all rows + geometry)."""
+    params = {
+        "f": "json",
+        "where": "1=1",
+        "outFields": "FacilityName,FacilityNumber,FullAddress",
+        "returnGeometry": "true",
+        "outSR": "4326",
+        "resultRecordCount": "5000",
+    }
+    async with httpx.AsyncClient() as client:
+        resp = await client.get(_UVA_FACILITY_SEARCH_URL, params=params, timeout=30)
+    record_api_call("GET", str(resp.request.url), resp.status_code)
+    resp.raise_for_status()
+    data = resp.json()
+    if data.get("exceededTransferLimit"):
+        print("[facility] WARNING: layer fetch hit the server record cap — "
+              "search index is truncated")
+    rows: List[Dict[str, Any]] = []
+    for feat in data.get("features") or []:
+        row = _trim_facility_feature(feat)
+        if row:
+            rows.append(row)
+    return rows
+
+
+async def _refresh_facility_rows(*, force_wait: bool) -> None:
+    """Populate / replace the in-memory facility list.
+
+    force_wait=True  -> load synchronously (first ever load, or startup warm).
+    force_wait=False -> if a list already exists, kick a background refresh and
+                        return immediately (stale-while-revalidate).
+    """
+    global _uva_facility_rows, _uva_facility_fetched_at, _uva_facility_refreshing
+
+    if _uva_facility_rows is not None and not force_wait:
+        if _uva_facility_refreshing:
+            return
+        _uva_facility_refreshing = True
+
+        async def _bg():
+            global _uva_facility_rows, _uva_facility_fetched_at, _uva_facility_refreshing
+            try:
+                async with _uva_facility_lock:
+                    rows = await _fetch_facility_layer()
+                _uva_facility_rows = rows
+                _uva_facility_fetched_at = time.monotonic()
+                print(f"[facility] refreshed {len(rows)} buildings")
+            except Exception as e:  # keep serving the stale list
+                print(f"[facility] background refresh failed: {e}")
+            finally:
+                _uva_facility_refreshing = False
+
+        asyncio.create_task(_bg())
+        return
+
+    async with _uva_facility_lock:
+        fresh = _uva_facility_rows is not None and (
+            time.monotonic() - _uva_facility_fetched_at
+        ) < _UVA_FACILITY_TTL_S
+        if fresh:
+            return  # another waiter already loaded it
+        rows = await _fetch_facility_layer()
+        _uva_facility_rows = rows
+        _uva_facility_fetched_at = time.monotonic()
+        print(f"[facility] loaded {len(rows)} buildings")
+
+
+async def _facility_rows_or_none() -> Optional[List[Dict[str, Any]]]:
+    """The current in-memory list — loading it if absent, refreshing if stale.
+    Returns None only when we have nothing and the load failed."""
+    if _uva_facility_rows is None:
+        try:
+            await _refresh_facility_rows(force_wait=True)
+        except Exception as e:
+            print(f"[facility] initial load failed, using live fallback: {e}")
+            return None
+    elif (time.monotonic() - _uva_facility_fetched_at) >= _UVA_FACILITY_TTL_S:
+        await _refresh_facility_rows(force_wait=False)  # stale-while-revalidate
+    return _uva_facility_rows
+
+
+async def _live_facility_query(cleaned: str) -> Dict[str, Any]:
+    """Fallback only: the original per-query upstream LIKE search. Used when the
+    bulk layer fetch has never succeeded, so search still works (slowly)."""
+    like = cleaned.replace("'", "''").upper()
+
+    async def _fetch():
+        where = (
+            f"(UPPER(FacilityName) LIKE UPPER('%{like}%')) OR "
+            f"(UPPER(FacilityNumber) LIKE UPPER('%{like}%')) OR "
+            f"(UPPER(FullAddress) LIKE UPPER('%{like}%'))"
+        )
+        params = {
+            "f": "json",
+            "where": where,
+            "outFields": "FacilityName,FacilityNumber,FullAddress",
+            "returnGeometry": "true",
+            "outSR": "4326",
+            "resultRecordCount": "12",
+        }
+        async with httpx.AsyncClient() as client:
+            resp = await client.get(_UVA_FACILITY_SEARCH_URL, params=params, timeout=15)
+        record_api_call("GET", str(resp.request.url), resp.status_code)
+        resp.raise_for_status()
+        results = []
+        for feat in (resp.json().get("features") or [])[:12]:
+            row = _trim_facility_feature(feat)
+            if row:
+                row.pop("_hay", None)
+                results.append(row)
+        return {"results": results}
+
+    return await _uva_facility_fallback_cache.get(like, _fetch)
+
+
+@app.get("/v1/uva/facility_search")
+async def uva_facility_search(q: str = Query(..., min_length=2, max_length=80)):
+    """Type-ahead search of UVA building footprints for the livemap search box.
+
+    Backed by an in-memory copy of UVA Facilities Management's public
+    PublicFacilitiesSearch layer (same service the official Visitor Map uses,
+    no token). The whole layer (~822 rows) is pulled once and refreshed on a
+    12 h TTL; each request is a local substring match — no upstream call. If the
+    bulk fetch has never succeeded we fall back to a live per-query search.
+    """
+    cleaned = _UVA_QUERY_OK.sub("", q).strip()
+    if len(cleaned) < 2:
+        return {"results": []}
+
+    rows = await _facility_rows_or_none()
+    if rows is None:
+        try:
+            return await _live_facility_query(cleaned)
+        except httpx.HTTPError as exc:
+            raise HTTPException(
+                status_code=502, detail=f"facility search upstream error: {exc}"
+            ) from exc
+
+    needle = cleaned.upper()
+    matches = []
+    for row in rows:
+        if needle not in row["_hay"]:
+            continue
+        nm = row["name"].upper()
+        # Name-prefix hits first, then name-substring, then address-only.
+        rank = 0 if nm.startswith(needle) else (1 if needle in nm else 2)
+        matches.append((rank, row["name"], row))
+    matches.sort(key=lambda m: (m[0], m[1]))
+    results = [
+        {k: v for k, v in row.items() if k != "_hay"} for _, _, row in matches[:12]
+    ]
+    return {"results": results}
+
+
+@app.on_event("startup")
+async def _warm_facility_layer() -> None:
+    """Pull the building layer at boot so the first search is already instant."""
+    async def _warm():
+        try:
+            await _refresh_facility_rows(force_wait=True)
+        except Exception as e:
+            print(f"[facility] startup warm failed (will lazy-load on first search): {e}")
+
+    asyncio.create_task(_warm())
 
 
 # ---------------------------
@@ -13172,6 +13427,396 @@ async def marker_selection_menu_min_js():
 @app.get("/scripts/push-notifications.js", include_in_schema=False)
 async def push_notifications_js():
     return _serve_js_asset("push-notifications.js")
+
+
+# ---------------------------
+# New Live Map (livemap/*) — MapLibre GL rewrite of testmap. Served as native
+# ES modules (no build step): one guarded path route for the module tree, plus
+# the vendored MapLibre GL bundle. Edit sources under scripts/livemap/.
+# ---------------------------
+_LIVEMAP_SRC_DIR = (SCRIPT_DIR / "livemap").resolve()
+_LIVEMAP_VENDOR_DIR = (SCRIPT_DIR / "vendor").resolve()
+
+
+@app.get("/livemap.css", include_in_schema=False)
+async def livemap_css():
+    return _serve_css_asset("livemap.css")
+
+
+_LIVEMAP_VENDOR_MEDIA = {
+    "maplibre-gl.js": "application/javascript",
+    "maplibre-gl.css": "text/css",
+    "pmtiles.js": "application/javascript",
+    # Charlottesville/Albemarle street basemap (Protomaps extract of OSM). Served
+    # with Range support (Starlette FileResponse) so the pmtiles client can fetch
+    # only the byte ranges it needs.
+    "albemarle.pmtiles": "application/octet-stream",
+}
+
+
+def _range_file_response(request: Request, path: Path, media_type: str) -> Response:
+    """Serve a file with HTTP Range support.
+
+    Starlette only grew Range support for FileResponse in 0.45; this app pins an
+    older FastAPI/Starlette, and the PMTiles client hard-requires byte serving.
+    So we parse a single "bytes=start-end" range ourselves and 206 it.
+    """
+    size = path.stat().st_size
+    base_headers = {"Cache-Control": "public, max-age=86400", "Accept-Ranges": "bytes"}
+    rng = request.headers.get("range")
+    if rng and rng.strip().lower().startswith("bytes="):
+        spec = rng.split("=", 1)[1].split(",", 1)[0].strip()
+        start_s, _, end_s = spec.partition("-")
+        try:
+            if start_s == "":
+                # suffix range: last N bytes
+                length = int(end_s)
+                start = max(0, size - length)
+                end = size - 1
+            else:
+                start = int(start_s)
+                end = int(end_s) if end_s else size - 1
+        except ValueError:
+            start, end = 0, size - 1
+        end = min(end, size - 1)
+        if start > end or start >= size:
+            return Response(
+                status_code=416,
+                headers={**base_headers, "Content-Range": f"bytes */{size}"},
+            )
+        length = end - start + 1
+
+        def _iter():
+            with open(path, "rb") as fh:
+                fh.seek(start)
+                remaining = length
+                while remaining > 0:
+                    chunk = fh.read(min(65536, remaining))
+                    if not chunk:
+                        break
+                    remaining -= len(chunk)
+                    yield chunk
+
+        return StreamingResponse(
+            _iter(),
+            status_code=206,
+            media_type=media_type,
+            headers={
+                **base_headers,
+                "Content-Range": f"bytes {start}-{end}/{size}",
+                "Content-Length": str(length),
+            },
+        )
+    return FileResponse(path, media_type=media_type, headers=base_headers)
+
+
+@app.get("/livemap-vendor/{name}", include_in_schema=False)
+async def livemap_vendor_asset(name: str, request: Request):
+    media = _LIVEMAP_VENDOR_MEDIA.get(name)
+    if media is None:
+        raise HTTPException(status_code=404, detail="Not found")
+    return _range_file_response(request, _LIVEMAP_VENDOR_DIR / name, media)
+
+
+@app.get("/livemap-src/{path:path}", include_in_schema=False)
+async def livemap_src_asset(path: str):
+    if ".." in path or not re.fullmatch(r"[A-Za-z0-9_./-]+", path):
+        raise HTTPException(status_code=404, detail="Not found")
+    target = (_LIVEMAP_SRC_DIR / path).resolve()
+    if _LIVEMAP_SRC_DIR not in target.parents:
+        raise HTTPException(status_code=404, detail="Not found")
+    if target.suffix != ".js" or not target.is_file():
+        raise HTTPException(status_code=404, detail="Not found")
+    return FileResponse(
+        target,
+        media_type="application/javascript",
+        headers={"Cache-Control": "no-cache"},
+    )
+
+
+# City of Charlottesville GIS cartographic basemap (real road/sidewalk/alley
+# polygons) for the livemap. It's a cached ArcGIS raster service whose LOD
+# numbering is offset from the standard XYZ scheme by 12 (City LOD N == web
+# zoom N+12), so it can't be pointed at directly from MapLibre — we remap here
+# and cache tiles in-process so kiosks don't re-hammer the City server.
+_CVILLE_BASEMAP_TILE_URL = (
+    "https://gisweb.charlottesville.org/arcgis/rest/services/"
+    "basemap_world_mercator_expanded/MapServer/tile/{lod}/{y}/{x}"
+)
+_CVILLE_BASEMAP_ZOOM_OFFSET = 12
+_CVILLE_BASEMAP_MIN_Z = 12
+_CVILLE_BASEMAP_MAX_Z = 21
+_cville_basemap_cache: "OrderedDict[str, tuple[bytes, str]]" = OrderedDict()
+_CVILLE_BASEMAP_CACHE_MAX = 4000
+_cville_basemap_client: Optional[httpx.AsyncClient] = None
+
+
+@app.get("/citybasemap/{z}/{x}/{y}", include_in_schema=False)
+async def city_basemap_tile(z: int, x: int, y: int):
+    if not (_CVILLE_BASEMAP_MIN_Z <= z <= _CVILLE_BASEMAP_MAX_Z) or x < 0 or y < 0:
+        # Out of the City basemap's range — MapLibre falls back to the layer
+        # beneath (the Protomaps street basemap).
+        return Response(status_code=404)
+
+    key = f"{z}/{x}/{y}"
+    cached = _cville_basemap_cache.get(key)
+    if cached is not None:
+        _cville_basemap_cache.move_to_end(key)
+        body, ctype = cached
+        return Response(
+            content=body,
+            media_type=ctype,
+            headers={"Cache-Control": "public, max-age=604800"},
+        )
+
+    global _cville_basemap_client
+    if _cville_basemap_client is None:
+        _cville_basemap_client = httpx.AsyncClient(timeout=10.0)
+
+    url = _CVILLE_BASEMAP_TILE_URL.format(
+        lod=z - _CVILLE_BASEMAP_ZOOM_OFFSET, x=x, y=y
+    )
+    try:
+        upstream = await _cville_basemap_client.get(url)
+    except httpx.HTTPError:
+        return Response(status_code=502)
+    if upstream.status_code != 200 or not upstream.content:
+        return Response(status_code=404)
+
+    ctype = upstream.headers.get("content-type", "image/jpeg")
+    body = upstream.content
+    _cville_basemap_cache[key] = (body, ctype)
+    _cville_basemap_cache.move_to_end(key)
+    while len(_cville_basemap_cache) > _CVILLE_BASEMAP_CACHE_MAX:
+        _cville_basemap_cache.popitem(last=False)
+
+    return Response(
+        content=body,
+        media_type=ctype,
+        headers={"Cache-Control": "public, max-age=604800"},
+    )
+
+
+# UVA GIS's stylized vector basemap (ArcGIS Online, public, no token) — the
+# campus-detail layer under the livemap. Proxied same-origin so a locked-down
+# signage network (Yodeck etc.) that can't reach tiles.arcgis.com still gets a
+# basemap. Style JSON is held in memory (24 h); tiles / glyphs / sprites are
+# LRU-cached so kiosks don't re-hammer the upstream.
+_UVA_VTS_BASE = (
+    "https://tiles.arcgis.com/tiles/lipaMyHWQlV3h6yZ/arcgis/rest/services/"
+    "VTP_UVABasemap_Stylized/VectorTileServer"
+)
+_UVA_BASEMAP_STYLE_TTL_S = 24 * 3600
+_UVA_BASEMAP_TILE_CACHE_MAX = 6000
+# Disk cache on the Fly volume so a deploy / restart doesn't re-pull the whole
+# basemap from UVA GES. The in-memory LRU above is still the fast path; this just
+# survives restarts. The service is versioned, so tiles / glyphs / sprites never
+# change under a fixed URL — only the style JSON gets a TTL.
+_UVA_BASEMAP_DISK_DIR = PRIMARY_DATA_DIR / "livemap_basemap"
+_UVA_BASEMAP_DISK_MAX_BYTES = 256 * 1024 * 1024
+_UVA_BASEMAP_STYLE_KEY = "style"
+_uva_basemap_client: Optional[httpx.AsyncClient] = None
+_uva_basemap_style_cache: Optional[Tuple[bytes, float]] = None  # (json bytes, monotonic)
+_uva_basemap_asset_cache: "OrderedDict[str, tuple[bytes, str]]" = OrderedDict()
+_uva_basemap_disk_writes = 0
+
+
+async def _uva_basemap_get(path: str) -> httpx.Response:
+    global _uva_basemap_client
+    if _uva_basemap_client is None:
+        _uva_basemap_client = httpx.AsyncClient(timeout=15.0)
+    return await _uva_basemap_client.get(f"{_UVA_VTS_BASE}{path}")
+
+
+def _basemap_ctype_for_key(key: str, default: str = "application/octet-stream") -> str:
+    if key == _UVA_BASEMAP_STYLE_KEY or key.endswith(".json"):
+        return "application/json"
+    if key.endswith(".png"):
+        return "image/png"
+    if key.startswith(("t/", "f/")):
+        return "application/x-protobuf"
+    return default
+
+
+def _basemap_disk_path(key: str) -> Path:
+    return _UVA_BASEMAP_DISK_DIR / hashlib.sha1(key.encode("utf-8")).hexdigest()
+
+
+def _basemap_disk_age(key: str) -> Optional[float]:
+    try:
+        st = _basemap_disk_path(key).stat()
+        return max(0.0, time.time() - st.st_mtime)
+    except OSError:
+        return None
+
+
+def _basemap_disk_read(key: str, *, touch: bool = True) -> Optional[bytes]:
+    try:
+        p = _basemap_disk_path(key)
+        data = p.read_bytes()
+        if touch:
+            try:
+                os.utime(p, None)  # keep hot assets young for the size-cap prune
+            except OSError:
+                pass
+        return data or None
+    except OSError:
+        return None
+
+
+def _basemap_disk_prune() -> None:
+    try:
+        entries = []
+        total = 0
+        for p in _UVA_BASEMAP_DISK_DIR.iterdir():
+            try:
+                st = p.stat()
+            except OSError:
+                continue
+            entries.append((st.st_mtime, st.st_size, p))
+            total += st.st_size
+        if total <= _UVA_BASEMAP_DISK_MAX_BYTES:
+            return
+        entries.sort()  # oldest first
+        for _mtime, size, p in entries:
+            if total <= _UVA_BASEMAP_DISK_MAX_BYTES:
+                break
+            try:
+                p.unlink()
+                total -= size
+            except OSError:
+                pass
+    except OSError:
+        pass
+
+
+def _basemap_disk_write(key: str, body: bytes) -> None:
+    global _uva_basemap_disk_writes
+    if not body:
+        return
+    try:
+        _UVA_BASEMAP_DISK_DIR.mkdir(parents=True, exist_ok=True)
+        p = _basemap_disk_path(key)
+        tmp = p.with_name(p.name + ".tmp")
+        tmp.write_bytes(body)
+        tmp.replace(p)
+        _uva_basemap_disk_writes += 1
+        if _uva_basemap_disk_writes % 150 == 0:
+            _basemap_disk_prune()
+    except OSError:
+        pass  # read-only volume — the in-memory LRU still covers this run
+
+
+def _uva_basemap_cached_asset(key: str, ctype_default: str):
+    hit = _uva_basemap_asset_cache.get(key)
+    if hit is None:
+        return None
+    _uva_basemap_asset_cache.move_to_end(key)
+    body, ctype = hit
+    return Response(
+        content=body,
+        media_type=ctype or ctype_default,
+        headers={"Cache-Control": "public, max-age=604800"},
+    )
+
+
+def _uva_basemap_remember(key: str, body: bytes, ctype: str):
+    _uva_basemap_asset_cache[key] = (body, ctype)
+    _uva_basemap_asset_cache.move_to_end(key)
+    while len(_uva_basemap_asset_cache) > _UVA_BASEMAP_TILE_CACHE_MAX:
+        _uva_basemap_asset_cache.popitem(last=False)
+    return Response(
+        content=body,
+        media_type=ctype,
+        headers={"Cache-Control": "public, max-age=604800"},
+    )
+
+
+async def _uva_basemap_proxy_asset(path: str, key: str, ctype_default: str):
+    cached = _uva_basemap_cached_asset(key, ctype_default)
+    if cached is not None:
+        return cached
+    disk = _basemap_disk_read(key)
+    if disk is not None:
+        return _uva_basemap_remember(key, disk, _basemap_ctype_for_key(key, ctype_default))
+    try:
+        r = await _uva_basemap_get(path)
+    except httpx.HTTPError:
+        return Response(status_code=502)
+    if r.status_code == 404 or not r.content:
+        return Response(status_code=404)
+    if r.status_code != 200:
+        return Response(status_code=r.status_code)
+    ctype = r.headers.get("content-type", ctype_default)
+    _basemap_disk_write(key, r.content)
+    return _uva_basemap_remember(key, r.content, ctype)
+
+
+@app.get("/v1/livemap/basemap/style.json", include_in_schema=False)
+async def uva_basemap_style():
+    global _uva_basemap_style_cache
+    now = time.monotonic()
+    if _uva_basemap_style_cache and now - _uva_basemap_style_cache[1] < _UVA_BASEMAP_STYLE_TTL_S:
+        body = _uva_basemap_style_cache[0]
+    else:
+        body = None
+        disk_age = _basemap_disk_age(_UVA_BASEMAP_STYLE_KEY)
+        if disk_age is not None and disk_age < _UVA_BASEMAP_STYLE_TTL_S:
+            body = _basemap_disk_read(_UVA_BASEMAP_STYLE_KEY, touch=False)
+            if body:
+                _uva_basemap_style_cache = (body, now)
+        if body is None:
+            try:
+                r = await _uva_basemap_get("/resources/styles/root.json")
+                r.raise_for_status()
+                body = r.content
+                _uva_basemap_style_cache = (body, now)
+                _basemap_disk_write(_UVA_BASEMAP_STYLE_KEY, body)
+            except httpx.HTTPError as exc:
+                # serve stale (memory, then disk) rather than fail the wall
+                body = (
+                    (_uva_basemap_style_cache[0] if _uva_basemap_style_cache else None)
+                    or _basemap_disk_read(_UVA_BASEMAP_STYLE_KEY, touch=False)
+                )
+                if body is None:
+                    raise HTTPException(
+                        status_code=502, detail=f"UVA basemap style upstream error: {exc}"
+                    ) from exc
+    return Response(
+        content=body,
+        media_type="application/json",
+        headers={"Cache-Control": "public, max-age=86400"},
+    )
+
+
+@app.get("/v1/livemap/basemap/tile/{z}/{y}/{x}.pbf", include_in_schema=False)
+async def uva_basemap_tile(z: int, y: int, x: int):
+    if z < 0 or y < 0 or x < 0 or z > 22:
+        return Response(status_code=404)
+    return await _uva_basemap_proxy_asset(
+        f"/tile/{z}/{y}/{x}.pbf", f"t/{z}/{y}/{x}", "application/x-protobuf"
+    )
+
+
+@app.get("/v1/livemap/basemap/fonts/{fontstack}/{grange}.pbf", include_in_schema=False)
+async def uva_basemap_font(fontstack: str, grange: str):
+    if not re.fullmatch(r"[0-9]{1,5}-[0-9]{1,5}", grange):
+        raise HTTPException(status_code=404, detail="Not found")
+    return await _uva_basemap_proxy_asset(
+        f"/resources/fonts/{quote(fontstack, safe='')}/{grange}.pbf",
+        f"f/{fontstack}/{grange}",
+        "application/x-protobuf",
+    )
+
+
+@app.get("/v1/livemap/basemap/sprites/{name}", include_in_schema=False)
+async def uva_basemap_sprite(name: str):
+    if not re.fullmatch(r"sprite(@2x)?\.(json|png)", name):
+        raise HTTPException(status_code=404, detail="Not found")
+    default_ct = "application/json" if name.endswith(".json") else "image/png"
+    return await _uva_basemap_proxy_asset(
+        f"/resources/sprites/{name}", f"s/{name}", default_ct
+    )
 
 
 @app.get("/scripts/countdown.js", include_in_schema=False)
@@ -14407,6 +15052,67 @@ async def wv511_cameras():
 @app.get("/testmap")
 async def testmap_page():
     return HTMLResponse(TESTMAP_HTML)
+
+# Query-string params that carry a dispatch password for non-interactive
+# signage. There's no keyboard on a lobby screen, so the kiosk URL itself can
+# log the display in: /livemap/kiosk?adminKiosk&key=SECRET . On the first hit we
+# verify the password, set the normal dispatcher cookie, and 302 to the same URL
+# with the secret stripped, so it doesn't linger in the address bar / history /
+# Referer after that. It still lands in the server access log for that one
+# request — treat the URL as the secret, and give signage its own dispatch
+# password (the auth table supports several) so it can be rotated on its own.
+_KIOSK_AUTH_PARAMS = ("key", "k", "dispatchkey", "dispatchKey", "password", "pw")
+
+
+def _livemap_page_response(request: Request, html: str) -> Response:
+    qp = request.query_params
+    provided = None
+    for name in _KIOSK_AUTH_PARAMS:
+        if name in qp:
+            provided = qp[name]
+            break
+    if provided is None:
+        return HTMLResponse(html)
+
+    _refresh_dispatch_passwords()
+    secret_info = _normalize_dispatch_password(provided)
+    kept = [(k, v) for k, v in qp.multi_items() if k not in _KIOSK_AUTH_PARAMS]
+    target = request.url.path + (("?" + urlencode(kept)) if kept else "")
+    resp = RedirectResponse(url=target, status_code=302)
+    resp.headers["Cache-Control"] = "no-store"
+    if secret_info is not None:
+        label, access_type = secret_info
+        cookie_value = _dispatcher_cookie_value_for_label(label, access_type)
+        if cookie_value:
+            resp.set_cookie(
+                DISPATCH_COOKIE_NAME,
+                cookie_value,
+                max_age=DISPATCH_COOKIE_MAX_AGE,
+                httponly=True,
+                secure=DISPATCH_COOKIE_SECURE,
+                samesite="lax",
+            )
+    # A wrong password just redirects with no cookie -> signage shows the public
+    # view rather than erroring on a wall.
+    return resp
+
+
+@app.get("/livemap")
+async def livemap_page(request: Request):
+    return _livemap_page_response(request, LIVEMAP_HTML)
+
+@app.get("/livemap/kiosk")
+async def livemap_kiosk_page(request: Request):
+    # Hands-off public display: shares the livemap core, forces kiosk mode in
+    # scripts/livemap/apps/kiosk.js (?adminKiosk upgrades it to the dispatcher
+    # wall display). See core/modes.js for the URL knobs; ?key= logs it in.
+    return _livemap_page_response(request, LIVEMAP_KIOSK_HTML)
+
+@app.get("/livemap/embed")
+async def livemap_embed_page(request: Request):
+    # Stripped map for an <iframe> on another page (apps/embed.js forces
+    # embed mode). Camera stays interactive unless ?lock is set.
+    return _livemap_page_response(request, LIVEMAP_EMBED_HTML)
 
 @app.get("/kioskmap")
 async def kioskmap_page():

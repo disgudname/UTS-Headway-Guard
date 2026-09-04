@@ -118,6 +118,23 @@ TM.registerVisibilityResumeHandler(() => {
       let darkTileLayer = null;
       let systemPrefersDark = false;
 
+      // Satellite (aerial + roads/labels) basemap overlay. Esri World Imagery with
+      // Esri's transparent reference layers on top, plus a dimming scrim between
+      // them so route lines / vehicle pills keep their contrast over the photo.
+      const SATELLITE_STORAGE_KEY = 'testmap_satellite_enabled';
+      const ESRI_IMAGERY_URL = 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}';
+      const ESRI_TRANSPORTATION_URL = 'https://server.arcgisonline.com/ArcGIS/rest/services/Reference/World_Transportation/MapServer/tile/{z}/{y}/{x}';
+      const ESRI_PLACES_URL = 'https://server.arcgisonline.com/ArcGIS/rest/services/Reference/World_Boundaries_and_Places/MapServer/tile/{z}/{y}/{x}';
+      const ESRI_IMAGERY_ATTRIBUTION = 'Imagery &copy; <a href="https://www.esri.com/">Esri</a>, Maxar, Earthstar Geographics, USDA FSA, USGS &amp; the GIS User Community';
+      // 256px flat #0a0f1e tile; layer opacity does the actual dimming.
+      const SATELLITE_SCRIM_TILE = 'data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A//www.w3.org/2000/svg%22%20width%3D%22256%22%20height%3D%22256%22%3E%3Crect%20width%3D%22256%22%20height%3D%22256%22%20fill%3D%22%230a0f1e%22/%3E%3C/svg%3E';
+      const SATELLITE_SCRIM_OPACITY = 0.35;
+      let satelliteEnabled = false;
+      let satelliteImageryLayer = null;
+      let satelliteScrimLayer = null;
+      let satelliteTransportationLayer = null;
+      let satellitePlacesLayer = null;
+
       // Solar-based theme for kiosk modes (Charlottesville, VA coordinates)
       const SOLAR_THEME_LAT = 38.0293;
       const SOLAR_THEME_LON = -78.4767;
@@ -1940,6 +1957,78 @@ TM.registerVisibilityResumeHandler(() => {
         btn.setAttribute('aria-pressed', trafficVisible ? 'true' : 'false');
         const indicator = btn.querySelector('.toggle-indicator');
         if (indicator) indicator.textContent = trafficVisible ? 'On' : 'Off';
+      }
+
+      function getStoredSatellitePreference() {
+        if (typeof localStorage === 'undefined') return false;
+        try {
+          return localStorage.getItem(SATELLITE_STORAGE_KEY) === '1';
+        } catch (e) {
+          return false;
+        }
+      }
+
+      function storeSatellitePreference(enabled) {
+        if (typeof localStorage === 'undefined') return;
+        try {
+          localStorage.setItem(SATELLITE_STORAGE_KEY, enabled ? '1' : '0');
+        } catch (e) {
+          // localStorage not available
+        }
+      }
+
+      function ensureSatelliteLayers() {
+        if (satelliteImageryLayer) return;
+        satelliteImageryLayer = L.tileLayer(ESRI_IMAGERY_URL, {
+          pane: 'satelliteBasePane',
+          maxNativeZoom: 19,
+          attribution: ESRI_IMAGERY_ATTRIBUTION
+        });
+        satelliteScrimLayer = L.tileLayer(SATELLITE_SCRIM_TILE, {
+          pane: 'satelliteScrimPane',
+          opacity: SATELLITE_SCRIM_OPACITY
+        });
+        satelliteTransportationLayer = L.tileLayer(ESRI_TRANSPORTATION_URL, {
+          pane: 'satelliteRefPane',
+          maxNativeZoom: 19
+        });
+        satellitePlacesLayer = L.tileLayer(ESRI_PLACES_URL, {
+          pane: 'satelliteRefPane',
+          maxNativeZoom: 19
+        });
+      }
+
+      function setSatelliteEnabled(enabled) {
+        satelliteEnabled = !!enabled;
+        if (satelliteEnabled) {
+          ensureSatelliteLayers();
+          if (map) {
+            [satelliteImageryLayer, satelliteScrimLayer, satelliteTransportationLayer, satellitePlacesLayer]
+              .forEach(layer => { if (layer && !map.hasLayer(layer)) layer.addTo(map); });
+          }
+        } else {
+          [satelliteImageryLayer, satelliteScrimLayer, satelliteTransportationLayer, satellitePlacesLayer]
+            .forEach(layer => { if (layer && map && map.hasLayer(layer)) map.removeLayer(layer); });
+        }
+        storeSatellitePreference(satelliteEnabled);
+        updateSatelliteToggleButton();
+      }
+
+      function toggleSatelliteView() {
+        setSatelliteEnabled(!satelliteEnabled);
+      }
+
+      function updateSatelliteToggleButton() {
+        const btn = document.getElementById('satelliteToggleButton');
+        if (!btn) return;
+        btn.classList.toggle('is-active', satelliteEnabled);
+        btn.setAttribute('aria-pressed', satelliteEnabled ? 'true' : 'false');
+        const indicator = btn.querySelector('.toggle-indicator');
+        if (indicator) indicator.textContent = satelliteEnabled ? 'On' : 'Off';
+      }
+
+      if (typeof window !== 'undefined') {
+        window.toggleSatelliteView = toggleSatelliteView;
       }
 
       function applyRadarState() {
@@ -10417,6 +10506,9 @@ TM.registerVisibilityResumeHandler(() => {
               Dark
             </button>
           </div>
+          <button type="button" id="satelliteToggleButton" class="pill-button satellite-toggle-button${satelliteEnabled ? ' is-active' : ''}" aria-pressed="${satelliteEnabled ? 'true' : 'false'}" onclick="toggleSatelliteView()">
+            Satellite<span class="toggle-indicator">${satelliteEnabled ? 'On' : 'Off'}</span>
+          </button>
           <button type="button" id="centerMapButton" class="pill-button center-map-button" onclick="centerMapOnRoutes()">
             Center Map
           </button>
@@ -10650,6 +10742,7 @@ TM.registerVisibilityResumeHandler(() => {
         initializeRadarControls();
         updateDisplayModeButtons();
         updateThemeToggleButtons();
+        updateSatelliteToggleButton();
         updateTrainToggleButton();
         updateAircraftToggleButton();
         updateIncidentToggleButton();
@@ -12558,6 +12651,27 @@ TM.registerVisibilityResumeHandler(() => {
           });
           map.on('moveend', renderOnDemandStops);
           map.on('zoomend', renderOnDemandStops);
+          // Satellite basemap stack: imagery (just above the CARTO base tiles) ->
+          // dimming scrim -> Esri road/label reference tiles. All sit below the
+          // radar/traffic/route/stop/vehicle panes so only the basemap is dimmed.
+          map.createPane('satelliteBasePane');
+          const satelliteBasePane = map.getPane('satelliteBasePane');
+          if (satelliteBasePane) {
+              satelliteBasePane.style.zIndex = 210;
+              satelliteBasePane.style.pointerEvents = 'none';
+          }
+          map.createPane('satelliteScrimPane');
+          const satelliteScrimPane = map.getPane('satelliteScrimPane');
+          if (satelliteScrimPane) {
+              satelliteScrimPane.style.zIndex = 240;
+              satelliteScrimPane.style.pointerEvents = 'none';
+          }
+          map.createPane('satelliteRefPane');
+          const satelliteRefPane = map.getPane('satelliteRefPane');
+          if (satelliteRefPane) {
+              satelliteRefPane.style.zIndex = 260;
+              satelliteRefPane.style.pointerEvents = 'none';
+          }
           map.createPane(RADAR_PANE_NAME);
           const radarPane = map.getPane(RADAR_PANE_NAME);
           if (radarPane) {
@@ -12661,6 +12775,11 @@ TM.registerVisibilityResumeHandler(() => {
             darkTileLayer.addTo(map);
           } else {
             lightTileLayer.addTo(map);
+          }
+
+          // Restore the satellite basemap toggle from last session
+          if (getStoredSatellitePreference()) {
+            setSatelliteEnabled(true);
           }
 
           // Listen for system theme changes

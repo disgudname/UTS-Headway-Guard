@@ -1,4 +1,4 @@
-const CACHE_NAME = 'uvatransit-ops-v13';
+const CACHE_NAME = 'uvatransit-ops-v14';
 const OFFLINE_URL = '/offline';
 
 const STATIC_ASSETS = [

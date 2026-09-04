@@ -17,6 +17,22 @@
     return;
   }
 
+  // Live Map hides its own chrome for kiosk / embed / ?ui=none loads — mirror
+  // that here. (The /livemap/kiosk and /livemap/embed shells don't load this
+  // script at all; this only covers the params on the full /livemap page.)
+  if (path === '/livemap') {
+    const paramOn = (name) => {
+      if (!params.has(name)) return false;
+      const v = (params.get(name) || '').toLowerCase();
+      return v !== 'false' && v !== '0';
+    };
+    const ui = (params.get('ui') || '').toLowerCase();
+    if (ui === 'none') return;
+    if (ui !== 'full' && (paramOn('kiosk') || paramOn('adminKiosk') || paramOn('embed'))) {
+      return;
+    }
+  }
+
   const NAV_THEME_DEFAULT = {
     primary: '#232D4B',
     accent: '#E57200',
@@ -58,6 +74,14 @@
       requiresAuth: false,
       tier: 'primary',
       chip: '01',
+    },
+    {
+      href: '/livemap',
+      label: 'Live Map',
+      icon: '/media/map.svg',
+      requiresAuth: true,
+      tier: 'secondary',
+      beta: true,
     },
     {
       href: '/dispatcher',
@@ -231,6 +255,20 @@
       font-size:8px;
       letter-spacing:0.04em;
       color:rgba(255,255,255,0.32);
+    }
+    #${NAV_ID} .hg-nav__beta{
+      position:absolute;
+      top:3px;
+      right:5px;
+      font-family:'Luminator' !important;
+      font-size:7px;
+      font-weight:700;
+      letter-spacing:0.1em;
+      line-height:1;
+      padding:2px 4px 1px;
+      border-radius:5px;
+      background:var(--hg-nav-accent);
+      color:var(--hg-nav-accent-text);
     }
     /* Tiered sizing mirrors the index manifest's hierarchy: primary
        (most used) biggest and brightest, secondary medium, tertiary
@@ -546,6 +584,15 @@
       chip.textContent = link.chip;
       chip.setAttribute('aria-hidden', 'true');
       anchor.appendChild(chip);
+    }
+
+    if (link.beta) {
+      const betaTag = document.createElement('span');
+      betaTag.className = 'hg-nav__beta';
+      betaTag.textContent = 'BETA';
+      betaTag.setAttribute('aria-hidden', 'true');
+      anchor.appendChild(betaTag);
+      anchor.setAttribute('aria-label', link.label + ' (beta)');
     }
 
     const icon = document.createElement('span');

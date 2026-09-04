@@ -1,0 +1,2217 @@
+/* livemap.css
+ * ---------------------------------------------------------------------------
+ * Chrome for the new Live Map. Theme-aware via <html data-theme="light|dark">
+ * (set by livemap/core/theme.js). Keep this lean; feature modules ship their
+ * own scoped styles as they land.
+ * ------------------------------------------------------------------------- */
+
+:root {
+  /* UVA visual identity — brand.virginia.edu/design-assets/colors.
+     Blue (Jefferson) #232D4B, Orange (Cavalier) #E57200. Orange is ~2.9:1 on
+     white so it's used for fills / rings / dots, never as label text on a light
+     ground. */
+  --uva-navy: #232d4b;
+  --uva-navy-dark: #161d33;
+  --uva-orange: #e57200;
+
+  --accent: #e57200;
+  --accent-bright: #ff9c3e; /* lighter orange for gradient stops only */
+  --accent-soft: rgba(229, 114, 0, 0.28);
+
+  /* State colours — UVA secondary / emergency palette. Green #62BB46,
+     Emergency #DF1E43; amber has no brand equivalent bright enough for a dot. */
+  --ok: #62bb46;
+  --warn: #e5a100;
+  --bad: #df1e43;
+
+  /* Light (day) chrome — the panel design language matches /map (testmap):
+     gradient surface, one big soft shadow, 18px radius, 12px blur, filled
+     button chips. Values reproduced, not the (Codex-written) CSS. */
+  --panel-bg: rgba(255, 255, 255, 0.94);
+  --panel-surface: linear-gradient(180deg, rgba(255, 255, 255, 0.96), rgba(245, 248, 255, 0.96));
+  /* Right column (live status / routes — a monitoring surface, not controls)
+     reads a shade cooler so the two sides feel like distinct purposes. */
+  --panel-surface-alt: linear-gradient(180deg, rgba(246, 249, 255, 0.96), rgba(233, 239, 251, 0.96));
+  --panel-fg: #1f2937;
+  --panel-heading: var(--uva-navy);
+  --panel-muted: #4b5563;
+  --panel-border: rgba(35, 45, 75, 0.12);
+  --panel-hairline: rgba(35, 45, 75, 0.08);
+  /* Edge ring on a small filled indicator (route swatch, eye dot) so it stays
+     defined against the panel in either theme — dark ink on the light panel. */
+  --indicator-keyline: rgba(0, 0, 0, 0.22);
+  --panel-shadow: 0 20px 45px rgba(15, 23, 42, 0.25);
+  --hover-bg: rgba(35, 45, 75, 0.07);
+  /* Selected pill = orange, both themes (matches /map's active theme button) */
+  --toggle-active-bg: var(--uva-orange);
+  --toggle-active-fg: #1a2233;
+  --overlay-bg: rgba(243, 239, 230, 0.82);
+  --overlay-fg: #1c2333;
+  --scrollbar-thumb: rgba(35, 45, 75, 0.35);
+  --scrollbar-thumb-hover: rgba(35, 45, 75, 0.5);
+
+  /* Button chips (testmap's --btn-* family) */
+  --btn-bg: rgba(35, 45, 75, 0.1);
+  --btn-fg: #1b2540;
+  --btn-border: rgba(35, 45, 75, 0.18);
+  --btn-hover-bg: rgba(35, 45, 75, 0.18);
+
+  /* Shared motion — one decelerating curve for panels, carets, hovers. */
+  --ease: cubic-bezier(0.22, 0.61, 0.36, 1);
+  --dur: 0.24s;
+  --dur-fast: 0.12s;
+
+  --radius: 12px; /* inner cards / rows */
+  --radius-lg: 18px; /* whole panels — matches testmap */
+  --radius-sm: 8px; /* small buttons, swatches, pills */
+  --radius-pill: 999px;
+
+  /* Type scale — 6 steps. micro: sub-labels & "no buses"; xs: uppercase
+     section subheads; sm: body (rows, checks, buttons); md: names & panel
+     titles; lg: brand header; xl: popup close glyphs. */
+  --fs-micro: 10px;
+  --fs-xs: 11px;
+  --fs-sm: 12px;
+  --fs-md: 13px;
+  --fs-lg: 15px;
+  --fs-xl: 16px;
+
+  --focus-ring: 0 0 0 3px var(--accent-soft);
+  --panel-blur: blur(12px);
+
+  --radius-card: 16px; /* inner blocks (alerts, cards) — testmap's 16-18 */
+
+  /* Panel identity header (navy bar) */
+  --head-bg: linear-gradient(135deg, var(--uva-navy), var(--uva-navy-dark));
+  --head-sheen: rgba(255, 255, 255, 0.1);
+  --head-hairline: rgba(35, 45, 75, 0.5);
+
+  /* Map popups — the /map (testmap) look: navy card, thick white rim, orange
+     round close, big soft shadow. Deliberately theme-independent (same on day
+     and night, like testmap). */
+  --pop-bg: linear-gradient(135deg, var(--uva-navy), var(--uva-navy-dark));
+  --pop-edge: rgba(255, 255, 255, 0.92);
+  --pop-fg: #f8fafc;
+  --pop-muted: rgba(248, 250, 252, 0.72);
+  --pop-hairline: rgba(255, 255, 255, 0.16);
+  --pop-inset: rgba(255, 255, 255, 0.08);
+  --pop-shadow: 0 18px 36px rgba(15, 23, 42, 0.42);
+}
+
+:root[data-theme='dark'] {
+  --panel-bg: rgba(26, 34, 51, 0.92);
+  --panel-surface: linear-gradient(180deg, rgba(30, 41, 59, 0.96), rgba(15, 23, 42, 0.96));
+  --panel-surface-alt: linear-gradient(180deg, rgba(34, 47, 71, 0.96), rgba(18, 28, 47, 0.96));
+  --panel-fg: #e2e8f0;
+  --panel-heading: #f1f5f9;
+  --panel-muted: #94a3b8;
+  --panel-border: rgba(150, 170, 210, 0.2);
+  --panel-hairline: rgba(150, 170, 210, 0.12);
+  --indicator-keyline: rgba(255, 255, 255, 0.3);
+  --panel-shadow: 0 20px 45px rgba(0, 0, 0, 0.4);
+  --hover-bg: rgba(150, 170, 210, 0.12);
+  --toggle-active-bg: var(--uva-orange);
+  --toggle-active-fg: #1a2233;
+  --overlay-bg: rgba(20, 26, 40, 0.82);
+  --overlay-fg: #dfe6f1;
+  --scrollbar-thumb: rgba(148, 163, 184, 0.3);
+  --scrollbar-thumb-hover: rgba(148, 163, 184, 0.46);
+
+  --btn-bg: rgba(148, 163, 184, 0.15);
+  --btn-fg: #e2e8f0;
+  --btn-border: rgba(148, 163, 184, 0.2);
+  --btn-hover-bg: rgba(148, 163, 184, 0.25);
+
+  /* Lighter, bluer navy so the header separates from the dark slate panel body */
+  --head-bg: linear-gradient(135deg, #35466f, #283755);
+  --head-sheen: rgba(255, 255, 255, 0.14);
+  --head-hairline: rgba(0, 0, 0, 0.45);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  :root {
+    --dur: 0.01ms;
+    --dur-fast: 0.01ms;
+  }
+}
+
+/* Custom scrollbars anywhere a panel body scrolls. */
+.livemap-panel *,
+.livemap-panel {
+  scrollbar-width: thin;
+  scrollbar-color: var(--scrollbar-thumb) transparent;
+}
+
+.livemap-panel *::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+.livemap-panel *::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.livemap-panel *::-webkit-scrollbar-thumb {
+  background: var(--scrollbar-thumb);
+  border-radius: var(--radius-pill);
+}
+
+.livemap-panel *::-webkit-scrollbar-thumb:hover {
+  background: var(--scrollbar-thumb-hover);
+}
+
+/* One real focus ring for every control in the chrome (keyboard only). */
+.livemap-panel button:focus-visible,
+.livemap-panel input:focus-visible,
+.livemap-panel label:focus-visible,
+.livemap-panel [tabindex]:focus-visible,
+.livemap-theme-toggle button:focus-visible,
+.livemap-panel-tab:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring);
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  height: 100%;
+  overflow: hidden;
+  /* Libre Franklin = UVA's endorsed web equivalent for Franklin Gothic
+     (loaded in the page head); brand-spec fallback is Helvetica, Arial. */
+  font-family: 'Libre Franklin', 'Helvetica Neue', Helvetica, Arial, sans-serif;
+  background: #f3efe6;
+}
+
+:root[data-theme='dark'] body {
+  background: #1a2233;
+}
+
+#map {
+  position: absolute;
+  inset: 0;
+}
+
+/* --- MapLibre control skin ---------------------------------------------- */
+
+.maplibregl-ctrl-group {
+  background: var(--panel-surface);
+  border: 1px solid var(--panel-border);
+  box-shadow: var(--panel-shadow);
+  backdrop-filter: var(--panel-blur);
+  border-radius: var(--radius-sm);
+  overflow: hidden;
+}
+
+.maplibregl-ctrl-group button + button {
+  border-top-color: var(--panel-border);
+}
+
+.livemap-theme-toggle {
+  display: flex;
+  width: max-content;
+  border-radius: 7px;
+  overflow: hidden;
+}
+
+.livemap-theme-toggle button {
+  appearance: none;
+  border: 0;
+  flex: 0 0 auto;
+  padding: 0 13px;
+  height: 30px;
+  white-space: nowrap;
+  font: 600 12px/1 'Libre Franklin', 'Helvetica Neue', Helvetica, Arial, sans-serif;
+  letter-spacing: 0.02em;
+  color: var(--panel-fg);
+  background: transparent;
+  cursor: pointer;
+  transition: background-color 0.14s ease, color 0.14s ease;
+}
+
+.livemap-theme-toggle button + button {
+  border-left: 1px solid var(--panel-border);
+}
+
+.livemap-theme-toggle button:hover {
+  background: var(--hover-bg);
+}
+
+.livemap-theme-toggle button.is-active {
+  background: var(--toggle-active-bg);
+  color: var(--toggle-active-fg);
+}
+
+/* --- loading overlay -------------------------------------------------------- */
+
+.loading-overlay {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--overlay-bg);
+  color: var(--overlay-fg);
+  z-index: 500;
+  transition: opacity 0.35s var(--ease), visibility 0s linear 0s;
+}
+
+.loading-overlay.is-hidden {
+  opacity: 0;
+  pointer-events: none;
+  visibility: hidden;
+  transition: opacity 0.35s var(--ease), visibility 0s linear 0.35s;
+}
+
+.loading-overlay.is-hidden .loading-overlay__mark {
+  transform: scale(0.96);
+}
+
+.loading-overlay__inner {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 16px;
+  font-weight: 600;
+}
+
+/* Navy card holding the white UVATransit wordmark — echoes the panel brand
+   header, and works on both the light (paper) and dark overlay grounds. */
+.loading-overlay__mark {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 16px 22px;
+  border-radius: var(--radius-card);
+  background: var(--head-bg);
+  box-shadow: 0 14px 34px rgba(15, 23, 42, 0.22), inset 0 1px 0 var(--head-sheen);
+  transition: transform 0.35s var(--ease);
+}
+
+.loading-overlay__mark img {
+  display: block;
+  width: 132px;
+  height: auto;
+}
+
+.loading-overlay__spinner {
+  width: 30px;
+  height: 30px;
+  border-radius: 50%;
+  border: 3px solid rgba(127, 127, 127, 0.3);
+  border-top-color: var(--uva-orange);
+  animation: livemap-spin 0.9s linear infinite;
+}
+
+@keyframes livemap-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .loading-overlay__spinner {
+    animation-duration: 2.4s;
+  }
+}
+
+/* --- map popups (vehicle · stop · CAT · incident · van) -------------------- */
+/* One shared skin for every popup on the map, matching /map (testmap): a navy
+   gradient card with a thick white rim, a white tip, big soft shadow, light
+   text, and an orange round close button. */
+
+.livemap-vehicle-popup .maplibregl-popup-content,
+.livemap-stop-popup .maplibregl-popup-content {
+  padding: 13px 15px 14px;
+  border-radius: var(--radius-card);
+  background: var(--pop-bg);
+  color: var(--pop-fg);
+  border: 3px solid var(--pop-edge);
+  box-shadow: var(--pop-shadow), inset 0 1px 0 var(--pop-inset);
+  font-family: inherit;
+  font-variant-numeric: tabular-nums;
+}
+
+/* White tip to read as the card's rim carrying on past the corner. Covers all
+   four cardinal anchors (MapLibre colours only the pointing side). */
+.livemap-vehicle-popup .maplibregl-popup-anchor-bottom .maplibregl-popup-tip,
+.livemap-stop-popup .maplibregl-popup-anchor-bottom .maplibregl-popup-tip {
+  border-top-color: var(--pop-edge);
+}
+.livemap-vehicle-popup .maplibregl-popup-anchor-top .maplibregl-popup-tip,
+.livemap-stop-popup .maplibregl-popup-anchor-top .maplibregl-popup-tip {
+  border-bottom-color: var(--pop-edge);
+}
+.livemap-vehicle-popup .maplibregl-popup-anchor-left .maplibregl-popup-tip,
+.livemap-stop-popup .maplibregl-popup-anchor-left .maplibregl-popup-tip {
+  border-right-color: var(--pop-edge);
+}
+.livemap-vehicle-popup .maplibregl-popup-anchor-right .maplibregl-popup-tip,
+.livemap-stop-popup .maplibregl-popup-anchor-right .maplibregl-popup-tip {
+  border-left-color: var(--pop-edge);
+}
+
+.livemap-vehicle-popup .maplibregl-popup-close-button,
+.livemap-stop-popup .maplibregl-popup-close-button {
+  top: 7px;
+  right: 7px;
+  width: 21px;
+  height: 21px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  border: 0;
+  background: linear-gradient(135deg, var(--accent), var(--accent-bright));
+  color: #1f1300;
+  font-size: 14px;
+  line-height: 1;
+  box-shadow: 0 8px 18px rgba(229, 114, 0, 0.42);
+  transition: transform var(--dur-fast) var(--ease), box-shadow var(--dur-fast) var(--ease);
+}
+
+.livemap-vehicle-popup .maplibregl-popup-close-button:hover,
+.livemap-stop-popup .maplibregl-popup-close-button:hover {
+  transform: translateY(-1px);
+  background: linear-gradient(135deg, var(--accent), var(--accent-bright));
+  box-shadow: 0 12px 24px rgba(229, 114, 0, 0.52);
+}
+
+/* First line in either popup clears the round close button in the corner. */
+.lv-pop > :first-child,
+.ls-pop > :first-child {
+  padding-right: 22px;
+}
+
+.lv-route {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-weight: 700;
+  font-size: var(--fs-md);
+}
+
+.lv-swatch {
+  width: 10px;
+  height: 10px;
+  border-radius: 3px;
+  flex: 0 0 auto;
+  box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.35) inset;
+}
+
+.lv-name {
+  font-size: var(--fs-lg);
+  font-weight: 700;
+  margin-top: 3px;
+}
+
+.lv-meta {
+  font-size: var(--fs-sm);
+  opacity: 0.75;
+  margin-top: 2px;
+}
+
+.lv-shift {
+  opacity: 0.7;
+  font-variant-numeric: tabular-nums;
+}
+
+.lv-access {
+  font-style: italic;
+}
+
+.lv-manifest {
+  margin-top: 8px;
+  border-top: 1px solid var(--pop-hairline);
+  padding-top: 6px;
+}
+
+.lv-manifest-h {
+  font-size: var(--fs-micro);
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  opacity: 0.6;
+  margin-bottom: 3px;
+}
+
+.lv-manifest-row {
+  font-size: var(--fs-sm);
+  padding: 3px 0;
+  line-height: 1.35;
+}
+
+.lv-manifest-row + .lv-manifest-row {
+  border-top: 1px dashed var(--pop-hairline);
+}
+
+.lv-manifest-n {
+  display: inline-block;
+  min-width: 14px;
+  font-weight: 700;
+  opacity: 0.5;
+}
+
+.lv-manifest-k {
+  font-weight: 700;
+}
+/* Brighter tints than the light-panel --ok/--bad so they carry on the navy card. */
+.lv-manifest-k--p {
+  color: #7bd95f;
+}
+.lv-manifest-k--d {
+  color: #ff6b81;
+}
+
+.lv-manifest-addr {
+  opacity: 0.7;
+  margin-left: 14px;
+}
+
+.lv-occ {
+  margin-top: 8px;
+}
+
+.lv-occ-bar {
+  height: 6px;
+  border-radius: 3px;
+  background: rgba(127, 127, 127, 0.25);
+  overflow: hidden;
+}
+
+.lv-occ-bar span {
+  display: block;
+  height: 100%;
+  background: linear-gradient(90deg, var(--ok), var(--warn) 70%, var(--bad));
+}
+
+.lv-occ-label {
+  font-size: var(--fs-xs);
+  opacity: 0.7;
+  margin-top: 3px;
+}
+
+.lv-follow {
+  margin-top: 10px;
+  width: 100%;
+  appearance: none;
+  border: 1px solid var(--pop-hairline);
+  border-radius: var(--radius-sm);
+  padding: 8px 10px;
+  font: 600 var(--fs-sm)/1 inherit;
+  color: var(--pop-fg);
+  background: rgba(255, 255, 255, 0.1);
+  cursor: pointer;
+  transition: background-color var(--dur-fast) var(--ease), box-shadow var(--dur-fast) var(--ease);
+}
+
+.lv-follow:hover {
+  background: rgba(255, 255, 255, 0.18);
+}
+
+.lv-follow.is-on {
+  background: linear-gradient(135deg, var(--accent), var(--accent-bright));
+  color: #1f1300;
+  border-color: transparent;
+  box-shadow: 0 10px 20px rgba(229, 114, 0, 0.35);
+}
+
+/* --- follow chip ------------------------------------------------------------ */
+
+.livemap-follow-chip {
+  position: absolute;
+  left: 50%;
+  bottom: 22px;
+  transform: translateX(-50%);
+  z-index: 450;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 8px 7px 14px;
+  border-radius: var(--radius-pill);
+  font: 600 var(--fs-md)/1 inherit;
+  color: var(--panel-fg);
+  background: var(--panel-surface);
+  border: 1px solid var(--panel-border);
+  box-shadow: var(--panel-shadow);
+  backdrop-filter: var(--panel-blur);
+  cursor: pointer; /* the whole chip releases the follow lock */
+  transition: opacity var(--dur) var(--ease), transform var(--dur) var(--ease),
+    background-color var(--dur-fast) var(--ease);
+}
+
+.livemap-follow-chip:hover {
+  background: var(--btn-hover-bg);
+}
+
+/* Slides up + fades rather than snapping in/out. Kept in the layout while
+   hidden (opacity/pointer-events do the hiding) so the exit can animate. */
+.livemap-follow-chip[hidden] {
+  display: flex;
+  opacity: 0;
+  transform: translateX(-50%) translateY(12px);
+  pointer-events: none;
+}
+
+.livemap-follow-chip .lfc-x {
+  appearance: none;
+  border: 0;
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  font-size: var(--fs-lg);
+  line-height: 1;
+  cursor: pointer;
+  color: var(--panel-fg);
+  background: rgba(127, 127, 127, 0.16);
+}
+
+.livemap-follow-chip:hover .lfc-x,
+.livemap-follow-chip .lfc-x:hover {
+  background: rgba(127, 127, 127, 0.3);
+}
+
+/* --- popup contents ----------------------------------------------------------- */
+
+@keyframes livemap-pop-in {
+  from {
+    opacity: 0;
+    transform: translateY(4px) scale(0.97);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+.livemap-stop-popup .maplibregl-popup-content,
+.livemap-vehicle-popup .maplibregl-popup-content {
+  animation: livemap-pop-in var(--dur) var(--ease);
+}
+
+.ls-name {
+  font-size: var(--fs-md);
+  font-weight: 700;
+  margin-bottom: 6px;
+}
+
+.ls-row {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 3px 0;
+  font-size: var(--fs-sm);
+}
+
+.ls-sw {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  flex: 0 0 auto;
+  box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.35) inset;
+}
+
+.ls-route {
+  flex: 1 1 auto;
+  min-width: 58px;
+  font-weight: 600;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.ls-eta {
+  flex: 0 0 auto;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.ls-eta.is-none {
+  font-weight: 500;
+  opacity: 0.55;
+}
+
+.ls-empty {
+  font-size: var(--fs-sm);
+  opacity: 0.7;
+}
+
+/* Agency chip in a popup heading (CAT / UVA RIDE / PULSEPOINT / …). */
+.ls-tag {
+  display: inline-block;
+  margin-left: 4px;
+  padding: 1px 6px;
+  border-radius: var(--radius-pill);
+  font-size: var(--fs-micro);
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  vertical-align: middle;
+  background: rgba(255, 255, 255, 0.16);
+  border: 1px solid rgba(255, 255, 255, 0.22);
+  color: var(--pop-fg);
+}
+
+.ls-dir {
+  font-weight: 500;
+  opacity: 0.6;
+  font-size: var(--fs-xs);
+}
+
+/* --- PulsePoint incident popup (parity with /map's .incident-popup) --------- */
+.livemap-incident-popup .maplibregl-popup-content {
+  padding: 14px 15px 15px;
+}
+
+.incident-popup {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  color: var(--pop-fg);
+}
+
+.incident-popup__header {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+}
+
+.incident-popup__icon {
+  flex: 0 0 auto;
+  width: 52px;
+  height: 52px;
+  border-radius: 14px;
+  background: #fff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  box-shadow: inset 0 0 0 1px rgba(15, 23, 42, 0.08), 0 8px 18px rgba(15, 23, 42, 0.35);
+}
+
+.incident-popup__icon img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  display: block;
+}
+
+.incident-popup__icon-fallback {
+  font-size: 22px;
+  font-weight: 800;
+  color: rgba(15, 23, 42, 0.75);
+}
+
+.incident-popup__details {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  padding-right: 20px; /* clear the round close button */
+}
+
+.incident-popup__title {
+  font-size: var(--fs-lg);
+  font-weight: 800;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+  line-height: 1.2;
+}
+
+.incident-popup__meta {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.incident-popup__meta-line {
+  font-size: var(--fs-sm);
+  line-height: 1.35;
+  color: var(--pop-muted);
+  overflow-wrap: anywhere;
+}
+
+.incident-popup__section {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  border-top: 1px solid var(--pop-hairline);
+  padding-top: 10px;
+}
+
+.incident-popup__section-title {
+  font-size: var(--fs-micro);
+  font-weight: 700;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+  color: var(--pop-muted);
+}
+
+.incident-popup__routes-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+}
+
+.incident-popup__route {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 9px;
+  border-radius: var(--radius-pill);
+  border: 1px solid transparent;
+  font-size: var(--fs-xs);
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  white-space: nowrap;
+}
+
+.incident-popup__units {
+  gap: 8px;
+}
+
+.incident-popup__unit-status-group {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.incident-popup__unit-status-title {
+  font-size: var(--fs-xs);
+  font-weight: 700;
+  color: var(--pop-fg);
+}
+
+.incident-popup__unit-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.incident-unit {
+  display: inline-flex;
+  align-items: center;
+  padding: 1px 7px;
+  border-radius: var(--radius-sm);
+  border: 1px solid currentColor;
+  background: rgba(255, 255, 255, 0.06);
+  font-size: var(--fs-xs);
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+
+/* --- panels (left control · right column) ------------------------------------ */
+
+.livemap-panel {
+  border-radius: var(--radius-lg);
+  color: var(--panel-fg);
+  background: var(--panel-bg);
+  background: var(--panel-surface);
+  border: 1px solid var(--panel-border);
+  box-shadow: var(--panel-shadow);
+  backdrop-filter: var(--panel-blur);
+  overflow: hidden;
+  font-family: inherit;
+  font-variant-numeric: tabular-nums;
+}
+
+.livemap-panel--left {
+  position: absolute;
+  top: 10px;
+  left: 10px;
+  z-index: 450;
+  width: 224px;
+  transition: transform var(--dur) var(--ease), opacity var(--dur) var(--ease);
+}
+
+.livemap-right-column {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  z-index: 450;
+  width: 232px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  max-height: calc(100% - 20px);
+  transition: transform var(--dur) var(--ease), opacity var(--dur) var(--ease);
+}
+
+.livemap-panel--left.is-away {
+  transform: translateX(calc(-100% - 14px));
+  opacity: 0;
+  pointer-events: none;
+}
+
+.livemap-right-column.is-away {
+  transform: translateX(calc(100% + 14px));
+  opacity: 0;
+  pointer-events: none;
+}
+
+/* Cooler surface on the right column so the read-only monitoring side reads
+   as distinct from the left control panel. */
+.livemap-right-column .livemap-panel {
+  background: var(--panel-surface-alt);
+}
+
+/* --- narrow / phone layout -------------------------------------------------
+   Both panels already start collapsed under ~760px wide (panels.js). Here we
+   make them usable when opened: near-full-width slide-overs that scroll, with
+   larger touch targets. The map + search stay reachable — close a panel to
+   see them. */
+@media (max-width: 620px) {
+  .livemap-panel--left,
+  .livemap-right-column {
+    width: min(360px, calc(100vw - 20px));
+    max-height: calc(100% - 20px);
+  }
+
+  .livemap-panel--left {
+    overflow-y: auto;
+  }
+
+  /* (phone search-bar rules live in a 2nd @media below, AFTER the base
+     .livemap-search / .lsb-field rules — same specificity, source order wins.) */
+
+  /* ≥44px touch targets */
+  .lp-check,
+  .lp-row,
+  .lp-section-head,
+  .lp-btn,
+  .lp-pills button,
+  .lp-check + .lp-btn {
+    min-height: 42px;
+  }
+
+  .lp-section-head {
+    padding-top: 13px;
+    padding-bottom: 13px;
+  }
+}
+/* (edge-tab phone rules live in a 2nd @media below, AFTER the base .livemap-panel-tab
+   rules — same specificity, so source order decides.) */
+
+/* Right-column vertical budget: Status + Service alerts take their natural
+   height and never shrink; the route lists absorb whatever's left and scroll
+   internally. Without this every panel shrinks proportionally when the column
+   overflows and `overflow:hidden` clips their text (Status losing its last
+   line). */
+.livemap-panel--status,
+.livemap-panel--alerts {
+  flex: 0 0 auto;
+}
+
+.livemap-panel--routes {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+/* CAT routes section hides entirely when the CAT overlay is off (the class's
+   own display:flex would otherwise beat the [hidden] attribute). */
+.livemap-panel--routes[hidden] {
+  display: none;
+}
+
+.lp-head {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 8px 10px;
+}
+
+/* Panel identity header — navy gradient, white text, hairline underline.
+   Used on the left panel's brand bar and the right column's Status panel. */
+.lp-head--brand,
+.lp-head--plain {
+  padding: 14px 16px 15px;
+  background: var(--head-bg);
+  color: #fff;
+  box-shadow: inset 0 1px 0 var(--head-sheen), 0 1px 0 var(--head-hairline);
+}
+
+.lp-head--brand {
+  justify-content: space-between;
+}
+
+.lp-head-title {
+  font: 700 var(--fs-lg)/1 inherit;
+  letter-spacing: 0.3px;
+}
+
+/* White UVATransit wordmark, sits directly on the navy brand header. */
+.lp-wordmark {
+  height: 21px;
+  width: auto;
+  display: block;
+  flex: 0 0 auto;
+}
+
+.lp-title {
+  font: 700 var(--fs-md)/1 inherit;
+  letter-spacing: 0.02em;
+}
+
+.lp-head--plain .lp-title {
+  font-size: var(--fs-lg);
+  letter-spacing: 0.3px;
+}
+
+.lp-feed {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  font: 700 var(--fs-sm)/1 inherit;
+  letter-spacing: 0.02em;
+}
+
+.lp-head--brand .lp-feed {
+  font-weight: 600;
+  color: rgba(255, 255, 255, 0.78);
+}
+
+.lp-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex: 0 0 auto;
+  background: #9aa4b2;
+  box-shadow: 0 0 0 3px rgba(154, 164, 178, 0.25);
+}
+
+.lp-dot.is-live {
+  background: var(--ok);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--ok) 30%, transparent);
+}
+
+.lp-dot.is-polling {
+  background: var(--warn);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--warn) 30%, transparent);
+}
+
+.lp-dot.is-down {
+  background: var(--bad);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--bad) 30%, transparent);
+}
+
+.lp-section {
+  border-top: 1px solid var(--panel-border);
+}
+
+/* A section can be hidden outright (e.g. the dispatcher-only On-Demand section
+   for a public viewer) — make sure [hidden] wins regardless of later rules. */
+.lp-section[hidden] {
+  display: none;
+}
+
+.lp-section-head {
+  appearance: none;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 11px;
+  font: 700 var(--fs-xs)/1.35 inherit;
+  letter-spacing: 0.075em;
+  text-transform: uppercase;
+}
+
+.lp-section-title {
+  color: var(--panel-muted);
+  flex: 1 1 auto;
+  text-align: left;
+}
+
+.lp-caret {
+  width: 0;
+  height: 0;
+  border-left: 5px solid currentColor;
+  border-top: 4px solid transparent;
+  border-bottom: 4px solid transparent;
+  transform: rotate(90deg);
+  transition: transform var(--dur) var(--ease);
+  opacity: 0.55;
+  flex: 0 0 auto;
+  order: 3; /* sits at the far right of the section head, like /map's chevron */
+  margin-left: 4px;
+}
+
+/* When a collapsible section IS a whole right-column panel (Service alerts,
+   Routes, CAT routes), its head is the panel's identity header — give it the
+   same navy treatment as the brand / Status headers. Sections nested inside the
+   left control panel keep the quiet grey subhead. */
+.livemap-panel--alerts > .lp-section-head,
+.livemap-panel--routes > .lp-section-head {
+  padding: 12px 14px;
+  background: var(--head-bg);
+  color: #fff;
+  font-size: var(--fs-xs);
+  box-shadow: inset 0 1px 0 var(--head-sheen), 0 1px 0 var(--head-hairline);
+}
+
+.livemap-panel--alerts > .lp-section-head .lp-section-title,
+.livemap-panel--routes > .lp-section-head .lp-section-title {
+  color: rgba(255, 255, 255, 0.96);
+}
+
+.livemap-panel--alerts > .lp-section-head .lp-caret,
+.livemap-panel--routes > .lp-section-head .lp-caret {
+  opacity: 0.8;
+}
+
+.livemap-panel--alerts > .lp-section-head .lp-bulk button,
+.livemap-panel--routes > .lp-section-head .lp-bulk button {
+  border-color: rgba(255, 255, 255, 0.3);
+  color: rgba(255, 255, 255, 0.9);
+}
+
+.livemap-panel--alerts > .lp-section-head .lp-bulk button:hover,
+.livemap-panel--routes > .lp-section-head .lp-bulk button:hover {
+  background: rgba(255, 255, 255, 0.15);
+}
+
+.lp-section.is-collapsed .lp-caret {
+  transform: rotate(0deg);
+}
+
+.lp-section.is-collapsed .lp-section-body {
+  display: none;
+}
+
+.lp-section-body {
+  padding: 6px 14px 13px;
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+
+.livemap-panel--routes .lp-section {
+  border-top: 0;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.lp-routes {
+  overflow-y: auto;
+  padding-top: 2px;
+}
+
+.lp-pills {
+  display: flex;
+  gap: 4px;
+  margin: 4px 0 2px;
+}
+
+.lp-pills button {
+  appearance: none;
+  flex: 1 1 0;
+  border: 1px solid var(--btn-border);
+  border-radius: var(--radius-sm);
+  background: var(--btn-bg);
+  color: var(--btn-fg);
+  font: 600 var(--fs-xs)/1 inherit;
+  padding: 6px 4px;
+  cursor: pointer;
+  transition: background-color var(--dur-fast) var(--ease), color var(--dur-fast) var(--ease);
+}
+
+.lp-pills button:hover {
+  background: var(--btn-hover-bg);
+}
+
+.lp-pills button.is-active {
+  background: var(--toggle-active-bg);
+  color: var(--toggle-active-fg);
+  border-color: transparent;
+}
+
+.lp-btn {
+  appearance: none;
+  border: 1px solid var(--btn-border);
+  border-radius: var(--radius-sm);
+  background: var(--btn-bg);
+  color: var(--btn-fg);
+  font: 600 var(--fs-sm)/1 inherit;
+  padding: 7px 8px;
+  margin-top: 3px;
+  cursor: pointer;
+  transition: background-color var(--dur-fast) var(--ease);
+}
+
+.lp-btn:hover {
+  background: var(--btn-hover-bg);
+}
+
+.lp-btn:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+/* --- dispatcher sign-in / sign-out --------------------------------------- */
+
+.lp-auth {
+  border-top: 1px solid var(--panel-border);
+  padding: 8px 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.lp-auth .lp-btn {
+  margin-top: 0;
+}
+
+.lp-auth-form[hidden],
+.lp-auth-in[hidden],
+.lp-auth-msg[hidden] {
+  display: none;
+}
+
+.lp-auth-row {
+  display: flex;
+  gap: 5px;
+}
+
+.lp-auth-pw {
+  flex: 1 1 auto;
+  min-width: 0;
+  appearance: none;
+  border: 1px solid var(--panel-border);
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: inherit;
+  font: 500 var(--fs-sm)/1 inherit;
+  padding: 7px 8px;
+}
+
+.lp-auth-go {
+  appearance: none;
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+  background: var(--toggle-active-bg);
+  color: var(--toggle-active-fg);
+  font: 700 var(--fs-sm)/1 inherit;
+  padding: 7px 11px;
+  cursor: pointer;
+}
+
+.lp-auth-go:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.lp-auth-cancel {
+  appearance: none;
+  border: 1px solid var(--panel-border);
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: inherit;
+  font: 700 var(--fs-md)/1 inherit;
+  padding: 0 9px;
+  cursor: pointer;
+}
+
+.lp-auth-msg {
+  font: 600 var(--fs-xs)/1.3 inherit;
+  color: var(--uva-orange);
+}
+
+.lp-auth-in {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.lp-auth-who {
+  font: 700 var(--fs-sm)/1.2 inherit;
+  letter-spacing: 0.01em;
+}
+
+/* Layer toggles are chip toggles, not checkboxes: a full-width pill with an
+   ON/OFF state badge. The native <input> stays (hidden) as the state + event
+   source so nothing in panels.js changes; :has() drives the visual state. */
+.lp-check {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 8px 7px 12px;
+  border-radius: var(--radius); /* rounded chip — pill would look odd on a 2-line label */
+  border: 1px solid var(--btn-border);
+  background: var(--btn-bg);
+  color: var(--btn-fg);
+  font: 600 var(--fs-sm)/1.3 inherit;
+  cursor: pointer;
+  transition: background-color var(--dur-fast) var(--ease),
+    border-color var(--dur-fast) var(--ease), color var(--dur-fast) var(--ease);
+}
+
+/* [hidden] has to beat the class's display:flex (e.g. the dispatcher-only
+   "Vehicle labels" row for a public viewer). */
+.lp-check[hidden] {
+  display: none;
+}
+
+.lp-check:hover {
+  background: var(--btn-hover-bg);
+}
+
+.lp-check input {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.lp-check span {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.lp-check::after {
+  content: 'OFF';
+  flex: 0 0 auto;
+  padding: 2px 8px;
+  border-radius: var(--radius-pill);
+  font-size: var(--fs-micro);
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  background: var(--panel-hairline);
+  color: var(--panel-muted);
+}
+
+.lp-check:has(input:checked) {
+  background: var(--accent-soft);
+  border-color: var(--accent);
+  color: var(--panel-heading);
+}
+
+.lp-check:has(input:checked)::after {
+  content: 'ON';
+  background: var(--accent);
+  color: #1a2233;
+}
+
+.lp-check:focus-within {
+  box-shadow: var(--focus-ring);
+}
+
+.lp-bulk {
+  display: flex;
+  gap: 4px;
+}
+
+.lp-bulk button {
+  appearance: none;
+  border: 1px solid var(--panel-border);
+  border-radius: 5px;
+  background: transparent;
+  color: inherit;
+  font: 600 var(--fs-micro)/1 inherit;
+  letter-spacing: 0;
+  padding: 4px 7px;
+  cursor: pointer;
+  transition: background-color 0.14s ease;
+}
+
+.lp-bulk button:hover {
+  background: rgba(127, 127, 127, 0.16);
+}
+
+.lp-row {
+  appearance: none;
+  border: 0;
+  width: 100%;
+  display: flex;
+  align-items: flex-start;
+  gap: 9px;
+  padding: 7px 7px;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+  text-align: left;
+  font: 600 var(--fs-sm)/1.3 inherit;
+  transition: background-color var(--dur-fast) var(--ease);
+}
+
+.lp-row:hover {
+  background: var(--hover-bg);
+}
+
+.lp-sw {
+  width: 12px;
+  height: 12px;
+  border-radius: 3px;
+  flex: 0 0 auto;
+  margin-top: 2px; /* optically centre on the first text line (rows top-align) */
+  box-shadow: 0 0 0 1px var(--indicator-keyline) inset;
+}
+
+.lp-name-wrap {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 2px 6px;
+  overflow: hidden;
+}
+
+.lp-name {
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.lp-note {
+  flex: 0 0 auto;
+  font-size: var(--fs-micro);
+  font-weight: 600;
+  color: var(--panel-muted);
+  letter-spacing: 0.02em;
+}
+
+/* Per-route InfoText — the schedule-variant routing note (e.g. "Fontaine
+   Service"). Wraps onto its own line under the route name. The whole row dims
+   via .lp-row.is-off when that route isn't currently drawn. */
+.lp-route-info {
+  flex: 1 0 100%;
+  font-size: var(--fs-micro);
+  font-weight: 500;
+  line-height: 1.3;
+  color: var(--panel-muted);
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+
+.lp-row.is-idle {
+  opacity: 0.68;
+}
+
+.lp-row.is-idle .lp-sw {
+  filter: grayscale(0.45);
+}
+
+.lp-eye {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  flex: 0 0 auto;
+  margin-top: 4px; /* optically centre on the first text line (rows top-align) */
+  background: var(--uva-orange);
+  box-shadow: 0 0 0 1px var(--indicator-keyline) inset;
+}
+
+.lp-row.is-off {
+  opacity: 0.5;
+}
+
+.lp-row.is-off .lp-sw {
+  filter: grayscale(1);
+}
+
+.lp-row.is-off .lp-eye {
+  background: transparent;
+  box-shadow: 0 0 0 1.5px currentColor inset;
+  opacity: 0.6;
+}
+
+.lp-empty {
+  padding: 8px 7px;
+  font-size: var(--fs-sm);
+  color: var(--panel-muted);
+}
+
+/* --- status panel body --------------------------------------------------- */
+
+.livemap-panel--status[hidden] {
+  display: none;
+}
+
+.st-group {
+  padding: 9px 0 10px;
+  border-top: 1px solid var(--panel-border);
+}
+
+.st-group:first-child {
+  border-top: 0;
+}
+
+.st-group-label {
+  font: 700 var(--fs-xs)/1.35 inherit;
+  letter-spacing: 0.075em;
+  text-transform: uppercase;
+  color: var(--panel-muted);
+  margin-bottom: 6px;
+}
+
+.st-line {
+  font-size: var(--fs-sm);
+  margin: 3px 0;
+  line-height: 1.4;
+}
+
+.st-key {
+  color: var(--panel-muted);
+  margin-right: 3px;
+}
+
+.st-next {
+  opacity: 0.7;
+  font-style: italic;
+}
+
+.st-empty {
+  opacity: 0.5;
+}
+
+.st-cond {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  font-size: var(--fs-sm);
+  margin: 4px 0;
+}
+
+.st-cond--warn {
+  color: var(--warn);
+}
+
+.st-ind {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex: 0 0 auto;
+  background: #9aa4b2;
+}
+
+.st-ind--online {
+  background: var(--ok);
+}
+
+.st-ind--offline {
+  background: var(--bad);
+}
+
+/* --- service alerts ----------------------------------------------------------- */
+
+.livemap-panel--alerts[hidden] {
+  display: none;
+}
+
+.lp-alerts-body {
+  padding: 0;
+  gap: 0;
+  max-height: 34vh;
+  overflow-y: auto;
+}
+
+.lp-alerts-body .lp-empty {
+  padding: 8px 10px;
+}
+
+.lp-badge {
+  min-width: 16px;
+  height: 16px;
+  padding: 0 4px;
+  border-radius: 8px;
+  font: 700 var(--fs-micro)/16px inherit;
+  text-align: center;
+  background: rgba(127, 127, 127, 0.22);
+  color: inherit;
+}
+
+.lp-badge.is-active {
+  background: var(--accent);
+  color: #1a2233;
+}
+
+.sa-item {
+  padding: 7px 10px;
+  border-top: 1px solid var(--panel-border);
+}
+
+.sa-item:first-child {
+  border-top: 0;
+}
+
+.sa-title {
+  font-weight: 700;
+  font-size: var(--fs-sm);
+}
+
+.sa-msg {
+  font-size: var(--fs-sm);
+  line-height: 1.4;
+  margin-top: 3px;
+  opacity: 0.9;
+}
+
+.sa-when {
+  font-size: var(--fs-xs);
+  opacity: 0.6;
+  margin-top: 4px;
+  font-variant-numeric: tabular-nums;
+}
+
+/* --- edge tabs --------------------------------------------------------------- */
+
+.livemap-panel-tab {
+  position: absolute;
+  top: 14px;
+  z-index: 449;
+  appearance: none;
+  width: 20px;
+  height: 44px;
+  padding: 0;
+  border: 1px solid var(--panel-border);
+  background: var(--panel-bg);
+  box-shadow: var(--panel-shadow);
+  backdrop-filter: blur(6px);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: left 0.22s ease, right 0.22s ease;
+}
+
+.livemap-panel-tab--left {
+  left: 244px;
+  border-radius: 0 7px 7px 0;
+  border-left: 0;
+}
+
+.livemap-panel-tab--right {
+  right: 252px;
+  border-radius: 7px 0 0 7px;
+  border-right: 0;
+}
+
+.livemap-panel-tab--left.is-away {
+  left: 0;
+}
+
+.livemap-panel-tab--right.is-away {
+  right: 0;
+}
+
+.lpt-arrow {
+  width: 0;
+  height: 0;
+  border-top: 5px solid transparent;
+  border-bottom: 5px solid transparent;
+  opacity: 0.6;
+}
+
+.livemap-panel-tab--left .lpt-arrow {
+  border-right: 6px solid currentColor;
+}
+
+.livemap-panel-tab--right .lpt-arrow {
+  border-left: 6px solid currentColor;
+}
+
+.livemap-panel-tab--left.is-away .lpt-arrow {
+  border-right: 0;
+  border-left: 6px solid currentColor;
+}
+
+.livemap-panel-tab--right.is-away .lpt-arrow {
+  border-left: 0;
+  border-right: 6px solid currentColor;
+}
+
+/* Phone edge tabs — MUST come after the base .livemap-panel-tab rules above
+   (same specificity → later wins). Big, vertically centred, and while a panel
+   is open its tab becomes a plain ✕ close button riding that panel's inner
+   edge; the other panel's tab is hidden. */
+@media (max-width: 620px) {
+  .livemap-panel-tab {
+    top: 50%;
+    bottom: auto;
+    transform: translateY(-50%);
+    width: 34px;
+    height: 88px;
+    z-index: 456; /* over the open panel (450) and the search (455) */
+    background: var(--panel-surface);
+    backdrop-filter: var(--panel-blur);
+  }
+
+  /* open state: ✕ instead of a triangle, sitting just past the panel edge */
+  :root {
+    --mobile-panel-w: min(340px, calc(100vw - 64px));
+  }
+  .livemap-panel--left:not(.is-away),
+  .livemap-right-column:not(.is-away) {
+    width: var(--mobile-panel-w);
+  }
+
+  .livemap-panel--left:not(.is-away) ~ .livemap-panel-tab--left {
+    left: calc(10px + var(--mobile-panel-w));
+    right: auto;
+    border-radius: 0 8px 8px 0;
+    border: 1px solid var(--panel-border);
+    border-left: 0;
+  }
+  .livemap-right-column:not(.is-away) ~ .livemap-panel-tab--right {
+    right: calc(10px + var(--mobile-panel-w));
+    left: auto;
+    border-radius: 8px 0 0 8px;
+    border: 1px solid var(--panel-border);
+    border-right: 0;
+  }
+
+  .livemap-panel--left:not(.is-away) ~ .livemap-panel-tab--left .lpt-arrow,
+  .livemap-right-column:not(.is-away) ~ .livemap-panel-tab--right .lpt-arrow {
+    width: auto;
+    height: auto;
+    border: 0;
+    opacity: 0.75;
+  }
+  .livemap-panel--left:not(.is-away) ~ .livemap-panel-tab--left .lpt-arrow::before,
+  .livemap-right-column:not(.is-away) ~ .livemap-panel-tab--right .lpt-arrow::before {
+    content: '\00d7'; /* × */
+    font-size: 22px;
+    font-weight: 700;
+    line-height: 1;
+  }
+
+  /* one open ⇒ the other's tab is out of reach anyway */
+  .livemap-panel--left:not(.is-away) ~ .livemap-panel-tab--right,
+  .livemap-right-column:not(.is-away) ~ .livemap-panel-tab--left {
+    display: none;
+  }
+}
+
+/* --- building search --------------------------------------------------------- */
+
+.livemap-search {
+  position: absolute;
+  top: 10px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 455;
+  width: clamp(230px, 38vw, 380px);
+  font-family: inherit;
+}
+
+.lsb-field {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 0 8px 0 10px;
+  height: 38px;
+  border-radius: var(--radius);
+  background: var(--panel-surface);
+  border: 1px solid var(--panel-border);
+  box-shadow: var(--panel-shadow);
+  backdrop-filter: var(--panel-blur);
+}
+
+.lsb-icon {
+  width: 13px;
+  height: 13px;
+  flex: 0 0 auto;
+  border: 2px solid currentColor;
+  border-radius: 50%;
+  opacity: 0.5;
+  position: relative;
+}
+
+.lsb-icon::after {
+  content: '';
+  position: absolute;
+  right: -4px;
+  bottom: -4px;
+  width: 6px;
+  height: 2px;
+  background: currentColor;
+  transform: rotate(45deg);
+  border-radius: 1px;
+}
+
+/* The loading state just spins the magnifying-glass glyph itself (the ::after is
+   the handle whipping around). The user loves this — keep it forever. */
+.livemap-search.is-loading .lsb-icon {
+  animation: livemap-spin 0.8s linear infinite;
+}
+
+.lsb-input {
+  flex: 1 1 auto;
+  min-width: 0;
+  appearance: none;
+  border: 0;
+  background: transparent;
+  color: var(--panel-fg);
+  font: 500 var(--fs-md)/1 inherit;
+  outline: none;
+}
+
+.lsb-input::placeholder {
+  color: var(--panel-fg);
+  opacity: 0.5;
+}
+
+.lsb-clear {
+  appearance: none;
+  border: 0;
+  flex: 0 0 auto;
+  width: 24px;
+  height: 24px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  background: rgba(127, 127, 127, 0.16);
+  color: var(--panel-fg);
+  font-size: var(--fs-xl);
+  line-height: 1;
+  cursor: pointer;
+  opacity: 0.75;
+  transition: background var(--dur-fast) var(--ease), opacity var(--dur-fast) var(--ease);
+}
+
+.lsb-clear:hover {
+  background: rgba(127, 127, 127, 0.3);
+  opacity: 1;
+}
+
+.lsb-results {
+  margin-top: 6px;
+  border-radius: var(--radius);
+  background: var(--panel-surface);
+  border: 1px solid var(--panel-border);
+  box-shadow: var(--panel-shadow);
+  backdrop-filter: var(--panel-blur);
+  overflow: hidden;
+  max-height: 46vh;
+  overflow-y: auto;
+  animation: livemap-results-in var(--dur) var(--ease);
+  transform-origin: top center;
+}
+
+@keyframes livemap-results-in {
+  from {
+    opacity: 0;
+    transform: translateY(-6px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+.lsb-item {
+  appearance: none;
+  border: 0;
+  width: 100%;
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  gap: 9px;
+  padding: 8px 11px;
+  background: transparent;
+  color: var(--panel-fg);
+  cursor: pointer;
+  text-align: left;
+  border-top: 1px solid var(--panel-hairline);
+  transition: background-color var(--dur-fast) var(--ease);
+}
+
+.lsb-item:first-child {
+  border-top: 0;
+}
+
+.lsb-item:hover,
+.lsb-item.is-active {
+  background: var(--hover-bg);
+}
+
+.lsb-text {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 0;
+}
+
+.lsb-swatch {
+  flex: 0 0 auto;
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  border: 2px solid rgba(255, 255, 255, 0.9);
+  box-shadow: 0 0 0 1px rgba(35, 45, 75, 0.25);
+}
+
+.lsb-head {
+  padding: 6px 11px 3px;
+  font-size: var(--fs-micro);
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  opacity: 0.5;
+}
+
+.lsb-head + .lsb-item {
+  border-top: 0;
+}
+
+.lsb-name {
+  font-weight: 700;
+  font-size: var(--fs-md);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 100%;
+}
+
+.lsb-meta {
+  font-size: var(--fs-xs);
+  opacity: 0.62;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 100%;
+}
+
+.lsb-empty {
+  padding: 9px 11px;
+  font-size: var(--fs-sm);
+  opacity: 0.7;
+}
+
+/* Phone search bar — MUST come after the base .livemap-search / .lsb-field
+   rules above (same specificity → later wins; the base width clamp was
+   otherwise clipping the placeholder). Near-full-width, taller field, and it
+   gets out of the way entirely while either panel is open. */
+@media (max-width: 620px) {
+  .livemap-search {
+    width: calc(100vw - 16px);
+    max-width: none;
+  }
+
+  .lsb-field {
+    height: 44px;
+  }
+
+  .livemap-panel--left:not(.is-away) ~ .livemap-search,
+  .livemap-right-column:not(.is-away) ~ .livemap-search {
+    display: none;
+  }
+}
+
+/* --- overlapping-marker menu ---------------------------------------------- */
+
+.livemap-marker-menu {
+  position: absolute;
+  z-index: 460;
+  pointer-events: none;
+  transform: translate(-50%, -50%) scale(0.94);
+  opacity: 0;
+  transition: opacity var(--dur-fast) var(--ease), transform var(--dur-fast) var(--ease);
+}
+
+.livemap-marker-menu.is-open {
+  opacity: 1;
+  transform: translate(-50%, -50%) scale(1);
+}
+
+.livemap-marker-menu.is-open .lmm-chip,
+.livemap-marker-menu.is-open .lmm-center {
+  pointer-events: auto;
+}
+
+.lmm-center {
+  position: absolute;
+  left: 0;
+  top: 0;
+  transform: translate(-50%, -50%);
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  border: 2px solid var(--pop-edge);
+  background: var(--pop-bg);
+  color: var(--pop-fg);
+  font: 700 var(--fs-md)/1 inherit;
+  cursor: pointer;
+  box-shadow: var(--pop-shadow);
+}
+
+.lmm-chip {
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: 116px;
+  height: 116px;
+  padding: 13px;
+  border-radius: 50%;
+  /* Same white rim as the popup cards so the radial menu reads as one family. */
+  border: 3px solid var(--pop-edge);
+  box-shadow: 0 6px 18px rgba(15, 23, 42, 0.38);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  overflow: hidden;
+  /* NB: the per-chip position is an inline `transform` set by marker-menu.js,
+     so hover feedback rides `filter` / `box-shadow`, never `transform`. */
+  transition: filter var(--dur-fast) var(--ease), box-shadow var(--dur-fast) var(--ease);
+}
+
+.lmm-chip:hover {
+  filter: brightness(1.1);
+  box-shadow: 0 8px 22px rgba(15, 23, 42, 0.46);
+  z-index: 1;
+}
+
+.lmm-text {
+  display: -webkit-box;
+  -webkit-line-clamp: 4;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  /* 9px is under the type scale's 10px floor on purpose — this text lives
+     inside a round chip and has to fit long stop names like
+     "Massie Rd @ Faulkner Apts (Northbound)" without clipping the direction. */
+  font: 700 9px/1.12 inherit;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.4);
+}
+
+.lmm-sub {
+  display: block;
+  font-weight: 600;
+  font-size: 9px;
+  opacity: 0.85;
+  margin-top: 1px;
+}
+
+.livemap-marker-menu.lmm-hint {
+  pointer-events: none;
+  padding: 6px 12px;
+  border-radius: var(--radius-pill);
+  background: var(--pop-bg);
+  border: 2px solid var(--pop-edge);
+  box-shadow: var(--pop-shadow);
+  color: var(--pop-fg);
+  font: 700 var(--fs-xs)/1 inherit;
+  white-space: nowrap;
+}
+
+/* --- credit line --------------------------------------------------------- */
+
+.credit {
+  position: absolute;
+  left: 8px;
+  bottom: 6px;
+  z-index: 400;
+  font-size: var(--fs-micro);
+  line-height: 1.3;
+  letter-spacing: 0.01em;
+  padding: 3px 8px;
+  border-radius: var(--radius-sm);
+  color: var(--panel-muted);
+  background: var(--panel-surface);
+  border: 1px solid var(--panel-hairline);
+  /* a whisper of lift — not the full panel shadow, this is a footnote */
+  box-shadow: 0 2px 8px rgba(15, 23, 42, 0.12);
+  backdrop-filter: var(--panel-blur);
+  pointer-events: none;
+  max-width: 60vw;
+}
+
+/* --- operator modes (kiosk / embed) ------------------------------------- */
+
+/* No chrome, no hand-driven camera: the map fills the screen and the cursor
+   stops advertising drag. */
+:root[data-mode='kiosk'] .credit,
+:root[data-mode='adminKiosk'] .credit,
+:root[data-mode='embed'] .credit {
+  display: none;
+}
+
+.livemap-map--locked .maplibregl-canvas,
+.livemap-map--locked .maplibregl-canvas-container {
+  cursor: default;
+}
+
+/* Full-screen kiosk status overlay — shown only when the bus feed is down or
+   is up with nothing to show. Matches the legacy testmap .kiosk-status-message:
+   big centred text, navy scrim, fades in via .is-visible. */
+.livemap-kiosk-status {
+  position: fixed;
+  inset: 0;
+  z-index: 2400;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin: clamp(0.5rem, 3vw, 2.5rem);
+  padding: clamp(1rem, 5vw, 3rem);
+  text-align: center;
+  white-space: pre-line;
+  font: 700 clamp(1.5rem, 8vw, 4.5rem) / 1.2 inherit;
+  color: #f8fafc;
+  background: rgba(35, 45, 75, 0.82);
+  backdrop-filter: blur(3px);
+  border-radius: clamp(0.5rem, 3vw, 2.5rem);
+  box-shadow: 0 24px 60px rgba(15, 23, 42, 0.35);
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
+  transition: opacity 0.25s ease, visibility 0.25s ease;
+}
+
+.livemap-kiosk-status.is-visible {
+  opacity: 1;
+  visibility: visible;
+}
+
+/* Read-only route legend for the kiosk shells (top-left). */
+.livemap-route-legend {
+  position: fixed;
+  top: 10px;
+  left: 10px;
+  z-index: 460;
+  max-width: 240px;
+  max-height: 78vh;
+  overflow-y: auto;
+  padding: 12px 14px 14px;
+  border-radius: var(--radius-lg);
+  color: var(--panel-fg);
+  background: var(--panel-surface);
+  border: 1px solid var(--panel-border);
+  box-shadow: var(--panel-shadow);
+  backdrop-filter: var(--panel-blur);
+  font: 600 var(--fs-lg)/1.2 inherit;
+}
+
+.livemap-route-legend[hidden] {
+  display: none;
+}
+
+.livemap-route-legend .lrl-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 7px 8px;
+  border-radius: 10px;
+}
+
+.livemap-route-legend .lrl-item + .lrl-item {
+  margin-top: 6px;
+}
+
+.livemap-route-legend .lrl-dot {
+  width: 16px;
+  height: 16px;
+  flex: 0 0 auto;
+  border-radius: 50%;
+  border: 2px solid rgba(255, 255, 255, 0.9);
+  box-shadow: 0 0 0 1px rgba(35, 45, 75, 0.25);
+}
+
+.livemap-route-legend .lrl-name {
+  overflow-wrap: anywhere;
+}
+
+.livemap-route-legend .lrl-qr-sep {
+  height: 1px;
+  margin: 13px 0 11px;
+  background: var(--panel-border);
+}
+
+.livemap-route-legend .lrl-qr-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.livemap-route-legend .lrl-qr-code {
+  display: block;
+  flex: 0 0 auto;
+  width: 66px;
+  height: 66px;
+  padding: 3px;
+  border-radius: var(--radius-sm);
+  background: #fff;
+  line-height: 0;
+}
+
+.livemap-route-legend .lrl-qr-code svg {
+  width: 100%;
+  height: 100%;
+}
+
+.livemap-route-legend .lrl-qr-label {
+  font-size: var(--fs-md);
+  font-weight: 700;
+}
+
+.livemap-route-legend .lrl-qr-url {
+  margin-top: 3px;
+  font-size: var(--fs-xs);
+  font-weight: 600;
+  opacity: 0.7;
+  overflow-wrap: anywhere;
+}
+
+/* --- shared nav bar (scripts/nav-bar.js) -------------------------------------
+   The site-wide nav only loads on the full /livemap (not the kiosk / embed
+   shells, and not ?kiosk/?embed/?ui=none). It's a LEFT RAIL at >=769px (width
+   -> --hg-nav-left-offset) and a BOTTOM BAR at <=768px (height ->
+   --hg-nav-bottom-offset), and it adds `body.hg-nav-active`. #map is absolute
+   vs the viewport so it just runs under the nav like Leaflet does on /map;
+   these rules only nudge livemap's own floating chrome clear of it. The two
+   media blocks match nav-bar.js's own breakpoint so they never fight the
+   620px phone-chrome rules above. */
+@media (min-width: 769px) {
+  body.hg-nav-active .livemap-panel--left {
+    left: calc(10px + var(--hg-nav-left-offset, 0px));
+  }
+  body.hg-nav-active .livemap-panel-tab--left {
+    left: calc(244px + var(--hg-nav-left-offset, 0px));
+  }
+  body.hg-nav-active .livemap-panel-tab--left.is-away {
+    left: var(--hg-nav-left-offset, 0px);
+  }
+  /* keep the centred chrome centred over the *visible* map, not the viewport */
+  body.hg-nav-active .livemap-search,
+  body.hg-nav-active .livemap-follow-chip {
+    left: calc(50% + var(--hg-nav-left-offset, 0px) / 2);
+  }
+  body.hg-nav-active .credit {
+    left: calc(8px + var(--hg-nav-left-offset, 0px));
+  }
+  body.hg-nav-active .maplibregl-ctrl-top-left,
+  body.hg-nav-active .maplibregl-ctrl-bottom-left {
+    margin-left: var(--hg-nav-left-offset, 0px);
+  }
+}
+
+@media (max-width: 768px) {
+  body.hg-nav-active .livemap-panel--left,
+  body.hg-nav-active .livemap-right-column {
+    max-height: calc(100% - 20px - var(--hg-nav-bottom-offset, 0px));
+  }
+  body.hg-nav-active .livemap-follow-chip {
+    bottom: calc(22px + var(--hg-nav-bottom-offset, 0px));
+  }
+  body.hg-nav-active .credit {
+    bottom: calc(6px + var(--hg-nav-bottom-offset, 0px));
+  }
+  body.hg-nav-active .maplibregl-ctrl-bottom-left,
+  body.hg-nav-active .maplibregl-ctrl-bottom-right {
+    margin-bottom: var(--hg-nav-bottom-offset, 0px);
+  }
+}
