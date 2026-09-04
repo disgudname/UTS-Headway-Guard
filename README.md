@@ -110,7 +110,7 @@ Only events with Charlottesville locations are returned. The cache is refreshed 
    ```bash
    uvicorn app:app --reload --port 8080
    ```
-3. Open the role-specific pages (e.g. `/driver`, `/dispatcher`, `/servicecrew`, `/map`) at <http://localhost:8080>.
+3. Open the role-specific pages (e.g. `/driver`, `/busdispatch`, `/vandispatch`, `/servicecrew`, `/map`) at <http://localhost:8080>.
 
 ## Deployment notes
 - The provided `Dockerfile` builds a minimal Python image, creates a non-root user, installs dependencies, and launches Uvicorn via `start.sh`.

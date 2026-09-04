@@ -16664,12 +16664,19 @@ async def purge_tickets(payload: Dict[str, Any] = Body(...)):
     return JSONResponse(body, headers=headers)
 
 
-@app.get("/dispatcher")
+@app.get("/busdispatch")
 async def dispatcher_page(request: Request):
     _refresh_dispatch_passwords()
     if _has_dispatcher_access(request):
         return HTMLResponse(DISPATCHER_HTML)
     return _login_redirect(request)
+
+
+@app.get("/dispatcher")
+async def dispatcher_page_legacy_redirect(request: Request):
+    # /dispatcher was renamed to /busdispatch (to sit alongside /vandispatch);
+    # keep the old URL working for existing bookmarks/kiosk configs.
+    return RedirectResponse(url="/busdispatch", status_code=307)
 
 
 @app.get("/downed")

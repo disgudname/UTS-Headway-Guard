@@ -50,14 +50,14 @@
   const mobileQuery = window.matchMedia('(max-width: 768px)');
 
   // Ordered by actual usage frequency (same priority established for the
-  // index page's manifest: Live Map + Dispatch most used, then Replay +
-  // TransLōc, then the rest). Home stays first as the universal way back
-  // to the hub, ahead of the priority-ranked tools.
+  // index page's manifest: Live Map + Bus Dispatch + Van Dispatch most used,
+  // then Replay + TransLōc, then the rest). Home stays first as the
+  // universal way back to the hub, ahead of the priority-ranked tools.
   // tier mirrors the index page's manifest hierarchy (primary = most used,
   // sized biggest; secondary = also frequent; tertiary = everything else,
   // smaller and dimmer). chip mirrors the manifest's numbered chips -- Home
   // is a universal utility link outside that ranking, so it's untiered and
-  // unnumbered. Dispatch/Parking share chip "02" since they're mutually
+  // unnumbered. Bus Dispatch/Parking share chip "02" since they're mutually
   // exclusive (auth-only vs guest-only), same as the index manifest.
   const links = [
     {
@@ -84,12 +84,20 @@
       beta: true,
     },
     {
-      href: '/dispatcher',
-      label: 'Dispatch',
+      href: '/busdispatch',
+      label: 'Bus Dispatch',
       icon: '/media/dispatcher.svg',
       requiresAuth: true,
       tier: 'primary',
       chip: '02',
+    },
+    {
+      href: '/vandispatch',
+      label: 'Van Dispatch',
+      icon: '/media/dispatcher.svg',
+      requiresAuth: true,
+      tier: 'primary',
+      chip: '03',
     },
     {
       href: '/replay',
@@ -97,7 +105,7 @@
       icon: '/media/replay.svg',
       requiresAuth: true,
       tier: 'secondary',
-      chip: '03',
+      chip: '04',
     },
     {
       href: 'https://uva-uts.transloc.com/secure/dispatch/',
@@ -105,7 +113,7 @@
       icon: '/media/transloc.svg',
       requiresAuth: true,
       tier: 'secondary',
-      chip: '04',
+      chip: '05',
     },
     {
       href: 'https://parking.virginia.edu/',
@@ -122,7 +130,7 @@
       icon: '/media/headway.svg',
       requiresAuth: true,
       tier: 'tertiary',
-      chip: '05',
+      chip: '06',
     },
     {
       href: '/downed',
@@ -130,7 +138,7 @@
       icon: '/media/downed.svg',
       requiresAuth: true,
       tier: 'tertiary',
-      chip: '06',
+      chip: '07',
     },
     {
       href: '/ridership',
@@ -138,7 +146,7 @@
       icon: '/media/ridership.svg',
       requiresAuth: true,
       tier: 'tertiary',
-      chip: '07',
+      chip: '08',
     },
     {
       href: '/driver',
@@ -146,7 +154,7 @@
       icon: '/media/driver.svg',
       requiresAuth: true,
       tier: 'tertiary',
-      chip: '08',
+      chip: '09',
     },
     {
       href: '/system-notices',
@@ -154,7 +162,7 @@
       icon: '/media/notices.svg',
       requiresAuth: true,
       tier: 'tertiary',
-      chip: '09',
+      chip: '10',
     },
     {
       href: '/config',
@@ -162,7 +170,7 @@
       icon: '/media/config.svg',
       requiresAuth: true,
       tier: 'tertiary',
-      chip: '10',
+      chip: '11',
     },
     {
       href: '/tools',
@@ -170,7 +178,7 @@
       icon: '/media/tools.svg',
       requiresAuth: true,
       tier: 'tertiary',
-      chip: '11',
+      chip: '12',
     }
   ];
 

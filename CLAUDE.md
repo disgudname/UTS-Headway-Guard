@@ -372,7 +372,8 @@ Admin-managed alerts (`/v1/system-notices` CRUD, edited at `/system-notices`). `
 
 **Dashboards (HTML):**
 - `GET /map` - Main operations map
-- `GET /dispatcher` - Dispatcher control panel
+- `GET /busdispatch` - Bus dispatcher control panel (`/dispatcher` 307-redirects here for old bookmarks/kiosk configs)
+- `GET /vandispatch` - Van dispatcher control panel
 - `GET /driver` - Driver dashboard
 - `GET /servicecrew` - Service crew view
 - `GET /repairs` - Maintenance ticket UI
