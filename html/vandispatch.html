@@ -350,6 +350,47 @@
       font-size: 0.82rem;
     }
 
+    /* Expanded itinerary inside a selected Duty Roster card */
+    .duty-itinerary {
+      margin-top: 0.55rem;
+      padding-top: 0.5rem;
+      border-top: 1px dashed var(--border);
+      flex-direction: column;
+      gap: 0.4rem;
+    }
+    .duty-itinerary[hidden] { display: none; }
+    .duty-itinerary:not([hidden]) { display: flex; }
+    .itin-head {
+      font-size: 0.68rem;
+      font-weight: 600;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+      color: var(--accent-label);
+    }
+    .itin-empty {
+      font-size: 0.72rem;
+      color: var(--text-faint);
+      font-style: italic;
+    }
+    .itin-row {
+      display: flex;
+      flex-direction: column;
+      gap: 0.05rem;
+      font-size: 0.72rem;
+    }
+    .itin-line { display: flex; align-items: center; gap: 0.3rem; }
+    .itin-name { font-weight: 600; color: var(--td-text); }
+    .itin-phone { color: var(--accent-label); font-size: 0.68rem; text-decoration: none; white-space: nowrap; }
+    .itin-phone:hover { text-decoration: underline; }
+    .itin-time { color: var(--accent-label); font-size: 0.68rem; margin-left: auto; }
+    .itin-addr {
+      padding-left: 20px;
+      color: var(--trip-body-text);
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
     @media (max-width: 900px) {
       .main-layout {
         grid-template-columns: 1fr;
@@ -393,6 +434,7 @@
     }
     .source-badge--spare { background: #232D4B; color: #C8CBD2; } /* UVA Blue */
     .source-badge--w2w   { background: #0a4a4d; color: #C9F2F4; } /* UVA Teal */
+    .source-badge--lyft  { background: #EA0B8C; color: #fff; }    /* Lyft pink -- ride handed to Lyft */
     /* Strip Leaflet's default white-box styling from SVG label icons */
     .bus-label-icon {
       pointer-events: none !important;
@@ -966,13 +1008,14 @@
         if (!t.vehicleId) continue; // not yet assigned to a van -- no color/order to show
         const list = byVehicle[t.vehicleId] || (byVehicle[t.vehicleId] = []);
         const name = riderName(t);
+        const phone = (t.rider && t.rider.phoneNumber) ? String(t.rider.phoneNumber).trim() : '';
         // Once a rider is picked up (inProgress), only the dropoff is still ahead of the van.
         if (t.status !== 'inProgress') {
           const p = pointFromGeoJson(t.scheduledPickupLocation || t.requestedPickupLocation);
-          if (p) list.push({ ts: t.scheduledPickupTs || t.requestedPickupTs || 0, latlng: p, requestId: t.id, kind: 'Pickup', name, address: t.scheduledPickupAddress || t.requestedPickupAddress || '' });
+          if (p) list.push({ ts: t.scheduledPickupTs || t.requestedPickupTs || 0, latlng: p, requestId: t.id, kind: 'Pickup', name, phone, address: t.scheduledPickupAddress || t.requestedPickupAddress || '' });
         }
         const d = pointFromGeoJson(t.scheduledDropoffLocation || t.requestedDropoffLocation);
-        if (d) list.push({ ts: t.scheduledDropoffTs || 0, latlng: d, requestId: t.id, kind: 'Dropoff', name, address: t.scheduledDropoffAddress || t.requestedDropoffAddress || '' });
+        if (d) list.push({ ts: t.scheduledDropoffTs || 0, latlng: d, requestId: t.id, kind: 'Dropoff', name, phone, address: t.scheduledDropoffAddress || t.requestedDropoffAddress || '' });
       }
       const result = {};
       for (const vehicleId of Object.keys(byVehicle)) {
@@ -1293,15 +1336,78 @@
         document.querySelectorAll(`${sel} .duty-card, ${sel} .trip-card`).forEach(el => {
           const hit = vanCardMatches(el);
           el.classList.toggle('card-selected', hit);
+          if (el.classList.contains('duty-card')) updateDutyItinerary(el, hit);
           if (hit && !firstHit) firstHit = el;
         });
         if (doScroll && firstHit) firstHit.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
       });
     }
 
+    // The selected Duty Roster card expands to show that van's remaining stop
+    // sequence -- same order/numbering as the map's stop pins. Rebuilt on every
+    // poll (via applyVanHighlight) so times/addresses stay fresh while it's open.
+    function updateDutyItinerary(card, expanded) {
+      const box = card.querySelector('.duty-itinerary');
+      if (!box) return;
+      const rows = expanded ? buildItineraryRows(card.dataset.vanSource, card.dataset.vehicleId || '') : '';
+      if (!rows) { box.hidden = true; box.innerHTML = ''; return; }
+      box.innerHTML = rows;
+      box.hidden = false;
+    }
+
+    // Rows for the expanded itinerary. Reuses the exact numbered badge the trip cards
+    // and map pins already carry (stopOrderBadgeHtml, coloured to the van) plus the
+    // same ▲ pickup / ▼ dropoff markers. Spare has no explicit stop sequence, so the
+    // order comes from computeStopOrderLookup() (the shared numbering); the OnDemand
+    // feed already hands us a per-van stop order.
+    function buildItineraryRows(source, vehicleId) {
+      if (!vehicleId) return '';
+      const rowHtml = (order, color, isPickup, name, ts, address, phone) => {
+        const ph = phone ? String(phone).trim() : '';
+        return `<div class="itin-row">
+          <div class="itin-line">
+            ${stopOrderBadgeHtml(order, color)}<span>${isPickup ? '▲' : '▼'}</span>
+            <span class="itin-name">${escHtml(name || 'Rider')}</span>
+            ${ph ? `<a class="itin-phone" href="tel:${escHtml(ph.replace(/[^\d+]/g, ''))}">${escHtml(formatPhone(ph))}</a>` : ''}
+            ${ts ? `<span class="itin-time">${fmtTime(ts)}</span>` : ''}
+          </div>
+          <div class="itin-addr">${escHtml(address || '—')}</div>
+        </div>`;
+      };
+
+      const rows = [];
+      if (source === 'spare') {
+        const v = vehicleData[vehicleId] || {};
+        const color = getVanColor(v.identifier || 'Van', v.markerColor || '#E57200');
+        const lookup = computeStopOrderLookup();
+        const groups = computeVehicleStopGroups()[vehicleId] || [];
+        groups.forEach(g => {
+          g.stops.forEach(s => rows.push(rowHtml(
+            lookup[`${s.requestId}-${s.kind}`], color, s.kind === 'Pickup', s.name, s.ts, s.address, s.phone)));
+        });
+      } else {
+        odStops
+          .filter(s => {
+            if (String(s.vehicleId) !== String(vehicleId)) return false;
+            const rs = s.rideStatus || (s.rides && s.rides[0] && s.rides[0].rideStatus) || '';
+            return OD_ACTIVE.has(rs) || rs === '';
+          })
+          .slice()
+          .sort((a, b) => (a.order || 0) - (b.order || 0))
+          .forEach(s => rows.push(rowHtml(
+            s.order, s.vehicleColor || '#ec4899', s.stopType === 'pickup',
+            (s.riders || []).join(', '), Number.isFinite(s.stopTs) ? s.stopTs : null, s.address,
+            s.phone || (s.rides && s.rides[0] && s.rides[0].phone) || '')));
+      }
+
+      if (!rows.length) return '<div class="itin-empty">No remaining stops for this van</div>';
+      return `<div class="itin-head">Itinerary — ${rows.length} stop${rows.length > 1 ? 's' : ''}</div>${rows.join('')}`;
+    }
+
     function clearVanSelection() {
       selectedVan = null;
       document.querySelectorAll('.card-selected').forEach(el => el.classList.remove('card-selected'));
+      document.querySelectorAll('.duty-itinerary').forEach(el => { el.hidden = true; el.innerHTML = ''; });
       clearRequestRoute();
     }
 
@@ -1708,6 +1814,15 @@
       for (const req of spareTrips) {
         const name   = riderName(req);
         const status = req.status || 'unknown';
+        // Spare hands overflow FlexRide trips to Lyft (an "external" open fleet). The
+        // request object flags this directly: isExternallyDispatched flips true the
+        // moment it's offered out, and serviceBrand names the Lyft product. While
+        // dispatchStatus is still "offeredToFleet" Lyft hasn't accepted it yet.
+        const lyftBrand = (req.serviceBrand && (req.serviceBrand.name || req.serviceBrand.externalName)) || '';
+        const toLyft = req.isExternallyDispatched === true || /lyft/i.test(lyftBrand);
+        const lyftOffered = toLyft && req.dispatchStatus === 'offeredToFleet';
+        const pillText = lyftOffered ? 'offered to Lyft' : status;
+        const lyftBadge = toLyft ? '<span class="source-badge source-badge--lyft">Lyft</span>' : '';
         const pickup  = req.scheduledPickupAddress  || req.requestedPickupAddress  || '—';
         const dropoff = req.scheduledDropoffAddress || req.requestedDropoffAddress || '—';
         // Once the rider's actually been picked up, Spare stamps pickupCompletedTs --
@@ -1730,7 +1845,9 @@
         const vanDriver = req.vehicleId ? spareDriverByVid[req.vehicleId] : null;
         const vanLine = van
           ? `<div class="addr" style="color:#aaa;font-size:.72rem;margin-bottom:.15rem">${svgIcon('van', vanColor)} <span style="color:${vanColor};font-weight:600">${escHtml(vanLabel)}</span>${vanDriver ? ` · ${escHtml(vanDriver)}` : ''}</div>`
-          : `<div class="addr" style="color:#666;font-size:.72rem;margin-bottom:.15rem;font-style:italic">Not yet assigned to a van</div>`;
+          : toLyft
+            ? `<div class="addr" style="color:#EA0B8C;font-size:.72rem;margin-bottom:.15rem;font-weight:600">${escHtml(lyftBrand || 'Dispatched to Lyft')}${lyftOffered ? ' — awaiting Lyft driver' : ''}</div>`
+            : `<div class="addr" style="color:#666;font-size:.72rem;margin-bottom:.15rem;font-style:italic">Not yet assigned to a van</div>`;
         const bookedPickupTs = req.requestedPickupTs || req.scheduledPickupTs;
         const leadTime = req.createdAt && bookedPickupTs ? formatLeadTime(bookedPickupTs - req.createdAt) : null;
         const bookedLine = req.createdAt
@@ -1745,9 +1862,9 @@
         const doBadge = stopOrderBadgeHtml(stopOrder[`${req.id}-Dropoff`], badgeColor);
         items.push({ sortTs: tripSortTs(req), html: `<div class="trip-card ${status}" style="cursor:pointer" title="Click to show this ride's route on the map" onclick="showRequestRoute('${escHtml(req.id)}')" data-van-source="spare" data-vehicle-id="${escHtml(req.vehicleId || '')}">
           <div class="trip-header">
-            <span class="status-pill ${status}">${status}</span>
+            <span class="status-pill ${status}">${escHtml(pillText)}</span>
             <span class="rider-name">${escHtml(name)}${riders}</span>
-            <span class="source-badge source-badge--spare" style="margin-left:auto">Spare</span>
+            <span style="margin-left:auto;display:inline-flex;gap:.3rem;align-items:center">${lyftBadge}<span class="source-badge source-badge--spare">Spare</span></span>
           </div>
           <div class="trip-body">
             ${vanLine}
@@ -1933,6 +2050,7 @@
           ${onTimeLine}
           ${interruptLine}
         </div>
+        <div class="duty-itinerary" hidden></div>
       </div>`;
     }
 
