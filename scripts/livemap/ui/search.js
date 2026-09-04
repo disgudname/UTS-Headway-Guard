@@ -17,7 +17,7 @@ import { API_BASE } from '../core/config.js';
 import { getMap } from '../core/map.js';
 import { debounce } from '../core/util.js';
 import { highlightBuilding, clearBuildingHighlight } from '../core/layers/building-highlight.js';
-import { listVehicles, followVehicle, unitDisplayName } from '../core/layers/vehicles.js';
+import { listVehicles, followVehicle, stopFollow, unitDisplayName, onFollowChange } from '../core/layers/vehicles.js';
 
 const MIN_CHARS = 2;
 const DEBOUNCE_MS = 220;
@@ -44,6 +44,21 @@ export class SearchBox {
     this._active = -1;
     this._reqSeq = 0;
     this._loading = false; // a building fetch is in flight for the current query
+    // The vehicle id this box's own pick is following, if any — links the box
+    // to the follow lock so the two stay in sync (see onFollowChange below and
+    // the follow-release note in _reset).
+    this._followedVehicleId = null;
+
+    // Following stopped, or moved to a bus we didn't search for (a popup's
+    // Follow button, a dispatcher deep link, …): drop it from the box too, so
+    // "following" and "what the search box shows" never disagree. A change
+    // that matches what WE just picked (see _pickVehicle) is a no-op here.
+    this._unsubFollow = onFollowChange((id) => {
+      if (this._followedVehicleId && id !== this._followedVehicleId) {
+        this._followedVehicleId = null;
+        this._reset(false);
+      }
+    });
 
     this._input.addEventListener('input', () => {
       this._clear.hidden = !this._input.value;
@@ -64,6 +79,7 @@ export class SearchBox {
   }
 
   unmount() {
+    this._unsubFollow?.();
     this._el?.remove();
   }
 
@@ -201,12 +217,20 @@ export class SearchBox {
     this._clear.hidden = false;
     this._closeResults();
     this._input.blur();
+    // Picking a building over a search-followed bus releases the follow — a
+    // vehicle-to-vehicle switch instead hands off cleanly inside _pickVehicle
+    // (no flicker: the chip just relabels once the new bus locks in).
+    if (it.kind !== 'vehicle' && this._followedVehicleId) {
+      this._followedVehicleId = null;
+      stopFollow();
+    }
     if (it.kind === 'vehicle') this._pickVehicle(it);
     else this._pickBuilding(it);
   }
 
   _pickVehicle(v) {
     clearBuildingHighlight();
+    this._followedVehicleId = v.id;
     const map = getMap();
     if (!map) {
       followVehicle(v.id);
@@ -242,6 +266,15 @@ export class SearchBox {
     this._render([]);
     this._closeResults();
     clearBuildingHighlight();
+    // Clearing the box (the × button, Escape) while it's following a bus we
+    // searched for stops that follow too — the two are meant to travel
+    // together. (When onFollowChange calls _reset because following stopped
+    // some OTHER way, it has already nulled this, so this is a no-op there —
+    // no stopFollow -> onFollowChange -> _reset loop.)
+    if (this._followedVehicleId) {
+      this._followedVehicleId = null;
+      stopFollow();
+    }
     if (focus) this._input.focus();
   }
 }

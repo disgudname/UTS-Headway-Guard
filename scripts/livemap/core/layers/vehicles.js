@@ -20,7 +20,7 @@
 
 import { VEHICLE_ANIM_MS, VEHICLE_STALE_S } from '../config.js';
 import { getMap, onStyleReady } from '../map.js';
-import { clamp, lsGet, lsSet } from '../util.js';
+import { clamp, lsGet, lsSet, emitter } from '../util.js';
 import {
   startVehicleFeed,
   onVehicles,
@@ -113,19 +113,34 @@ export function installVehicleLayer() {
   startMicrotransitFeed(); // no-op output until a dispatcher enables the overlay
 }
 
+const followBus = emitter();
+
+/** Fires with the newly-followed state key, or null when following stops —
+ *  from ANY cause (gesture release, chip ×, popup toggle, a bus dropping off
+ *  the feed, the dispatcher bridge, another followVehicle() call). Used by the
+ *  search box to keep itself in sync with whatever bus is actually followed. */
+export function onFollowChange(fn) {
+  return followBus.on('change', fn);
+}
+
+function setFollow(id) {
+  if (followId === id) return;
+  followId = id;
+  updateFollowChip();
+  followBus.emit('change', followId);
+}
+
 export function followVehicle(id) {
   const key = String(id);
   if (!state.has(key)) return false;
-  followId = key;
-  updateFollowChip();
+  setFollow(key);
   scheduleFrame();
   return true;
 }
 
 export function stopFollow() {
   if (!followId) return;
-  followId = null;
-  updateFollowChip();
+  setFollow(null);
 }
 
 export function getVehicleIds() {
@@ -172,10 +187,7 @@ export function followByRef(ref) {
       norm(p.block) === want ||
       norm(p.block).replace(/[[\]]/g, '') === want.replace(/[[\]]/g, '')
     ) {
-      followId = key;
-      updateFollowChip();
-      scheduleFrame();
-      return true;
+      return followVehicle(key);
     }
   }
   return false;

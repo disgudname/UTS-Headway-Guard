@@ -1767,16 +1767,24 @@ body {
 .lsb-clear {
   appearance: none;
   border: 0;
-  background: transparent;
+  flex: 0 0 auto;
+  width: 24px;
+  height: 24px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  background: rgba(127, 127, 127, 0.16);
   color: var(--panel-fg);
   font-size: var(--fs-xl);
   line-height: 1;
-  padding: 4px 6px;
   cursor: pointer;
-  opacity: 0.6;
+  opacity: 0.75;
+  transition: background var(--dur-fast) var(--ease), opacity var(--dur-fast) var(--ease);
 }
 
 .lsb-clear:hover {
+  background: rgba(127, 127, 127, 0.3);
   opacity: 1;
 }
 
