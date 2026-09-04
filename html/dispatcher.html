@@ -19,7 +19,6 @@
    dots below use the UVA secondary hues: Cyan #009FDF, Green #62BB46,
    Teal #25CAD3, Yellow #FDDA24, Orange #E57200, Emergency #DF1E43. */
 @font-face{font-family:'FGDC';src:url('FGDC.ttf') format('truetype')}
-@font-face{font-family:'Antonio';src:url('ANTONIO.ttf') format('truetype');font-weight:400;font-style:normal;font-display:swap}
 /* Theme: data-theme="light"/"dark" on <html>, toggled by #theme-toggle (see
    the bottom script) and remembered in localStorage. The header stays UVA
    Blue in both themes (matches vandispatch.html), so header-scoped rules
@@ -54,7 +53,8 @@
 /* Libre Franklin is the free web equivalent of Franklin Gothic that UVA
    itself endorses (brand.virginia.edu/design-assets/fonts). FGDC (Franklin
    Gothic Demi Condensed) is kept where it is set explicitly below -- block
-   labels, mono readouts -- and Antonio stays on the big bus numbers. */
+   labels, mono readouts, and the block/bus grid's bus numbers, which read
+   as a tabular monospace readout rather than a styled display face. */
 body{font-family:'Libre Franklin','Franklin Gothic',Helvetica,Arial,sans-serif;font-size:17px;margin:0;background:var(--bg);color:var(--ink);display:flex;height:100vh;position:relative;overflow:hidden}
 body.howell-mode{font-family:'FGDC',system-ui;background:radial-gradient(circle at 12% 18%,rgba(255,153,102,.12)0,transparent 54%),radial-gradient(circle at 86% 84%,rgba(102,204,204,.1)0,transparent 60%),linear-gradient(130deg,#070b1a 0,#04060f 42%,#070b1a 100%)}
 body.howell-mode header h1{letter-spacing:.14em}
@@ -248,35 +248,35 @@ body.kiosk-mode .panel.downed-panel .downed-embed-wrapper{
 }
 #blocks-table{width:auto;table-layout:fixed}
 #blocks td{border:none;padding:2px 4px;text-align:center;width:12ch}
-#blocks td .cell{border-radius:8px;background:var(--route-color,transparent);color:var(--text-color,var(--ink));display:flex;flex-direction:column;align-items:center;justify-content:flex-start;width:100%;min-height:2.6em;max-height:2.6em;padding:0;line-height:1.15;overflow:hidden}
+#blocks td .cell{border-radius:0;background:var(--route-color,transparent);color:var(--text-color,var(--ink));display:flex;flex-direction:column;align-items:center;justify-content:center;width:100%;min-height:2.6em;max-height:2.6em;padding:0;line-height:1.15;overflow:hidden;position:relative}
 .blocks-grid{display:flex;flex-direction:column;gap:6px}
 .blocks-grid-status{font-size:13px;color:var(--text-faint)}
 .blocks-grid-status[hidden]{display:none}
-.blocks-grid-table{--grid-columns:4;display:grid;grid-template-columns:repeat(var(--grid-columns),minmax(80px,1fr));gap:5px}
-/* Block/bus tiles read as a status board, not a HUD: a flat card plus a
-   full-strength color tag on top (.cell-accent) and a tinted label carry the
-   block's identity; the bus number itself stays plain ink instead of being
-   recolored per block, for consistent scanability. */
-.blocks-grid .cell{background:var(--card-bg-alt);border:1px solid var(--line-soft);border-radius:8px;padding:0;min-height:72px;display:flex;flex-direction:column;align-items:center;justify-content:flex-start;text-align:center;gap:0;transition:border-color .15s,opacity .18s;overflow:hidden;position:relative;cursor:default}
-.blocks-grid .cell:hover{border-color:var(--accent,var(--hairline-strong))}
+/* A flat spreadsheet-style grid, not a card gallery: 1px gaps show the
+   hairline color through as grid lines instead of per-cell borders, and a
+   small color square in the corner -- not a full-width bar -- tags each
+   block's route/type identity, so the layout reads as a dense ops board. */
+.blocks-grid-table{--grid-columns:4;display:grid;grid-template-columns:repeat(var(--grid-columns),minmax(80px,1fr));gap:1px;background:var(--line-soft);border:1px solid var(--line-soft)}
+.blocks-grid .cell{background:var(--card-bg-alt);border-radius:0;padding:0;min-height:56px;display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;gap:0;transition:background-color .15s,opacity .18s;overflow:hidden;position:relative;cursor:default}
+.blocks-grid .cell:hover{background:var(--surface-hover)}
 .blocks-grid .cell[data-empty="true"]{opacity:.45}
-.cell-accent{height:4px;width:100%;flex-shrink:0;background:var(--accent,var(--line));border-radius:8px 8px 0 0}
-.blocks-grid .cell .block-label{font-size:12px;letter-spacing:.08em;text-transform:uppercase;color:var(--badge-color,var(--text-faint));white-space:nowrap;overflow:hidden;text-overflow:ellipsis;width:100%;box-sizing:border-box;padding:0 4px;font-family:'FGDC',system-ui}
+.cell-accent{width:7px;height:7px;flex:none;background:var(--accent,var(--line));position:absolute;top:5px;left:5px;border-radius:1px}
+.blocks-grid .cell .block-label{font-size:11px;letter-spacing:.06em;text-transform:uppercase;color:var(--badge-color,var(--text-faint));white-space:nowrap;overflow:hidden;text-overflow:ellipsis;width:100%;box-sizing:border-box;padding:0 4px;font-family:'FGDC',system-ui}
 /* The per-block --badge-color pastels are pre-lightened for legibility on
    the near-black dark cards; that same pastel reads as low-contrast on the
    light theme's white cards, so light mode uses the full-strength --accent
    instead (still passes AA at this size against white for every block hue). */
 :root[data-theme="light"] .blocks-grid .cell .block-label{color:var(--accent,var(--text-faint))}
-.blocks-grid .cell .bus{font-size:26px;letter-spacing:.02em;color:var(--ink);white-space:nowrap;font-family:'Antonio','FGDC',system-ui;line-height:1.1}
+.blocks-grid .cell .bus{font-size:20px;letter-spacing:.02em;color:var(--ink);white-space:nowrap;font-family:'FGDC',ui-monospace,Menlo,Consolas,monospace;line-height:1.2}
 .blocks-grid .cell .drivers{display:flex;flex-direction:column;gap:1px;font-size:10px;line-height:1.25;color:var(--text-dim);align-items:center}
 .blocks-grid .cell .drivers[hidden]{display:none}
 #blocks td .cell .drivers{display:flex;flex-direction:column;gap:2px;font-size:12px;line-height:1.2;color:var(--driver-color,var(--chip-text));align-items:center}
 #blocks td .cell .drivers[hidden]{display:none}
 .cell-map,.cell-driver-list{display:flex;flex-direction:column;align-items:center;justify-content:center;width:100%;gap:2px}
-.cell-map{cursor:pointer;user-select:none;padding:6px 8px 8px}
+.cell-map{cursor:pointer;user-select:none;padding:4px 6px 5px}
 .blocks-grid .cell .cell-map{flex:1;justify-content:center;position:relative;z-index:1}
 #blocks td .cell .cell-map{padding:4px 0 2px}
-.cell-driver-list{padding:4px 8px 8px}
+.cell-driver-list{padding:2px 6px 5px}
 #blocks td .cell .cell-driver-list{padding:2px 0 4px}
 .cell-driver-list[hidden]{display:none}
 .cell{--cell-divider:rgba(143,163,193,.35)}
@@ -344,7 +344,7 @@ body.kiosk-mode #blocks td{width:clamp(11ch,25%,14ch)}
 body.kiosk-mode #blocks td .cell{min-height:var(--kiosk-block-height);max-height:var(--kiosk-block-height)}
 body.kiosk-mode #blocks td .cell .cell-map,
 body.kiosk-mode #blocks td .cell .cell-driver-list{padding:var(--kiosk-entry-padding) 0}
-body.kiosk-mode #blocks-grid .blocks-grid-table{gap:10px}
+body.kiosk-mode #blocks-grid .blocks-grid-table{gap:2px}
 body.kiosk-mode #blocks-grid .cell{min-height:var(--kiosk-block-height)}
 body.kiosk-mode #blocks-grid .cell .cell-map,
 body.kiosk-mode #blocks-grid .cell .cell-driver-list{padding:var(--kiosk-entry-padding) 10px}
