@@ -5,14 +5,14 @@
 // replace is the live Leaflet /vandispatch, so the two run side by side until
 // the swap.
 //
-// It reuses the shared livemap core untouched (core/map.js, core/theme.js,
-// core/basemap-style.js and the satellite + coord-copy layers) rather than the
-// full livemap boot sequence in apps/boot.js, which mounts livemap's own
-// panels. The van dispatcher chrome — Active Trips board, Duty Roster, trip
-// card <-> van marker selection — lands in later passes as its own modules.
-//
-// Phase 0: bring up the UVA GES vector basemap + day/night treatment + the
-// Esri satellite toggle, with the three-pane layout shell in place.
+// It reuses the shared livemap core for the map, basemap (UVA GES vector +
+// day/night + Esri satellite), theme, coord-copy and the vehicle layer (van
+// markers only). Everything that makes this Van Dispatch rather than the Live
+// Map — the Active Trips board, the Duty Roster, the van <-> card selection,
+// and the map overlays (numbered pickup/drop-off markers + popups, the Spare
+// service-area outline, PulsePoint pins + halo, the route polyline) — is
+// vandispatch2's own code under apps/vandispatch2/, matching the Leaflet
+// /vandispatch, NOT livemap's micro-trips / safety treatment.
 // -----------------------------------------------------------------------------
 
 import { createMap } from '../core/map.js';
@@ -25,9 +25,6 @@ import {
 } from '../core/layers/satellite.js';
 import { installCoordCopy } from '../core/coord-copy.js';
 import { installVehicleLayer } from '../core/layers/vehicles.js';
-import { installMicroTripsLayer } from '../core/layers/micro-trips.js';
-import { installSafetyLayer } from '../core/layers/safety.js';
-import { installMarkerMenu } from '../core/marker-menu.js';
 import { setMicroEnabled } from '../core/data/microtransit.js';
 import { startVandispatchPanels } from './vandispatch2/index.js';
 
@@ -118,27 +115,21 @@ async function boot() {
   installSatelliteLayer();
   installCoordCopy();
 
-  // Van rendering, reusing livemap's shared layers untouched:
-  //  - installVehicleLayer({feeds:['micro']}) draws ONLY UVA Ride + FlexRide
-  //    vans (no fixed-route buses, no CAT) with the same markers /pills the
-  //    Live Map uses.
-  //  - installMicroTripsLayer() = the FlexRide coverage polygon + numbered
-  //    pickup / drop-off points.
-  //  - installSafetyLayer() = PulsePoint incidents (dispatcher-gated; this page
-  //    is always a dispatcher).
-  //  - installMarkerMenu() wires the single map-click that opens marker popups.
-  installMicroTripsLayer();
-  installSafetyLayer();
-  installVehicleLayer({ feeds: ['micro'] });
-  installMarkerMenu();
+  // Van markers come from livemap's shared vehicle layer, restricted to the
+  // microtransit feed (no fixed-route buses, no CAT) and with the shared van
+  // popup turned OFF — /vandispatch has no van popup, it uses selection.
+  installVehicleLayer({ feeds: ['micro'], markerMenu: false });
 
-  // This page is always about the vans, so force both microtransit sources on.
-  // The module deliberately does not persist these — re-set them every load.
+  // This page is always about the vans, so force both microtransit sources on
+  // (they feed the shared vehicle layer). Not persisted by the module.
   setMicroEnabled('ride', true);
   setMicroEnabled('flex', true);
 
-  // The dispatcher chrome — Active Trips board, Duty Roster, van<->card
-  // selection sync — driven by its own parallel Spare/OnDemand/W2W feed.
+  // Everything else — Active Trips board, Duty Roster, van<->card selection,
+  // and the map overlays (numbered pickup/drop-off markers + their popups, the
+  // Spare service-area outline, PulsePoint pins + halo, the route polyline) —
+  // is vandispatch2's own, matching the Leaflet /vandispatch, NOT livemap's
+  // micro-trips / safety treatment.
   startVandispatchPanels(map);
 
   wireControls();

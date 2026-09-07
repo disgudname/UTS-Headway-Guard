@@ -17,7 +17,8 @@ import {
   computeStopOrderLookup,
   OD_ACTIVE,
 } from './data.js';
-import { frameTrip, applyHighlight } from './selection.js';
+import { applyHighlight } from './selection.js';
+import { showTripRoute } from './map-overlays.js';
 import {
   escHtml,
   svgIcon,
@@ -281,6 +282,6 @@ export function installTripBoard() {
   list.addEventListener('click', (e) => {
     const card = e.target.closest('.trip-card');
     if (!card || !card.dataset.tripKind) return;
-    frameTrip(card.dataset.tripKind, card.dataset.tripRef || '');
+    showTripRoute(card.dataset.tripKind, card.dataset.tripRef || '');
   });
 }

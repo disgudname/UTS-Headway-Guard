@@ -4,25 +4,13 @@
 //
 // Clicking a van marker on the map highlights its Duty Roster card and every
 // Active Trips card it is serving, expands that duty card's itinerary, and
-// frames the map to the van + its remaining stops. Clicking the same van again,
-// another van, or empty map clears it. Clicking a trip card frames just that
-// ride's pickup / drop-off.
-//
-// Unlike the Leaflet page this draws NO route lines between stops — livemap
-// deliberately doesn't (the user was emphatic about it), so this is the
-// "fit-to-bounds" fallback only.
+// (via map-overlays.js reacting to onSelectionChange) draws that van's full
+// remaining route + frames it. Clicking the same van again, another van, or
+// empty map clears it.
 // -----------------------------------------------------------------------------
 
 import { emitter } from '../../core/util.js';
 import { VEHICLE_PIN_LAYER } from '../../core/layers/vehicle-style.js';
-import {
-  getVehicleData,
-  getOdVehicles,
-  getOdStops,
-  getSpareTrips,
-  computeVehicleStopGroups,
-} from './data.js';
-import { lngLatFromGeoJson } from './helpers.js';
 
 const bus = emitter();
 /** fn(selected) after any selection change. selected is null or
@@ -61,79 +49,6 @@ export function applyHighlight(doScroll) {
   });
 }
 
-// --- framing (fit-to-bounds, no route lines) ------------------------
-function boundsOf(points) {
-  const pts = points.filter((p) => Array.isArray(p) && Number.isFinite(p[0]) && Number.isFinite(p[1]));
-  if (!pts.length) return null;
-  let w = Infinity;
-  let s = Infinity;
-  let e = -Infinity;
-  let n = -Infinity;
-  for (const [lng, lat] of pts) {
-    if (lng < w) w = lng;
-    if (lng > e) e = lng;
-    if (lat < s) s = lat;
-    if (lat > n) n = lat;
-  }
-  return [
-    [w, s],
-    [e, n],
-  ];
-}
-
-function fit(points) {
-  const b = boundsOf(points);
-  if (!b || !map) return;
-  const same = b[0][0] === b[1][0] && b[0][1] === b[1][1];
-  if (same) {
-    map.easeTo({ center: b[0], zoom: Math.max(map.getZoom(), 14), duration: 500 });
-  } else {
-    map.fitBounds(b, { padding: 90, maxZoom: 16, duration: 500 });
-  }
-}
-
-/** Frame the van + all its remaining pickup/drop-off points. */
-function frameVan(source, id) {
-  const points = [];
-  if (source === 'spare') {
-    const v = getVehicleData()[id] || {};
-    const here = lngLatFromGeoJson(v.currentLocation && v.currentLocation.location);
-    if (here) points.push(here);
-    for (const g of computeVehicleStopGroups()[id] || []) points.push(g.lngLat);
-  } else {
-    const van = getOdVehicles().find((x) => String(x.vehicleId) === String(id));
-    if (van && Number.isFinite(van.lng) && Number.isFinite(van.lat)) points.push([van.lng, van.lat]);
-    for (const st of getOdStops()) {
-      if (String(st.vehicleId) !== String(id)) continue;
-      if (Number.isFinite(st.lng) && Number.isFinite(st.lat)) points.push([st.lng, st.lat]);
-    }
-  }
-  fit(points);
-}
-
-/** Frame just one ride's pickup + drop-off. */
-export function frameTrip(kind, ref) {
-  const points = [];
-  if (kind === 'spare') {
-    const req = getSpareTrips().find((t) => t.id === ref);
-    if (req) {
-      const p = lngLatFromGeoJson(req.scheduledPickupLocation || req.requestedPickupLocation);
-      const d = lngLatFromGeoJson(req.scheduledDropoffLocation || req.requestedDropoffLocation);
-      if (p) points.push(p);
-      if (d) points.push(d);
-    }
-  } else {
-    // ref is the ride key used by trip-board.js to group OnDemand stop rows.
-    for (const st of getOdStops()) {
-      const rec = (st.rides && st.rides[0]) || {};
-      const key = st.rideId || rec.rideId || `${st.vehicleId}|${(st.riders || []).join(',')}`;
-      if (key !== ref) continue;
-      if (Number.isFinite(st.lng) && Number.isFinite(st.lat)) points.push([st.lng, st.lat]);
-    }
-  }
-  fit(points);
-}
-
 // --- selection ----------------------------------------------------
 export function clearSelection() {
   if (!selected) return;
@@ -157,7 +72,6 @@ export function selectVan(source, id, driverNorm) {
   selected = { source, id: normId, driverNorm: norm };
   applyHighlight(true);
   bus.emit('change', selected);
-  if (normId) frameVan(source, normId);
 }
 
 // --- map click: which van (if any) was hit -----------------------

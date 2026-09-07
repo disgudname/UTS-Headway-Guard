@@ -609,186 +609,292 @@ header .subtitle {
   color: #232d4b;
 }
 
-/* Transient "coordinates copied" popup (core/coord-copy.js uses the
-   .livemap-stop-popup class + .lv-coord-pop inner). Mirrors the Leaflet
-   page's .coord-copy-popup styling. */
-.livemap-stop-popup .maplibregl-popup-content {
-  background: var(--card-bg);
-  color: var(--text);
-  border: 1px solid var(--border);
-  border-radius: 10px;
-  box-shadow: 0 12px 34px rgba(0, 0, 0, 0.4);
-  padding: 8px 12px;
-  font-size: 0.8rem;
-  font-weight: 600;
+/* =====================================================================
+ * Map overlays + popups — ported verbatim from html/vandispatch.html's
+ * <style> block, adapted from Leaflet's popup DOM (.leaflet-popup-content-
+ * wrapper / -tip) to MapLibre's (.maplibregl-popup-content / -tip). The van
+ * dispatcher needs these to look exactly like the live page.
+ * =================================================================== */
+
+/* Custom maplibregl.Marker elements carry no chrome of their own. */
+.vd-stop-marker {
+  cursor: pointer;
+  line-height: 0;
 }
-.livemap-stop-popup .maplibregl-popup-tip {
-  border-top-color: var(--card-bg);
-  border-bottom-color: var(--card-bg);
+.vd-stop-marker svg {
+  display: block;
 }
-.lv-coord-pop {
-  font-variant-numeric: tabular-nums;
-  white-space: nowrap;
+.vd-route-pin {
+  pointer-events: none;
 }
 
-/* Map popups (shared livemap layers: vehicle / stop / micro-trip / incident).
-   livemap.css is not loaded here, so give its popup classes a compact skin in
-   the dispatcher palette. A fuller port of livemap's navy-card treatment is a
-   later polish pass. */
-.livemap-vehicle-popup .maplibregl-popup-content,
-.livemap-stop-popup .maplibregl-popup-content,
-.livemap-cat-popup .maplibregl-popup-content,
-.livemap-incident-popup .maplibregl-popup-content {
+/* --- ondemand-driver-popup: the numbered pickup/drop-off stop cards --- */
+.maplibregl-popup.vd-driver-popup .maplibregl-popup-content {
+  background: #ffffff;
+  border-radius: 12px;
+  box-shadow: 0 12px 30px rgba(15, 23, 42, 0.25);
+  color: #0f172a;
+  font-family: 'Libre Franklin', 'Franklin Gothic', Helvetica, Arial, sans-serif;
+  padding: 10px 14px;
+  border: 2px solid rgba(35, 45, 75, 0.08);
+}
+.maplibregl-popup.vd-driver-popup .maplibregl-popup-tip {
+  border-top-color: #ffffff;
+  border-bottom-color: #ffffff;
+  border-left-color: #ffffff;
+  border-right-color: #ffffff;
+}
+.maplibregl-popup.vd-driver-popup .maplibregl-popup-close-button {
+  color: #64748b;
+  font-size: 18px;
+  padding: 0 6px;
+}
+.ondemand-driver-popup__content {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 160px;
+}
+.ondemand-driver-popup__section {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.ondemand-driver-popup__label {
+  font-size: 11px;
+  letter-spacing: 1px;
+  text-transform: uppercase;
+  color: rgba(15, 23, 42, 0.75);
+}
+.ondemand-driver-popup__value {
+  font-size: 15px;
+  font-weight: 700;
+  color: #1f2937;
+}
+.ondemand-driver-popup__sub {
+  font-size: 12px;
+  color: #6b7280;
+  margin-top: 2px;
+}
+.ondemand-driver-popup__divider {
+  height: 1px;
+  width: 100%;
+  background: rgba(35, 45, 75, 0.12);
+  margin: 6px 0;
+}
+.ondemand-driver-popup__stops {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.ondemand-driver-popup__ride-locations {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: 13px;
+}
+.ondemand-driver-popup__ride-location {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+}
+.ondemand-driver-popup__ride-location-icon {
+  flex-shrink: 0;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 10px;
+  font-weight: 700;
+}
+.ondemand-driver-popup__ride-location-icon--pickup {
+  background: #4ade80;
+  color: #052e16;
+}
+.ondemand-driver-popup__ride-location-icon--dropoff {
+  background: #f87171;
+  color: #450a0a;
+}
+.ondemand-driver-popup__ride-location-icon--onboard {
+  background: #60a5fa;
+  color: #1e3a5f;
+}
+.ondemand-driver-popup__ride-location-text {
+  flex: 1;
+  color: #374151;
+  line-height: 1.4;
+}
+
+/* --- PulsePoint incident markers + pulsating halo (ported from testmap) --- */
+.incident-marker-icon {
+  filter: drop-shadow(0 3px 8px rgba(15, 23, 42, 0.45));
+  line-height: 0;
+  cursor: pointer;
+}
+.incident-marker-icon img {
+  display: block;
+}
+.incident-halo-icon {
+  pointer-events: none !important;
+  position: relative;
+  width: var(--incident-halo-diameter, 110px);
+  height: var(--incident-halo-diameter, 110px);
+}
+.incident-halo-icon .incident-halo {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: var(--incident-halo-diameter, 110px);
+  height: var(--incident-halo-diameter, 110px);
+  margin-left: calc(-0.5 * var(--incident-halo-diameter, 110px));
+  margin-top: calc(-0.5 * var(--incident-halo-diameter, 110px));
+  border-radius: 50%;
+  background: radial-gradient(circle, rgba(239, 68, 68, 0.45) 0%, rgba(239, 68, 68, 0) 72%);
+  opacity: 0.45;
+  transform: scale(0.3);
+  transform-origin: 50% 50%;
+  pointer-events: none;
+  will-change: transform, opacity;
+}
+.incident-halo--animated {
+  animation: incident-halo-pulse 1600ms cubic-bezier(0.25, 1, 0.5, 1) infinite;
+}
+@keyframes incident-halo-pulse {
+  0% {
+    transform: scale(0.3);
+    opacity: 0.45;
+  }
+  70% {
+    opacity: 0.45;
+  }
+  100% {
+    transform: scale(1);
+    opacity: 0;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .incident-halo--animated {
+    animation: none;
+    transform: scale(1);
+    opacity: 0.4;
+  }
+}
+
+/* --- incident click popup (ported, themed to the dispatcher palette) --- */
+.maplibregl-popup.vd-incident-popup .maplibregl-popup-content {
   background: var(--card-bg);
   color: var(--text);
   border: 1px solid var(--border);
   border-radius: 12px;
-  box-shadow: 0 14px 36px rgba(0, 0, 0, 0.45);
+  box-shadow: 0 12px 34px rgba(0, 0, 0, 0.4);
   padding: 12px 14px;
   font-family: inherit;
-  font-variant-numeric: tabular-nums;
 }
-.livemap-vehicle-popup .maplibregl-popup-tip,
-.livemap-stop-popup .maplibregl-popup-tip,
-.livemap-cat-popup .maplibregl-popup-tip,
-.livemap-incident-popup .maplibregl-popup-tip {
+.maplibregl-popup.vd-incident-popup .maplibregl-popup-tip {
   border-top-color: var(--card-bg);
   border-bottom-color: var(--card-bg);
   border-left-color: var(--card-bg);
   border-right-color: var(--card-bg);
 }
-.livemap-vehicle-popup .maplibregl-popup-close-button,
-.livemap-stop-popup .maplibregl-popup-close-button,
-.livemap-cat-popup .maplibregl-popup-close-button,
-.livemap-incident-popup .maplibregl-popup-close-button {
-  top: 6px;
-  right: 6px;
-  width: 20px;
-  height: 20px;
-  border: 0;
-  border-radius: 50%;
-  background: var(--header-border);
-  color: #1f1300;
-  font-size: 13px;
-  line-height: 1;
-}
-/* Inner content classes emitted by the livemap layer modules. */
-.lv-route,
-.ls-name,
-.incident-popup__title {
-  font-weight: 700;
-  display: flex;
-  align-items: center;
-  gap: 6px;
-}
-.lv-name {
-  font-size: 1rem;
-  font-weight: 700;
-  margin-top: 3px;
-}
-.lv-meta,
-.ls-dir,
-.incident-popup__meta-line {
-  font-size: 0.78rem;
+.maplibregl-popup.vd-incident-popup .maplibregl-popup-close-button {
   color: var(--text-muted);
-  margin-top: 2px;
-}
-.lv-swatch,
-.ls-sw {
-  width: 10px;
-  height: 10px;
-  border-radius: 3px;
-  flex: 0 0 auto;
-}
-.ls-sw {
-  border-radius: 50%;
-}
-.lv-manifest,
-.incident-popup__section {
-  margin-top: 8px;
-  border-top: 1px solid var(--border-soft);
-  padding-top: 6px;
-}
-.lv-manifest-h,
-.incident-popup__section-title {
-  font-size: 0.62rem;
-  font-weight: 700;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
-  color: var(--text-faint);
-  margin-bottom: 3px;
-}
-.lv-manifest-row,
-.ls-row {
-  font-size: 0.78rem;
-  padding: 3px 0;
-  line-height: 1.35;
-  display: flex;
-  gap: 7px;
-  align-items: center;
-}
-.lv-manifest-row + .lv-manifest-row {
-  border-top: 1px dashed var(--border-soft);
-}
-.lv-manifest-n {
-  min-width: 14px;
-  font-weight: 700;
-  opacity: 0.6;
-}
-.lv-manifest-k--p {
-  color: #7bd95f;
-}
-.lv-manifest-k--d {
-  color: #ff6b81;
-}
-.lv-manifest-addr,
-.ls-route {
-  opacity: 0.8;
-}
-.ls-eta {
-  margin-left: auto;
-  font-weight: 700;
-}
-.ls-eta.is-none {
-  opacity: 0.55;
-  font-weight: 500;
-}
-.ls-tag {
-  display: inline-block;
-  margin-left: 4px;
-  padding: 1px 6px;
-  border-radius: 999px;
-  font-size: 0.6rem;
-  font-weight: 700;
-  letter-spacing: 0.04em;
-  background: rgba(127, 127, 127, 0.18);
-  border: 1px solid var(--border);
+  font-size: 18px;
+  padding: 0 6px;
 }
 .incident-popup {
+  min-width: 240px;
+  max-width: 320px;
   display: flex;
   flex-direction: column;
-  gap: 10px;
+  gap: 12px;
+  color: var(--text);
+  text-transform: none;
+  letter-spacing: 0.2px;
+  white-space: normal;
 }
 .incident-popup__header {
   display: flex;
   align-items: flex-start;
   gap: 12px;
 }
+.incident-popup__details {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+}
 .incident-popup__icon {
-  flex: 0 0 auto;
-  width: 48px;
-  height: 48px;
-  border-radius: 12px;
+  width: 52px;
+  height: 52px;
+  border-radius: 14px;
   background: #fff;
   display: flex;
   align-items: center;
   justify-content: center;
   overflow: hidden;
+  box-shadow: inset 0 0 0 1px rgba(15, 23, 42, 0.08), 0 6px 16px rgba(0, 0, 0, 0.3);
+  flex-shrink: 0;
 }
 .incident-popup__icon img {
   width: 100%;
   height: 100%;
   object-fit: contain;
+  display: block;
+}
+.incident-popup__icon-fallback {
+  font-size: 22px;
+  font-weight: 800;
+  letter-spacing: 2px;
+  color: rgba(15, 23, 42, 0.75);
+}
+.incident-popup__title {
+  font-size: 15px;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+}
+.incident-popup__meta {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  font-size: 12px;
+  color: var(--text-muted);
+}
+.incident-popup__meta-line {
+  line-height: 1.35;
+}
+.incident-popup__section {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.incident-popup__section-title {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  font-weight: 700;
+  color: var(--text-muted);
+}
+.incident-popup__units {
+  gap: 8px;
+}
+.incident-popup__unit-status-group {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.incident-popup__unit-status-group + .incident-popup__unit-status-group {
+  padding-top: 6px;
+  border-top: 1px solid var(--border);
+}
+.incident-popup__unit-status-title {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.8px;
+  font-weight: 700;
+  color: var(--text-muted);
 }
 .incident-popup__unit-list {
   display: flex;
@@ -798,13 +904,40 @@ header .subtitle {
 .incident-popup .incident-unit {
   display: inline-flex;
   align-items: center;
-  font-size: 0.7rem;
+  font-size: 11px;
   font-weight: 700;
   padding: 3px 9px;
   border-radius: 999px;
   border: 1px solid var(--border);
   background: var(--row-hover-bg);
   color: var(--text);
+  letter-spacing: 0.3px;
+}
+.incident-unit--upd-notified {
+  background: rgba(59, 130, 246, 0.15) !important;
+  border-color: rgba(59, 130, 246, 0.45) !important;
+  color: #93c5fd !important;
+}
+
+/* --- coord-copy popup (core/coord-copy.js -> .livemap-stop-popup) --- */
+.maplibregl-popup.livemap-stop-popup .maplibregl-popup-content {
+  background: var(--card-bg);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  box-shadow: 0 12px 34px rgba(0, 0, 0, 0.4);
+  margin: 0;
+  padding: 8px 12px;
+  font-size: 0.8rem;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.maplibregl-popup.livemap-stop-popup .maplibregl-popup-tip {
+  border-top-color: var(--card-bg);
+  border-bottom-color: var(--card-bg);
+  border-left-color: var(--card-bg);
+  border-right-color: var(--card-bg);
 }
 
 /* Loading overlay — the Leaflet page had none, but the vector basemap takes a

@@ -81,20 +81,26 @@ let programmaticMove = false;
 let popup = null;
 let popupId = null;
 let followChip = null;
+let markerMenuEnabled = true; // installVehicleLayer({ markerMenu:false }) turns off the van popup
 
 // --- public -----------------------------------------------------------------
 
 /**
- * @param {{ feeds?: Array<'uts'|'cat'|'micro'> }} [opts]
- *   Which agency feeds this shell wants drawn. Defaults to all three (the Live
- *   Map). vandispatch2 passes `['micro']` so the fixed-route bus + CAT feeds
- *   never start and only UVA Ride / FlexRide vans render here.
+ * @param {{ feeds?: Array<'uts'|'cat'|'micro'>, markerMenu?: boolean }} [opts]
+ *   `feeds` — which agency feeds this shell wants drawn. Defaults to all three
+ *   (the Live Map). vandispatch2 passes `['micro']` so the fixed-route bus + CAT
+ *   feeds never start and only UVA Ride / FlexRide vans render here.
+ *   `markerMenu` — default true. false skips registering the vehicle layer with
+ *   the shared marker menu, so a click on a van opens no popup (vandispatch2
+ *   drives its own van selection off a separate map click and mirrors
+ *   /vandispatch, which deliberately has no van popup).
  */
 export function installVehicleLayer(opts = {}) {
   const want = new Set(opts.feeds || ['uts', 'cat', 'micro']);
   const useUts = want.has('uts');
   const useCat = want.has('cat');
   const useMicro = want.has('micro');
+  markerMenuEnabled = opts.markerMenu !== false;
 
   onStyleReady(onStyleRebuilt);
 
@@ -301,20 +307,23 @@ function wireInteractions(map) {
   interactionsWired = true;
 
   // Bus clicks route through the shared marker menu (so an overlapping bus /
-  // stop offers a pick rather than one popup winning arbitrarily).
-  registerMarkerLayer({
-    layer: HIT_LAYER,
-    resolve: (f) => {
-      const s = state.get(f.properties.id);
-      if (!s) return null;
-      return {
-        key: `veh:${f.properties.id}`,
-        ...chipText(s.props),
-        color: s.props.routeColor,
-        open: () => openPopup(f.properties.id),
-      };
-    },
-  });
+  // stop offers a pick rather than one popup winning arbitrarily). Skipped when
+  // the host turned the van popup off (vandispatch2).
+  if (markerMenuEnabled) {
+    registerMarkerLayer({
+      layer: HIT_LAYER,
+      resolve: (f) => {
+        const s = state.get(f.properties.id);
+        if (!s) return null;
+        return {
+          key: `veh:${f.properties.id}`,
+          ...chipText(s.props),
+          color: s.props.routeColor,
+          open: () => openPopup(f.properties.id),
+        };
+      },
+    });
+  }
   map.on('mouseenter', HIT_LAYER, () => {
     map.getCanvas().style.cursor = 'pointer';
   });

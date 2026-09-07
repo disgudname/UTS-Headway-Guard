@@ -152,6 +152,18 @@ function normalizeBase(style) {
     data: { type: 'FeatureCollection', features: [] },
   };
 
+  // vandispatch2 preview only (apps/vandispatch2/map-overlays.js): the Spare
+  // service-area outline and the click-to-reveal van/ride route polyline. Empty
+  // + hidden everywhere else — the Live Map never touches these.
+  s.sources[VD_AREA_SOURCE_ID] = {
+    type: 'geojson',
+    data: { type: 'FeatureCollection', features: [] },
+  };
+  s.sources[VD_ROUTE_SOURCE_ID] = {
+    type: 'geojson',
+    data: { type: 'FeatureCollection', features: [] },
+  };
+
   // Satellite view (Esri). Layers start hidden; layers/satellite.js flips them.
   s.sources['sat-imagery'] = {
     type: 'raster',
@@ -179,6 +191,72 @@ function normalizeBase(style) {
 export const BUILDING_SOURCE_ID = 'livemap-building';
 const BUILDING_FILL_LAYER = 'livemap-building-fill';
 const BUILDING_LINE_LAYER = 'livemap-building-outline';
+
+// --- vandispatch2 preview overlays -----------------------------------------
+export const VD_AREA_SOURCE_ID = 'vd-area';
+export const VD_AREA_FILL_LAYER = 'vd-area-fill';
+export const VD_AREA_LINE_LAYER = 'vd-area-line';
+export const VD_ROUTE_SOURCE_ID = 'vd-route';
+export const VD_ROUTE_LINE_LAYER = 'vd-route-line';
+export const VD_ROUTE_DASH_LAYER = 'vd-route-dash';
+
+/**
+ * The Spare service-area outline (quiet dashed under-layer) + the van/ride
+ * route polyline. Themed the same way /vandispatch does it: UVA Blue on the
+ * light basemap, a pale blue-grey on the dark one. All start hidden and empty;
+ * apps/vandispatch2/map-overlays.js feeds + shows them.
+ */
+function addVandispatchOverlayLayers(style, theme) {
+  const areaColor = theme === 'light' ? '#232D4B' : '#C8CBD2';
+  style.layers.push(
+    {
+      id: VD_AREA_FILL_LAYER,
+      type: 'fill',
+      source: VD_AREA_SOURCE_ID,
+      layout: { visibility: 'none' },
+      paint: { 'fill-color': areaColor, 'fill-opacity': 0.045 },
+    },
+    {
+      id: VD_AREA_LINE_LAYER,
+      type: 'line',
+      source: VD_AREA_SOURCE_ID,
+      layout: { visibility: 'none', 'line-join': 'round' },
+      paint: {
+        'line-color': areaColor,
+        'line-opacity': 0.5,
+        'line-width': 1.5,
+        'line-dasharray': [4, 4],
+      },
+    },
+  );
+}
+
+/** The van/ride route polyline. Two layers over one source (line-dasharray is
+ *  not a data-driven property, so the dashed pickup leg gets its own layer,
+ *  filtered on a `dash` feature flag). Sits above the trip overlay, below the
+ *  vehicle markers. `line-width` 5 / opacity 0.85 matches /vandispatch's
+ *  ROUTE_LINE_WEIGHT. */
+function addVandispatchRouteLayer(style) {
+  const base = {
+    type: 'line',
+    source: VD_ROUTE_SOURCE_ID,
+    layout: { visibility: 'none', 'line-cap': 'round', 'line-join': 'round' },
+    paint: {
+      'line-color': ['coalesce', ['get', 'color'], '#E57200'],
+      'line-width': 5,
+      'line-opacity': 0.85,
+    },
+  };
+  style.layers.push(
+    { ...clone(base), id: VD_ROUTE_LINE_LAYER, filter: ['!=', ['get', 'dash'], 1] },
+    {
+      ...clone(base),
+      id: VD_ROUTE_DASH_LAYER,
+      filter: ['==', ['get', 'dash'], 1],
+      paint: { ...base.paint, 'line-dasharray': [2, 3] },
+    },
+  );
+}
 
 /** A single highlighted building footprint (search result). Above the basemap,
  *  below routes/stops/vehicles so transit markers stay readable on top. */
@@ -325,12 +403,14 @@ function buildLight(raw) {
   addSatelliteLayers(s);
   addTrafficFlowLayer(s);
   addMicroZoneLayers(s, 'light');
+  addVandispatchOverlayLayers(s, 'light');
   addBuildingHighlightLayers(s);
   addRouteLayers(s, 'light');
   addStopLayers(s, 'light');
   addCatLayers(s, 'light');
   addMicroTripLayers(s, 'light');
   addTrafficIncLayers(s, 'light');
+  addVandispatchRouteLayer(s);
   addVehicleLayers(s);
   addPulsePointLayers(s, 'light');
   s.name = 'UVA Grounds — Day';
@@ -637,12 +717,14 @@ function buildDark(raw) {
   addSatelliteLayers(s);
   addTrafficFlowLayer(s);
   addMicroZoneLayers(s, 'dark');
+  addVandispatchOverlayLayers(s, 'dark');
   addBuildingHighlightLayers(s);
   addRouteLayers(s, 'dark');
   addStopLayers(s, 'dark');
   addCatLayers(s, 'dark');
   addMicroTripLayers(s, 'dark');
   addTrafficIncLayers(s, 'dark');
+  addVandispatchRouteLayer(s);
   addVehicleLayers(s);
   addPulsePointLayers(s, 'dark');
   return s;
