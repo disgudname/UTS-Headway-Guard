@@ -878,9 +878,21 @@ async function drawLeggedRoute(startLngLat, stopLngLats, color, fit, seq) {
   if (fit && bounds.length > 1) fitTo(bounds);
 }
 
+/** Is this van still on the live feed? (`lastMicroList` is the last onMicroVehicles
+ *  emit — a non-empty list that lacks the van means it left; an empty list is a
+ *  transient poll and doesn't count.) */
+function vanIsLive(source, id) {
+  if (!lastMicroList.length) return true;
+  return lastMicroList.some((x) => x.id === (source === 'spare' ? 'sp:' : 'od:') + id);
+}
+
 async function showVanFullRoute(vehicleId, opts) {
   const fit = !(opts && opts.fit === false);
   const seq = ++routeDrawSeq;
+  if (!vanIsLive('spare', vehicleId)) {
+    clearRequestRoute();
+    return;
+  }
   const v = getVehicleData()[vehicleId] || {};
   const label = v.identifier || 'Van';
   const color = getVanColor(label, v.markerColor || '#E57200');
@@ -907,6 +919,10 @@ async function showVanFullRoute(vehicleId, opts) {
 async function showOdVanRoute(vehicleId, opts) {
   const fit = !(opts && opts.fit === false);
   const seq = ++routeDrawSeq;
+  if (!vanIsLive('od', vehicleId)) {
+    clearRequestRoute();
+    return;
+  }
   const van = getOdVehicles().find((x) => String(x.vehicleId) === String(vehicleId));
   if (!van || !Number.isFinite(van.lng) || !Number.isFinite(van.lat)) {
     clearRequestRoute();
@@ -950,11 +966,14 @@ let lastRouteAnchor = null; // { key, lng, lat } at the last redraw
 let lastMicroList = [];
 let trackCooldownUntil = 0;
 let trackTrailingTimer = 0;
+let selectedVanMisses = 0; // consecutive live-list emits with the selected van absent
+const MAX_VAN_MISSES = 2; // ~10-20s of the van being gone -> drop the selection
 
 /** Reset the tracker (a fresh selection draws + frames via onSelectionChange). */
 function resetRouteTracking() {
   lastRouteAnchor = null;
   trackCooldownUntil = 0;
+  selectedVanMisses = 0;
   if (trackTrailingTimer) {
     clearTimeout(trackTrailingTimer);
     trackTrailingTimer = 0;
@@ -969,7 +988,16 @@ function trackSelectedVan() {
   }
   const wantId = (sel.source === 'spare' ? 'sp:' : 'od:') + sel.id;
   const v = lastMicroList.find((x) => x.id === wantId);
-  if (!v || !Number.isFinite(v.lng) || !Number.isFinite(v.lat)) return;
+  // The selected van dropped off the live feed (duty ended, tablet offline, fix
+  // went stale — the marker is already gone). Drop the selection so its route
+  // + card highlight + itinerary go with it. Only when the list itself is real
+  // (non-empty), so a transient empty poll doesn't clear a valid selection.
+  if (!v) {
+    if (lastMicroList.length && ++selectedVanMisses >= MAX_VAN_MISSES) clearSelection();
+    return;
+  }
+  selectedVanMisses = 0;
+  if (!Number.isFinite(v.lng) || !Number.isFinite(v.lat)) return;
   const key = `${sel.source}:${sel.id}`;
   const cur = [v.lng, v.lat];
   if (
