@@ -19,6 +19,7 @@
 import { onStyleReady } from '../../core/map.js';
 import { onThemeChange, getEffectiveTheme } from '../../core/theme.js';
 import { API_BASE } from '../../core/config.js';
+import { debounce } from '../../core/util.js';
 import {
   VD_AREA_SOURCE_ID,
   VD_AREA_FILL_LAYER,
@@ -38,7 +39,7 @@ import {
   computeVehicleStopGroups,
   OD_ACTIVE,
 } from './data.js';
-import { onSelectionChange, getSelected } from './selection.js';
+import { onSelectionChange, getSelected, selectVan } from './selection.js';
 import { escHtml, svgIcon, contrastColor, fmtTime } from './helpers.js';
 
 const U = (p) => `${API_BASE}${p}`;
@@ -70,6 +71,15 @@ function stopOrderMarkerEl(number, color) {
 // data.js's computeVehicleStopGroups() already merges same-spot Spare stops and
 // numbers them the way the trip cards do — this module just plots the result.
 let stopMarkers = []; // maplibregl.Marker[]
+
+/** Select a van without triggering selectVan's toggle-off (used by the stop
+ *  discs, which frequently overlap their own van). */
+function ensureVanSelected(source, id) {
+  const cur = getSelected();
+  const nid = id != null ? String(id) : null;
+  if (cur && cur.source === source && cur.id === nid) return;
+  selectVan(source, id);
+}
 let stopPopup = null;
 
 function clearStopMarkers() {
@@ -173,6 +183,12 @@ function renderStopMarkers() {
       const el = stopOrderMarkerEl(order, color);
       el.addEventListener('click', (e) => {
         e.stopPropagation();
+        // Also select the van — a stop disc frequently sits right on top of its
+        // van (the van drives to its stops), and the DOM disc would otherwise
+        // swallow the click that would have selected the van + drawn its route.
+        // Guard against selectVan's toggle so clicking a stop of the already-
+        // selected van doesn't deselect it.
+        ensureVanSelected('spare', vehicleId);
         openStopPopup(group.lngLat, spareStopPopupHTML(order, group.stops, label, color));
       });
       const mk = new maplibregl.Marker({ element: el, anchor: 'center' })
@@ -199,6 +215,7 @@ function renderStopMarkers() {
       const el = stopOrderMarkerEl(s.order, color);
       el.addEventListener('click', (e) => {
         e.stopPropagation();
+        ensureVanSelected('od', vid); // see the spare branch — the disc covers its van
         openStopPopup([s.lng, s.lat], odStopPopupHTML(s, color));
       });
       const mk = new maplibregl.Marker({ element: el, anchor: 'center' })
@@ -929,10 +946,14 @@ export function startMapOverlays(theMap) {
 
   onThemeChange(() => restyleArea());
 
-  onChange(() => {
+  // data.js emits `change` once per fetcher (~6× per poll cycle). Debounce the
+  // marker rebuild + route redraw so a poll burst does the work once, not six
+  // times (which churned the DOM stop markers and fired six duty-route fetches).
+  const onPollSettled = debounce(() => {
     renderStopMarkers();
     redrawSelectedRoute();
-  });
+  }, 400);
+  onChange(onPollSettled);
 
   onSelectionChange((sel) => {
     if (!sel || !sel.id) {
