@@ -25,7 +25,9 @@ import {
 } from '../core/layers/satellite.js';
 import { installCoordCopy } from '../core/coord-copy.js';
 import { installVehicleLayer } from '../core/layers/vehicles.js';
+import { installBuildingHighlight } from '../core/layers/building-highlight.js';
 import { setMicroEnabled } from '../core/data/microtransit.js';
+import { SearchBox } from '../ui/search.js';
 import { startVandispatchPanels } from './vandispatch2/index.js';
 
 /** MapLibre GL v5 renders only through WebGL 2. */
@@ -114,6 +116,7 @@ async function boot() {
 
   installSatelliteLayer();
   installCoordCopy();
+  installBuildingHighlight(); // footprint highlight for the search box's building picks
 
   // Van markers come from livemap's shared vehicle layer, restricted to the
   // microtransit feed (no fixed-route buses, no CAT) and with the shared van
@@ -131,6 +134,12 @@ async function boot() {
   // is vandispatch2's own, matching the Leaflet /vandispatch, NOT livemap's
   // micro-trips / safety treatment.
   startVandispatchPanels(map);
+
+  // livemap's search box, reused as-is: one field over the live vehicle index +
+  // UVA building/address search (/v1/uva/facility_search). Picking a van flies
+  // to + follows it; picking a building frames + highlights the footprint.
+  // Mounted into the map pane so it centres over the map, not the window.
+  new SearchBox().mount(document.getElementById('map-pane'));
 
   wireControls();
 

@@ -24,7 +24,10 @@ const DEBOUNCE_MS = 220;
 const MAX_VEHICLES = 8;
 
 export class SearchBox {
-  mount() {
+  /** @param {HTMLElement} [parent] where to append the box (default document.body).
+   *  vandispatch2 passes its map pane so the box centres over the map, not the
+   *  whole window. */
+  mount(parent = document.body) {
     const el = document.createElement('div');
     el.className = 'livemap-search';
     el.innerHTML = `
@@ -74,7 +77,7 @@ export class SearchBox {
     });
 
     this._debouncedSearch = debounce((q) => this._search(q), DEBOUNCE_MS);
-    document.body.appendChild(el);
+    (parent || document.body).appendChild(el);
     return this;
   }
 

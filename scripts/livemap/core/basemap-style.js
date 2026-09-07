@@ -197,6 +197,7 @@ export const VD_AREA_SOURCE_ID = 'vd-area';
 export const VD_AREA_FILL_LAYER = 'vd-area-fill';
 export const VD_AREA_LINE_LAYER = 'vd-area-line';
 export const VD_ROUTE_SOURCE_ID = 'vd-route';
+export const VD_ROUTE_CASING_LAYER = 'vd-route-casing';
 export const VD_ROUTE_LINE_LAYER = 'vd-route-line';
 export const VD_ROUTE_DASH_LAYER = 'vd-route-dash';
 
@@ -231,11 +232,11 @@ function addVandispatchOverlayLayers(style, theme) {
   );
 }
 
-/** The van/ride route polyline. Two layers over one source (line-dasharray is
- *  not a data-driven property, so the dashed pickup leg gets its own layer,
- *  filtered on a `dash` feature flag). Sits above the trip overlay, below the
- *  vehicle markers. `line-width` 5 / opacity 0.85 matches /vandispatch's
- *  ROUTE_LINE_WEIGHT. */
+/** The van/ride route polyline. A white casing under a van-coloured line, plus
+ *  a separate dashed layer for the pickup leg (line-dasharray is not a
+ *  data-driven property so the dash flag needs its own layer). Sits above the
+ *  trip overlay, below the vehicle markers. `line-width` 5 / opacity 0.85
+ *  matches /vandispatch's ROUTE_LINE_WEIGHT; the white halo is an addition. */
 function addVandispatchRouteLayer(style) {
   const base = {
     type: 'line',
@@ -248,6 +249,12 @@ function addVandispatchRouteLayer(style) {
     },
   };
   style.layers.push(
+    // White halo — a wider opaque white line under everything.
+    {
+      ...clone(base),
+      id: VD_ROUTE_CASING_LAYER,
+      paint: { 'line-color': '#ffffff', 'line-width': 9, 'line-opacity': 0.95 },
+    },
     { ...clone(base), id: VD_ROUTE_LINE_LAYER, filter: ['!=', ['get', 'dash'], 1] },
     {
       ...clone(base),

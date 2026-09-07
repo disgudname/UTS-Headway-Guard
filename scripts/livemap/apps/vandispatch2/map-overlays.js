@@ -24,6 +24,7 @@ import {
   VD_AREA_FILL_LAYER,
   VD_AREA_LINE_LAYER,
   VD_ROUTE_SOURCE_ID,
+  VD_ROUTE_CASING_LAYER,
   VD_ROUTE_LINE_LAYER,
   VD_ROUTE_DASH_LAYER,
 } from '../../core/basemap-style.js';
@@ -641,7 +642,7 @@ function addFallbackPin(lngLat, isPickup) {
 }
 
 function routeLayersVisible(v) {
-  for (const id of [VD_ROUTE_LINE_LAYER, VD_ROUTE_DASH_LAYER]) {
+  for (const id of [VD_ROUTE_CASING_LAYER, VD_ROUTE_LINE_LAYER, VD_ROUTE_DASH_LAYER]) {
     if (map.getLayer(id)) map.setLayoutProperty(id, 'visibility', v ? 'visible' : 'none');
   }
 }
