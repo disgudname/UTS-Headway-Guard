@@ -40,7 +40,8 @@ import {
   OD_ACTIVE,
 } from './data.js';
 import { onSelectionChange, getSelected, selectVan } from './selection.js';
-import { escHtml, svgIcon, contrastColor, fmtTime } from './helpers.js';
+import { onMicroVehicles } from '../../core/data/microtransit.js';
+import { escHtml, svgIcon, contrastColor, fmtTime, haversineM } from './helpers.js';
 
 const U = (p) => `${API_BASE}${p}`;
 const FONT = "'FGDC', sans-serif";
@@ -919,13 +920,67 @@ export function showTripRoute(kind, ref) {
   else showOdRequestRoute(ref);
 }
 
-/** Re-draw the selected van's route without re-framing (called each poll so the
- *  drawn path tracks the van as it moves — mirrors vandispatch). */
+/** Re-draw the selected van's route without re-framing. */
 function redrawSelectedRoute() {
   const sel = getSelected();
   if (!sel || !sel.id) return;
   if (sel.source === 'spare') showVanFullRoute(sel.id, { fit: false });
   else showOdVanRoute(sel.id, { fit: false });
+}
+
+// --- keep the drawn route tracking the van as it moves ------------------
+// The van marker updates in ~real time off the Spare position SSE (livemap's
+// core/data/microtransit.js re-emits onMicroVehicles on every pushed fix). The
+// route should follow at the same cadence — mirrors /vandispatch, which
+// re-draws showVanFullRoute on every vehicleLocation event. Redraw only on a
+// meaningful move (>= MIN_MOVE_M) and no more than once per MIN_REDRAW_MS, with
+// a trailing redraw so the last position isn't missed.
+const MIN_MOVE_M = 8;
+const MIN_REDRAW_MS = 2500;
+let lastRouteAnchor = null; // { key, lng, lat } at the last redraw
+let lastMicroList = [];
+let trackCooldownUntil = 0;
+let trackTrailingTimer = 0;
+
+/** Reset the tracker (a fresh selection draws + frames via onSelectionChange). */
+function resetRouteTracking() {
+  lastRouteAnchor = null;
+  trackCooldownUntil = 0;
+  if (trackTrailingTimer) {
+    clearTimeout(trackTrailingTimer);
+    trackTrailingTimer = 0;
+  }
+}
+
+function trackSelectedVan() {
+  const sel = getSelected();
+  if (!sel || !sel.id) {
+    resetRouteTracking();
+    return;
+  }
+  const wantId = (sel.source === 'spare' ? 'sp:' : 'od:') + sel.id;
+  const v = lastMicroList.find((x) => x.id === wantId);
+  if (!v || !Number.isFinite(v.lng) || !Number.isFinite(v.lat)) return;
+  const key = `${sel.source}:${sel.id}`;
+  const cur = [v.lng, v.lat];
+  if (
+    lastRouteAnchor &&
+    lastRouteAnchor.key === key &&
+    haversineM([lastRouteAnchor.lng, lastRouteAnchor.lat], cur) < MIN_MOVE_M
+  ) {
+    return; // parked / GPS jitter
+  }
+  const now = Date.now();
+  if (now >= trackCooldownUntil) {
+    lastRouteAnchor = { key, lng: v.lng, lat: v.lat };
+    trackCooldownUntil = now + MIN_REDRAW_MS;
+    redrawSelectedRoute();
+  } else if (!trackTrailingTimer) {
+    trackTrailingTimer = setTimeout(() => {
+      trackTrailingTimer = 0;
+      trackSelectedVan();
+    }, trackCooldownUntil - now);
+  }
 }
 
 // ===========================================================================
@@ -956,12 +1011,20 @@ export function startMapOverlays(theMap) {
   onChange(onPollSettled);
 
   onSelectionChange((sel) => {
+    resetRouteTracking();
     if (!sel || !sel.id) {
       clearRequestRoute();
       return;
     }
     if (sel.source === 'spare') showVanFullRoute(sel.id);
     else showOdVanRoute(sel.id);
+  });
+
+  // Follow the selected van's live position (Spare SSE via microtransit.js) and
+  // keep its route in step — same cadence as the marker, not the 10s panel poll.
+  onMicroVehicles((list) => {
+    lastMicroList = list || [];
+    trackSelectedVan();
   });
 
   loadServiceArea();
