@@ -1,0 +1,89 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Van Dispatch (MapLibre preview)</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <link rel="icon" type="image/png" href="/media/favicon.ico" />
+    <link rel="apple-touch-icon" sizes="120x120" href="/media/apple-touch-icon-120.png" />
+    <link rel="apple-touch-icon" sizes="152x152" href="/media/apple-touch-icon-152.png" />
+    <link rel="apple-touch-icon" sizes="180x180" href="/media/apple-touch-icon-180.png" />
+    <link rel="manifest" href="/manifest.json" />
+    <meta name="theme-color" content="#E57200" />
+
+    <script defer src="/nav-bar.js"></script>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      rel="stylesheet"
+      href="https://fonts.googleapis.com/css2?family=Libre+Franklin:wght@400;500;600;700&display=swap"
+    />
+
+    <link rel="stylesheet" href="/livemap-vendor/maplibre-gl.css" />
+    <link rel="stylesheet" href="/vandispatch2.css" />
+
+    <!-- MapLibre GL + the PMTiles protocol shim; both attach a global. -->
+    <script src="/livemap-vendor/maplibre-gl.js"></script>
+    <script src="/livemap-vendor/pmtiles.js"></script>
+
+    <!-- Seed the shared livemap theme store to dark on first visit, so this
+         preview opens in the same dark treatment the live Leaflet /vandispatch
+         always defaults to (livemap's own default is "auto" = follow the OS). -->
+    <script>
+      try {
+        var _k = 'livemap.themeMode';
+        if (!localStorage.getItem(_k)) localStorage.setItem(_k, 'dark');
+      } catch (e) {
+        /* private browsing, etc. */
+      }
+    </script>
+  </head>
+  <body>
+    <header>
+      <div><h1>Van Dispatch</h1></div>
+      <span class="preview-tag">MapLibre preview</span>
+      <span class="subtitle">UVA Ride &amp; UVA FlexRide</span>
+      <button
+        id="satellite-toggle"
+        class="theme-toggle"
+        type="button"
+        title="Toggle satellite imagery"
+        aria-label="Toggle satellite imagery"
+        aria-pressed="false"
+      ></button>
+      <button
+        id="theme-toggle"
+        class="theme-toggle"
+        type="button"
+        title="Toggle light/dark mode"
+        aria-label="Toggle light/dark mode"
+      ></button>
+    </header>
+
+    <div class="main-layout">
+      <section id="trip-board" aria-label="Active trips">
+        <h2>Active Trips <span id="trips-updated"></span></h2>
+        <div id="trips-list"><div class="no-trips">Panels land in a later pass.</div></div>
+      </section>
+
+      <div id="map-pane">
+        <div id="map"></div>
+        <div id="map-no-webhooks">Vehicle GPS requires Spare webhook configuration</div>
+      </div>
+
+      <section id="duty-roster" aria-label="Duty roster">
+        <h2>Duty Roster — Today <span id="duties-updated"></span></h2>
+        <div id="duties-list"><div class="no-duties">Panels land in a later pass.</div></div>
+      </section>
+    </div>
+
+    <div id="loadingOverlay" class="loading-overlay" aria-live="polite" aria-busy="true">
+      <div class="loading-overlay__inner">
+        <div class="loading-overlay__spinner" aria-hidden="true"></div>
+        <div class="loading-overlay__text">Loading the map…</div>
+      </div>
+    </div>
+
+    <script type="module" src="/livemap-src/apps/vandispatch2.js"></script>
+  </body>
+</html>

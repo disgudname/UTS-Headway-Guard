@@ -1923,6 +1923,9 @@ INCIDENTS_HTML = _load_html("incidents.html")
 VDOT_CAMS_HTML = _load_html("vdot-cams.html")
 OVERLAP_DEMO_HTML = _load_html("overlap-demo.html")
 VANDISPATCH_HTML = _load_html("vandispatch.html")
+# MapLibre GL preview of Van Dispatch (placeholder name; runs beside the live
+# Leaflet /vandispatch until the swap). Reuses the shared livemap core.
+VANDISPATCH2_HTML = _load_html("vandispatch2.html")
 PRESENCE_HTML = _load_html("presence.html")
 VAN_COLORS_HTML = _load_html("van-colors.html")
 
@@ -13443,6 +13446,11 @@ async def livemap_css():
     return _serve_css_asset("livemap.css")
 
 
+@app.get("/vandispatch2.css", include_in_schema=False)
+async def vandispatch2_css():
+    return _serve_css_asset("vandispatch2.css")
+
+
 _LIVEMAP_VENDOR_MEDIA = {
     "maplibre-gl.js": "application/javascript",
     "maplibre-gl.css": "text/css",
@@ -17403,6 +17411,14 @@ async def api_spare_list_webhooks(request: Request):
 async def vandispatch_page(request: Request):
     if _has_dispatcher_access(request):
         return HTMLResponse(VANDISPATCH_HTML)
+    return _login_redirect(request)
+
+
+@app.get("/vandispatch2")
+async def vandispatch2_page(request: Request):
+    # MapLibre GL preview; same dispatcher gate as /vandispatch.
+    if _has_dispatcher_access(request):
+        return HTMLResponse(VANDISPATCH2_HTML)
     return _login_redirect(request)
 
 

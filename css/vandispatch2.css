@@ -1,0 +1,855 @@
+/* vandispatch2.css
+ * ---------------------------------------------------------------------------
+ * Chrome for the MapLibre GL preview of Van Dispatch (/vandispatch2).
+ *
+ * This is a deliberately faithful, self-contained port of the <style> block in
+ * html/vandispatch.html (the live Leaflet page): same tokens, same variable
+ * names, same layout, same cards. The only additions are the handful of rules
+ * MapLibre needs that Leaflet did not (map container fill, control skin,
+ * loading overlay, coord-copy popup) plus the small "MapLibre preview" tag.
+ * Keeping it identical is intentional so swapping /vandispatch over later is a
+ * low-risk change.
+ *
+ * Palette follows the UVA visual identity (brand.virginia.edu): UVA Blue
+ * #232D4B, UVA Orange #E57200 as primaries; orange is the interactive accent
+ * on the dark ops theme. Secondary hues (Cyan #009FDF, Green #62BB46,
+ * Teal #25CAD3, Yellow #FDDA24, Emergency #DF1E43) drive the status
+ * stripes/chips further down.
+ * ------------------------------------------------------------------------- */
+
+:root {
+  color-scheme: dark;
+  --bg: #0d0d0d;
+  --text: #f0f0f0;
+  --text-muted: #9aa0ab;
+  --text-faint: #6b7280;
+  --text-faintest: #565d69;
+  --panel-bg: #10131b;
+  --panel-header-bg: #1b2338;
+  --card-bg: #1c2740;
+  --row-hover-bg: #1c2740;
+  --border: #2c3a58;
+  --border-soft: #223050;
+  --header-grad-a: #232d4b;
+  --header-grad-b: #0d1220;
+  --header-border: #e57200;
+  --header-title: #f4f6fa;
+  --accent-label: #e57200;
+  --rider-name: #f4f6fa;
+  --eta-time: #f0f0f0;
+  --trip-body-text: #aab0bd;
+  --td-text: #dde1e8;
+  --card-hover-border: #e57200;
+  --card-selected-border: #e57200;
+  --card-selected-ring: rgba(229, 114, 0, 0.35);
+  --trip-note: #fdda24;
+}
+:root[data-theme='light'] {
+  color-scheme: light;
+  --bg: #f1f1ef; /* UVA Light Gray */
+  --text: #232d4b; /* UVA Blue */
+  --text-muted: #666666; /* UVA Text Gray */
+  --text-faint: #8a8a8a;
+  --text-faintest: #adadad;
+  --panel-bg: #ffffff;
+  --panel-header-bg: #e9ebf0;
+  --card-bg: #ffffff;
+  --row-hover-bg: #f1f1ef;
+  --border: #dadada; /* UVA Medium Gray */
+  --border-soft: #e7e7e5;
+  --header-grad-a: #232d4b; /* header stays UVA Blue in light mode too */
+  --header-grad-b: #1a2238;
+  --header-border: #e57200;
+  --header-title: #ffffff;
+  /* orange fails AA as small text on white, so text-level accents use UVA
+     Blue in light mode; orange is kept for borders/rings/hover only */
+  --accent-label: #232d4b;
+  --rider-name: #232d4b;
+  --eta-time: #232d4b;
+  --trip-body-text: #55555f;
+  --td-text: #33384a;
+  --card-hover-border: #e57200;
+  --card-selected-border: #e57200;
+  --card-selected-ring: rgba(229, 114, 0, 0.3);
+  /* dark amber -- UVA Yellow is unreadable on the near-white card bg */
+  --trip-note: #9a6700;
+}
+* {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+@font-face {
+  font-family: 'FGDC';
+  src: url('/FGDC.ttf') format('truetype');
+}
+html,
+body {
+  height: 100%;
+}
+body {
+  /* Libre Franklin is the free web equivalent of Franklin Gothic that UVA
+     itself endorses (brand.virginia.edu/design-assets/fonts). */
+  font-family: 'Libre Franklin', 'Franklin Gothic', Helvetica, Arial, sans-serif;
+  background: var(--bg);
+  color: var(--text);
+  height: 100vh;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+header {
+  background: linear-gradient(120deg, var(--header-grad-a), var(--header-grad-b));
+  padding: 0.45rem 1.5rem;
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  border-bottom: 2px solid var(--header-border);
+}
+header h1 {
+  font-size: 1.05rem;
+  font-weight: 700;
+  color: var(--header-title);
+  letter-spacing: 0.02em;
+}
+header .preview-tag {
+  font-size: 0.62rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: #fff2e2;
+  background: rgba(229, 114, 0, 0.9);
+  padding: 0.15rem 0.5rem;
+  border-radius: 999px;
+}
+header .subtitle {
+  font-size: 0.8rem;
+  /* header is UVA Blue in both themes, so this can't follow --accent-label
+     (which is dark blue in light mode -- invisible here) */
+  color: #e57200;
+  margin-left: auto;
+}
+.theme-toggle {
+  background: transparent;
+  border: 1px solid rgba(255, 255, 255, 0.28);
+  color: #f4f6fa;
+  border-radius: 999px;
+  width: 32px;
+  height: 32px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.95rem;
+  line-height: 1;
+  cursor: pointer;
+  transition: background 0.15s, border-color 0.15s;
+}
+.theme-toggle:hover {
+  border-color: var(--header-border);
+  background: rgba(229, 114, 0, 0.14);
+}
+/* Satellite toggle in its "on" state — same round button, orange-tinted. */
+.theme-toggle[aria-pressed='true'] {
+  border-color: var(--header-border);
+  background: rgba(229, 114, 0, 0.22);
+  color: #ffd9b3;
+}
+
+.main-layout {
+  display: grid;
+  grid-template-columns: 420px 1fr 360px;
+  grid-template-rows: 1fr;
+  flex: 1;
+  min-height: 0;
+}
+/* Map */
+#map-pane {
+  grid-row: 1;
+  grid-column: 2;
+  position: relative;
+}
+#map {
+  width: 100%;
+  height: 100%;
+  min-height: 400px;
+  background: var(--panel-bg);
+}
+#map-no-webhooks {
+  display: none;
+  position: absolute;
+  bottom: 12px;
+  left: 50%;
+  transform: translateX(-50%);
+  background: rgba(0, 0, 0, 0.75);
+  color: #fdda24;
+  font-size: 0.75rem;
+  padding: 0.4rem 0.8rem;
+  border-radius: 6px;
+  pointer-events: none;
+  white-space: nowrap;
+  z-index: 400;
+}
+
+/* Trip board */
+#trip-board {
+  grid-row: 1;
+  grid-column: 1;
+  display: flex;
+  flex-direction: column;
+  background: var(--panel-bg);
+  border-right: 1px solid var(--border);
+  overflow: hidden;
+}
+#trip-board h2 {
+  font-size: 0.85rem;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--accent-label);
+  padding: 0.75rem 1rem;
+  border-bottom: 1px solid var(--border);
+  background: var(--panel-header-bg);
+}
+#trip-board h2 span,
+#duty-roster h2 span {
+  float: right;
+  font-size: 0.75rem;
+  color: var(--text-faint);
+  font-weight: 400;
+  letter-spacing: 0;
+  text-transform: none;
+}
+#trips-list {
+  flex: 1;
+  overflow-y: auto;
+  padding: 0.5rem;
+}
+.trip-card {
+  background: var(--card-bg);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 0.7rem 0.8rem;
+  margin-bottom: 0.5rem;
+  transition: border-color 0.2s;
+}
+.trip-card:hover {
+  border-color: var(--card-hover-border);
+}
+.trip-card.arriving {
+  border-left: 3px solid #e57200;
+} /* UVA Orange */
+.trip-card.inProgress {
+  border-left: 3px solid #62bb46;
+} /* UVA Green */
+.trip-card.accepted {
+  border-left: 3px solid #009fdf;
+} /* UVA Cyan */
+.trip-card.processing {
+  border-left: 3px solid #dadada;
+} /* UVA Medium Gray */
+/* Highlight applied when the matching van is selected on the map */
+.trip-card.card-selected,
+.duty-card.card-selected {
+  border-color: var(--card-selected-border);
+  box-shadow: 0 0 0 2px var(--card-selected-ring);
+}
+.trip-note {
+  color: var(--trip-note);
+}
+.trip-phone a {
+  color: var(--accent-label);
+  text-decoration: none;
+}
+.trip-phone a:hover {
+  text-decoration: underline;
+}
+.trip-header {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-bottom: 0.4rem;
+}
+.status-pill {
+  font-size: 0.68rem;
+  font-weight: 600;
+  padding: 0.15rem 0.45rem;
+  border-radius: 999px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+/* Solid mid-tone chips with light text -- legible on both the dark and the
+   light card backgrounds. Hues from the UVA secondary palette. */
+.status-pill.processing {
+  background: #8a8a8a;
+  color: #f2f2f2;
+}
+.status-pill.accepted {
+  background: #0a6c93;
+  color: #e6f6fd;
+}
+.status-pill.arriving {
+  background: #c25e00;
+  color: #fff2e2;
+}
+.status-pill.inProgress {
+  background: #3f8f2c;
+  color: #f0f9ec;
+}
+.rider-name {
+  font-size: 0.9rem;
+  font-weight: 600;
+  color: var(--rider-name);
+  flex: 1;
+}
+.trip-body {
+  font-size: 0.78rem;
+  color: var(--trip-body-text);
+  line-height: 1.5;
+}
+.trip-body .addr {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.trip-meta {
+  display: flex;
+  gap: 0.75rem;
+  margin-top: 0.35rem;
+  font-size: 0.75rem;
+}
+.trip-meta .eta-label {
+  color: var(--accent-label);
+  font-weight: 500;
+}
+.trip-meta .eta-time {
+  color: var(--eta-time);
+}
+.access-icons {
+  display: flex;
+  gap: 0.3rem;
+  margin-top: 0.35rem;
+  flex-wrap: wrap;
+}
+.access-tag {
+  background: #232d4b;
+  color: #c8cbd2;
+  font-size: 0.68rem;
+  padding: 0.1rem 0.4rem;
+  border-radius: 4px;
+}
+.no-trips {
+  text-align: center;
+  color: var(--text-faintest);
+  padding: 2rem 1rem;
+  font-size: 0.85rem;
+}
+
+/* Duty roster */
+#duty-roster {
+  grid-row: 1;
+  grid-column: 3;
+  display: flex;
+  flex-direction: column;
+  background: var(--panel-bg);
+  border-left: 1px solid var(--border);
+  overflow: hidden;
+}
+#duty-roster h2 {
+  font-size: 0.85rem;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--accent-label);
+  padding: 0.75rem 1rem;
+  border-bottom: 1px solid var(--border);
+  background: var(--panel-header-bg);
+}
+#duties-list {
+  flex: 1;
+  overflow-y: auto;
+  padding: 0.5rem;
+}
+.duty-card {
+  background: var(--card-bg);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 0.7rem 0.8rem;
+  margin-bottom: 0.5rem;
+  transition: border-color 0.2s;
+  cursor: pointer;
+}
+.duty-card:hover {
+  border-color: var(--card-hover-border);
+}
+.duty-card.scheduled {
+  border-left: 3px solid #009fdf;
+} /* UVA Cyan */
+.duty-card.inProgress {
+  border-left: 3px solid #62bb46;
+} /* UVA Green */
+.duty-card.completed {
+  border-left: 3px solid #dadada;
+} /* UVA Medium Gray */
+.duty-card.cancelled {
+  border-left: 3px solid #df1e43;
+} /* UVA Emergency */
+.duty-card.shift {
+  border-left: 3px solid #25cad3;
+} /* UVA Teal */
+/* Driver currently on a break/pause -- overrides the inProgress green stripe */
+.duty-card.onBreak {
+  border-left: 3px solid #fdda24;
+} /* UVA Yellow */
+.duty-status {
+  font-size: 0.72rem;
+  font-weight: 600;
+  padding: 0.15rem 0.45rem;
+  border-radius: 999px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+.duty-status.scheduled {
+  background: #0a6c93;
+  color: #e6f6fd;
+}
+.duty-status.inProgress {
+  background: #3f8f2c;
+  color: #f0f9ec;
+}
+.duty-status.completed {
+  background: #8a8a8a;
+  color: #f2f2f2;
+}
+.duty-status.cancelled {
+  background: #c11833;
+  color: #ffe6ea;
+}
+.duty-status.onBreak {
+  background: #b58900;
+  color: #fff8dd;
+}
+.no-duties {
+  text-align: center;
+  color: var(--text-faintest);
+  padding: 1.5rem;
+  font-size: 0.82rem;
+}
+
+/* Expanded itinerary inside a selected Duty Roster card */
+.duty-itinerary {
+  margin-top: 0.55rem;
+  padding-top: 0.5rem;
+  border-top: 1px dashed var(--border);
+  flex-direction: column;
+  gap: 0.4rem;
+}
+.duty-itinerary[hidden] {
+  display: none;
+}
+.duty-itinerary:not([hidden]) {
+  display: flex;
+}
+.itin-head {
+  font-size: 0.68rem;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--accent-label);
+}
+.itin-empty {
+  font-size: 0.72rem;
+  color: var(--text-faint);
+  font-style: italic;
+}
+.itin-row {
+  display: flex;
+  flex-direction: column;
+  gap: 0.05rem;
+  font-size: 0.72rem;
+}
+.itin-line {
+  display: flex;
+  align-items: center;
+  gap: 0.3rem;
+}
+.itin-name {
+  font-weight: 600;
+  color: var(--td-text);
+}
+.itin-phone {
+  color: var(--accent-label);
+  font-size: 0.68rem;
+  text-decoration: none;
+  white-space: nowrap;
+}
+.itin-phone:hover {
+  text-decoration: underline;
+}
+.itin-time {
+  color: var(--accent-label);
+  font-size: 0.68rem;
+  margin-left: auto;
+}
+.itin-addr {
+  padding-left: 20px;
+  color: var(--trip-body-text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+@media (max-width: 900px) {
+  /* The desktop layout gives .main-layout the full remaining viewport height
+     and splits it 45vh/1fr/1fr. On mobile that math breaks: the fixed header
+     plus nav-bar.js's bottom tab bar already eat a big chunk of the 100vh the
+     row heights are computed against, so 45vh for the map alone can leave next
+     to nothing for the 1fr rows -- Active Trips and the Duty Roster end up
+     cropped to their header strip. Switch to an auto-height stack that scrolls
+     as a whole instead. */
+  .main-layout {
+    grid-template-columns: 1fr;
+    grid-template-rows: auto auto auto;
+    align-content: start;
+    overflow-y: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+  #map-pane {
+    grid-column: 1;
+    grid-row: 1;
+    height: min(40vh, 320px);
+    min-height: 220px;
+  }
+  #map {
+    min-height: 0;
+  }
+  #trip-board {
+    grid-column: 1;
+    grid-row: 2;
+    border-right: none;
+    border-top: 1px solid var(--border);
+    overflow: visible;
+  }
+  #trip-board #trips-list {
+    flex: none;
+    overflow-y: visible;
+  }
+  #duty-roster {
+    grid-column: 1;
+    grid-row: 3;
+    border-left: none;
+    border-top: 1px solid var(--border);
+    overflow: visible;
+  }
+  #duty-roster #duties-list {
+    flex: none;
+    overflow-y: visible;
+  }
+}
+
+/* Source badges in duty table */
+.source-badge {
+  font-size: 0.65rem;
+  font-weight: 700;
+  padding: 0.1rem 0.35rem;
+  border-radius: 3px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  vertical-align: middle;
+}
+.source-badge--spare {
+  background: #232d4b;
+  color: #c8cbd2;
+} /* UVA Blue */
+.source-badge--w2w {
+  background: #0a4a4d;
+  color: #c9f2f4;
+} /* UVA Teal */
+.source-badge--lyft {
+  background: #ea0b8c;
+  color: #fff;
+} /* Lyft pink -- ride handed to Lyft */
+
+/* ======================================================================
+ * MapLibre-only additions (Leaflet handled these implicitly)
+ * ==================================================================== */
+
+/* MapLibre injects its own canvas + controls into #map. */
+.maplibregl-map {
+  font-family: inherit;
+}
+.maplibregl-ctrl-group {
+  background: var(--card-bg);
+  border: 1px solid var(--border);
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.35);
+}
+.maplibregl-ctrl-group button {
+  background: var(--card-bg);
+}
+.maplibregl-ctrl-group button + button {
+  border-top: 1px solid var(--border);
+}
+.maplibregl-ctrl-group button .maplibregl-ctrl-icon {
+  filter: var(--ctrl-icon-filter, none);
+}
+:root:not([data-theme='light']) .maplibregl-ctrl-group button .maplibregl-ctrl-icon {
+  filter: invert(1) hue-rotate(180deg) brightness(1.1);
+}
+.maplibregl-ctrl-attrib {
+  background: rgba(0, 0, 0, 0.55) !important;
+  color: #c8cbd2;
+}
+.maplibregl-ctrl-attrib a {
+  color: #e0e4ea;
+}
+:root[data-theme='light'] .maplibregl-ctrl-attrib {
+  background: rgba(255, 255, 255, 0.7) !important;
+  color: #4b5563;
+}
+:root[data-theme='light'] .maplibregl-ctrl-attrib a {
+  color: #232d4b;
+}
+
+/* Transient "coordinates copied" popup (core/coord-copy.js uses the
+   .livemap-stop-popup class + .lv-coord-pop inner). Mirrors the Leaflet
+   page's .coord-copy-popup styling. */
+.livemap-stop-popup .maplibregl-popup-content {
+  background: var(--card-bg);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  box-shadow: 0 12px 34px rgba(0, 0, 0, 0.4);
+  padding: 8px 12px;
+  font-size: 0.8rem;
+  font-weight: 600;
+}
+.livemap-stop-popup .maplibregl-popup-tip {
+  border-top-color: var(--card-bg);
+  border-bottom-color: var(--card-bg);
+}
+.lv-coord-pop {
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+/* Map popups (shared livemap layers: vehicle / stop / micro-trip / incident).
+   livemap.css is not loaded here, so give its popup classes a compact skin in
+   the dispatcher palette. A fuller port of livemap's navy-card treatment is a
+   later polish pass. */
+.livemap-vehicle-popup .maplibregl-popup-content,
+.livemap-stop-popup .maplibregl-popup-content,
+.livemap-cat-popup .maplibregl-popup-content,
+.livemap-incident-popup .maplibregl-popup-content {
+  background: var(--card-bg);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  box-shadow: 0 14px 36px rgba(0, 0, 0, 0.45);
+  padding: 12px 14px;
+  font-family: inherit;
+  font-variant-numeric: tabular-nums;
+}
+.livemap-vehicle-popup .maplibregl-popup-tip,
+.livemap-stop-popup .maplibregl-popup-tip,
+.livemap-cat-popup .maplibregl-popup-tip,
+.livemap-incident-popup .maplibregl-popup-tip {
+  border-top-color: var(--card-bg);
+  border-bottom-color: var(--card-bg);
+  border-left-color: var(--card-bg);
+  border-right-color: var(--card-bg);
+}
+.livemap-vehicle-popup .maplibregl-popup-close-button,
+.livemap-stop-popup .maplibregl-popup-close-button,
+.livemap-cat-popup .maplibregl-popup-close-button,
+.livemap-incident-popup .maplibregl-popup-close-button {
+  top: 6px;
+  right: 6px;
+  width: 20px;
+  height: 20px;
+  border: 0;
+  border-radius: 50%;
+  background: var(--header-border);
+  color: #1f1300;
+  font-size: 13px;
+  line-height: 1;
+}
+/* Inner content classes emitted by the livemap layer modules. */
+.lv-route,
+.ls-name,
+.incident-popup__title {
+  font-weight: 700;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.lv-name {
+  font-size: 1rem;
+  font-weight: 700;
+  margin-top: 3px;
+}
+.lv-meta,
+.ls-dir,
+.incident-popup__meta-line {
+  font-size: 0.78rem;
+  color: var(--text-muted);
+  margin-top: 2px;
+}
+.lv-swatch,
+.ls-sw {
+  width: 10px;
+  height: 10px;
+  border-radius: 3px;
+  flex: 0 0 auto;
+}
+.ls-sw {
+  border-radius: 50%;
+}
+.lv-manifest,
+.incident-popup__section {
+  margin-top: 8px;
+  border-top: 1px solid var(--border-soft);
+  padding-top: 6px;
+}
+.lv-manifest-h,
+.incident-popup__section-title {
+  font-size: 0.62rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text-faint);
+  margin-bottom: 3px;
+}
+.lv-manifest-row,
+.ls-row {
+  font-size: 0.78rem;
+  padding: 3px 0;
+  line-height: 1.35;
+  display: flex;
+  gap: 7px;
+  align-items: center;
+}
+.lv-manifest-row + .lv-manifest-row {
+  border-top: 1px dashed var(--border-soft);
+}
+.lv-manifest-n {
+  min-width: 14px;
+  font-weight: 700;
+  opacity: 0.6;
+}
+.lv-manifest-k--p {
+  color: #7bd95f;
+}
+.lv-manifest-k--d {
+  color: #ff6b81;
+}
+.lv-manifest-addr,
+.ls-route {
+  opacity: 0.8;
+}
+.ls-eta {
+  margin-left: auto;
+  font-weight: 700;
+}
+.ls-eta.is-none {
+  opacity: 0.55;
+  font-weight: 500;
+}
+.ls-tag {
+  display: inline-block;
+  margin-left: 4px;
+  padding: 1px 6px;
+  border-radius: 999px;
+  font-size: 0.6rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  background: rgba(127, 127, 127, 0.18);
+  border: 1px solid var(--border);
+}
+.incident-popup {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.incident-popup__header {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+}
+.incident-popup__icon {
+  flex: 0 0 auto;
+  width: 48px;
+  height: 48px;
+  border-radius: 12px;
+  background: #fff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+}
+.incident-popup__icon img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}
+.incident-popup__unit-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.incident-popup .incident-unit {
+  display: inline-flex;
+  align-items: center;
+  font-size: 0.7rem;
+  font-weight: 700;
+  padding: 3px 9px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: var(--row-hover-bg);
+  color: var(--text);
+}
+
+/* Loading overlay — the Leaflet page had none, but the vector basemap takes a
+   beat to fetch, so show a brief spinner over the map area instead of a bare
+   black rectangle. Themed to the dispatcher palette. */
+.loading-overlay {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--panel-bg);
+  color: var(--text-muted);
+  z-index: 500;
+  transition: opacity 0.3s ease, visibility 0s linear 0s;
+}
+.loading-overlay.is-hidden {
+  opacity: 0;
+  pointer-events: none;
+  visibility: hidden;
+  transition: opacity 0.3s ease, visibility 0s linear 0.3s;
+}
+.loading-overlay__inner {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 14px;
+  font-size: 0.85rem;
+  font-weight: 600;
+}
+.loading-overlay__spinner {
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  border: 3px solid rgba(127, 127, 127, 0.3);
+  border-top-color: var(--header-border);
+  animation: vd-spin 0.9s linear infinite;
+}
+@keyframes vd-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .loading-overlay__spinner {
+    animation-duration: 2.4s;
+  }
+}

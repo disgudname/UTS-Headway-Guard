@@ -84,23 +84,44 @@ let followChip = null;
 
 // --- public -----------------------------------------------------------------
 
-export function installVehicleLayer() {
+/**
+ * @param {{ feeds?: Array<'uts'|'cat'|'micro'> }} [opts]
+ *   Which agency feeds this shell wants drawn. Defaults to all three (the Live
+ *   Map). vandispatch2 passes `['micro']` so the fixed-route bus + CAT feeds
+ *   never start and only UVA Ride / FlexRide vans render here.
+ */
+export function installVehicleLayer(opts = {}) {
+  const want = new Set(opts.feeds || ['uts', 'cat', 'micro']);
+  const useUts = want.has('uts');
+  const useCat = want.has('cat');
+  const useMicro = want.has('micro');
+
   onStyleReady(onStyleRebuilt);
-  onVehicles((list) => ingest(list, UTS_PREFIX, fromUts));
-  onCatVehicles((list) => ingest(isCatEnabled() ? list : [], CAT_PREFIX, fromCat));
-  onCatEnabled((on) => {
-    if (!on) ingest([], CAT_PREFIX, fromCat); // overlay off -> drop CAT buses
-  });
-  onMicroVehicles((list) => ingest(list, MICRO_PREFIX, fromMicro)); // [] when off/unauthed
-  // Route picker toggled: re-run the last ingest so hidden routes' buses go away
-  // (and come back) without waiting for the next feed tick.
-  onRouteVisibility(() => reingest(UTS_PREFIX));
-  onCatRouteVisibility(() => reingest(CAT_PREFIX));
-  onMetadata(() => {
-    // Route colours arrived/changed: regenerate images and repaint.
-    regenerateImages();
-    scheduleFrame();
-  });
+
+  if (useUts) {
+    onVehicles((list) => ingest(list, UTS_PREFIX, fromUts));
+    // Route picker toggled: re-run the last ingest so hidden routes' buses go
+    // away (and come back) without waiting for the next feed tick.
+    onRouteVisibility(() => reingest(UTS_PREFIX));
+    onMetadata(() => {
+      // Route colours arrived/changed: regenerate images and repaint.
+      regenerateImages();
+      scheduleFrame();
+    });
+  }
+
+  if (useCat) {
+    onCatVehicles((list) => ingest(isCatEnabled() ? list : [], CAT_PREFIX, fromCat));
+    onCatEnabled((on) => {
+      if (!on) ingest([], CAT_PREFIX, fromCat); // overlay off -> drop CAT buses
+    });
+    onCatRouteVisibility(() => reingest(CAT_PREFIX));
+  }
+
+  if (useMicro) {
+    onMicroVehicles((list) => ingest(list, MICRO_PREFIX, fromMicro)); // [] when off/unauthed
+  }
+
   const rederiveAll = () => {
     // Dispatcher flip: nameLabel (block vs number) changes and the pill/bare
     // choice changes. Drop cached images, recompute props, repaint.
@@ -111,18 +132,21 @@ export function installVehicleLayer() {
   // Dispatcher status flipped (block vs number pill) or the block/driver
   // mapping refreshed — re-derive every marker and repaint.
   onDispatcher(rederiveAll);
-  onDispatchData(rederiveAll);
+  if (useUts || useMicro) onDispatchData(rederiveAll);
 
   ensureFollowChip();
   loadPinSvg().catch(() => {}); // warm the SVG fetch
   startSession();
-  startDispatchFeed();
-  startVehicleFeed();
-  startMicrotransitFeed(); // no-op output until a dispatcher enables the overlay
-  // A previous session left "Show stale vehicles" on (persisted) — put
-  // transloc.js's feed into polling mode right away rather than waiting for a
-  // checkbox toggle that may never come this load.
-  if (staleShown) setShowStaleVehicles(true);
+  // Block + driver-name resolution — both UTS buses and the vans have drivers.
+  if (useUts || useMicro) startDispatchFeed();
+  if (useUts) {
+    startVehicleFeed();
+    // A previous session left "Show stale vehicles" on (persisted) — put
+    // transloc.js's feed into polling mode right away rather than waiting for a
+    // checkbox toggle that may never come this load.
+    if (staleShown) setShowStaleVehicles(true);
+  }
+  if (useMicro) startMicrotransitFeed(); // no-op output until the overlay is enabled
 }
 
 const followBus = emitter();
