@@ -39,7 +39,13 @@ import {
   computeVehicleStopGroups,
   OD_ACTIVE,
 } from './data.js';
-import { onSelectionChange, getSelected, selectVan } from './selection.js';
+import {
+  onSelectionChange,
+  onMapBackground,
+  getSelected,
+  selectVan,
+  clearSelection,
+} from './selection.js';
 import { onMicroVehicles } from '../../core/data/microtransit.js';
 import { escHtml, svgIcon, contrastColor, fmtTime, haversineM } from './helpers.js';
 
@@ -914,8 +920,11 @@ async function showOdVanRoute(vehicleId, opts) {
   await drawLeggedRoute([van.lng, van.lat], stops.map((s) => [s.lng, s.lat]), color, fit, seq);
 }
 
-/** Called by trip-board.js when a trip card is clicked. */
+/** Called by trip-board.js when a trip card is clicked. Drops any van selection
+ *  first — otherwise the next position tick would redraw the van's full route
+ *  over this one ride's route. */
 export function showTripRoute(kind, ref) {
+  clearSelection();
   if (kind === 'spare') showRequestRoute(ref);
   else showOdRequestRoute(ref);
 }
@@ -1019,6 +1028,10 @@ export function startMapOverlays(theMap) {
     if (sel.source === 'spare') showVanFullRoute(sel.id);
     else showOdVanRoute(sel.id);
   });
+
+  // A click on empty map clears a route drawn by a trip-card click too (those
+  // don't set a selection, so onSelectionChange never fires for them).
+  onMapBackground(() => clearRequestRoute());
 
   // Follow the selected van's live position (Spare SSE via microtransit.js) and
   // keep its route in step — same cadence as the marker, not the 10s panel poll.

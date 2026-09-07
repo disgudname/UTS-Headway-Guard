@@ -18,6 +18,13 @@ const bus = emitter();
 export function onSelectionChange(fn) {
   return bus.on('change', fn);
 }
+/** fn() on every click on empty map (no van hit) — fires even when nothing was
+ *  selected, so a route drawn by a trip-card click (which doesn't go through the
+ *  selection system) still gets cleared. Mirrors /vandispatch's
+ *  `map.on('click', clearVanSelection)`, which always clears the route. */
+export function onMapBackground(fn) {
+  return bus.on('background', fn);
+}
 
 let map = null;
 let selected = null; // { source, id, driverNorm }
@@ -94,7 +101,11 @@ export function installSelection(theMap) {
       hits = [];
     }
     const hit = hits.length ? parseVehicleFeatureId(hits[0].properties && hits[0].properties.id) : null;
-    if (hit) selectVan(hit.source, hit.id);
-    else clearSelection();
+    if (hit) {
+      selectVan(hit.source, hit.id);
+    } else {
+      clearSelection();
+      bus.emit('background'); // clear any trip-card route too
+    }
   });
 }
