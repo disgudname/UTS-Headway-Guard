@@ -56,6 +56,29 @@ const VTS_BASE = new URL('/v1/livemap/basemap', location.href).href;
 // overzooms past that for z16-20.
 const SOURCE_MAXZOOM = 16;
 
+// UVA's own style switches the plain "Building Footprints" fill on at z11 and
+// all the roof-material detail at z14, so a comfortable route-overview zoom
+// (~14) shows the fully detailed building render and reads as too busy behind
+// the route lines. Push every building-category layer's minzoom up to this so
+// footprints/roofs fade out a couple of zoom steps sooner when zooming out;
+// zoom back past this and the full detail returns. Applied to both the day and
+// night treatments, so /livemap and /vandispatch2 (shared basemap) both get it.
+const BUILDING_MIN_ZOOM = 15.5;
+
+/**
+ * Raise the minzoom on every building/wall/structure layer to BUILDING_MIN_ZOOM
+ * (never lowering one that UVA already sets higher, e.g. Structures at z18).
+ * Keyed off the same source-layer categories categoryFor() uses for the night
+ * recolour, so it tracks UVA style edits automatically.
+ */
+function deferBuildingLayers(style) {
+  for (const layer of style.layers || []) {
+    const kind = categoryFor(layer['source-layer']);
+    if (kind !== 'building' && kind !== 'buildingEdge') continue;
+    layer.minzoom = Math.max(Number(layer.minzoom) || 0, BUILDING_MIN_ZOOM);
+  }
+}
+
 // Deep-clone for plain JSON style fragments (sources, layer defs). Hand-rolled
 // rather than structuredClone(): signage players run older Chromium where that
 // global is missing, and there's nothing here JSON can't round-trip.
@@ -184,6 +207,8 @@ function normalizeBase(style) {
     tileSize: 256,
     maxzoom: 19,
   };
+
+  deferBuildingLayers(s);
 
   return s;
 }
