@@ -129,14 +129,14 @@ export function installVehicleLayer(opts = {}) {
   }
 
   const rederiveAll = () => {
-    // Dispatcher flip: nameLabel (block vs number) changes and the pill/bare
-    // choice changes. Drop cached images, recompute props, repaint.
+    // Dispatcher flip: the bottom pill's block/speed value changes and the
+    // composite/bare choice changes. Drop cached images, recompute props, repaint.
     regenerateImages();
     for (const prefix of feeds.keys()) reingest(prefix);
     scheduleFrame();
   };
-  // Dispatcher status flipped (block vs number pill) or the block/driver
-  // mapping refreshed — re-derive every marker and repaint.
+  // Dispatcher status flipped (bare marker <-> number+block composite) or the
+  // block/driver mapping refreshed — re-derive every marker and repaint.
   onDispatcher(rederiveAll);
   if (useUts || useMicro) onDispatchData(rederiveAll);
 
@@ -247,12 +247,13 @@ function onStyleRebuilt(map) {
   render(); // rebuilds features + any composites the new frame needs
 }
 
-// --- show / hide the number + speed pills -------------------------------------
+// --- show / hide the number + block pills ------------------------------------
 //
-// Parity with the legacy testmap: the number/speed bubbles are a dispatcher-only
-// overlay. A public viewer (and every kiosk / embed / ?adminMode=false view)
-// gets bare route-coloured markers, no bubbles — regardless of the "Bus labels"
-// toggle, which only does anything once you're signed in.
+// Parity with the legacy testmap: the number-over-block bubbles are a
+// dispatcher-only overlay. A public viewer (and every kiosk / embed /
+// ?adminMode=false view) gets bare route-coloured markers, no bubbles —
+// regardless of the "Bus labels" toggle, which only does anything once you're
+// signed in.
 
 export function areLabelsVisible() {
   return labelsShown;
@@ -558,19 +559,22 @@ function deriveProps(v) {
   const stopped = v.speedMph < 1.2;
   const mph = Math.max(0, Math.round(v.speedMph));
   const block = v.block || '';
-  // Dispatchers think in blocks: when signed in, the name pill carries the
-  // bracketed block ("[04]"), falling back to the vehicle number when the bus
-  // has no block — or only a plain-language one like "Training"/"Charter",
-  // which stays in the popup, not on the pill. The public always sees the number.
-  const dispatch = isDispatcher();
-  const nameLabel = dispatch && isBlockValue(block) ? block : v.label;
+  const speedLabel = `${v.speedEstimated && !stopped ? '~' : ''}${mph} MPH`;
+  // Composite marker (dispatcher, labels on): the vehicle number always rides
+  // the top pill and the bracketed block ("[04]") rides the bottom pill, so a
+  // dispatcher reads both at a glance — parity with testmap's number-over-block
+  // markers. A bus with no real bracketed block (none assigned, or only a
+  // plain-language "Training"/"Charter" that stays in the popup) falls back to
+  // the speed pill on the bottom. The public never builds a composite at all.
+  const subLabel = isBlockValue(block) ? block : speedLabel;
   return {
     routeColor: v.routeColor,
     routeName: v.routeName,
     label: v.label, // always the vehicle number
     block,
     drivers: Array.isArray(v.drivers) ? v.drivers : [],
-    nameLabel, // what the pill actually draws
+    nameLabel: v.label, // top pill: always the vehicle number
+    subLabel, // bottom pill: the block if the bus has one, else the speed
     // microtransit rich-card fields (unset for UTS/CAT)
     spareId: v.spareId || '',
     driver: v.driver || '',
@@ -579,7 +583,6 @@ function deriveProps(v) {
     plate: v.plate || '',
     seats: v.seats || 0,
     access: Array.isArray(v.access) ? v.access : [],
-    speedLabel: `${v.speedEstimated && !stopped ? '~' : ''}${mph} MPH`,
     stopped,
     dim: v.dim,
     agency: v.agency,
@@ -666,7 +669,7 @@ function syncSource(now, animating) {
     let icon = null;
     let iconRotate = 0;
     if (wantPills) {
-      icon = ensureComposite(p.routeColor, p.stopped, p.dim, s.heading, p.nameLabel, p.speedLabel);
+      icon = ensureComposite(p.routeColor, p.stopped, p.dim, s.heading, p.nameLabel, p.subLabel);
     }
     if (!icon) {
       icon = pinImageId(p.routeColor, p.stopped, p.dim);
@@ -793,15 +796,16 @@ function regenerateImages() {
 
 // --- composite marker (pin + pills baked into one image) -------------------
 // The dispatcher marker is a single image: the teardrop (drawn already rotated
-// to a 15-degree heading bucket) with the number pill above and the speed pill
-// below. One image per (colour, stopped, stale, headingBucket, nameText,
-// speedText). Because it's ONE image on ONE layer, `symbol-sort-key` stacks the
-// whole marker as a unit — no more pills from one bus drawing over another's
-// pin. Cached with an LRU; a style swap clears it (regenerateImages).
+// to a 15-degree heading bucket) with the number pill above and the block (or,
+// for a bus with no block, the speed) pill below. One image per (colour,
+// stopped, stale, headingBucket, nameText, subText). Because it's ONE image on
+// ONE layer, `symbol-sort-key` stacks the whole marker as a unit — no more
+// pills from one bus drawing over another's pin. Cached with an LRU; a style
+// swap clears it (regenerateImages).
 
 const COMPOSITE_HEADING_STEP = 15; // degrees per baked-rotation bucket
 const COMPOSITE_MAX = 200; // atlas-friendly cap; LRU-evicted beyond this
-const compositeSpecs = new Map(); // id -> { color, stopped, dim, bucket, nameText, speedText }
+const compositeSpecs = new Map(); // id -> { color, stopped, dim, bucket, nameText, subText }
 const compositeLru = []; // ids, oldest first
 
 // Clearance (composite-canvas px, 2x) from the pin's centre to the nearest edge
@@ -829,9 +833,9 @@ function pillGapsPx(headingDeg, ink) {
   return { up: -minY + PILL_MARGIN_PX, down: maxY + PILL_MARGIN_PX };
 }
 
-function compositeId(color, stopped, dim, bucket, nameText, speedText) {
+function compositeId(color, stopped, dim, bucket, nameText, subText) {
   const t = (s) => String(s || '').replace(/[^A-Za-z0-9]+/g, '_');
-  return `livemap-vhc-${color}-${stopped ? 's' : 'm'}${dim ? 'd' : ''}-${bucket}-${t(nameText)}-${t(speedText)}`;
+  return `livemap-vhc-${color}-${stopped ? 's' : 'm'}${dim ? 'd' : ''}-${bucket}-${t(nameText)}-${t(subText)}`;
 }
 
 function lruAdd(id) {
@@ -853,10 +857,10 @@ function lruTouch(id) {
 /** Get (building if needed) the composite image id for this vehicle's current
  *  look. Returns null until the underlying pin has finished rasterising — the
  *  caller falls back to the bare pin for a frame. */
-function ensureComposite(color, stopped, dim, headingDeg, nameText, speedText) {
+function ensureComposite(color, stopped, dim, headingDeg, nameText, subText) {
   const step = COMPOSITE_HEADING_STEP;
   const bucket = (((Math.round((Number(headingDeg) || 0) / step) * step) % 360) + 360) % 360;
-  const id = compositeId(color, stopped, dim, bucket, nameText, speedText);
+  const id = compositeId(color, stopped, dim, bucket, nameText, subText);
   const map = getMap();
   if (!map) return null;
   if (map.hasImage(id)) {
@@ -868,7 +872,7 @@ function ensureComposite(color, stopped, dim, headingDeg, nameText, speedText) {
   const spec = {
     color, stopped, dim, bucket,
     nameText: String(nameText || ''),
-    speedText: String(speedText || ''),
+    subText: String(subText || ''),
   };
   compositeSpecs.set(id, spec);
   try {
@@ -900,21 +904,25 @@ function buildComposite(id, spec, pinCv) {
   const rad = (spec.bucket * Math.PI) / 180;
   const ink = pinInkCache.get(pinImageId(spec.color, spec.stopped, spec.dim));
   const nameCv = spec.nameText ? pillCanvas(false, spec.color, spec.nameText, spec.dim) : null;
-  const speedCv = spec.speedText ? pillCanvas(true, spec.color, spec.speedText, spec.dim) : null;
+  // Bottom pill: a block renders at the same weight as the number pill (testmap
+  // parity); a speed fallback keeps the smaller "speed" styling.
+  const subCv = spec.subText
+    ? pillCanvas(!isBlockValue(spec.subText), spec.color, spec.subText, spec.dim)
+    : null;
   const gap = pillGapsPx(spec.bucket, ink);
 
   const nameW = nameCv ? nameCv.width : 0;
   const nameH = nameCv ? nameCv.height : 0;
-  const speedW = speedCv ? speedCv.width : 0;
-  const speedH = speedCv ? speedCv.height : 0;
+  const subW = subCv ? subCv.width : 0;
+  const subH = subCv ? subCv.height : 0;
 
   // Symmetric canvas so icon-anchor:'center' lands the geo point on the pin's
   // centre. The rotated pin sweeps a circle of ~half its ink diagonal.
   const k = ink || DEFAULT_INK;
   const pinReach = Math.ceil(Math.hypot(k.half, Math.max(k.up, k.down))) + 2;
   const topExt = Math.max(pinReach, gap.up + nameH);
-  const botExt = Math.max(pinReach, gap.down + speedH);
-  const halfW = Math.max(pinReach, nameW / 2, speedW / 2);
+  const botExt = Math.max(pinReach, gap.down + subH);
+  const halfW = Math.max(pinReach, nameW / 2, subW / 2);
   const W = Math.ceil(2 * halfW);
   const H = Math.ceil(2 * Math.max(topExt, botExt));
 
@@ -932,7 +940,7 @@ function buildComposite(id, spec, pinCv) {
   c.restore();
 
   if (nameCv) c.drawImage(nameCv, Math.round(cx - nameW / 2), Math.round(cy - gap.up - nameH));
-  if (speedCv) c.drawImage(speedCv, Math.round(cx - speedW / 2), Math.round(cy + gap.down));
+  if (subCv) c.drawImage(subCv, Math.round(cx - subW / 2), Math.round(cy + gap.down));
 
   const data = c.getImageData(0, 0, W, H);
   if (map.hasImage(id)) map.updateImage(id, data);

@@ -11,9 +11,9 @@
 // ONE symbol layer, ONE image per vehicle. For a public / kiosk viewer that
 // image is just the route-coloured teardrop from busmarker.svg (rotated to
 // heading via `icon-rotate`). For a signed-in dispatcher it's a *composite* —
-// the teardrop (baked pre-rotated) plus the number pill above and the speed
-// pill below, all drawn onto one canvas by vehicles.js, with `icon-rotate` set
-// to 0.
+// the teardrop (baked pre-rotated) plus the number pill above and the block
+// pill below (speed instead when the bus has no block), all drawn onto one
+// canvas by vehicles.js, with `icon-rotate` set to 0.
 //
 // Why one image and not three stacked layers: MapLibre draws a whole layer
 // before the next, so with separate pin / speed / name layers every vehicle's
