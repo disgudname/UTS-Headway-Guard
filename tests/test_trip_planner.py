@@ -278,4 +278,31 @@ def test_best_direct_pair_beats_nearest_to_each_point_independently():
     line = tp.Line(id="loop1", name="Loop", color="#fff", source="uts", stops=stops, loop=True)
     origin_idxs = [0, 3]  # both within radius of the origin
     dest_idxs = [1, 2]  # both within radius of the destination
-    assert tp._best_direct_pair(line, origin_idxs, dest_idxs) == (0, 1)
+    origin = (0.0, 0.0)
+    destination = (0.001, 0.0)
+    assert tp._best_direct_pair(line, origin_idxs, dest_idxs, origin, destination) == (0, 1)
+
+
+def test_best_direct_pair_does_not_walk_past_the_closest_stop_to_save_one_hop():
+    # Regression for a real bug reported live: the planner would send a rider to a
+    # FARTHER stop on the same line than the one right next to them, purely because
+    # boarding there happened to shave a hop off the ride -- then also get off early
+    # and walk the rest of the way. Fewer hops must not automatically win if reaching
+    # them costs meaningfully more walking than the hop savings are worth.
+    #
+    # Loop order: 0=OriginHere (at the origin), 1=OriginFar (~555m away, but 1 hop
+    # closer to the destination stop), 2=Mid, 3=DestinationHere (at the destination).
+    stops = [
+        tp.Stop(id="origin-here", name="origin-here", lat=0.0, lon=0.0, source="uts"),
+        tp.Stop(id="origin-far", name="origin-far", lat=0.0, lon=0.005, source="uts"),
+        tp.Stop(id="mid", name="mid", lat=0.0025, lon=0.0025, source="uts"),
+        tp.Stop(id="destination-here", name="destination-here", lat=0.005, lon=0.0, source="uts"),
+    ]
+    line = tp.Line(id="67", name="Loop", color="#fff", source="uts", stops=stops, loop=True)
+    origin = (0.0, 0.0)
+    destination = (0.005, 0.0)
+    # Boarding at stop 1 instead of stop 0 saves one hop (3 hops -> 2 hops) but costs a
+    # long walk to reach it in the first place -- not a trade worth making.
+    origin_idxs = [0, 1]
+    dest_idxs = [3]
+    assert tp._best_direct_pair(line, origin_idxs, dest_idxs, origin, destination) == (0, 3)
