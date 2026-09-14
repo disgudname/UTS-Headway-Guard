@@ -471,9 +471,6 @@ def find_trips(
     lines_by_id = {ln.id: ln for ln in lines}
     itineraries: List[Itinerary] = []
 
-    def nearest_index(line: Line, indices: List[int], point: Tuple[float, float]) -> int:
-        return min(indices, key=lambda i: haversine_m(point[0], point[1], line.stops[i].lat, line.stops[i].lon))
-
     # Walk-only: always a candidate for a short enough trip, and NOT implied by any
     # ride-based candidate below (those only ever compare routes against each other).
     # Without this, a two-transfer 15-minute bus itinerary can "win" over a literal
@@ -526,7 +523,7 @@ def find_trips(
             best = _best_transfer(line_a, a_origin_idxs, line_b, b_dest_idxs, origin, destination)
             if best is None:
                 continue
-            a_board_idx, a_alight_idx, b_board_idx, transfer_walk = best
+            a_board_idx, a_alight_idx, b_board_idx, b_alight_idx, transfer_walk = best
 
             a_board_stop = line_a.stops[a_board_idx]
             walk_to = estimate_walk_leg(origin, (a_board_stop.lat, a_board_stop.lon))
@@ -548,7 +545,6 @@ def find_trips(
                 )
                 board_b_time += transfer_leg.duration_s
 
-            b_alight_idx = nearest_index(line_b, b_dest_idxs, destination)
             result_b = _ride_leg(
                 line_b, b_board_idx, b_alight_idx, board_b_time, route_service, live_wait_lookup, hop_time_fn
             )
@@ -623,14 +619,21 @@ def _best_transfer(
     b_dest_idxs: List[int],
     origin: Tuple[float, float],
     destination: Tuple[float, float],
-) -> Optional[Tuple[int, int, int, bool]]:
-    """Find the best (board_a, alight_a, board_b, needs_walk) transfer point between two
-    lines, scored the same way as _best_direct_pair -- lowest estimated total time
-    (walk-to-board + ride_a + transfer walk + ride_b + walk-from-alight), not just
-    fewest combined hops, for the same reason: a lower hop count isn't better if
-    reaching it costs more walking than it saves. Returns None if no transfer is
-    possible at all (line_a never gets anywhere line_b can pick up from)."""
-    best: Optional[Tuple[int, int, int, bool, float]] = None
+) -> Optional[Tuple[int, int, int, int, bool]]:
+    """Find the best (board_a, alight_a, board_b, alight_b, needs_walk) transfer point
+    between two lines, scored the same way as _best_direct_pair -- lowest estimated
+    total time (walk-to-board + ride_a + transfer walk + ride_b + walk-from-alight),
+    not just fewest combined hops, for the same reason: a lower hop count isn't better
+    if reaching it costs more walking than it saves. Returns None if no transfer is
+    possible at all (line_a never gets anywhere line_b can pick up from).
+
+    Returning alight_b matters: it's the specific line_b stop this search actually
+    optimized ride_b's length around. A caller that re-derives "the stop nearest the
+    destination" independently instead can land on a DIFFERENT stop than what was
+    scored here -- confirmed live: a transfer whose second leg re-boarded practically
+    back where the first leg started, because the alight stop the search chose was
+    silently discarded and replaced with an unrelated nearest-to-destination pick."""
+    best: Optional[Tuple[int, int, int, int, bool, float]] = None
     for a_idx, a_stop in enumerate(line_a.stops):
         for b_idx, b_stop in enumerate(line_b.stops):
             if a_stop.id == b_stop.id:
@@ -648,23 +651,23 @@ def _best_transfer(
                     continue
                 board_a_stop = line_a.stops[board_a]
                 walk_to = _walk_seconds(origin, (board_a_stop.lat, board_a_stop.lon))
-                for board_b_candidate in b_dest_idxs:
-                    hops_b = _hop_distance(line_b, b_idx, board_b_candidate)
+                for alight_b in b_dest_idxs:
+                    hops_b = _hop_distance(line_b, b_idx, alight_b)
                     if hops_b is None or hops_b == 0:
                         continue
-                    alight_b_stop = line_b.stops[board_b_candidate]
+                    alight_b_stop = line_b.stops[alight_b]
                     walk_from = _walk_seconds((alight_b_stop.lat, alight_b_stop.lon), destination)
                     score = (
                         WALK_RANK_WEIGHT * (walk_to + transfer_walk_s + walk_from)
                         + hops_a * SECONDS_PER_HOP_ESTIMATE
                         + hops_b * SECONDS_PER_HOP_ESTIMATE
                     )
-                    if best is None or score < best[4]:
-                        best = (board_a, a_idx, b_idx, needs_walk, score)
+                    if best is None or score < best[5]:
+                        best = (board_a, a_idx, b_idx, alight_b, needs_walk, score)
     if best is None:
         return None
-    board_a, alight_a, board_b, needs_walk, _score = best
-    return board_a, alight_a, board_b, needs_walk
+    board_a, alight_a, board_b, alight_b, needs_walk, _score = best
+    return board_a, alight_a, board_b, alight_b, needs_walk
 
 
 def _build_itinerary(legs: List[object]) -> Itinerary:

@@ -306,3 +306,45 @@ def test_best_direct_pair_does_not_walk_past_the_closest_stop_to_save_one_hop():
     origin_idxs = [0, 1]
     dest_idxs = [3]
     assert tp._best_direct_pair(line, origin_idxs, dest_idxs, origin, destination) == (0, 3)
+
+
+def test_best_transfer_returns_its_own_optimized_alight_stop():
+    # Regression for a real bug reported live: find_trips used to re-derive the
+    # transfer's second-leg alight stop by picking whichever destination-candidate
+    # stop was geometrically nearest, completely ignoring which one _best_transfer's
+    # own search had actually validated as reachable/optimal. On a non-loop line that
+    # geometrically-nearest stop can sit BEHIND the boarding point (unreachable),
+    # which silently dropped the whole itinerary -- explaining CAT trips going missing,
+    # not just looking wrong.
+    #
+    # Geometry: "shared" (the transfer point) sits far (~800m+) from both origin and
+    # destination, so neither line has a spurious direct ride of its own -- the only
+    # way to complete this trip is the a->b transfer, isolating the bug.
+    line_a = tp.Line(
+        id="a", name="A", color="#fff", source="uts", loop=False,
+        stops=[
+            tp.Stop(id="origin-stop", name="origin-stop", lat=0.0, lon=0.0, source="uts"),
+            tp.Stop(id="shared", name="shared", lat=0.005, lon=0.005, source="uts"),
+        ],
+    )
+    # decoy (index 0) sits BEFORE shared (index 1) in travel order -- unreachable from
+    # it on a non-loop line -- but is geometrically the closest destination candidate
+    # (it's placed exactly at the destination). real-dest (index 3) is reachable (2
+    # hops) but ~55m farther away.
+    line_b = tp.Line(
+        id="b", name="B", color="#fff", source="uts", loop=False,
+        stops=[
+            tp.Stop(id="decoy", name="decoy", lat=0.0104, lon=0.0104, source="uts"),
+            tp.Stop(id="shared", name="shared", lat=0.005, lon=0.005, source="uts"),
+            tp.Stop(id="mid", name="mid", lat=0.0075, lon=0.0075, source="uts"),
+            tp.Stop(id="real-dest", name="real-dest", lat=0.0104, lon=0.01085, source="uts"),
+        ],
+    )
+    service = tp.RouteService(windows={"a": [(_ts(5), _ts(22))], "b": [(_ts(5), _ts(22))]})
+    origin = (0.0, 0.0)
+    destination = (0.0104, 0.0104)  # exactly at "decoy"; ~55m from "real-dest"
+
+    itineraries = tp.find_trips(origin, destination, [line_a, line_b], service, {}, when=_ts(12))
+    ride_legs = [leg for it in itineraries for leg in it.legs if leg.kind == "ride" and leg.line_id == "b"]
+    assert ride_legs, "the b-leg transfer must not be silently dropped"
+    assert ride_legs[0].alight_stop.id == "real-dest"
