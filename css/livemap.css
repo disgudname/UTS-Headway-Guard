@@ -2224,3 +2224,351 @@ body {
     margin-bottom: var(--hg-nav-bottom-offset, 0px);
   }
 }
+
+/* ---------------------------------------------------------------------------
+ * Trip planner (bottom-centre — the Panels columns run near-full-height down
+ * the left/right edges, so a corner spot collides with them on anything but a
+ * tall viewport; bottom-centre is where .livemap-follow-chip already lives,
+ * confirmed clear of both columns and the top-centre search box). Same panel
+ * design language as the rest of livemap: --panel-* / --radius-* / --fs-*
+ * tokens, --accent for the active state.
+ * ------------------------------------------------------------------------- */
+
+.tp-widget {
+  position: absolute;
+  left: 50%;
+  bottom: 22px;
+  transform: translateX(-50%);
+  z-index: 460;
+  font: 400 var(--fs-sm)/1.35 inherit;
+  color: var(--panel-fg);
+}
+.tp-widget .tp-card {
+  /* the toggle pill is centred by the wrapper's translateX(-50%); the card,
+     wider than the pill, re-centres itself under the same anchor point */
+  margin-left: 50%;
+  transform: translateX(-50%);
+}
+/* .tp-toggle/.tp-card both declare `display: flex`, which (as an author-stylesheet
+   class rule) beats the native [hidden] attribute's UA-stylesheet `display: none` --
+   the browser toggles the *attribute* (el.hidden = true/false, see
+   trip-planner-panel.js's _setExpanded), so this needs an explicit, higher-priority
+   override or both end up visible at once. */
+.tp-widget [hidden] {
+  display: none !important;
+}
+
+.tp-toggle {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 16px 10px 14px;
+  border-radius: var(--radius-pill);
+  border: 1px solid var(--panel-border);
+  background: var(--panel-surface);
+  box-shadow: var(--panel-shadow);
+  color: var(--panel-fg);
+  font: 600 var(--fs-md)/1 inherit;
+  cursor: pointer;
+  backdrop-filter: var(--panel-blur);
+}
+.tp-toggle:hover {
+  background: var(--hover-bg);
+}
+.tp-toggle-icon {
+  width: 14px;
+  height: 14px;
+  border: 2px solid currentColor;
+  border-radius: 50% 50% 50% 0;
+  transform: rotate(-45deg);
+  opacity: 0.75;
+  flex: 0 0 auto;
+}
+
+.tp-card {
+  width: 300px;
+  max-height: min(560px, calc(100vh - 90px));
+  display: flex;
+  flex-direction: column;
+  border-radius: var(--radius-lg);
+  border: 1px solid var(--panel-border);
+  background: var(--panel-surface);
+  box-shadow: var(--panel-shadow);
+  backdrop-filter: var(--panel-blur);
+  overflow: hidden;
+}
+
+.tp-card-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 8px 12px 16px;
+  background: var(--head-bg);
+  color: #fff;
+}
+.tp-card-title {
+  font: 700 var(--fs-lg)/1 inherit;
+}
+.tp-close {
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  border: none;
+  background: rgba(255, 255, 255, 0.14);
+  color: #fff;
+  font-size: 16px;
+  line-height: 1;
+  cursor: pointer;
+}
+.tp-close:hover {
+  background: rgba(255, 255, 255, 0.26);
+}
+
+.tp-field {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 10px 12px 0;
+  padding: 6px 6px 6px 10px;
+  border: 1px solid var(--panel-border);
+  border-radius: var(--radius);
+  background: var(--panel-bg);
+}
+.tp-field input {
+  flex: 1 1 auto;
+  min-width: 0;
+  border: none;
+  background: none;
+  color: var(--panel-fg);
+  font: 500 var(--fs-sm)/1.3 inherit;
+  outline: none;
+}
+.tp-field-badge {
+  flex: 0 0 auto;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  font: 700 var(--fs-xs)/1 inherit;
+  color: #fff;
+}
+.tp-field-badge--origin {
+  background: var(--ok);
+}
+.tp-field-badge--destination {
+  background: var(--bad);
+}
+.tp-field-btn {
+  flex: 0 0 auto;
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  border: 1px solid transparent;
+  background: none;
+  color: var(--panel-muted);
+  cursor: pointer;
+  font-size: 12px;
+  display: grid;
+  place-items: center;
+}
+.tp-field-btn:hover {
+  background: var(--hover-bg);
+  color: var(--panel-fg);
+}
+.tp-field-btn--locate::before {
+  content: '◎';
+}
+.tp-field-btn--pin::before {
+  content: '📍';
+  font-size: 11px;
+}
+.tp-field-btn--pin.is-active {
+  background: var(--accent-soft);
+  color: var(--accent);
+  border-color: var(--accent);
+}
+
+.tp-field-results {
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  right: 0;
+  max-height: 220px;
+  overflow-y: auto;
+  border-radius: var(--radius);
+  border: 1px solid var(--panel-border);
+  background: var(--panel-surface);
+  box-shadow: var(--panel-shadow);
+  z-index: 1;
+}
+.tp-field-item {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  width: 100%;
+  padding: 7px 12px;
+  border: none;
+  background: none;
+  color: var(--panel-fg);
+  text-align: left;
+  cursor: pointer;
+}
+.tp-field-item:hover {
+  background: var(--hover-bg);
+}
+.tp-field-item-name {
+  font: 600 var(--fs-sm)/1.3 inherit;
+}
+.tp-field-item-meta {
+  font: 400 var(--fs-xs)/1.3 inherit;
+  color: var(--panel-muted);
+}
+
+.tp-when {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 10px 12px 0;
+}
+.tp-when-btn {
+  padding: 5px 12px;
+  border-radius: var(--radius-pill);
+  border: 1px solid var(--panel-border);
+  background: var(--btn-bg);
+  color: var(--panel-fg);
+  font: 600 var(--fs-xs)/1 inherit;
+  cursor: pointer;
+}
+.tp-when-btn.is-active {
+  background: var(--toggle-active-bg);
+  color: var(--toggle-active-fg);
+  border-color: transparent;
+}
+.tp-when-input {
+  flex: 1 1 auto;
+  min-width: 0;
+  padding: 5px 8px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--panel-border);
+  background: var(--panel-bg);
+  color: var(--panel-fg);
+  font: 500 var(--fs-xs)/1 inherit;
+}
+
+.tp-results {
+  margin: 10px 0 0;
+  padding: 0 12px 12px;
+  overflow-y: auto;
+}
+
+.tp-status {
+  padding: 14px 4px;
+  color: var(--panel-muted);
+  font: 500 var(--fs-sm)/1.4 inherit;
+  text-align: center;
+}
+.tp-status--error {
+  color: var(--bad);
+}
+
+.tp-itin {
+  display: block;
+  width: 100%;
+  margin-top: 8px;
+  padding: 10px 12px;
+  border-radius: var(--radius);
+  border: 1px solid var(--panel-border);
+  background: var(--panel-bg);
+  cursor: pointer;
+  text-align: left;
+}
+.tp-itin:first-child {
+  margin-top: 0;
+}
+.tp-itin:hover {
+  background: var(--hover-bg);
+}
+.tp-itin.is-selected {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 1px var(--accent) inset;
+}
+.tp-itin-top {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 6px;
+}
+.tp-itin-time {
+  font: 700 var(--fs-md)/1 inherit;
+  color: var(--panel-heading);
+}
+.tp-itin-tag {
+  padding: 2px 7px;
+  border-radius: var(--radius-pill);
+  background: var(--hover-bg);
+  color: var(--panel-muted);
+  font: 600 var(--fs-micro)/1.4 inherit;
+  text-transform: uppercase;
+  letter-spacing: 0.02em;
+}
+.tp-itin-tag--warn {
+  background: rgba(223, 30, 67, 0.14);
+  color: var(--bad);
+}
+.tp-itin-legs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+}
+.tp-chip {
+  padding: 3px 8px;
+  border-radius: var(--radius-pill);
+  font: 600 var(--fs-xs)/1.3 inherit;
+  white-space: nowrap;
+}
+.tp-chip--walk {
+  background: var(--hover-bg);
+  color: var(--panel-muted);
+}
+.tp-chip--ride {
+  background: color-mix(in srgb, var(--chip-color) 20%, transparent);
+  color: var(--panel-fg);
+  border: 1px solid color-mix(in srgb, var(--chip-color) 55%, transparent);
+}
+
+/* Map pins (maplibregl.Marker DOM elements — see core/trip-planner.js) */
+.tp-pin {
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  border: 2px solid #fff;
+  box-shadow: 0 1px 5px rgba(0, 0, 0, 0.45);
+  display: grid;
+  place-items: center;
+  color: #fff;
+  font: 700 var(--fs-xs)/1 inherit;
+}
+.tp-pin--origin {
+  background: var(--ok);
+}
+.tp-pin--destination {
+  background: var(--bad);
+}
+
+.tp-picking-cursor {
+  cursor: crosshair !important;
+}
+
+@media (max-width: 768px) {
+  .tp-widget {
+    bottom: 8px;
+  }
+  .tp-card {
+    width: min(320px, calc(100vw - 16px));
+  }
+  body.hg-nav-active .tp-widget {
+    bottom: calc(8px + var(--hg-nav-bottom-offset, 0px));
+  }
+}

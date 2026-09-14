@@ -48,6 +48,8 @@ from headway_tracker import (
     HEADWAY_DISTANCE_THRESHOLD_M,
 )
 from viriciti_client import ViriCitiClient, VehicleSOC
+import trip_planner
+import trip_planner_history
 
 from fastapi import Body, FastAPI, HTTPException, Request, Response, Query
 from starlette.middleware.gzip import GZipMiddleware
@@ -2590,6 +2592,13 @@ class State:
         # Caches for proxied TransLoc data
         self.blocks_cache: Optional[Dict] = None
         self.blocks_cache_ts: float = 0.0
+        # Trip planner: TransLoc's "current" route feed only ever returns routes
+        # relevant to the current schedule phase (it won't return Gold Line's evening
+        # RouteID until the evening phase actually starts), so this accumulates each
+        # UTS RouteID's shape the first time it's seen today and keeps it available
+        # afterward -- see trip_planner_uts_graph() in app.py.
+        self.uts_route_shape_cache: Dict[str, Dict[str, Any]] = {}
+        self.uts_route_shape_cache_day: str = ""
         self.anti_cache: Optional[Dict] = None
         self.anti_cache_ts: float = 0.0
         # Per-day mileage and block history
@@ -2644,6 +2653,10 @@ cat_stops_cache = TTLCache(CAT_METADATA_TTL_S)
 cat_patterns_cache = TTLCache(CAT_METADATA_TTL_S)
 cat_vehicles_cache = TTLCache(CAT_VEHICLE_TTL_S)
 cat_service_alerts_cache = TTLCache(CAT_SERVICE_ALERT_TTL_S)
+# Trip planner: one system-wide GetStopArrivalTimes call covers every UTS stop's live
+# wait time (see _uts_live_wait_lookup) -- short TTL just to collapse concurrent
+# trip-plan requests onto one upstream call, not a real freshness tradeoff.
+trip_planner_live_arrivals_cache = TTLCache(8.0)
 cat_stop_etas_cache = PerKeyTTLCache(CAT_STOP_ETA_TTL_S)
 dash_routes_cache = TTLCache(DASH_METADATA_TTL_S)
 dash_shapes_cache = TTLCache(DASH_METADATA_TTL_S)
@@ -15185,14 +15198,12 @@ def _project_onto_polyline(lat: float, lon: float, poly: List[Tuple[float, float
     return best_s
 
 
-@app.get("/v1/metromap")
-async def metromap_data():
-    """Return route + ordered stop sequence data for the metro map layout.
-
-    Stop order is recovered by projecting each stop onto the route's encoded
-    polyline and sorting by arc length — routes_raw does not carry stop coords
-    for this TransLoc deployment, so we join against state.stops instead.
-    """
+async def _snapshot_uts_stop_topology():
+    """Copy the minimal state needed to build UTS route stop topology, holding
+    state.lock only long enough to snapshot it. Returns (actives, routes_all,
+    routes_obj, stop_info, stops_for_route) -- shared by /v1/metromap and the trip
+    planner's UTS graph endpoint so the projection/sorting logic below lives in one
+    place."""
     async with state.lock:
         actives: set = set(state.vehicles_by_route.keys())
         routes_all: dict = dict(getattr(state, "routes_all", {}) or {})
@@ -15218,28 +15229,42 @@ async def metromap_data():
             stop_info[sid_str] = {"id": sid_str, "name": str(name), "lat": lat, "lon": lon}
             for rid_val in (s.get("RouteIds") or []):
                 stops_for_route.setdefault(str(rid_val), []).append(sid_str)
+    return actives, routes_all, routes_obj, stop_info, stops_for_route
 
+
+def _ordered_route_stops_with_coords(rid, routes_obj: dict, stop_info: dict, stops_for_route: dict) -> list:
+    """One UTS route's ordered stop sequence with coordinates: project each stop onto
+    the route's encoded polyline and sort by arc length -- routes_raw does not carry
+    stop coords for this TransLoc deployment, so this joins against state.stops
+    (already folded into stop_info/stops_for_route by _snapshot_uts_stop_topology)."""
+    route_obj = routes_obj.get(rid)
+    if not route_obj or not route_obj.poly or len(route_obj.poly) < 2:
+        return []
+    sid_list = stops_for_route.get(str(rid), [])
+    # Deduplicate while preserving first-seen
+    seen: set = set()
+    unique_sids = [s for s in sid_list if not (s in seen or seen.add(s))]
+    # Project each stop onto the polyline and sort by arc length
+    projected = []
+    for sid_str2 in unique_sids:
+        info = stop_info.get(sid_str2)
+        if not info:
+            continue
+        s_pos = _project_onto_polyline(info["lat"], info["lon"], route_obj.poly, route_obj.cum)
+        projected.append((s_pos, info))
+    projected.sort(key=lambda x: x[0])
+    return [info for _, info in projected]
+
+
+@app.get("/v1/metromap")
+async def metromap_data():
+    """Return route + ordered stop sequence data for the metro map layout."""
+    actives, routes_all, routes_obj, stop_info, stops_for_route = await _snapshot_uts_stop_topology()
     out = []
     for rid, disp_name in (routes_all or {}).items():
         route_obj = routes_obj.get(rid)
         color = (route_obj.color if route_obj else "888888").lstrip("#")
-        rid_str = str(rid)
-        stops_out: list = []
-        if route_obj and route_obj.poly and len(route_obj.poly) >= 2:
-            sid_list = stops_for_route.get(rid_str, [])
-            # Deduplicate while preserving first-seen
-            seen: set = set()
-            unique_sids = [s for s in sid_list if not (s in seen or seen.add(s))]
-            # Project each stop onto the polyline and sort by arc length
-            projected = []
-            for sid_str2 in unique_sids:
-                info = stop_info.get(sid_str2)
-                if not info:
-                    continue
-                s_pos = _project_onto_polyline(info["lat"], info["lon"], route_obj.poly, route_obj.cum)
-                projected.append((s_pos, info))
-            projected.sort(key=lambda x: x[0])
-            stops_out = [info for _, info in projected]
+        stops_out = _ordered_route_stops_with_coords(rid, routes_obj, stop_info, stops_for_route)
         out.append({
             "id": rid,
             "name": disp_name,
@@ -15248,6 +15273,377 @@ async def metromap_data():
             "stops": stops_out,
         })
     return {"routes": out}
+
+
+# ---------------------------
+# TRIP PLANNER (see trip_planner.py + ROUTING_ENGINE.md)
+# ---------------------------
+async def _uts_lines_for_trip_planner() -> Tuple[List[Dict[str, Any]], trip_planner.RouteService]:
+    """Every UTS route's ordered stop topology, shaped for the trip planner's Line
+    graph, PLUS the route-service windows/chain table computed along the way (callers
+    that also need route-service get it for free instead of recomputing it).
+
+    TransLoc's own "current route" feed (GetRoutesForMapWithScheduleWithEncodedLine,
+    what state.routes/routes_all come from) only ever returns routes relevant to the
+    current schedule phase -- confirmed live: at 4:51pm it returned Gold Line's daytime
+    RouteID 67 but NOT its evening RouteID 57, even though 57 is scheduled to start at
+    5:51pm. A route that hasn't gone "current" yet has no shape data available from
+    TransLoc at all. Two mitigations, both applied here:
+
+    1. state.uts_route_shape_cache accumulates each RouteID's shape the first time
+       it's seen today (reset at local-day rollover) and keeps serving it after
+       TransLoc stops returning that RouteID as current -- covers the common case of
+       a route that WAS current earlier today.
+    2. For a RouteID that hasn't been seen at all yet today but is scheduled to run
+       (present in route_service.windows) and has a known interline predecessor
+       (chain_next), borrow the predecessor's shape -- same physical loop, just not
+       relabeled yet. Tagged shapeSource="borrowed" so callers/tests can tell.
+    """
+    today = datetime.now(ZoneInfo("America/New_York")).strftime("%Y-%m-%d")
+    if state.uts_route_shape_cache_day != today:
+        state.uts_route_shape_cache = {}
+        state.uts_route_shape_cache_day = today
+
+    _actives, routes_all, routes_obj, stop_info, stops_for_route = await _snapshot_uts_stop_topology()
+    for rid, disp_name in (routes_all or {}).items():
+        route_obj = routes_obj.get(rid)
+        color = (route_obj.color if route_obj else "888888").lstrip("#")
+        stops_out = _ordered_route_stops_with_coords(rid, routes_obj, stop_info, stops_for_route)
+        if len(stops_out) >= 2:
+            state.uts_route_shape_cache[str(rid)] = {
+                "name": disp_name, "color": color, "stops": stops_out,
+            }
+
+    async with state.lock:
+        block_groups = list((state.blocks_cache or {}).get("block_groups") or [])
+    reference_date = datetime.now(ZoneInfo("America/New_York"))
+    service = trip_planner.build_route_service(block_groups, reference_date)
+
+    # routes_all's names are keyed by whatever type TransLoc's RouteID came back as
+    # (int, in practice) and cover every RouteID in the full catalog regardless of
+    # current/borrowed shape status (confirmed live: RouteID 57 -- not yet "current"
+    # this session -- still has its own real name, "Gold Line — Post-6PM/Weekends",
+    # available here). Borrowing a predecessor's STOPS must never borrow its NAME too.
+    names_by_rid = {str(rid): name for rid, name in (routes_all or {}).items()}
+
+    known = dict(state.uts_route_shape_cache)
+    lines: List[Dict[str, Any]] = []
+    for rid in set(known) | set(service.windows):
+        shape = known.get(rid)
+        shape_source = "live"
+        if shape is None:
+            predecessor = next((frm for frm, to in service.chain_next.items() if to == rid), None)
+            if predecessor and predecessor in known:
+                shape = known[predecessor]
+                shape_source = "borrowed"
+        if shape is None:
+            continue
+        lines.append({
+            "id": rid,
+            "name": names_by_rid.get(rid, shape["name"]),
+            "color": shape["color"],
+            "loop": True,
+            "stops": shape["stops"],
+            "shapeSource": shape_source,
+        })
+    return lines, service
+
+
+@app.get("/v1/trip-planner/uts-graph")
+async def trip_planner_uts_graph():
+    """Ordered stop topology for every UTS route scheduled today (not just currently
+    "active" ones -- see _uts_lines_for_trip_planner). Public, no dispatcher auth --
+    matches /v1/metromap's convention, since riders using /livemap's trip planner
+    aren't logged in. Every UTS route is a loop in TransLoc (see CLAUDE.md's Route
+    Destinations section)."""
+    lines, _service = await _uts_lines_for_trip_planner()
+    return {"lines": lines}
+
+
+async def _cat_lines_for_trip_planner() -> List[Dict[str, Any]]:
+    """Ordered stop topology for every current CAT pattern, shaped for the trip
+    planner's Line graph. CAT patterns already carry true stop order (no polyline
+    projection needed, unlike UTS) -- see CLAUDE.md's Managing Feed Codes section."""
+    patterns = await _get_cat_patterns()
+    stops = await _get_cat_stops()
+    stop_by_id: Dict[str, Dict[str, Any]] = {}
+    for s in stops:
+        sid = s.get("StopID")
+        lat = s.get("Latitude")
+        lon = s.get("Longitude")
+        if sid is None or lat is None or lon is None:
+            continue
+        try:
+            lat_f, lon_f = float(lat), float(lon)
+        except (TypeError, ValueError):
+            continue
+        sid_str = str(sid)
+        stop_by_id[sid_str] = {
+            "id": sid_str,
+            "name": str(s.get("StopName") or sid_str),
+            "lat": lat_f,
+            "lon": lon_f,
+        }
+
+    lines = []
+    for p in patterns:
+        pid = p.get("PatternID") or p.get("id")
+        stop_ids = p.get("stopIDs") or p.get("StopIDs")
+        if pid is None or not stop_ids:
+            continue
+        stops_out = [stop_by_id[str(sid)] for sid in stop_ids if str(sid) in stop_by_id]
+        if len(stops_out) < 2:
+            continue
+        color = p.get("color") or p.get("Color") or "888888"
+        if isinstance(color, str):
+            color = color.lstrip("#")
+        lines.append({
+            "id": str(pid),
+            "name": p.get("name") or p.get("Name") or f"Pattern {pid}",
+            "color": color,
+            "loop": False,
+            "stops": stops_out,
+        })
+    return lines
+
+
+@app.get("/v1/trip-planner/cat-graph")
+async def trip_planner_cat_graph():
+    """Public, no dispatcher auth, same as the UTS graph endpoint above."""
+    return {"lines": await _cat_lines_for_trip_planner()}
+
+
+@app.get("/v1/trip-planner/route-service")
+async def trip_planner_route_service():
+    """Today's real per-RouteID service windows + interline chain table, derived from
+    TransLoc's own schedule (state.blocks_cache, already polled every ~5s by the
+    background updater -- no new fetch here). See trip_planner.build_route_service's
+    docstring for why this exists: a route that exists isn't necessarily a route
+    that's running right now, and a route whose label changes mid-shift (interlining)
+    isn't necessarily a route a mid-ride passenger is about to be stranded on."""
+    async with state.lock:
+        block_groups = list((state.blocks_cache or {}).get("block_groups") or [])
+    reference_date = datetime.now(ZoneInfo("America/New_York"))
+    service = trip_planner.build_route_service(block_groups, reference_date)
+    return {
+        "windows": {
+            rid: [{"start": s, "end": e} for s, e in windows]
+            for rid, windows in service.windows.items()
+        },
+        "chain_next": service.chain_next,
+        "generated_at": datetime.now(timezone.utc).isoformat(),
+    }
+
+
+async def _fetch_uts_live_arrivals() -> List[Dict[str, Any]]:
+    url = build_transloc_url(None, "GetStopArrivalTimes")
+    data = await _proxy_transloc_get(url, params={"APIKey": TRANSLOC_KEY})
+    return data if isinstance(data, list) else []
+
+
+async def _uts_live_wait_lookup() -> Dict[Tuple[str, str], float]:
+    """(line_id, stop_id) -> seconds until the next live arrival, for every UTS
+    route-stop with one right now. A single GetStopArrivalTimes call with no stopIDs
+    filter returns arrivals system-wide (confirmed live: 94 route-stop entries in one
+    call) -- cheaper than querying per candidate stop, and avoids duplicating
+    trip_planner's own stop-snapping logic just to know which stops to ask about.
+    UTS Line ids are deliberately left unprefixed (unlike CAT's "cat:" prefix, see
+    _trip_planner_line_from_graph) because they must match RouteService's windows/
+    chain_next keys exactly -- those come straight from TransLoc's own RouteIds via
+    trip_planner.build_route_service(), with no prefix of their own."""
+    data = await trip_planner_live_arrivals_cache.get(_fetch_uts_live_arrivals)
+    lookup: Dict[Tuple[str, str], float] = {}
+    for entry in data:
+        if not isinstance(entry, dict):
+            continue
+        route_id = entry.get("RouteId") if entry.get("RouteId") is not None else entry.get("RouteID")
+        stop_id = entry.get("StopId") if entry.get("StopId") is not None else entry.get("StopID")
+        times = entry.get("Times") or []
+        if route_id is None or stop_id is None or not isinstance(times, list):
+            continue
+        seconds_values = [
+            t.get("Seconds") for t in times if isinstance(t, dict) and isinstance(t.get("Seconds"), (int, float))
+        ]
+        if not seconds_values:
+            continue
+        lookup[(str(route_id), str(stop_id))] = float(min(seconds_values))
+    return lookup
+
+
+async def _cat_live_wait_lookup(stop_ids: set) -> Dict[Tuple[str, str], float]:
+    """(line_id, stop_id) -> seconds until the next live CAT arrival, for the given
+    candidate stop IDs only. CAT has no bulk "every stop" ETA endpoint the way
+    TransLoc does (see _uts_live_wait_lookup), so this is scoped to stops a trip might
+    actually board/alight at -- see trip_planner.nearby_stop_ids -- rather than every
+    CAT stop system-wide. line_id carries the "cat:" prefix to match the combined
+    UTS+CAT Line ids find_trips sees."""
+    if not stop_ids:
+        return {}
+    results = await asyncio.gather(
+        *(_get_cat_stop_etas(sid) for sid in stop_ids), return_exceptions=True
+    )
+    lookup: Dict[Tuple[str, str], float] = {}
+    for result in results:
+        if isinstance(result, BaseException) or not isinstance(result, list):
+            continue
+        for stop_entry in result:
+            if not isinstance(stop_entry, dict):
+                continue
+            for eta in stop_entry.get("enRoute") or stop_entry.get("EnRoute") or []:
+                schedule_number = eta.get("ScheduleNumber") or eta.get("scheduleNumber")
+                pattern_id = _pattern_id_from_schedule_number(schedule_number)
+                eta_stop_id = str(eta.get("StopID") or eta.get("stopID") or "")
+                minutes = eta.get("Minutes")
+                if minutes is None:
+                    minutes = eta.get("minutes")
+                if pattern_id is None or not eta_stop_id or minutes is None:
+                    continue
+                seconds = max(float(minutes), 0.0) * 60.0
+                key = (f"cat:{pattern_id}", eta_stop_id)
+                if key not in lookup or seconds < lookup[key]:
+                    lookup[key] = seconds
+    return lookup
+
+
+def _trip_planner_line_from_graph(entry: Dict[str, Any], *, source: str, loop: bool, id_prefix: str = "") -> trip_planner.Line:
+    stops = [
+        trip_planner.Stop(id=s["id"], name=s["name"], lat=s["lat"], lon=s["lon"], source=source)
+        for s in entry.get("stops") or []
+    ]
+    return trip_planner.Line(
+        id=f"{id_prefix}{entry['id']}", name=entry["name"], color=entry.get("color") or "888888",
+        source=source, stops=stops, loop=loop,
+    )
+
+
+def _serialize_leg(leg) -> Dict[str, Any]:
+    if isinstance(leg, trip_planner.WalkLeg):
+        return {
+            "kind": "walk",
+            "coordinates": [[lat, lon] for lat, lon in leg.coordinates],
+            "distanceM": round(leg.distance_m, 1),
+            "durationS": round(leg.duration_s, 1),
+            "source": leg.source,
+        }
+    if isinstance(leg, trip_planner.RideLeg):
+        def _stop_out(s):
+            return None if s is None else {"id": s.id, "name": s.name, "lat": s.lat, "lon": s.lon}
+        return {
+            "kind": "ride",
+            "lineId": leg.line_id,
+            "lineName": leg.line_name,
+            "color": leg.color,
+            "boardStop": _stop_out(leg.board_stop),
+            "alightStop": _stop_out(leg.alight_stop),
+            "coordinates": [[s.lat, s.lon] for s in leg.path],
+            "waitS": leg.wait_s,
+            "rideS": leg.ride_s,
+            "rideSSource": leg.ride_s_source,
+            "serviceEndsTs": leg.service_ends_ts,
+            "lastRideWarning": leg.last_ride_warning,
+        }
+    return {}
+
+
+def _serialize_itinerary(itinerary: trip_planner.Itinerary) -> Dict[str, Any]:
+    return {
+        "legs": [_serialize_leg(leg) for leg in itinerary.legs],
+        "totalDurationS": round(itinerary.total_duration_s, 1),
+        "durationIsEstimate": itinerary.duration_is_estimate,
+    }
+
+
+@app.get("/v1/trip-planner/plan")
+async def trip_planner_plan(
+    from_lat: float = Query(...),
+    from_lon: float = Query(...),
+    to_lat: float = Query(...),
+    to_lon: float = Query(...),
+    when: Optional[str] = Query(None, description="ISO8601 timestamp; defaults to now"),
+    cat: bool = Query(False, description="Include CAT lines; mirrors the map's own CAT layer toggle"),
+):
+    """Rank walk -> ride[-> walk -> ride] -> walk itineraries between two points.
+
+    `cat` defaults to false and must be opted into explicitly -- the frontend passes
+    it through from the same CAT-layer toggle (`core/data/cat.js`'s isCatEnabled(),
+    off by default) that already gates CAT everywhere else on the map, so a rider who
+    hasn't turned CAT on doesn't get routed onto it as a surprise, and a request that
+    doesn't want CAT skips its live-ETA fetch entirely.
+
+    `when` lets a rider ask "what would this look like at 9pm" rather than only "right
+    now"; service-window/interline gating in trip_planner.find_trips runs against that
+    boarding time, not the current time, so a future query correctly reflects which
+    route variant (e.g. Gold Line's day vs. evening RouteID) would actually be running
+    then. Live wait times, however, only ever reflect right now -- there is no way to
+    know a real future wait in advance -- so a future-dated plan's itineraries fall
+    back to ride-time estimates only and will generally show `durationIsEstimate:
+    true`. CAT legs specifically require a live wait to be considered available at all
+    (see trip_planner._ride_leg's CAT branch -- CAT has no schedule data source the way
+    UTS's block groups provide), so a future-dated plan effectively drops CAT anyway
+    even when `cat=true`.
+    """
+    if when:
+        try:
+            when_dt = datetime.fromisoformat(when.replace("Z", "+00:00"))
+        except ValueError:
+            raise HTTPException(status_code=400, detail="when must be an ISO8601 timestamp")
+        if when_dt.tzinfo is None:
+            when_dt = when_dt.replace(tzinfo=timezone.utc)
+        when_ts = when_dt.timestamp()
+    else:
+        when_ts = time.time()
+
+    uts_lines_raw, route_service = await _uts_lines_for_trip_planner()
+    uts_lines = [_trip_planner_line_from_graph(entry, source="uts", loop=True) for entry in uts_lines_raw]
+
+    origin = (from_lat, from_lon)
+    destination = (to_lat, to_lon)
+
+    cat_lines: List[trip_planner.Line] = []
+    cat_wait_lookup: Dict[Tuple[str, str], float] = {}
+    if cat:
+        cat_lines_raw = await _cat_lines_for_trip_planner()
+        cat_lines = [
+            _trip_planner_line_from_graph(entry, source="cat", loop=False, id_prefix="cat:")
+            for entry in cat_lines_raw
+        ]
+        cat_candidate_ids = trip_planner.nearby_stop_ids(cat_lines, origin) | trip_planner.nearby_stop_ids(
+            cat_lines, destination
+        )
+        uts_wait_lookup, cat_wait_lookup = await asyncio.gather(
+            _uts_live_wait_lookup(), _cat_live_wait_lookup(cat_candidate_ids)
+        )
+    else:
+        uts_wait_lookup = await _uts_live_wait_lookup()
+
+    lines = uts_lines + cat_lines
+    live_wait_lookup = {**uts_wait_lookup, **cat_wait_lookup}
+
+    hop_time_fn = None
+    headway_storage = getattr(app.state, "headway_storage", None)
+    if headway_storage is not None:
+        try:
+            hop_model = trip_planner_history.load_model(
+                headway_storage, now=datetime.now(ZoneInfo("America/New_York"))
+            )
+            hop_time_fn = hop_model.lookup
+        except Exception as exc:
+            print(f"[trip-planner] hop-time model unavailable, using flat estimate: {exc}")
+
+    itineraries = trip_planner.find_trips(
+        origin=origin,
+        destination=destination,
+        lines=lines,
+        route_service=route_service,
+        live_wait_lookup=live_wait_lookup,
+        when=when_ts,
+        hop_time_fn=hop_time_fn,
+    )
+
+    return {
+        "itineraries": [_serialize_itinerary(it) for it in itineraries],
+        "generated_at": datetime.now(timezone.utc).isoformat(),
+    }
 
 
 @app.get("/v1/metromap/debug")

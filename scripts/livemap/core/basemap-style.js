@@ -17,6 +17,11 @@ import { UVA_BASEMAP_STYLE_URL, BRAND, SATELLITE } from './config.js';
 import { parseColor, colorToCss, luminance, mix } from './util.js';
 import { VEHICLE_SOURCE_ID, VEHICLE_SOURCE_DEF, VEHICLE_LAYER_DEFS } from './layers/vehicle-style.js';
 import { ROUTE_SOURCE_ID, ROUTE_SOURCE_DEF, routeLayerDefs } from './layers/route-style.js';
+import {
+  TRIP_PLANNER_SOURCE_ID,
+  TRIP_PLANNER_SOURCE_DEF,
+  tripPlannerLayerDefs,
+} from './layers/trip-planner-style.js';
 import { STOP_SOURCE_ID, STOP_SOURCE_DEF, stopLayerDefs } from './layers/stop-style.js';
 import {
   CAT_ROUTE_SOURCE_ID,
@@ -186,6 +191,7 @@ function normalizeBase(style) {
     type: 'geojson',
     data: { type: 'FeatureCollection', features: [] },
   };
+  s.sources[TRIP_PLANNER_SOURCE_ID] = clone(TRIP_PLANNER_SOURCE_DEF);
 
   // Satellite view (Esri). Layers start hidden; layers/satellite.js flips them.
   s.sources['sat-imagery'] = {
@@ -365,6 +371,14 @@ function addStopLayers(style, theme) {
   for (const def of stopLayerDefs(theme)) style.layers.push(clone(def));
 }
 
+/** Append the trip planner's itinerary layers (above CAT/microtrip, below
+ *  vehicles — the same slot as the vandispatch2 route overlay, since both are
+ *  "an ad hoc route polyline drawn over the base layers"). Start hidden/empty;
+ *  core/trip-planner.js feeds + shows them. */
+function addTripPlannerLayers(style, theme) {
+  for (const def of tripPlannerLayerDefs(theme)) style.layers.push(clone(def));
+}
+
 /** Append the CAT overlay route + stop layers (start hidden). CAT vehicles ride
  *  the shared UTS vehicle layers, so there's nothing for them here. */
 function addCatLayers(style, theme) {
@@ -443,6 +457,7 @@ function buildLight(raw) {
   addMicroTripLayers(s, 'light');
   addTrafficIncLayers(s, 'light');
   addVandispatchRouteLayer(s);
+  addTripPlannerLayers(s, 'light');
   addVehicleLayers(s);
   addPulsePointLayers(s, 'light');
   s.name = 'UVA Grounds — Day';
@@ -757,6 +772,7 @@ function buildDark(raw) {
   addMicroTripLayers(s, 'dark');
   addTrafficIncLayers(s, 'dark');
   addVandispatchRouteLayer(s);
+  addTripPlannerLayers(s, 'dark');
   addVehicleLayers(s);
   addPulsePointLayers(s, 'dark');
   return s;
