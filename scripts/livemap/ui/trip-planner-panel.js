@@ -14,60 +14,88 @@
 
 import { API_BASE } from '../core/config.js';
 import { getMap } from '../core/map.js';
-import { debounce } from '../core/util.js';
+import { debounce, parseColor, luminance } from '../core/util.js';
 import { onCatEnabled } from '../core/data/cat.js';
 import * as TripPlanner from '../core/trip-planner.js';
 
 const MIN_CHARS = 2;
 const DEBOUNCE_MS = 220;
+const NEGLIGIBLE_WALK_M = 20;
+
+// Small inline icon set (stroke-based, currentColor) -- kept as raw markup rather than
+// CSS ::before content so they scale/recolor cleanly and don't need a font/sprite sheet.
+const ICONS = {
+  locate:
+    '<svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><circle cx="8" cy="8" r="2.3"/><path d="M8 1v2.6M8 12.4V15M1 8h2.6M12.4 8H15"/></svg>',
+  pin:
+    '<svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"><path d="M8 15S3 10.2 3 6.5a5 5 0 0 1 10 0C13 10.2 8 15 8 15Z"/><circle cx="8" cy="6.5" r="1.6"/></svg>',
+  swap:
+    '<svg viewBox="0 0 16 16" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M5 3v10M5 3 2.6 5.5M5 3l2.4 2.5"/><path d="M11 13V3M11 13l2.4-2.5M11 13 8.6 10.5"/></svg>',
+  warn:
+    '<svg viewBox="0 0 16 16" width="11" height="11" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round" stroke-linecap="round"><path d="M8 1.6 14.8 14H1.2L8 1.6Z"/><path d="M8 6.2v3.4"/><circle cx="8" cy="11.6" r="0.15" fill="currentColor" stroke="none"/></svg>',
+};
 
 export class TripPlannerPanel {
   mount(parent = document.body) {
+    // Two separate top-level elements, not one nested inside the other: .tp-widget
+    // (just the small bottom-centre toggle) has its own `transform` for centring,
+    // and a `transform` on any ancestor becomes the containing block for
+    // `position: fixed` descendants -- confirmed live, the card collapsed to a
+    // sliver positioned relative to the tiny toggle pill instead of the viewport
+    // when it lived inside .tp-widget. Keeping them as siblings avoids that trap.
     const el = document.createElement('div');
     el.className = 'tp-widget';
     el.innerHTML = `
       <button type="button" class="tp-toggle" aria-expanded="false">
         <span class="tp-toggle-icon" aria-hidden="true"></span>
         <span>Plan a trip</span>
-      </button>
-      <div class="tp-card" hidden>
-        <div class="tp-card-head">
-          <span class="tp-card-title">Plan a trip</span>
-          <button type="button" class="tp-close" aria-label="Close">&times;</button>
-        </div>
+      </button>`;
+
+    const cardEl = document.createElement('div');
+    cardEl.className = 'tp-card';
+    cardEl.hidden = true;
+    cardEl.innerHTML = `
+      <button type="button" class="tp-drag-handle" aria-label="Expand or collapse"><span></span></button>
+      <div class="tp-card-head">
+        <span class="tp-card-title">Plan a trip</span>
+        <button type="button" class="tp-close" aria-label="Close">&times;</button>
+      </div>
+      <div class="tp-fields">
         <div class="tp-field" data-field="origin">
           <span class="tp-field-badge tp-field-badge--origin">A</span>
           <input type="text" placeholder="Origin — building or address" autocomplete="off" spellcheck="false" />
-          <button type="button" class="tp-field-btn tp-field-btn--locate" title="Use my location" aria-label="Use my location"></button>
-          <button type="button" class="tp-field-btn tp-field-btn--pin" title="Click the map to set" aria-label="Click the map to set"></button>
+          <button type="button" class="tp-field-btn tp-field-btn--locate" title="Use my location" aria-label="Use my location">${ICONS.locate}</button>
+          <button type="button" class="tp-field-btn tp-field-btn--pin" title="Click the map to set" aria-label="Click the map to set">${ICONS.pin}</button>
           <div class="tp-field-results" hidden></div>
         </div>
         <div class="tp-field" data-field="destination">
           <span class="tp-field-badge tp-field-badge--destination">B</span>
           <input type="text" placeholder="Destination — building or address" autocomplete="off" spellcheck="false" />
-          <button type="button" class="tp-field-btn tp-field-btn--locate" title="Use my location" aria-label="Use my location" hidden></button>
-          <button type="button" class="tp-field-btn tp-field-btn--pin" title="Click the map to set" aria-label="Click the map to set"></button>
+          <button type="button" class="tp-field-btn tp-field-btn--locate" title="Use my location" aria-label="Use my location" hidden>${ICONS.locate}</button>
+          <button type="button" class="tp-field-btn tp-field-btn--pin" title="Click the map to set" aria-label="Click the map to set">${ICONS.pin}</button>
           <div class="tp-field-results" hidden></div>
         </div>
-        <div class="tp-when">
-          <button type="button" class="tp-when-btn is-active" data-when="now">Now</button>
-          <button type="button" class="tp-when-btn" data-when="later">Later…</button>
-          <input type="datetime-local" class="tp-when-input" hidden />
-        </div>
-        <div class="tp-results" hidden></div>
-      </div>`;
+        <button type="button" class="tp-swap" title="Swap origin and destination" aria-label="Swap origin and destination">${ICONS.swap}</button>
+      </div>
+      <div class="tp-when">
+        <button type="button" class="tp-when-btn is-active" data-when="now">Now</button>
+        <button type="button" class="tp-when-btn" data-when="later">Later…</button>
+        <input type="datetime-local" class="tp-when-input" hidden />
+      </div>
+      <div class="tp-results" hidden></div>`;
 
     this._el = el;
+    this._cardEl = cardEl;
     this._toggle = el.querySelector('.tp-toggle');
-    this._card = el.querySelector('.tp-card');
-    this._results = el.querySelector('.tp-results');
-    this._whenInput = el.querySelector('.tp-when-input');
+    this._card = cardEl;
+    this._results = cardEl.querySelector('.tp-results');
+    this._whenInput = cardEl.querySelector('.tp-when-input');
     this._pickMode = null; // 'origin' | 'destination' | null
     this._when = null; // Date | null ("now")
 
     this._fields = {};
     for (const field of ['origin', 'destination']) {
-      const wrap = el.querySelector(`.tp-field[data-field="${field}"]`);
+      const wrap = cardEl.querySelector(`.tp-field[data-field="${field}"]`);
       this._fields[field] = {
         wrap,
         input: wrap.querySelector('input'),
@@ -80,13 +108,23 @@ export class TripPlannerPanel {
       this._wireField(field);
     }
 
+    cardEl.querySelector('.tp-swap').addEventListener('click', () => this._swap());
+
+    // Mobile-only bottom sheet: tapping the handle toggles between a short "peek"
+    // height and a tall "full" one (see the (max-width: 768px) CSS) -- a fixed
+    // two-state toggle rather than real drag-to-resize, but reads the same way at
+    // rest. Harmless on desktop, where the handle itself is hidden via CSS.
+    cardEl.querySelector('.tp-drag-handle').addEventListener('click', () => {
+      this._card.classList.toggle('is-expanded');
+    });
+
     this._toggle.addEventListener('click', () => this._setExpanded(true));
-    el.querySelector('.tp-close').addEventListener('click', () => {
+    cardEl.querySelector('.tp-close').addEventListener('click', () => {
       this._setExpanded(false);
       TripPlanner.clearAll();
     });
 
-    for (const btn of el.querySelectorAll('.tp-when-btn')) {
+    for (const btn of cardEl.querySelectorAll('.tp-when-btn')) {
       btn.addEventListener('click', () => this._setWhenMode(btn.dataset.when));
     }
     this._whenInput.addEventListener('change', () => {
@@ -116,7 +154,9 @@ export class TripPlannerPanel {
 
     this._mapClickHandler = (e) => this._onMapClick(e);
 
-    (parent || document.body).appendChild(el);
+    const root = parent || document.body;
+    root.appendChild(el);
+    root.appendChild(cardEl);
     return this;
   }
 
@@ -129,6 +169,7 @@ export class TripPlannerPanel {
     this._unsubCatEnabled?.();
     this._stopPicking();
     this._el?.remove();
+    this._cardEl?.remove();
   }
 
   _setExpanded(open) {
@@ -281,13 +322,21 @@ export class TripPlannerPanel {
     this._maybePlan();
   }
 
+  _swap() {
+    const origin = TripPlanner.getOrigin();
+    const destination = TripPlanner.getDestination();
+    TripPlanner.setOrigin(destination);
+    TripPlanner.setDestination(origin);
+    this._maybePlan();
+  }
+
   _syncFieldValue(field, point) {
     const f = this._fields[field];
     f.input.value = point ? point.label || `${point.lat.toFixed(5)}, ${point.lng.toFixed(5)}` : '';
   }
 
   _setWhenMode(mode) {
-    for (const btn of this._el.querySelectorAll('.tp-when-btn')) {
+    for (const btn of this._cardEl.querySelectorAll('.tp-when-btn')) {
       btn.classList.toggle('is-active', btn.dataset.when === mode);
     }
     if (mode === 'now') {
@@ -311,10 +360,10 @@ export class TripPlannerPanel {
   }
 
   _renderStatus(status) {
-    this._el.dataset.status = status;
+    this._cardEl.dataset.status = status;
     if (status === 'loading') {
       this._results.hidden = false;
-      this._results.innerHTML = '<div class="tp-status">Finding trips…</div>';
+      this._results.innerHTML = '<div class="tp-status"><span class="tp-spinner" aria-hidden="true"></span>Finding trips…</div>';
     } else if (status === 'empty') {
       this._results.hidden = false;
       this._results.innerHTML =
@@ -326,12 +375,17 @@ export class TripPlannerPanel {
     } else if (status === 'idle') {
       this._results.hidden = true;
       this._results.innerHTML = '';
+      this._card.classList.remove('is-expanded');
     }
   }
 
   _renderItineraries(itineraries) {
     if (!itineraries.length) return; // status handler already covers empty/error
     this._results.hidden = false;
+    // Mobile bottom sheet: pop open to the "full" height once there's something to
+    // show, same as Maps auto-expanding its sheet when directions come back, rather
+    // than leaving results collapsed behind a peek-height sheet. No-op on desktop.
+    this._card.classList.add('is-expanded');
     this._results.innerHTML = itineraries.map((it, i) => this._itineraryCardHtml(it, i)).join('');
     [...this._results.querySelectorAll('.tp-itin')].forEach((card) => {
       card.addEventListener('click', () => TripPlanner.selectItinerary(Number(card.dataset.i)));
@@ -340,29 +394,57 @@ export class TripPlannerPanel {
 
   _itineraryCardHtml(itinerary, i) {
     const mins = Math.round(itinerary.totalDurationS / 60);
-    const legsHtml = itinerary.legs.map((leg) => this._legChipHtml(leg)).join('');
     const warn = itinerary.legs.some((l) => l.kind === 'ride' && l.lastRideWarning);
+    // A walk leg under this distance is "you're already there" -- most often the
+    // origin/destination sitting right at a stop, or (confirmed live) a same-physical-
+    // stop transfer where TransLoc happens to carry separate StopIDs per route for one
+    // shelter. Showing "Walk 1 min" for a 1-metre gap actively misleads, so these are
+    // dropped from the timeline entirely rather than rounded up to a fake minute.
+    const visibleLegs = itinerary.legs.filter(
+      (leg) => !(leg.kind === 'walk' && leg.distanceM != null && leg.distanceM < NEGLIGIBLE_WALK_M),
+    );
+    const legsHtml = visibleLegs.map((leg, li) => this._legRowHtml(leg, li === visibleLegs.length - 1)).join('');
     return `
       <button type="button" class="tp-itin" data-i="${i}">
         <div class="tp-itin-top">
           <span class="tp-itin-time">${mins} min</span>
-          ${itinerary.durationIsEstimate ? '<span class="tp-itin-tag">estimated</span>' : ''}
-          ${warn ? '<span class="tp-itin-tag tp-itin-tag--warn">last bus soon</span>' : ''}
+          ${itinerary.durationIsEstimate ? '<span class="tp-itin-tag">Estimated</span>' : ''}
+          ${warn ? `<span class="tp-itin-tag tp-itin-tag--warn">${ICONS.warn}Last bus soon</span>` : ''}
         </div>
-        <div class="tp-itin-legs">${legsHtml}</div>
+        <div class="tp-itin-timeline">${legsHtml}</div>
       </button>`;
   }
 
-  _legChipHtml(leg) {
+  _legRowHtml(leg, isLast) {
+    const lastClass = isLast ? ' tp-leg--last' : '';
     if (leg.kind === 'walk') {
-      const mins = Math.max(1, Math.round(leg.durationS / 60));
-      return `<span class="tp-chip tp-chip--walk">🚶 ${mins}m</span>`;
+      // Honest sub-minute wording instead of flooring up to a misleading "1 min" --
+      // paired with the NEGLIGIBLE_WALK_M filter above, which drops the truly-zero
+      // case (same-stop transfers, origin/destination right at a stop) entirely.
+      const rawMins = Math.round(leg.durationS / 60);
+      const timeLabel = rawMins < 1 ? '&lt;1 min' : `${rawMins} min`;
+      const dist = leg.distanceM != null ? ` · ${Math.round(leg.distanceM)}m` : '';
+      return `
+        <div class="tp-leg tp-leg--walk${lastClass}">
+          <span class="tp-leg-dot tp-leg-dot--walk"></span>
+          <span class="tp-leg-text">Walk <b>${timeLabel}</b><span class="tp-leg-sub">${dist}</span></span>
+        </div>`;
     }
+    const color = normalizeColor(leg.color);
+    const textColor = readableTextColor(color);
     const mins = Math.round((leg.rideS || 0) / 60);
-    const wait = leg.waitS != null ? ` · ${Math.round(leg.waitS / 60)}m wait` : '';
-    return `<span class="tp-chip tp-chip--ride" style="--chip-color:#${String(leg.color || '888').replace(/^#/, '')}">
-      ${esc(leg.lineName || leg.lineId)} · ${mins}m${wait}
-    </span>`;
+    const waitSub =
+      leg.waitS != null
+        ? `<span class="tp-leg-sub"> · ${Math.max(0, Math.round(leg.waitS / 60))} min wait</span>`
+        : '<span class="tp-leg-sub tp-leg-sub--muted"> · wait unknown</span>';
+    return `
+      <div class="tp-leg tp-leg--ride${lastClass}">
+        <span class="tp-leg-dot" style="background:${color}"></span>
+        <span class="tp-leg-text">
+          <span class="tp-route-badge" style="background:${color};color:${textColor}">${esc(leg.lineName || leg.lineId)}</span>
+          <span class="tp-leg-sub">${mins} min ride${waitSub}</span>
+        </span>
+      </div>`;
   }
 
   _syncSelected(index) {
@@ -370,6 +452,20 @@ export class TripPlannerPanel {
       card.classList.toggle('is-selected', Number(card.dataset.i) === index);
     });
   }
+}
+
+function normalizeColor(c) {
+  const s = String(c || '888888').trim();
+  return s.startsWith('#') ? s : `#${s}`;
+}
+
+/** White or dark text, whichever reads better on a route's own color (route colors
+ *  span the whole brightness range -- Gold Line's #ffdd00 needs dark text, Purple
+ *  Line's #662c90 needs white -- so this can't be a fixed choice). */
+function readableTextColor(hex) {
+  const parsed = parseColor(hex);
+  if (!parsed) return '#1a1a1a';
+  return luminance(parsed) > 0.55 ? '#1a1a1a' : '#ffffff';
 }
 
 function esc(s) {

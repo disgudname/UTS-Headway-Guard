@@ -2206,6 +2206,13 @@ body {
   body.hg-nav-active .maplibregl-ctrl-bottom-left {
     margin-left: var(--hg-nav-left-offset, 0px);
   }
+  /* The expanded trip planner card docks flush to the left edge, same as
+     .livemap-panel--left -- confirmed live: without this it renders directly under
+     the nav rail's own chrome (hg-nav__inner), invisible despite a correct z-index,
+     since the rail occupies that same screen region. */
+  body.hg-nav-active .tp-card {
+    left: var(--hg-nav-left-offset, 0px);
+  }
 }
 
 @media (max-width: 768px) {
@@ -2234,6 +2241,14 @@ body {
  * tokens, --accent for the active state.
  * ------------------------------------------------------------------------- */
 
+/* The collapsed toggle stays bottom-centre (proven clear of both side columns --
+   see the original note this replaced). The expanded card is a SEPARATE story: it
+   docks to the left edge like Maps' own directions panel, `position: fixed` against
+   the viewport rather than positioned relative to this small bottom-centre wrapper,
+   so it can cover that edge (layered above -- z-index 470 vs .livemap-panel--left's
+   450 -- the main UVA Transit panel while open) independent of where the toggle
+   lives. Mobile (see the (max-width: 768px) block at the end of this file): the
+   card becomes a bottom sheet instead, the other half of "two layouts, like Maps". */
 .tp-widget {
   position: absolute;
   left: 50%;
@@ -2243,18 +2258,16 @@ body {
   font: 400 var(--fs-sm)/1.35 inherit;
   color: var(--panel-fg);
 }
-.tp-widget .tp-card {
-  /* the toggle pill is centred by the wrapper's translateX(-50%); the card,
-     wider than the pill, re-centres itself under the same anchor point */
-  margin-left: 50%;
-  transform: translateX(-50%);
-}
 /* .tp-toggle/.tp-card both declare `display: flex`, which (as an author-stylesheet
    class rule) beats the native [hidden] attribute's UA-stylesheet `display: none` --
    the browser toggles the *attribute* (el.hidden = true/false, see
    trip-planner-panel.js's _setExpanded), so this needs an explicit, higher-priority
-   override or both end up visible at once. */
-.tp-widget [hidden] {
+   override or both end up visible at once. .tp-card is a separate top-level element
+   from .tp-widget (see mount()'s comment on why), so it needs its own copy of this
+   rather than being reachable via a `.tp-widget [hidden]` descendant selector. */
+.tp-widget [hidden],
+.tp-card[hidden],
+.tp-card [hidden] {
   display: none !important;
 }
 
@@ -2286,16 +2299,24 @@ body {
 }
 
 .tp-card {
-  width: 300px;
-  max-height: min(560px, calc(100vh - 90px));
+  position: fixed;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  z-index: 470;
+  width: 320px;
   display: flex;
   flex-direction: column;
-  border-radius: var(--radius-lg);
+  border-radius: 0 var(--radius-lg) var(--radius-lg) 0;
   border: 1px solid var(--panel-border);
+  border-left: none;
   background: var(--panel-surface);
   box-shadow: var(--panel-shadow);
   backdrop-filter: var(--panel-blur);
   overflow: hidden;
+}
+.tp-drag-handle {
+  display: none; /* mobile-only, see the (max-width: 768px) block */
 }
 
 .tp-card-head {
@@ -2322,6 +2343,34 @@ body {
 }
 .tp-close:hover {
   background: rgba(255, 255, 255, 0.26);
+}
+
+.tp-fields {
+  position: relative;
+}
+.tp-swap {
+  /* Sits on the boundary between the two (equal-height, equally-margined) .tp-field
+     rows -- 50% of the combined two-field container lands almost exactly there. */
+  position: absolute;
+  top: 50%;
+  right: 14px;
+  transform: translateY(-50%);
+  z-index: 2;
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  border: 1px solid var(--panel-border);
+  background: var(--panel-surface);
+  color: var(--panel-muted);
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.18);
+  cursor: pointer;
+  display: grid;
+  place-items: center;
+  transition: color var(--dur-fast) var(--ease), transform var(--dur) var(--ease);
+}
+.tp-swap:hover {
+  color: var(--accent);
+  transform: translateY(-50%) rotate(180deg);
 }
 
 .tp-field {
@@ -2369,20 +2418,12 @@ body {
   background: none;
   color: var(--panel-muted);
   cursor: pointer;
-  font-size: 12px;
   display: grid;
   place-items: center;
 }
 .tp-field-btn:hover {
   background: var(--hover-bg);
   color: var(--panel-fg);
-}
-.tp-field-btn--locate::before {
-  content: '◎';
-}
-.tp-field-btn--pin::before {
-  content: '📍';
-  font-size: 11px;
 }
 .tp-field-btn--pin.is-active {
   background: var(--accent-soft);
@@ -2458,13 +2499,18 @@ body {
 }
 
 .tp-results {
-  margin: 10px 0 0;
-  padding: 0 12px 12px;
+  flex: 1 1 auto;
+  margin: 12px 0 0;
   overflow-y: auto;
+  border-top: 1px solid var(--panel-hairline);
 }
 
 .tp-status {
-  padding: 14px 4px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 16px 14px;
   color: var(--panel-muted);
   font: 500 var(--fs-sm)/1.4 inherit;
   text-align: center;
@@ -2472,27 +2518,44 @@ body {
 .tp-status--error {
   color: var(--bad);
 }
+.tp-spinner {
+  width: 13px;
+  height: 13px;
+  border-radius: 50%;
+  border: 2px solid var(--panel-border);
+  border-top-color: var(--accent);
+  animation: tp-spin 0.7s linear infinite;
+  flex: 0 0 auto;
+}
+@keyframes tp-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
 
+/* Thin-divider rows rather than individually bordered cards -- closer to how Maps'
+   own itinerary list reads (a plain list, not a stack of boxed cards), with a left
+   accent bar marking the selected row instead of a full outline. */
 .tp-itin {
   display: block;
   width: 100%;
-  margin-top: 8px;
-  padding: 10px 12px;
-  border-radius: var(--radius);
-  border: 1px solid var(--panel-border);
-  background: var(--panel-bg);
+  padding: 12px 12px 12px 13px;
+  border: none;
+  border-bottom: 1px solid var(--panel-hairline);
+  border-left: 3px solid transparent;
+  background: none;
   cursor: pointer;
   text-align: left;
 }
-.tp-itin:first-child {
-  margin-top: 0;
+.tp-itin:last-child {
+  border-bottom: none;
 }
 .tp-itin:hover {
   background: var(--hover-bg);
 }
 .tp-itin.is-selected {
-  border-color: var(--accent);
-  box-shadow: 0 0 0 1px var(--accent) inset;
+  border-left-color: var(--accent);
+  background: var(--accent-soft);
 }
 .tp-itin-top {
   display: flex;
@@ -2514,28 +2577,77 @@ body {
   letter-spacing: 0.02em;
 }
 .tp-itin-tag--warn {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
   background: rgba(223, 30, 67, 0.14);
   color: var(--bad);
 }
-.tp-itin-legs {
+.tp-itin-tag--warn svg {
+  flex: 0 0 auto;
+}
+
+/* Leg timeline: a dot per leg threaded by one continuous rail line drawn behind
+   them (::before on the timeline container, not per-leg), the way a transit app's
+   step-by-step itinerary usually reads. */
+.tp-itin-timeline {
+  position: relative;
   display: flex;
-  flex-wrap: wrap;
-  gap: 5px;
+  flex-direction: column;
+  gap: 7px;
 }
-.tp-chip {
-  padding: 3px 8px;
-  border-radius: var(--radius-pill);
-  font: 600 var(--fs-xs)/1.3 inherit;
-  white-space: nowrap;
+.tp-leg {
+  position: relative;
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  z-index: 1;
 }
-.tp-chip--walk {
-  background: var(--hover-bg);
-  color: var(--panel-muted);
+.tp-leg-dot {
+  flex: 0 0 auto;
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  align-self: center;
+  box-shadow: 0 0 0 3px var(--panel-bg);
 }
-.tp-chip--ride {
-  background: color-mix(in srgb, var(--chip-color) 20%, transparent);
+.tp-leg-dot--walk {
+  width: 7px;
+  height: 7px;
+  margin: 1px;
+  background: var(--panel-muted);
+  opacity: 0.6;
+}
+.tp-leg:not(.tp-leg--last)::after {
+  content: '';
+  position: absolute;
+  left: 4px;
+  top: 13px;
+  bottom: -16px;
+  width: 1.5px;
+  background: var(--panel-border);
+  z-index: -1;
+}
+.tp-leg--walk:not(.tp-leg--last)::after {
+  left: 3px;
+}
+.tp-leg-text {
+  font: 500 var(--fs-sm)/1.4 inherit;
   color: var(--panel-fg);
-  border: 1px solid color-mix(in srgb, var(--chip-color) 55%, transparent);
+}
+.tp-leg-sub {
+  color: var(--panel-muted);
+  font: 500 var(--fs-xs)/1.4 inherit;
+}
+.tp-leg-sub--muted {
+  font-style: italic;
+}
+.tp-route-badge {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: var(--radius-sm);
+  font: 700 var(--fs-xs)/1.5 inherit;
+  margin-right: 2px;
 }
 
 /* Map pins (maplibregl.Marker DOM elements — see core/trip-planner.js) */
@@ -2561,14 +2673,48 @@ body {
   cursor: crosshair !important;
 }
 
+/* Mobile: a bottom sheet instead of a left-docked sidebar -- there's no spare full-
+   height edge to dock to on a phone-width screen, and this is what Maps itself does
+   there too. Peek height shows the fields + top result; tapping the drag handle (or
+   a plan actually landing, see _renderItineraries) expands to a tall scrollable list;
+   collapsing back to peek is the same tap, or the close button. */
 @media (max-width: 768px) {
-  .tp-widget {
-    bottom: 8px;
-  }
+  /* .tp-widget (the collapsed toggle's own small wrapper) stays bottom-centre, same
+     as desktop -- no override needed. Only the expanded card changes shape. */
   .tp-card {
-    width: min(320px, calc(100vw - 16px));
+    left: 0;
+    right: 0;
+    top: auto;
+    bottom: 0;
+    width: auto;
+    max-height: 46vh;
+    border-radius: var(--radius-lg) var(--radius-lg) 0 0;
+    border: 1px solid var(--panel-border);
+    border-bottom: none;
+    transition: max-height var(--dur) var(--ease);
+  }
+  .tp-card.is-expanded {
+    max-height: 85vh;
+  }
+  .tp-drag-handle {
+    display: flex;
+    justify-content: center;
+    padding: 8px 0 2px;
+    border: none;
+    background: none;
+    cursor: pointer;
+    flex: 0 0 auto;
+  }
+  .tp-drag-handle span {
+    width: 36px;
+    height: 4px;
+    border-radius: var(--radius-pill);
+    background: var(--panel-border);
   }
   body.hg-nav-active .tp-widget {
-    bottom: calc(8px + var(--hg-nav-bottom-offset, 0px));
+    bottom: calc(22px + var(--hg-nav-bottom-offset, 0px));
+  }
+  body.hg-nav-active .tp-card {
+    bottom: var(--hg-nav-bottom-offset, 0px);
   }
 }
