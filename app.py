@@ -15450,14 +15450,24 @@ async def _uts_live_wait_lookup() -> Dict[Tuple[str, str], float]:
     UTS Line ids are deliberately left unprefixed (unlike CAT's "cat:" prefix, see
     _trip_planner_line_from_graph) because they must match RouteService's windows/
     chain_next keys exactly -- those come straight from TransLoc's own RouteIds via
-    trip_planner.build_route_service(), with no prefix of their own."""
+    trip_planner.build_route_service(), with no prefix of their own.
+
+    Keyed by RouteStopId, NOT StopId -- confirmed live this was the actual root cause
+    of "wait unknown" showing up on essentially every UTS leg. This TransLoc
+    deployment's per-route Stops[] entries (what state.stops, and therefore this trip
+    planner's whole stop graph, is built from) never carry a true cross-route StopID
+    at all, so _normalize_transloc_stop falls back to RouteStopID and stores it in the
+    "StopID" field (see that function's docstring/CLAUDE.md) -- meaning every Stop.id
+    in this planner's graph IS a RouteStopID, not a physical StopId. GetStopArrivalTimes
+    carries both IDs on each entry; this must match the graph's own numbering, not the
+    physical one, or the lookup silently misses on every single UTS stop."""
     data = await trip_planner_live_arrivals_cache.get(_fetch_uts_live_arrivals)
     lookup: Dict[Tuple[str, str], float] = {}
     for entry in data:
         if not isinstance(entry, dict):
             continue
         route_id = entry.get("RouteId") if entry.get("RouteId") is not None else entry.get("RouteID")
-        stop_id = entry.get("StopId") if entry.get("StopId") is not None else entry.get("StopID")
+        stop_id = entry.get("RouteStopId") if entry.get("RouteStopId") is not None else entry.get("RouteStopID")
         times = entry.get("Times") or []
         if route_id is None or stop_id is None or not isinstance(times, list):
             continue

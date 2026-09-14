@@ -348,3 +348,22 @@ def test_best_transfer_returns_its_own_optimized_alight_stop():
     ride_legs = [leg for it in itineraries for leg in it.legs if leg.kind == "ride" and leg.line_id == "b"]
     assert ride_legs, "the b-leg transfer must not be silently dropped"
     assert ride_legs[0].alight_stop.id == "real-dest"
+
+
+def test_live_wait_follows_the_interline_chain_when_the_boarding_line_has_none():
+    # Regression for a real bug reported live ("wait unknown" showing up constantly):
+    # TransLoc's live vehicle feed reports under whichever RouteID is CURRENTLY
+    # active -- once Gold Line's vehicle relabels from 67 to 57, GetStopArrivalTimes
+    # stops returning anything under "67" at all, even though 67 is still a valid
+    # boardable line (via the interline-extended service window). The live wait must
+    # follow that same chain instead of giving up at the first empty lookup.
+    service = tp.RouteService(
+        windows={"67": [(_ts(5), _ts(17, 50))], "57": [(_ts(17, 51), _ts(22))]},
+        chain_next={"67": "57"},
+    )
+    line = _line("67")
+    live_wait_lookup = {("57", "67-A"): 300.0}  # only the relabeled RouteID has a live entry
+    result = tp._ride_leg(line, 0, 2, _ts(17, 49), service, live_wait_lookup)
+    assert result is not None
+    leg, _alight_time = result
+    assert leg.wait_s == 300.0

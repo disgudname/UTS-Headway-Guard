@@ -377,6 +377,42 @@ def _estimate_ride_seconds(
     return total, ("historical" if all_historical else "heuristic")
 
 
+def _live_wait_with_chain(
+    line: Line,
+    stop_id: str,
+    route_service: Optional[RouteService],
+    live_wait_lookup: Dict[Tuple[str, str], Optional[float]],
+) -> Optional[float]:
+    """Live wait for this line/stop, following the same interline chain that extends
+    a route's service window forward (RouteService.effective_window) if the line's own
+    id has no entry.
+
+    Why this matters: TransLoc's live vehicle feed reports under whichever RouteID is
+    CURRENTLY active -- once Gold Line's vehicle relabels from RouteID 67 to 57 at
+    5:51pm, GetStopArrivalTimes stops returning anything under "67" entirely, even
+    though 67 is still a valid boardable line for the next few hours (its effective
+    window, extended through the chain, doesn't end until 57's window does). Without
+    this, every itinerary using the now-relabeled RouteID shows a live wait as
+    "unknown" despite the exact same physical vehicle having a perfectly good live ETA
+    one hop away in the chain table -- confirmed live: 100% live coverage on every
+    currently-active RouteID, yet "wait unknown" showing up constantly regardless."""
+    wait = live_wait_lookup.get((line.id, stop_id))
+    if wait is not None or route_service is None or line.source != "uts":
+        return wait
+    seen = {line.id}
+    current = line.id
+    while current in route_service.chain_next:
+        nxt = route_service.chain_next[current]
+        if nxt in seen:
+            break
+        wait = live_wait_lookup.get((nxt, stop_id))
+        if wait is not None:
+            return wait
+        seen.add(nxt)
+        current = nxt
+    return None
+
+
 def _ride_leg(
     line: Line,
     board_idx: int,
@@ -395,7 +431,7 @@ def _ride_leg(
 
     board_stop = line.stops[board_idx]
     alight_stop = line.stops[alight_idx]
-    wait_s = live_wait_lookup.get((line.id, board_stop.id))
+    wait_s = _live_wait_with_chain(line, board_stop.id, route_service, live_wait_lookup)
     ride_s, ride_s_source = _estimate_ride_seconds(line, board_idx, alight_idx, board_time, hop_time_fn)
 
     actual_board_time = board_time + (wait_s or 0.0)
