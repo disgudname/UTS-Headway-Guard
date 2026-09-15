@@ -33,6 +33,8 @@ const ICONS = {
     '<svg viewBox="0 0 16 16" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M5 3v10M5 3 2.6 5.5M5 3l2.4 2.5"/><path d="M11 13V3M11 13l2.4-2.5M11 13 8.6 10.5"/></svg>',
   warn:
     '<svg viewBox="0 0 16 16" width="11" height="11" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round" stroke-linecap="round"><path d="M8 1.6 14.8 14H1.2L8 1.6Z"/><path d="M8 6.2v3.4"/><circle cx="8" cy="11.6" r="0.15" fill="currentColor" stroke="none"/></svg>',
+  back:
+    '<svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M10 3 5 8l5 5"/></svg>',
 };
 
 export class TripPlannerPanel {
@@ -57,6 +59,7 @@ export class TripPlannerPanel {
     cardEl.innerHTML = `
       <button type="button" class="tp-drag-handle" aria-label="Expand or collapse"><span></span></button>
       <div class="tp-card-head">
+        <button type="button" class="tp-back" aria-label="Back to trip options" hidden>${ICONS.back}</button>
         <span class="tp-card-title">Plan a trip</span>
         <button type="button" class="tp-close" aria-label="Close">&times;</button>
       </div>
@@ -82,16 +85,22 @@ export class TripPlannerPanel {
         <button type="button" class="tp-when-btn" data-when="later">Later…</button>
         <input type="datetime-local" class="tp-when-input" hidden />
       </div>
-      <div class="tp-results" hidden></div>`;
+      <div class="tp-results" hidden></div>
+      <div class="tp-detail-footer" hidden></div>`;
 
     this._el = el;
     this._cardEl = cardEl;
     this._toggle = el.querySelector('.tp-toggle');
     this._card = cardEl;
     this._results = cardEl.querySelector('.tp-results');
+    this._detailFooter = cardEl.querySelector('.tp-detail-footer');
+    this._backBtn = cardEl.querySelector('.tp-back');
+    this._cardTitle = cardEl.querySelector('.tp-card-title');
     this._whenInput = cardEl.querySelector('.tp-when-input');
     this._pickMode = null; // 'origin' | 'destination' | null
     this._when = null; // Date | null ("now")
+    this._view = 'list'; // 'list' | 'detail' -- which content _results/_detailFooter show
+    this._itineraries = [];
 
     this._fields = {};
     for (const field of ['origin', 'destination']) {
@@ -122,6 +131,12 @@ export class TripPlannerPanel {
     cardEl.querySelector('.tp-close').addEventListener('click', () => {
       this._setExpanded(false);
       TripPlanner.clearAll();
+    });
+    this._backBtn.addEventListener('click', () => this._showList());
+    // Tapping the collapsed synopsis bar expands it, same as tapping a selected
+    // option's summary in Maps to reveal its full step-by-step breakdown.
+    this._detailFooter.addEventListener('click', () => {
+      this._card.classList.add('is-expanded');
     });
 
     for (const btn of cardEl.querySelectorAll('.tp-when-btn')) {
@@ -361,6 +376,13 @@ export class TripPlannerPanel {
 
   _renderStatus(status) {
     this._cardEl.dataset.status = status;
+    // Every one of these statuses means "not looking at a specific itinerary's detail
+    // right now" (a fresh search just started, came back empty/failed, or was cleared
+    // entirely) -- drop back to the list view and hide its synopsis footer so a stale
+    // one from a previous plan can't linger behind the newly-empty/loading results.
+    this._detailFooter.hidden = true;
+    this._detailFooter.innerHTML = '';
+    this._setView('list');
     if (status === 'loading') {
       this._results.hidden = false;
       this._results.innerHTML = '<div class="tp-status"><span class="tp-spinner" aria-hidden="true"></span>Finding trips…</div>';
@@ -380,16 +402,64 @@ export class TripPlannerPanel {
   }
 
   _renderItineraries(itineraries) {
+    this._itineraries = itineraries;
     if (!itineraries.length) return; // status handler already covers empty/error
+    // A fresh set of results always lands back on the options list, even if the rider
+    // was looking at a previous plan's detail view.
+    this._setView('list');
     this._results.hidden = false;
     // Mobile bottom sheet: pop open to the "full" height once there's something to
     // show, same as Maps auto-expanding its sheet when directions come back, rather
     // than leaving results collapsed behind a peek-height sheet. No-op on desktop.
     this._card.classList.add('is-expanded');
-    this._results.innerHTML = itineraries.map((it, i) => this._itineraryCardHtml(it, i)).join('');
+    this._renderList();
+  }
+
+  _renderList() {
+    this._results.innerHTML = this._itineraries.map((it, i) => this._itineraryCardHtml(it, i)).join('');
     [...this._results.querySelectorAll('.tp-itin')].forEach((card) => {
-      card.addEventListener('click', () => TripPlanner.selectItinerary(Number(card.dataset.i)));
+      card.addEventListener('click', () => this._showDetail(Number(card.dataset.i)));
     });
+    this._syncSelected(this._selectedIndex);
+  }
+
+  /** Switches between the ranked-options list and a single itinerary's full
+   *  step-by-step breakdown -- mirrors Maps: tapping an option in the list shows
+   *  just that one, collapsed to a small peek with its whole route visible on the
+   *  map; tapping that peek (or the drag handle) expands it into the scrollable
+   *  detail seen here. */
+  _setView(view) {
+    this._view = view;
+    const inDetail = view === 'detail';
+    this._cardEl.dataset.view = view;
+    this._backBtn.hidden = !inDetail;
+    this._cardTitle.textContent = inDetail ? 'Trip details' : 'Plan a trip';
+    this._cardEl.querySelector('.tp-fields').hidden = inDetail;
+    this._cardEl.querySelector('.tp-when').hidden = inDetail;
+  }
+
+  _showList() {
+    this._setView('list');
+    this._card.classList.add('is-expanded');
+    this._results.hidden = false;
+    this._detailFooter.hidden = true;
+    this._renderList();
+  }
+
+  _showDetail(index) {
+    const itinerary = this._itineraries[index];
+    if (!itinerary) return;
+    TripPlanner.selectItinerary(index);
+    this._setView('detail');
+    this._selectedItinerary = itinerary;
+    this._detailFooter.hidden = false;
+    this._detailFooter.innerHTML = this._detailFooterHtml(itinerary);
+    this._results.innerHTML = this._detailStepsHtml(itinerary);
+    // Land on the small peek, same as Maps: the map (now fit to this one route) is
+    // the main event until the rider explicitly asks for the full breakdown. Desktop
+    // has no peek concept (see the [data-view="detail"] CSS, mobile-only) -- there,
+    // the step list just stays visible in the always-full-height sidebar.
+    this._card.classList.remove('is-expanded');
   }
 
   _itineraryCardHtml(itinerary, i) {
@@ -448,9 +518,110 @@ export class TripPlannerPanel {
   }
 
   _syncSelected(index) {
+    this._selectedIndex = index;
     [...this._results.querySelectorAll('.tp-itin')].forEach((card) => {
       card.classList.toggle('is-selected', Number(card.dataset.i) === index);
     });
+  }
+
+  /** Clock time at the start of each leg, plus one trailing entry for the final
+   *  arrival -- i.e. `marks.length === itinerary.legs.length + 1`. Walked forward
+   *  from `_when` (or "now" if the rider didn't pick a specific time) by each leg's
+   *  real elapsed time (wait included for a ride leg), the same arithmetic the
+   *  backend uses for totalDurationS so these clocks and that total always agree. */
+  _legStartClocks(itinerary) {
+    let t = (this._when instanceof Date ? this._when : new Date()).getTime();
+    const marks = [t];
+    for (const leg of itinerary.legs) {
+      const segS = leg.kind === 'walk' ? leg.durationS || 0 : (leg.waitS || 0) + (leg.rideS || 0);
+      t += segS * 1000;
+      marks.push(t);
+    }
+    return marks;
+  }
+
+  _detailStepsHtml(itinerary) {
+    const clocks = this._legStartClocks(itinerary);
+    const origin = TripPlanner.getOrigin();
+    const destination = TripPlanner.getDestination();
+    const visibleLegs = itinerary.legs.filter(
+      (leg) => !(leg.kind === 'walk' && leg.distanceM != null && leg.distanceM < NEGLIGIBLE_WALK_M),
+    );
+    const rows = [
+      `<div class="tp-detail-point">
+        <span class="tp-field-badge tp-field-badge--origin">A</span>
+        <span class="tp-detail-point-text">${esc(origin?.label || 'Origin')}</span>
+        <span class="tp-detail-clock">${formatClock(clocks[0])}</span>
+      </div>`,
+    ];
+    // clocks is indexed against the FULL leg list (including negligible walks that
+    // got filtered out of visibleLegs above), so look each leg's clock up by its
+    // position in the original list rather than assuming a 1:1 index match.
+    for (const leg of visibleLegs) {
+      const i = itinerary.legs.indexOf(leg);
+      rows.push(this._detailStepHtml(leg, clocks[i]));
+    }
+    rows.push(
+      `<div class="tp-detail-point">
+        <span class="tp-field-badge tp-field-badge--destination">B</span>
+        <span class="tp-detail-point-text">${esc(destination?.label || 'Destination')}</span>
+        <span class="tp-detail-clock">${formatClock(clocks[clocks.length - 1])}</span>
+      </div>`,
+    );
+    return `<div class="tp-detail-steps">${rows.join('')}</div>`;
+  }
+
+  _detailStepHtml(leg, startMs) {
+    if (leg.kind === 'walk') {
+      const mins = Math.round(leg.durationS / 60);
+      const timeLabel = mins < 1 ? '<1 min' : `${mins} min`;
+      const dist = leg.distanceM != null ? ` (${Math.round(leg.distanceM)}m)` : '';
+      return `
+        <div class="tp-detail-step tp-detail-step--walk">
+          <span class="tp-leg-dot tp-leg-dot--walk"></span>
+          <div class="tp-detail-step-body">
+            <div class="tp-detail-step-main">Walk ${timeLabel}${dist}</div>
+            ${leg.source === 'straight_line' ? '<div class="tp-detail-step-sub tp-leg-sub--muted">Estimated route</div>' : ''}
+          </div>
+        </div>`;
+    }
+    const color = normalizeColor(leg.color);
+    const textColor = readableTextColor(color);
+    const stops = Math.max(1, (leg.coordinates?.length || 2) - 1);
+    const rideMins = Math.round((leg.rideS || 0) / 60);
+    const waitLabel =
+      leg.waitS != null ? `${Math.max(0, Math.round(leg.waitS / 60))} min wait, then ` : '';
+    const warn = leg.lastRideWarning
+      ? `<span class="tp-itin-tag tp-itin-tag--warn">${ICONS.warn}Last bus soon</span>`
+      : '';
+    const boardClock = formatClock(startMs + (leg.waitS || 0) * 1000);
+    const alightClock = formatClock(startMs + ((leg.waitS || 0) + (leg.rideS || 0)) * 1000);
+    return `
+      <div class="tp-detail-step tp-detail-step--ride">
+        <span class="tp-leg-dot" style="background:${color}"></span>
+        <div class="tp-detail-step-body">
+          <div class="tp-detail-step-main">
+            <span class="tp-route-badge" style="background:${color};color:${textColor}">${esc(leg.lineName || leg.lineId)}</span>
+            ${warn}
+          </div>
+          <div class="tp-detail-step-sub">${waitLabel}board at ${boardClock} — ${esc(leg.boardStop?.name || 'stop')}</div>
+          <div class="tp-detail-step-sub">Ride ${stops} stop${stops === 1 ? '' : 's'} (${rideMins} min)${leg.rideSSource === 'heuristic' ? ' · estimated' : ''}</div>
+          <div class="tp-detail-step-sub">Alight at ${alightClock} — ${esc(leg.alightStop?.name || 'stop')}</div>
+        </div>
+      </div>`;
+  }
+
+  _detailFooterHtml(itinerary) {
+    const mins = Math.round(itinerary.totalDurationS / 60);
+    const clocks = this._legStartClocks(itinerary);
+    const range = `${formatClock(clocks[0])} – ${formatClock(clocks[clocks.length - 1])}`;
+    const tag = itinerary.durationIsEstimate ? '<span class="tp-itin-tag">Estimated</span>' : '';
+    return `
+      <div class="tp-detail-footer-time">
+        <span class="tp-itin-time">${mins} min</span>
+        <span class="tp-leg-sub">${range}</span>
+      </div>
+      ${tag}`;
   }
 }
 
@@ -472,4 +643,8 @@ function esc(s) {
   return String(s == null ? '' : s).replace(/[&<>"']/g, (c) => ({
     '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;',
   })[c]);
+}
+
+function formatClock(ms) {
+  return new Date(ms).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
 }

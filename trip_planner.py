@@ -456,17 +456,23 @@ def _ride_leg(
 
     board_stop = line.stops[board_idx]
     alight_stop = line.stops[alight_idx]
-    min_wait_s = max(0.0, board_time - when)
-    wait_s = _live_wait_with_chain(line, board_stop.id, route_service, live_wait_lookup, min_wait_s)
+    min_wait_s = max(0.0, board_time - when)  # how long it takes to walk/transfer here
+    absolute_wait_s = _live_wait_with_chain(line, board_stop.id, route_service, live_wait_lookup, min_wait_s)
     ride_s, ride_s_source = _estimate_ride_seconds(line, board_idx, alight_idx, board_time, hop_time_fn)
 
-    # wait_s (when known) is seconds-from-`when`, already picked to be >= how long it
-    # takes to walk here -- so boarding happens at when + wait_s, not board_time + wait_s
-    # (adding it on top of board_time would double-count the walk that's already priced
-    # into wait_s having been chosen as catchable in the first place). With no live data,
-    # there's nothing to add on top of the walk -- assume the rider boards as soon as
-    # they arrive, same as before this fix, just renamed for clarity.
-    actual_board_time = when + wait_s if wait_s is not None else board_time
+    # absolute_wait_s is seconds-from-`when` (already picked to be >= min_wait_s, i.e. a
+    # bus the rider can actually catch) -- so boarding happens at when + absolute_wait_s.
+    # But `wait_s` on the leg below is the number actually shown to the rider and summed
+    # into the itinerary's total time, and "seconds since I started planning this trip"
+    # is not what a rider means by "wait" -- they mean how long they stand at the stop
+    # *after* walking there. Subtracting the walk/transfer time they've already spent
+    # gives that real, experienced wait instead of double-counting it.
+    if absolute_wait_s is not None:
+        actual_board_time = when + absolute_wait_s
+        wait_s: Optional[float] = max(0.0, absolute_wait_s - min_wait_s)
+    else:
+        actual_board_time = board_time
+        wait_s = None
     service_ends_ts: Optional[float] = None
     last_ride_warning = False
 

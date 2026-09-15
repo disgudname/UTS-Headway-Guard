@@ -193,7 +193,9 @@ def test_ride_leg_picks_the_first_bus_the_rider_can_actually_catch():
     result = tp._ride_leg(line, 0, 2, board_time, when, service, live_wait_lookup)
     assert result is not None
     leg, _alight_time = result
-    assert leg.wait_s == 360.0
+    # The bus itself is 6 minutes out, but 3 of those minutes are spent walking there --
+    # the rider only actually stands and waits for the remaining 3.
+    assert leg.wait_s == 180.0
 
 
 def test_ride_leg_cat_not_recommended_when_every_live_bus_is_uncatchable():
@@ -247,6 +249,28 @@ def test_find_trips_direct_ride_within_service_window():
     assert itineraries
     kinds = [leg.kind for leg in itineraries[0].legs]
     assert kinds == ["walk", "ride", "walk"]
+
+
+def test_find_trips_total_duration_does_not_double_count_the_walk_to_the_stop():
+    # Regression: the displayed/summed wait must be the time actually spent standing
+    # at the stop, not "seconds from when the search started" (which already has the
+    # walk time baked in) -- otherwise the walk gets counted twice in the total.
+    line = _line("67")
+    service = tp.RouteService(windows={"67": [(_ts(5), _ts(22))]})
+    origin = (-0.0005, 0.0)  # near stop A
+    destination = (0.0025, 0.0)  # near stop C
+    when = _ts(12)
+    walk_to = tp.estimate_walk_leg(origin, (line.stops[0].lat, line.stops[0].lon))
+    # One bus that's already gone by the time the rider gets there, one that's 4
+    # minutes further out and genuinely catchable.
+    live_wait_lookup = {("67", "67-A"): [walk_to.duration_s - 5.0, walk_to.duration_s + 240.0]}
+    itineraries = tp.find_trips(origin, destination, [line], service, live_wait_lookup, when=when)
+    ride = next(leg for it in itineraries for leg in it.legs if leg.kind == "ride")
+    itinerary = next(it for it in itineraries if ride in it.legs)
+    assert abs(ride.wait_s - 240.0) < 0.01  # the real, experienced wait -- not 240 + the walk time
+    walk_legs = [leg for leg in itinerary.legs if leg.kind == "walk"]
+    expected_total = sum(leg.duration_s for leg in walk_legs) + ride.wait_s + ride.ride_s
+    assert abs(itinerary.total_duration_s - expected_total) < 0.01
 
 
 def test_find_trips_offers_only_walk_when_route_already_ended():
