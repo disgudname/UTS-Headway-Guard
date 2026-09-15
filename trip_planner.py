@@ -377,15 +377,32 @@ def _estimate_ride_seconds(
     return total, ("historical" if all_historical else "heuristic")
 
 
+def _first_catchable_wait(times: Optional[List[float]], min_wait_s: float) -> Optional[float]:
+    """`times` is every vehicle currently en route to this stop, as seconds-from-now
+    (TransLoc/CAT report one entry per active vehicle, not just the single soonest --
+    see _uts_live_wait_lookup/_cat_live_wait_lookup in app.py). Only an entry at or
+    after `min_wait_s` (how long from now the rider will actually be standing at the
+    stop) is a bus they can catch; anything sooner will have already left. `times` is
+    sorted ascending, so the first catchable entry is also the soonest one."""
+    if not times:
+        return None
+    for t in times:
+        if t >= min_wait_s:
+            return t
+    return None
+
+
 def _live_wait_with_chain(
     line: Line,
     stop_id: str,
     route_service: Optional[RouteService],
-    live_wait_lookup: Dict[Tuple[str, str], Optional[float]],
+    live_wait_lookup: Dict[Tuple[str, str], List[float]],
+    min_wait_s: float = 0.0,
 ) -> Optional[float]:
-    """Live wait for this line/stop, following the same interline chain that extends
+    """Soonest live wait (seconds from now) for this line/stop that the rider could
+    actually catch given `min_wait_s`, following the same interline chain that extends
     a route's service window forward (RouteService.effective_window) if the line's own
-    id has no entry.
+    id has no catchable entry.
 
     Why this matters: TransLoc's live vehicle feed reports under whichever RouteID is
     CURRENTLY active -- once Gold Line's vehicle relabels from RouteID 67 to 57 at
@@ -396,7 +413,7 @@ def _live_wait_with_chain(
     "unknown" despite the exact same physical vehicle having a perfectly good live ETA
     one hop away in the chain table -- confirmed live: 100% live coverage on every
     currently-active RouteID, yet "wait unknown" showing up constantly regardless."""
-    wait = live_wait_lookup.get((line.id, stop_id))
+    wait = _first_catchable_wait(live_wait_lookup.get((line.id, stop_id)), min_wait_s)
     if wait is not None or route_service is None or line.source != "uts":
         return wait
     seen = {line.id}
@@ -405,7 +422,7 @@ def _live_wait_with_chain(
         nxt = route_service.chain_next[current]
         if nxt in seen:
             break
-        wait = live_wait_lookup.get((nxt, stop_id))
+        wait = _first_catchable_wait(live_wait_lookup.get((nxt, stop_id)), min_wait_s)
         if wait is not None:
             return wait
         seen.add(nxt)
@@ -418,23 +435,38 @@ def _ride_leg(
     board_idx: int,
     alight_idx: int,
     board_time: float,
+    when: float,
     route_service: Optional[RouteService],
-    live_wait_lookup: Dict[Tuple[str, str], Optional[float]],
+    live_wait_lookup: Dict[Tuple[str, str], List[float]],
     hop_time_fn: Optional[HopTimeFn] = None,
 ) -> Optional[Tuple[RideLeg, float]]:
-    """Build one ride leg boarding at `board_time` (epoch seconds), or None if this line
-    can't be ridden from board_idx to alight_idx at all, or isn't in service at that time.
-    Returns (leg, time_rider_actually_alights)."""
+    """Build one ride leg. `board_time` (epoch seconds) is the earliest the rider can
+    physically be standing at this stop -- e.g. `when` plus however long the walk here
+    takes. `when` is the trip search's own reference time, the same epoch the live
+    `Seconds`-from-now values in `live_wait_lookup` are anchored to. Returns None if
+    this line can't be ridden from board_idx to alight_idx at all, or isn't in service
+    at that time. Returns (leg, time_rider_actually_alights).
+
+    live_wait_lookup's wait is picked as the soonest vehicle the rider could actually
+    catch (see _first_catchable_wait) -- not just the single soonest bus system-wide,
+    which may already be gone by the time a rider who has to walk there arrives."""
     hops = _hop_distance(line, board_idx, alight_idx)
     if hops is None or hops == 0:
         return None
 
     board_stop = line.stops[board_idx]
     alight_stop = line.stops[alight_idx]
-    wait_s = _live_wait_with_chain(line, board_stop.id, route_service, live_wait_lookup)
+    min_wait_s = max(0.0, board_time - when)
+    wait_s = _live_wait_with_chain(line, board_stop.id, route_service, live_wait_lookup, min_wait_s)
     ride_s, ride_s_source = _estimate_ride_seconds(line, board_idx, alight_idx, board_time, hop_time_fn)
 
-    actual_board_time = board_time + (wait_s or 0.0)
+    # wait_s (when known) is seconds-from-`when`, already picked to be >= how long it
+    # takes to walk here -- so boarding happens at when + wait_s, not board_time + wait_s
+    # (adding it on top of board_time would double-count the walk that's already priced
+    # into wait_s having been chosen as catchable in the first place). With no live data,
+    # there's nothing to add on top of the walk -- assume the rider boards as soon as
+    # they arrive, same as before this fix, just renamed for clarity.
+    actual_board_time = when + wait_s if wait_s is not None else board_time
     service_ends_ts: Optional[float] = None
     last_ride_warning = False
 
@@ -480,15 +512,19 @@ def find_trips(
     destination: Tuple[float, float],
     lines: List[Line],
     route_service: RouteService,
-    live_wait_lookup: Dict[Tuple[str, str], Optional[float]],
+    live_wait_lookup: Dict[Tuple[str, str], List[float]],
     when: float,
     max_results: int = 4,
     hop_time_fn: Optional[HopTimeFn] = None,
 ) -> List[Itinerary]:
     """Rank up to `max_results` walk -> ride[-> walk -> ride] -> walk itineraries.
 
-    `live_wait_lookup` maps (line_id, stop_id) -> seconds until next arrival, or should
-    simply omit a key when no live ETA is known for that line/stop pair right now.
+    `live_wait_lookup` maps (line_id, stop_id) -> a sorted list of seconds-until-arrival
+    for every vehicle currently en route to that stop (TransLoc/CAT report one entry per
+    active vehicle, not just the single soonest), or should simply omit a key when no
+    live ETA is known for that line/stop pair right now. See _ride_leg/
+    _first_catchable_wait for why the full list matters: a rider who has to walk to the
+    stop may not be able to catch the very soonest bus.
 
     `hop_time_fn`, if given, is consulted for real historical per-segment ride times
     (see trip_planner_history.HopTimeModel.lookup); segments it doesn't know fall back
@@ -539,7 +575,7 @@ def find_trips(
 
         walk_to = estimate_walk_leg(origin, (board_stop.lat, board_stop.lon))
         board_time = when + walk_to.duration_s
-        result = _ride_leg(line, board_idx, alight_idx, board_time, route_service, live_wait_lookup, hop_time_fn)
+        result = _ride_leg(line, board_idx, alight_idx, board_time, when, route_service, live_wait_lookup, hop_time_fn)
         if result is None:
             continue
         ride_leg, alight_time = result
@@ -565,7 +601,7 @@ def find_trips(
             walk_to = estimate_walk_leg(origin, (a_board_stop.lat, a_board_stop.lon))
             board_time = when + walk_to.duration_s
             result_a = _ride_leg(
-                line_a, a_board_idx, a_alight_idx, board_time, route_service, live_wait_lookup, hop_time_fn
+                line_a, a_board_idx, a_alight_idx, board_time, when, route_service, live_wait_lookup, hop_time_fn
             )
             if result_a is None:
                 continue
@@ -582,7 +618,7 @@ def find_trips(
                 board_b_time += transfer_leg.duration_s
 
             result_b = _ride_leg(
-                line_b, b_board_idx, b_alight_idx, board_b_time, route_service, live_wait_lookup, hop_time_fn
+                line_b, b_board_idx, b_alight_idx, board_b_time, when, route_service, live_wait_lookup, hop_time_fn
             )
             if result_b is None:
                 continue

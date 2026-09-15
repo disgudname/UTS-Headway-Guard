@@ -15441,16 +15441,24 @@ async def _fetch_uts_live_arrivals() -> List[Dict[str, Any]]:
     return data if isinstance(data, list) else []
 
 
-async def _uts_live_wait_lookup() -> Dict[Tuple[str, str], float]:
-    """(line_id, stop_id) -> seconds until the next live arrival, for every UTS
-    route-stop with one right now. A single GetStopArrivalTimes call with no stopIDs
-    filter returns arrivals system-wide (confirmed live: 94 route-stop entries in one
-    call) -- cheaper than querying per candidate stop, and avoids duplicating
-    trip_planner's own stop-snapping logic just to know which stops to ask about.
-    UTS Line ids are deliberately left unprefixed (unlike CAT's "cat:" prefix, see
-    _trip_planner_line_from_graph) because they must match RouteService's windows/
-    chain_next keys exactly -- those come straight from TransLoc's own RouteIds via
-    trip_planner.build_route_service(), with no prefix of their own.
+async def _uts_live_wait_lookup() -> Dict[Tuple[str, str], List[float]]:
+    """(line_id, stop_id) -> sorted list of seconds-until-arrival, one per vehicle
+    currently en route to that stop right now (confirmed live: TransLoc's `Times[]`
+    carries one entry per active vehicle on the route, not just the single soonest --
+    e.g. two Green Loop buses gave two separate entries per stop). A single
+    GetStopArrivalTimes call with no stopIDs filter returns arrivals system-wide
+    (confirmed live: 94 route-stop entries in one call) -- cheaper than querying per
+    candidate stop, and avoids duplicating trip_planner's own stop-snapping logic just
+    to know which stops to ask about. UTS Line ids are deliberately left unprefixed
+    (unlike CAT's "cat:" prefix, see _trip_planner_line_from_graph) because they must
+    match RouteService's windows/chain_next keys exactly -- those come straight from
+    TransLoc's own RouteIds via trip_planner.build_route_service(), with no prefix of
+    their own.
+
+    Keeping every vehicle's ETA (not just the min) matters: trip_planner.py picks the
+    soonest one the rider could actually catch given how long it takes them to walk to
+    the stop, not blindly the single soonest bus system-wide -- see
+    trip_planner._first_catchable_wait.
 
     Keyed by RouteStopId, NOT StopId -- confirmed live this was the actual root cause
     of "wait unknown" showing up on essentially every UTS leg. This TransLoc
@@ -15462,7 +15470,7 @@ async def _uts_live_wait_lookup() -> Dict[Tuple[str, str], float]:
     carries both IDs on each entry; this must match the graph's own numbering, not the
     physical one, or the lookup silently misses on every single UTS stop."""
     data = await trip_planner_live_arrivals_cache.get(_fetch_uts_live_arrivals)
-    lookup: Dict[Tuple[str, str], float] = {}
+    lookup: Dict[Tuple[str, str], List[float]] = {}
     for entry in data:
         if not isinstance(entry, dict):
             continue
@@ -15472,27 +15480,32 @@ async def _uts_live_wait_lookup() -> Dict[Tuple[str, str], float]:
         if route_id is None or stop_id is None or not isinstance(times, list):
             continue
         seconds_values = [
-            t.get("Seconds") for t in times if isinstance(t, dict) and isinstance(t.get("Seconds"), (int, float))
+            float(t.get("Seconds"))
+            for t in times
+            if isinstance(t, dict) and isinstance(t.get("Seconds"), (int, float))
         ]
         if not seconds_values:
             continue
-        lookup[(str(route_id), str(stop_id))] = float(min(seconds_values))
+        lookup[(str(route_id), str(stop_id))] = sorted(seconds_values)
     return lookup
 
 
-async def _cat_live_wait_lookup(stop_ids: set) -> Dict[Tuple[str, str], float]:
-    """(line_id, stop_id) -> seconds until the next live CAT arrival, for the given
-    candidate stop IDs only. CAT has no bulk "every stop" ETA endpoint the way
-    TransLoc does (see _uts_live_wait_lookup), so this is scoped to stops a trip might
-    actually board/alight at -- see trip_planner.nearby_stop_ids -- rather than every
-    CAT stop system-wide. line_id carries the "cat:" prefix to match the combined
-    UTS+CAT Line ids find_trips sees."""
+async def _cat_live_wait_lookup(stop_ids: set) -> Dict[Tuple[str, str], List[float]]:
+    """(line_id, stop_id) -> sorted list of seconds-until-arrival, one per vehicle
+    currently en route, for the given candidate stop IDs only. CAT has no bulk "every
+    stop" ETA endpoint the way TransLoc does (see _uts_live_wait_lookup), so this is
+    scoped to stops a trip might actually board/alight at -- see
+    trip_planner.nearby_stop_ids -- rather than every CAT stop system-wide. line_id
+    carries the "cat:" prefix to match the combined UTS+CAT Line ids find_trips sees.
+
+    Keeps every vehicle's ETA (not just the min), same reasoning as
+    _uts_live_wait_lookup -- see trip_planner._first_catchable_wait."""
     if not stop_ids:
         return {}
     results = await asyncio.gather(
         *(_get_cat_stop_etas(sid) for sid in stop_ids), return_exceptions=True
     )
-    lookup: Dict[Tuple[str, str], float] = {}
+    raw_lookup: Dict[Tuple[str, str], List[float]] = {}
     for result in results:
         if isinstance(result, BaseException) or not isinstance(result, list):
             continue
@@ -15510,9 +15523,8 @@ async def _cat_live_wait_lookup(stop_ids: set) -> Dict[Tuple[str, str], float]:
                     continue
                 seconds = max(float(minutes), 0.0) * 60.0
                 key = (f"cat:{pattern_id}", eta_stop_id)
-                if key not in lookup or seconds < lookup[key]:
-                    lookup[key] = seconds
-    return lookup
+                raw_lookup.setdefault(key, []).append(seconds)
+    return {key: sorted(values) for key, values in raw_lookup.items()}
 
 
 def _trip_planner_line_from_graph(entry: Dict[str, Any], *, source: str, loop: bool, id_prefix: str = "") -> trip_planner.Line:
@@ -15610,7 +15622,7 @@ async def trip_planner_plan(
     destination = (to_lat, to_lon)
 
     cat_lines: List[trip_planner.Line] = []
-    cat_wait_lookup: Dict[Tuple[str, str], float] = {}
+    cat_wait_lookup: Dict[Tuple[str, str], List[float]] = {}
     if cat:
         cat_lines_raw = await _cat_lines_for_trip_planner()
         cat_lines = [

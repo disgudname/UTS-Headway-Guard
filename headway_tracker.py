@@ -74,6 +74,13 @@ class StopPoint:
     address_id: Optional[str] = None  # Physical location ID - same address_id = same physical stop
     address_ids: Set[str] = field(default_factory=set)  # All AddressIDs merged into this stop
     stop_name: Optional[str] = None  # Human-readable stop name
+    # Per-route RouteStopID at this physical location. A physical stop shared by multiple
+    # routes gets a different RouteStopID per route from TransLoc -- `stop_id` above is
+    # just whichever one was seen first, used for internal tracking/dedup keys, but is the
+    # wrong ID to hand to a route that isn't the one that "won" it. Recorded events should
+    # use this map (falling back to `stop_id`) so historical per-route stop IDs actually
+    # match what trip_planner.py's per-route graphs use.
+    route_stop_ids: Dict[str, str] = field(default_factory=dict)
 
 
 @dataclass
@@ -250,6 +257,7 @@ class HeadwayTracker:
                     "approach_sets": [],
                     "address_ids": set(),
                     "stop_name": stop_name,  # Use the first non-empty name we see
+                    "route_stop_ids": {},
                 }
                 address_groups.append(group)
                 latlon_index[latlon_key] = group
@@ -267,6 +275,11 @@ class HeadwayTracker:
 
             # Merge route IDs from all stops at this physical location
             group["route_ids"].update(route_ids)
+
+            # Record this route's own RouteStopID at this location -- unlike the group's
+            # single "first stop_id we see", this is precise per route, not lossy.
+            for rid in route_ids:
+                group["route_stop_ids"][rid] = str(stop_id)
 
             # Merge approach sets (avoid duplicates)
             if approach_sets:
@@ -291,6 +304,7 @@ class HeadwayTracker:
                     address_id=address_id_str,
                     address_ids=set(address_ids),
                     stop_name=data.get("stop_name"),
+                    route_stop_ids=dict(data.get("route_stop_ids") or {}),
                 )
             )
 
@@ -758,13 +772,21 @@ class HeadwayTracker:
         stop_point = self.stop_lookup.get(stop_id)
         address_id = stop_point.address_id if stop_point else None
         stop_name = stop_point.stop_name if stop_point else None
+        # `stop_id` here is the merged physical-location ID (used above for lookup/dedup/
+        # headway-calc keys). The ID actually recorded on the event should be this route's
+        # own RouteStopID at that location, not whichever route's ID the merge happened to
+        # keep -- otherwise a shared stop silently corrupts the historical hop-time model's
+        # per-route bucket keys (see trip_planner_history.py).
+        emitted_stop_id = stop_id
+        if stop_point and route_id:
+            emitted_stop_id = stop_point.route_stop_ids.get(route_id, stop_id)
 
         print(f"[headway] arrival: vehicle={vid} stop={stop_id} route={route_id} block={block} type={arrival_type}")
 
         return HeadwayEvent(
             timestamp=timestamp,
             route_id=route_id,
-            stop_id=stop_id,
+            stop_id=emitted_stop_id,
             vehicle_id=vid,
             vehicle_name=snap.vehicle_name,
             event_type="arrival",
@@ -801,13 +823,16 @@ class HeadwayTracker:
         stop_point = self.stop_lookup.get(stop_id)
         address_id = stop_point.address_id if stop_point else None
         stop_name = stop_point.stop_name if stop_point else None
+        emitted_stop_id = stop_id
+        if stop_point and route_id:
+            emitted_stop_id = stop_point.route_stop_ids.get(route_id, stop_id)
 
         print(f"[headway] departure: vehicle={vid} stop={stop_id} dwell={dwell_seconds:.1f}s block={block}" if dwell_seconds else f"[headway] departure: vehicle={vid} stop={stop_id} block={block}")
 
         return HeadwayEvent(
             timestamp=timestamp,
             route_id=route_id,
-            stop_id=stop_id,
+            stop_id=emitted_stop_id,
             vehicle_id=vid,
             vehicle_name=snap.vehicle_name,
             event_type="departure",

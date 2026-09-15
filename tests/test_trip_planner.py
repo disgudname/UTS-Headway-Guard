@@ -145,7 +145,7 @@ def test_ride_leg_excluded_after_route_ends_with_no_chain():
     line = _line("67")
     # Boarding at 5:55pm -- five minutes after this route's own window closed, and
     # nothing chains forward from it.
-    result = tp._ride_leg(line, 0, 2, _ts(17, 55), service, {})
+    result = tp._ride_leg(line, 0, 2, _ts(17, 55), _ts(17, 55), service, {})
     assert result is None
 
 
@@ -157,7 +157,7 @@ def test_ride_leg_rescued_by_interline_chain_near_boundary():
     line = _line("67")
     # Boarding at 5:49pm, one minute before 67's nominal end -- the same physical bus
     # keeps going as 57 afterward, so this must NOT be excluded.
-    result = tp._ride_leg(line, 0, 2, _ts(17, 49), service, {})
+    result = tp._ride_leg(line, 0, 2, _ts(17, 49), _ts(17, 49), service, {})
     assert result is not None
     leg, _alight_time = result
     assert leg.service_ends_ts == _ts(22)
@@ -166,23 +166,48 @@ def test_ride_leg_rescued_by_interline_chain_near_boundary():
 def test_ride_leg_not_scheduled_today_returns_none():
     service = tp.RouteService(windows={})
     line = _line("999")
-    result = tp._ride_leg(line, 0, 2, _ts(12), service, {})
+    result = tp._ride_leg(line, 0, 2, _ts(12), _ts(12), service, {})
     assert result is None
 
 
 def test_ride_leg_cat_requires_live_eta():
     line = _line("cat-7", loop=False, source="cat")
     # No live wait known for this stop -> don't recommend it.
-    assert tp._ride_leg(line, 0, 2, _ts(12), None, {}) is None
+    assert tp._ride_leg(line, 0, 2, _ts(12), _ts(12), None, {}) is None
     # A live wait makes it available.
-    result = tp._ride_leg(line, 0, 2, _ts(12), None, {("cat-7", "cat-7-A"): 300.0})
+    result = tp._ride_leg(line, 0, 2, _ts(12), _ts(12), None, {("cat-7", "cat-7-A"): [300.0]})
     assert result is not None
+
+
+def test_ride_leg_picks_the_first_bus_the_rider_can_actually_catch():
+    # Two vehicles serving the same stop: one arriving in 1 minute (long gone by the
+    # time a rider who has to walk there shows up), one in 6 minutes. Regression for a
+    # real bug: the old code took the single soonest live ETA and added it on top of
+    # the walk time, effectively claiming a rider could catch a bus that would have
+    # already left before they arrived at the stop.
+    service = tp.RouteService(windows={"67": [(_ts(5), _ts(22))]})
+    line = _line("67")
+    when = _ts(12)
+    board_time = when + 180.0  # takes 3 minutes to walk to the stop
+    live_wait_lookup = {("67", "67-A"): [60.0, 360.0]}  # 1 min (uncatchable), 6 min (catchable)
+    result = tp._ride_leg(line, 0, 2, board_time, when, service, live_wait_lookup)
+    assert result is not None
+    leg, _alight_time = result
+    assert leg.wait_s == 360.0
+
+
+def test_ride_leg_cat_not_recommended_when_every_live_bus_is_uncatchable():
+    line = _line("cat-7", loop=False, source="cat")
+    when = _ts(12)
+    board_time = when + 300.0  # takes 5 minutes to walk to the stop
+    live_wait_lookup = {("cat-7", "cat-7-A"): [60.0, 120.0]}  # both gone before rider arrives
+    assert tp._ride_leg(line, 0, 2, board_time, when, None, live_wait_lookup) is None
 
 
 def test_ride_leg_path_includes_every_stop_in_travel_order():
     service = tp.RouteService(windows={"67": [(_ts(5), _ts(22))]})
     line = _line("67")
-    result = tp._ride_leg(line, 0, 2, _ts(12), service, {})
+    result = tp._ride_leg(line, 0, 2, _ts(12), _ts(12), service, {})
     assert result is not None
     leg, _alight_time = result
     assert [s.id for s in leg.path] == ["67-A", "67-B", "67-C"]
@@ -193,7 +218,7 @@ def test_ride_leg_path_wraps_for_a_loop():
     line = _line("67")
     # Board at C (index 2), alight at A (index 0): on a loop this wraps forward
     # through the full stop list rather than going "backward".
-    result = tp._ride_leg(line, 2, 0, _ts(12), service, {})
+    result = tp._ride_leg(line, 2, 0, _ts(12), _ts(12), service, {})
     assert result is not None
     leg, _alight_time = result
     assert [s.id for s in leg.path] == ["67-C", "67-A"]
@@ -362,8 +387,8 @@ def test_live_wait_follows_the_interline_chain_when_the_boarding_line_has_none()
         chain_next={"67": "57"},
     )
     line = _line("67")
-    live_wait_lookup = {("57", "67-A"): 300.0}  # only the relabeled RouteID has a live entry
-    result = tp._ride_leg(line, 0, 2, _ts(17, 49), service, live_wait_lookup)
+    live_wait_lookup = {("57", "67-A"): [300.0]}  # only the relabeled RouteID has a live entry
+    result = tp._ride_leg(line, 0, 2, _ts(17, 49), _ts(17, 49), service, live_wait_lookup)
     assert result is not None
     leg, _alight_time = result
     assert leg.wait_s == 300.0

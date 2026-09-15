@@ -258,6 +258,88 @@ def test_lat_lon_merge_returns_all_address_ids():
     assert tracker.address_lookup["200"] is merged
 
 
+def test_route_specific_stop_id_recorded_at_shared_physical_stop():
+    """A physical stop served by two routes gets two different RouteStopIDs from
+    TransLoc. The merged StopPoint keeps only the first-seen one for internal
+    tracking, but an arrival logged for the *other* route must record that
+    route's own RouteStopID, not the merged group's -- otherwise a stop shared
+    by multiple routes silently corrupts trip_planner_history.py's per-route
+    hop-time buckets."""
+    storage = MemoryHeadwayStorage()
+    tracker = HeadwayTracker(storage=storage)
+
+    approach = {
+        "name": "main",
+        "bubbles": [
+            {"lat": 0.0, "lng": -0.0006, "radius_m": 70.0, "order": 1},
+            {"lat": 0.0, "lng": 0.0, "radius_m": 30.0, "order": 2},
+        ],
+    }
+    stop_r1 = {
+        "StopID": "STOP_R1",
+        "Latitude": 0.0,
+        "Longitude": 0.0,
+        "RouteID": "R1",
+        "ApproachSets": [approach],
+    }
+    stop_r2 = {
+        "StopID": "STOP_R2",
+        "Latitude": 0.0,
+        "Longitude": 0.0,
+        "RouteID": "R2",
+    }
+    tracker.update_stops([stop_r1, stop_r2])
+
+    merged = tracker.stops[0]
+    assert merged.stop_id == "STOP_R1"  # first-seen, used only for internal tracking
+    assert merged.route_stop_ids == {"R1": "STOP_R1", "R2": "STOP_R2"}
+
+    base = datetime(2024, 1, 1, tzinfo=timezone.utc)
+    tracker.process_snapshots(
+        [VehicleSnapshot(vehicle_id="bus", vehicle_name=None, lat=0.0, lon=-0.0006, route_id="R2", timestamp=base)]
+    )
+    tracker.process_snapshots(
+        [
+            VehicleSnapshot(
+                vehicle_id="bus",
+                vehicle_name=None,
+                lat=0.0,
+                lon=0.0,
+                route_id="R2",
+                timestamp=base + timedelta(seconds=20),
+            )
+        ]
+    )
+    tracker.process_snapshots(
+        [
+            VehicleSnapshot(
+                vehicle_id="bus",
+                vehicle_name=None,
+                lat=0.0,
+                lon=0.0,
+                route_id="R2",
+                timestamp=base + timedelta(seconds=40),
+            )
+        ]
+    )
+    tracker.process_snapshots(
+        [
+            VehicleSnapshot(
+                vehicle_id="bus",
+                vehicle_name=None,
+                lat=0.0,
+                lon=0.0005,
+                route_id="R2",
+                timestamp=base + timedelta(seconds=70),
+            )
+        ]
+    )
+
+    arrival = next(e for e in storage.events if e.event_type == "arrival")
+    assert arrival.route_id == "R2"
+    assert arrival.stop_id == "STOP_R2"
+
+
 def test_address_id_survives_build_and_tracker():
     routes = [
         {
