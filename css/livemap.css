@@ -2655,6 +2655,7 @@ body {
   display: inline-block;
   padding: 2px 8px;
   border-radius: var(--radius-sm);
+  border: 1px solid rgba(127, 127, 127, 0.35);
   font: 700 var(--fs-xs)/1.5 inherit;
   margin-right: 2px;
 }
@@ -2713,6 +2714,43 @@ body {
 .tp-detail-step-sub {
   font: 500 var(--fs-xs)/1.4 inherit;
   color: var(--panel-muted);
+}
+
+/* A ride leg reads as three distinct rows -- board stop, the ride itself, alight
+   stop -- not one run-on sentence. Board/alight stop rows match .tp-detail-point's
+   name-left/time-right layout exactly, so every "point" in the trip (origin, board,
+   alight, destination) looks the same; the ride itself sits between them as a
+   visually separate tinted chip, not just another line of muted text. */
+.tp-detail-stop-row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+}
+.tp-detail-stop-name {
+  min-width: 0;
+  font: 700 var(--fs-sm)/1.3 inherit;
+  color: var(--panel-heading);
+}
+.tp-detail-wait-note {
+  font: 500 var(--fs-xs)/1.4 inherit;
+  color: var(--panel-muted);
+}
+.tp-detail-ride-chip {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 4px 0;
+  padding: 6px 10px;
+  border-left: 3px solid transparent;
+  border-radius: var(--radius-sm);
+  background: var(--hover-bg);
+  font: 500 var(--fs-xs)/1.4 inherit;
+  color: var(--panel-muted);
+}
+.tp-detail-ride-chip-text {
+  color: var(--panel-fg);
 }
 
 .tp-detail-footer {

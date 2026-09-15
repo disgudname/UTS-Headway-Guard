@@ -63,6 +63,14 @@ export const onRouteVisibility = (fn) => {
   return off;
 };
 
+/** Same list onRouteVisibility hands its callback, without subscribing --
+ *  for a caller that just needs a one-off snapshot (e.g. trip planning
+ *  remembering which routes were shown before it hides everything, to restore
+ *  exactly that set afterward). */
+export function getRouteVisibility() {
+  return routeList();
+}
+
 /** Is this RouteID currently hidden by the route picker? */
 export function isRouteHidden(routeId) {
   return hidden.has(String(routeId));

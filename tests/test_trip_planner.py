@@ -226,6 +226,110 @@ def test_ride_leg_path_wraps_for_a_loop():
     assert [s.id for s in leg.path] == ["67-C", "67-A"]
 
 
+# --- ride leg rendering: real road-following shape, not straight stop-to-stop lines -
+
+def _build_shape(n=11, step_deg=0.001):
+    """A straight synthetic "shape" (like a decoded EncodedPolyline) of n vertices,
+    step_deg apart along longitude, plus its cumulative arc length in metres -- the
+    same (shape, shape_cum) pair app.py computes from a real route polyline."""
+    shape = [(0.0, i * step_deg) for i in range(n)]
+    cum = [0.0]
+    for i in range(1, n):
+        cum.append(cum[-1] + tp.haversine_m(shape[i - 1][0], shape[i - 1][1], shape[i][0], shape[i][1]))
+    return shape, cum
+
+
+def test_slice_shape_interpolates_endpoints_and_keeps_interior_vertices():
+    shape, cum = _build_shape()
+    start_s = cum[2] + (cum[3] - cum[2]) * 0.5  # halfway between vertex 2 and 3
+    end_s = cum[7] + (cum[8] - cum[7]) * 0.5
+    sliced = tp._slice_shape(shape, cum, start_s, end_s)
+    assert sliced[0] != shape[2]  # interpolated, not snapped to the nearest vertex
+    assert sliced[-1] != shape[8]
+    assert shape[2] not in sliced
+    assert shape[8] not in sliced
+    assert sliced[1:-1] == shape[3:8]  # every vertex strictly inside the range
+
+
+def test_ride_leg_shape_slices_between_board_and_alight():
+    shape, cum = _build_shape()
+    line = tp.Line(
+        id="67", name="Loop", color="#fff", source="uts", loop=True, stops=[],
+        shape=shape, shape_cum=cum,
+    )
+    board = tp.Stop(id="b", name="b", lat=0.0, lon=0.002, source="uts", arc_pos=cum[2])
+    alight = tp.Stop(id="a", name="a", lat=0.0, lon=0.007, source="uts", arc_pos=cum[7])
+    sliced = tp._ride_leg_shape(line, board, alight)
+    assert sliced == shape[2:8]
+
+
+def test_ride_leg_shape_wraps_around_a_loop():
+    # Board near the end of the shape, alight near the start -- the real ride
+    # continues past the shape's end and back through its start, same as a loop
+    # route's stop-index wraparound.
+    shape, cum = _build_shape()
+    line = tp.Line(
+        id="67", name="Loop", color="#fff", source="uts", loop=True, stops=[],
+        shape=shape, shape_cum=cum,
+    )
+    board = tp.Stop(id="b", name="b", lat=0.0, lon=0.009, source="uts", arc_pos=cum[9])
+    alight = tp.Stop(id="a", name="a", lat=0.0, lon=0.001, source="uts", arc_pos=cum[1])
+    sliced = tp._ride_leg_shape(line, board, alight)
+    assert sliced is not None
+    assert sliced[0] == shape[9]
+    assert sliced[-1] == shape[1]
+    assert shape[10] in sliced  # passes through the shape's actual end
+    assert shape[0] in sliced  # ... and back through its start
+
+
+def test_ride_leg_shape_wraparound_refused_on_a_non_loop_line():
+    shape, cum = _build_shape()
+    line = tp.Line(
+        id="cat-7", name="Pattern", color="#fff", source="cat", loop=False, stops=[],
+        shape=shape, shape_cum=cum,
+    )
+    board = tp.Stop(id="b", name="b", lat=0.0, lon=0.009, source="cat", arc_pos=cum[9])
+    alight = tp.Stop(id="a", name="a", lat=0.0, lon=0.001, source="cat", arc_pos=cum[1])
+    assert tp._ride_leg_shape(line, board, alight) is None
+
+
+def test_ride_leg_shape_returns_none_without_shape_or_arc_pos():
+    line_no_shape = tp.Line(id="cat-7", name="X", color="#fff", source="cat", loop=False, stops=[])
+    board = tp.Stop(id="b", name="b", lat=0.0, lon=0.0, source="cat")
+    alight = tp.Stop(id="a", name="a", lat=0.0, lon=0.01, source="cat")
+    assert tp._ride_leg_shape(line_no_shape, board, alight) is None
+
+
+def test_ride_leg_coordinates_prefer_the_real_shape_over_straight_stop_lines():
+    # Regression for the reported "pingponging straight lines between stops" look --
+    # a ride leg's rendered coordinates should follow the route's real road-following
+    # shape (with all its intermediate vertices), not just connect the 3 stops.
+    shape, cum = _build_shape()
+    stops = [
+        tp.Stop(id="67-A", name="A", lat=0.0, lon=0.0, source="uts", arc_pos=cum[0]),
+        tp.Stop(id="67-B", name="B", lat=0.0, lon=0.005, source="uts", arc_pos=cum[5]),
+        tp.Stop(id="67-C", name="C", lat=0.0, lon=0.010, source="uts", arc_pos=cum[10]),
+    ]
+    line = tp.Line(
+        id="67", name="67", color="#ffdd00", source="uts", loop=True, stops=stops,
+        shape=shape, shape_cum=cum,
+    )
+    service = tp.RouteService(windows={"67": [(_ts(5), _ts(22))]})
+    result = tp._ride_leg(line, 0, 2, _ts(12), _ts(12), service, {})
+    assert result is not None
+    leg, _alight_time = result
+    assert leg.coordinates == shape  # every vertex 0..10, not just the 3 stop points
+
+
+def test_ride_leg_coordinates_fall_back_to_stop_points_without_shape_data():
+    line = _line("67")  # no shape/arc_pos set on this fixture
+    service = tp.RouteService(windows={"67": [(_ts(5), _ts(22))]})
+    result = tp._ride_leg(line, 0, 2, _ts(12), _ts(12), service, {})
+    assert result is not None
+    leg, _alight_time = result
+    assert leg.coordinates == [(s.lat, s.lon) for s in leg.path]
+
+
 def test_hop_distance_non_loop_cannot_go_backward():
     line = _line("cat-7", loop=False, source="cat")
     assert tp._hop_distance(line, 2, 0) is None

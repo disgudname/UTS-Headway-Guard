@@ -18,6 +18,7 @@ import {
   TRIP_PLANNER_CASING_LAYER,
   TRIP_PLANNER_RIDE_LAYER,
   TRIP_PLANNER_WALK_LAYER,
+  TRIP_PLANNER_STOP_LAYER,
 } from './layers/trip-planner-style.js';
 
 const bus = emitter();
@@ -191,7 +192,23 @@ function legFeatures(leg) {
   return [
     { type: 'Feature', geometry: { type: 'LineString', coordinates: coords }, properties: { kind: 'ride-casing', ...props } },
     { type: 'Feature', geometry: { type: 'LineString', coordinates: coords }, properties: { kind: 'ride-line', ...props } },
+    ...legStopFeatures(leg, props.color),
   ];
+}
+
+/** Every stop a ride leg passes through -- board, intermediate, alight -- as its
+ *  own point feature, so they're still visible once trip planning hides the
+ *  ambient route/stop layers (see ui/trip-planner-panel.js). Board/alight get
+ *  `variant: 'end'` (drawn larger, see trip-planner-style.js) so a rider can
+ *  still tell "where I get on/off" apart from stops just passed through. */
+function legStopFeatures(leg, color) {
+  if (leg.kind !== 'ride' || !Array.isArray(leg.stops) || !leg.stops.length) return [];
+  const lastIdx = leg.stops.length - 1;
+  return leg.stops.map((s, i) => ({
+    type: 'Feature',
+    geometry: { type: 'Point', coordinates: [s.lon, s.lat] },
+    properties: { kind: 'stop', variant: i === 0 || i === lastIdx ? 'end' : 'mid', color },
+  }));
 }
 
 function drawItinerary(itinerary) {
@@ -204,7 +221,7 @@ function drawItinerary(itinerary) {
   src.setData({ type: 'FeatureCollection', features });
 
   const visible = features.length > 0;
-  for (const id of [TRIP_PLANNER_CASING_LAYER, TRIP_PLANNER_RIDE_LAYER, TRIP_PLANNER_WALK_LAYER]) {
+  for (const id of [TRIP_PLANNER_CASING_LAYER, TRIP_PLANNER_RIDE_LAYER, TRIP_PLANNER_WALK_LAYER, TRIP_PLANNER_STOP_LAYER]) {
     if (map.getLayer(id)) map.setLayoutProperty(id, 'visibility', visible ? 'visible' : 'none');
   }
 }

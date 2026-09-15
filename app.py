@@ -13468,7 +13468,11 @@ _LIVEMAP_VENDOR_DIR = (SCRIPT_DIR / "vendor").resolve()
 
 @app.get("/livemap.css", include_in_schema=False)
 async def livemap_css():
-    return _serve_css_asset("livemap.css")
+    # no-store, not the shared _serve_css_asset helper's no-cache -- see
+    # livemap_page's comment on why livemap specifically wants the stronger
+    # guarantee. Scoped to this one route so testmap/kioskmap/dashmap's CSS
+    # (still served via _serve_css_asset) keep their existing caching behavior.
+    return FileResponse(CSS_DIR / "livemap.css", media_type="text/css", headers={"Cache-Control": "no-store"})
 
 
 @app.get("/vandispatch2.css", include_in_schema=False)
@@ -13560,10 +13564,14 @@ async def livemap_src_asset(path: str):
         raise HTTPException(status_code=404, detail="Not found")
     if target.suffix != ".js" or not target.is_file():
         raise HTTPException(status_code=404, detail="Not found")
+    # no-store (see livemap_page's comment) -- these ES modules are re-fetched by
+    # relative import path on every navigation with no version/hash in the URL,
+    # so a stale cached copy of even one file can silently keep old behavior
+    # running.
     return FileResponse(
         target,
         media_type="application/javascript",
-        headers={"Cache-Control": "no-cache"},
+        headers={"Cache-Control": "no-store"},
     )
 
 
@@ -15105,7 +15113,14 @@ def _livemap_page_response(request: Request, html: str) -> Response:
             provided = qp[name]
             break
     if provided is None:
-        return HTMLResponse(html)
+        # no-store, not just no-cache: livemap ships no build step and no
+        # versioned/hashed asset URLs, so the only thing standing between a
+        # rider's phone and a stale page is the browser (or a carrier/network
+        # proxy) actually honoring a revalidation directive correctly -- some
+        # don't. no-store removes that ambiguity by refusing to let anything
+        # keep a cached copy of the shell at all; /livemap-src and /livemap.css
+        # get the same treatment below for the same reason.
+        return HTMLResponse(html, headers={"Cache-Control": "no-store"})
 
     _refresh_dispatch_passwords()
     secret_info = _normalize_dispatch_password(provided)
@@ -15263,7 +15278,9 @@ def _ordered_route_stops_with_coords(rid, routes_obj: dict, stop_info: dict, sto
         if not info:
             continue
         s_pos = _project_onto_polyline(info["lat"], info["lon"], route_obj.poly, route_obj.cum)
-        projected.append((s_pos, info))
+        # A copy, not a mutation of the shared stop_info dict -- the same physical
+        # stop can be shared across multiple routes, each with its own arc_pos.
+        projected.append((s_pos, {**info, "arc_pos": s_pos}))
     projected.sort(key=lambda x: x[0])
     return [info for _, info in projected]
 
@@ -15364,7 +15381,15 @@ async def _uts_lines_for_trip_planner() -> Tuple[List[Dict[str, Any]], trip_plan
         color = (route_obj.color if route_obj else "888888").lstrip("#")
         stops_out = _ordered_route_stops_with_coords(rid, routes_obj, stop_info, stops_for_route)
         if len(stops_out) >= 2:
-            shape_entry = {"name": disp_name, "color": color, "stops": stops_out}
+            # route_obj is guaranteed non-None here: stops_out only comes back non-empty
+            # when _ordered_route_stops_with_coords successfully projected onto
+            # route_obj.poly. poly/cum ride along with the cached shape (including
+            # into borrowed/historical fallbacks below) so a ride leg's rendered
+            # geometry can follow the real road-following shape, not just its stops.
+            shape_entry = {
+                "name": disp_name, "color": color, "stops": stops_out,
+                "poly": route_obj.poly, "cum": route_obj.cum,
+            }
             state.uts_route_shape_cache[str(rid)] = shape_entry
             state.uts_route_shape_history[str(rid)] = shape_entry
 
@@ -15403,6 +15428,8 @@ async def _uts_lines_for_trip_planner() -> Tuple[List[Dict[str, Any]], trip_plan
             "loop": True,
             "stops": shape["stops"],
             "shapeSource": shape_source,
+            "poly": shape.get("poly"),
+            "cum": shape.get("cum"),
         })
     return lines, service
 
@@ -15587,12 +15614,19 @@ async def _cat_live_wait_lookup(stop_ids: set) -> Dict[Tuple[str, str], List[flo
 
 def _trip_planner_line_from_graph(entry: Dict[str, Any], *, source: str, loop: bool, id_prefix: str = "") -> trip_planner.Line:
     stops = [
-        trip_planner.Stop(id=s["id"], name=s["name"], lat=s["lat"], lon=s["lon"], source=source)
+        trip_planner.Stop(
+            id=s["id"], name=s["name"], lat=s["lat"], lon=s["lon"], source=source,
+            arc_pos=s.get("arc_pos"),
+        )
         for s in entry.get("stops") or []
     ]
+    poly = entry.get("poly")
+    cum = entry.get("cum")
     return trip_planner.Line(
         id=f"{id_prefix}{entry['id']}", name=entry["name"], color=entry.get("color") or "888888",
         source=source, stops=stops, loop=loop,
+        shape=[(lat, lon) for lat, lon in poly] if poly else None,
+        shape_cum=list(cum) if cum else None,
     )
 
 
@@ -15615,7 +15649,17 @@ def _serialize_leg(leg) -> Dict[str, Any]:
             "color": leg.color,
             "boardStop": _stop_out(leg.board_stop),
             "alightStop": _stop_out(leg.alight_stop),
-            "coordinates": [[s.lat, s.lon] for s in leg.path],
+            # The line's real road-following shape sliced to this leg when available
+            # (see trip_planner._ride_leg_shape), else a straight-line fallback
+            # through the stops in `path` -- either way, `stopCount` (not
+            # coordinates.length, which is now a dense polyline, not one point per
+            # stop) is how a caller finds "how many stops does this leg cover."
+            "coordinates": [[lat, lon] for lat, lon in leg.coordinates],
+            "stopCount": max(1, len(leg.path) - 1),
+            # Every stop from board to alight inclusive -- lets the map mark each
+            # one (not just board/alight) once trip planning hides the ambient
+            # stop layer (see ui/trip-planner-panel.js).
+            "stops": [_stop_out(s) for s in leg.path],
             "waitS": leg.wait_s,
             "rideS": leg.ride_s,
             "rideSSource": leg.ride_s_source,

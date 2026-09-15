@@ -12,19 +12,26 @@
 // routes/vehicles tick (core/layers/routes.js's syncSource()), which would wipe
 // an itinerary mid-display.
 //
-// Three layers, bottom to top:
+// Four layers, bottom to top:
 //   ride-casing — white/dark halo under a ride leg, matching route-style.js's look
 //   ride-line   — the route-coloured stroke for a ride leg
 //   walk        — a thin dashed line for a walk leg (line-dasharray can't be a
 //                 data-driven property in MapLibre, so it needs its own layer —
 //                 see basemap-style.js's addVandispatchRouteLayer for the same
 //                 constraint solved the same way)
+//   stop        — every stop a ride leg passes through (board, intermediate,
+//                 alight) -- shown while trip planning hides the ambient stop
+//                 layer (see core/layers/routes.js/stops.js), so a rider isn't
+//                 left with no stop markers at all once the regular routes are
+//                 hidden. 'variant' distinguishes board/alight ("end", drawn
+//                 larger) from stops just passed through ("mid").
 // -----------------------------------------------------------------------------
 
 export const TRIP_PLANNER_SOURCE_ID = 'livemap-trip-planner';
 export const TRIP_PLANNER_CASING_LAYER = 'livemap-trip-planner-casing';
 export const TRIP_PLANNER_RIDE_LAYER = 'livemap-trip-planner-ride';
 export const TRIP_PLANNER_WALK_LAYER = 'livemap-trip-planner-walk';
+export const TRIP_PLANNER_STOP_LAYER = 'livemap-trip-planner-stop';
 
 export const TRIP_PLANNER_SOURCE_DEF = {
   type: 'geojson',
@@ -70,6 +77,24 @@ export function tripPlannerLayerDefs(theme) {
         'line-width': WALK_WIDTH,
         'line-dasharray': [1.6, 1.8],
         'line-opacity': 0.9,
+      },
+    },
+    {
+      id: TRIP_PLANNER_STOP_LAYER,
+      type: 'circle',
+      source: TRIP_PLANNER_SOURCE_ID,
+      filter: ['==', ['get', 'kind'], 'stop'],
+      layout: { visibility: 'none' },
+      paint: {
+        'circle-radius': [
+          'interpolate', ['linear'], ['zoom'],
+          10, ['case', ['==', ['get', 'variant'], 'end'], 4, 2.5],
+          14, ['case', ['==', ['get', 'variant'], 'end'], 6, 3.5],
+          18, ['case', ['==', ['get', 'variant'], 'end'], 10, 6],
+        ],
+        'circle-color': ['coalesce', ['get', 'color'], '#E57200'],
+        'circle-stroke-width': ['case', ['==', ['get', 'variant'], 'end'], 2, 1.2],
+        'circle-stroke-color': casing,
       },
     },
   ];

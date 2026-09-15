@@ -95,6 +95,13 @@ class Stop:
     lat: float
     lon: float
     source: str  # "uts" | "cat"
+    # Arc-length position (metres) along the parent Line's `shape`, if it has one --
+    # i.e. how far along the route's real road-following polyline this stop projects
+    # to. None when the line has no `shape` (e.g. CAT, whose patterns already carry
+    # true stop order with no polyline projection needed -- see
+    # app.py's _cat_lines_for_trip_planner). Used only to slice `shape` for a ride
+    # leg's rendered geometry (see _ride_leg_shape); never affects routing/ranking.
+    arc_pos: Optional[float] = None
 
 
 @dataclass
@@ -109,6 +116,13 @@ class Line:
     source: str  # "uts" | "cat"
     stops: List[Stop]
     loop: bool
+    # The route's real road-following shape (decoded from TransLoc's EncodedPolyline),
+    # and `shape_cum[i]` = cumulative arc length (metres) from shape[0] to shape[i] --
+    # i.e. the same polyline+cumulative-distance pair Stop.arc_pos was projected onto.
+    # None for lines with no such shape available (CAT) -- ride-leg rendering falls
+    # back to straight lines through the stops themselves in that case.
+    shape: Optional[List[Tuple[float, float]]] = None
+    shape_cum: Optional[List[float]] = None
 
 
 def is_non_passenger_group(block_group_id: str, route_name: str) -> bool:
@@ -268,6 +282,11 @@ class RideLeg:
     board_stop: Optional[Stop] = None
     alight_stop: Optional[Stop] = None
     path: List[Stop] = field(default_factory=list)  # every stop from board to alight, in order
+    # Rendered geometry: the line's real road-following shape sliced between board and
+    # alight (see _ride_leg_shape) when available, else a straight-line fallback
+    # through `path`'s stop points. This is what riders see drawn on the map -- never
+    # used for hop-counting/routing, which stays based on `path`/stop indices.
+    coordinates: List[Tuple[float, float]] = field(default_factory=list)
     wait_s: Optional[float] = None  # None = no live ETA available
     ride_s: Optional[float] = None
     ride_s_source: str = "heuristic"  # "historical" if every segment came from real data
@@ -344,8 +363,10 @@ def _segment_stop_pairs(line: Line, board_idx: int, alight_idx: int) -> List[Tup
 
 def _path_stops(line: Line, board_idx: int, alight_idx: int) -> List[Stop]:
     """Every stop from board to alight, inclusive, in travel order (wrapping around
-    for a loop) -- the real geometry a rider actually passes through, for rendering
-    the ride leg on a map instead of a straight line cutting through buildings."""
+    for a loop). Used for hop-counting and as the rendering fallback when the line has
+    no real `shape` to slice (see _ride_leg_shape) -- connecting these points with
+    straight lines can cut through buildings/blocks, so prefer the real shape when
+    it's available."""
     n = len(line.stops)
     path = [line.stops[board_idx]]
     i = board_idx
@@ -353,6 +374,72 @@ def _path_stops(line: Line, board_idx: int, alight_idx: int) -> List[Stop]:
         i = (i + 1) % n
         path.append(line.stops[i])
     return path
+
+
+def _point_on_shape(
+    shape: List[Tuple[float, float]], shape_cum: List[float], arc_s: float
+) -> Tuple[float, float]:
+    """The point on `shape` at arc-length `arc_s` (metres from shape[0]), linearly
+    interpolated between whichever two shape vertices bracket it. Clamped to the
+    shape's actual extent, so an out-of-range arc_s (float rounding at either end)
+    degrades to that end point rather than extrapolating nonsense."""
+    arc_s = max(0.0, min(shape_cum[-1], arc_s))
+    for i in range(len(shape) - 1):
+        if shape_cum[i] <= arc_s <= shape_cum[i + 1]:
+            seg = shape_cum[i + 1] - shape_cum[i]
+            t = 0.0 if seg <= 0 else (arc_s - shape_cum[i]) / seg
+            lat = shape[i][0] + t * (shape[i + 1][0] - shape[i][0])
+            lon = shape[i][1] + t * (shape[i + 1][1] - shape[i][1])
+            return (lat, lon)
+    return shape[-1]
+
+
+def _slice_shape(
+    shape: List[Tuple[float, float]], shape_cum: List[float], start_s: float, end_s: float
+) -> List[Tuple[float, float]]:
+    """The portion of `shape` between two arc-length positions (metres), including
+    interpolated points at both ends -- NOT just the nearest shape vertices, so the
+    slice starts/ends exactly at the stop rather than snapping to wherever the
+    original polyline happened to have a vertex. Assumes start_s <= end_s; loop
+    wraparound is the caller's job (see _ride_leg_shape)."""
+    points = [_point_on_shape(shape, shape_cum, start_s)]
+    for i, s in enumerate(shape_cum):
+        if start_s < s < end_s:
+            points.append(shape[i])
+    points.append(_point_on_shape(shape, shape_cum, end_s))
+    return points
+
+
+def _ride_leg_shape(line: Line, board_stop: Stop, alight_stop: Stop) -> Optional[List[Tuple[float, float]]]:
+    """The line's real road-following shape, sliced to just the portion between
+    board_stop and alight_stop -- what actually gets drawn on the map for a ride leg,
+    rather than a straight line connecting each stop's point (which cuts through
+    buildings/blocks whenever consecutive stops aren't on a straight street).
+
+    Returns None when the line has no shape data (e.g. CAT) or either stop never got
+    projected onto one (arc_pos is None) -- callers fall back to _path_stops's
+    straight-line-through-stops rendering in that case, same as before this existed."""
+    if not line.shape or not line.shape_cum or len(line.shape) < 2:
+        return None
+    if board_stop.arc_pos is None or alight_stop.arc_pos is None:
+        return None
+    start_s, end_s = board_stop.arc_pos, alight_stop.arc_pos
+    if end_s >= start_s:
+        return _slice_shape(line.shape, line.shape_cum, start_s, end_s)
+    if not line.loop:
+        # A non-loop line can't wrap -- alight "behind" board on the shape means
+        # something upstream is inconsistent; let the caller's straight-line fallback
+        # handle it rather than fabricating a backwards or nonsensical slice.
+        return None
+    # Loop wraparound: ride continues past the shape's end, back through its start.
+    # Simple concatenation, no de-duplication at the seam -- a loop's polyline isn't
+    # guaranteed to close exactly (shape[-1] == shape[0]), so trimming a point there
+    # on the assumption it's a duplicate can silently cut a real stretch of road. A
+    # loop that does close exactly just gets one harmless zero-length segment instead.
+    total = line.shape_cum[-1]
+    first = _slice_shape(line.shape, line.shape_cum, start_s, total)
+    second = _slice_shape(line.shape, line.shape_cum, 0.0, end_s)
+    return first + second
 
 
 def _estimate_ride_seconds(
@@ -497,13 +584,16 @@ def _ride_leg(
         if wait_s is None:
             return None
 
+    path = _path_stops(line, board_idx, alight_idx)
+    coordinates = _ride_leg_shape(line, board_stop, alight_stop) or [(s.lat, s.lon) for s in path]
     leg = RideLeg(
         line_id=line.id,
         line_name=line.name,
         color=line.color,
         board_stop=board_stop,
         alight_stop=alight_stop,
-        path=_path_stops(line, board_idx, alight_idx),
+        path=path,
+        coordinates=coordinates,
         wait_s=wait_s,
         ride_s=ride_s,
         ride_s_source=ride_s_source,

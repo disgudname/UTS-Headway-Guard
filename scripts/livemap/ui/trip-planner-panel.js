@@ -16,6 +16,7 @@ import { API_BASE } from '../core/config.js';
 import { getMap } from '../core/map.js';
 import { debounce, parseColor, luminance } from '../core/util.js';
 import { onCatEnabled } from '../core/data/cat.js';
+import { getRouteVisibility, setRouteHidden } from '../core/layers/routes.js';
 import * as TripPlanner from '../core/trip-planner.js';
 
 const MIN_CHARS = 2;
@@ -100,6 +101,7 @@ export class TripPlannerPanel {
     this._pickMode = null; // 'origin' | 'destination' | null
     this._when = null; // Date | null ("now")
     this._view = 'list'; // 'list' | 'detail' -- which content _results/_detailFooter show
+    this._routesHiddenForPlanning = null; // route IDs hidden while planning, to restore
     this._itineraries = [];
 
     this._fields = {};
@@ -176,6 +178,7 @@ export class TripPlannerPanel {
   }
 
   unmount() {
+    this._setRoutesHiddenForPlanning(false); // don't leave routes hidden behind us
     this._unsubOrigin?.();
     this._unsubDestination?.();
     this._unsubStatus?.();
@@ -191,6 +194,29 @@ export class TripPlannerPanel {
     this._toggle.setAttribute('aria-expanded', String(open));
     this._card.hidden = !open;
     this._toggle.hidden = open;
+    this._setRoutesHiddenForPlanning(open);
+  }
+
+  /** While trip planning is open, hide every ambient route (and, as a side
+   *  effect, the ambient stop layer -- see core/layers/stops.js, a stop is
+   *  dropped once every route serving it is hidden) so the only thing on the
+   *  map is the itinerary being planned -- core/trip-planner.js draws that
+   *  itinerary's own route + stops on its own dedicated layer regardless of
+   *  this. Remembers exactly which routes were shown so closing restores that
+   *  same set (including an idle route the rider had pinned on), rather than
+   *  just reverting to "show everything." */
+  _setRoutesHiddenForPlanning(hide) {
+    if (hide) {
+      if (this._routesHiddenForPlanning) return; // already applied
+      this._routesHiddenForPlanning = getRouteVisibility()
+        .filter((r) => r.shown)
+        .map((r) => r.id);
+      for (const id of this._routesHiddenForPlanning) setRouteHidden(id, true);
+    } else {
+      if (!this._routesHiddenForPlanning) return;
+      for (const id of this._routesHiddenForPlanning) setRouteHidden(id, false);
+      this._routesHiddenForPlanning = null;
+    }
   }
 
   _wireField(field) {
@@ -587,26 +613,42 @@ export class TripPlannerPanel {
     }
     const color = normalizeColor(leg.color);
     const textColor = readableTextColor(color);
-    const stops = Math.max(1, (leg.coordinates?.length || 2) - 1);
+    // stopCount, not coordinates.length -- coordinates is now the line's real
+    // road-following shape (dense polyline vertices), not one point per stop.
+    const stops = leg.stopCount || 1;
     const rideMins = Math.round((leg.rideS || 0) / 60);
-    const waitLabel =
-      leg.waitS != null ? `${Math.max(0, Math.round(leg.waitS / 60))} min wait, then ` : '';
+    const waitNote =
+      leg.waitS != null
+        ? `<div class="tp-detail-wait-note">${Math.max(0, Math.round(leg.waitS / 60))} min wait</div>`
+        : '<div class="tp-detail-wait-note tp-leg-sub--muted">wait unknown</div>';
     const warn = leg.lastRideWarning
       ? `<span class="tp-itin-tag tp-itin-tag--warn">${ICONS.warn}Last bus soon</span>`
       : '';
     const boardClock = formatClock(startMs + (leg.waitS || 0) * 1000);
     const alightClock = formatClock(startMs + ((leg.waitS || 0) + (leg.rideS || 0)) * 1000);
+    // Board stop, the ride itself, and the alight stop are three visually distinct
+    // rows -- not one run-on sentence -- so the rider can scan "where do I stand" /
+    // "what am I riding" / "where do I get off" at a glance, matching how Maps lays
+    // this out (bold stop-name rows with the time flush right, the ride itself as its
+    // own connecting chip in between).
     return `
       <div class="tp-detail-step tp-detail-step--ride">
         <span class="tp-leg-dot" style="background:${color}"></span>
         <div class="tp-detail-step-body">
-          <div class="tp-detail-step-main">
+          <div class="tp-detail-stop-row">
+            <span class="tp-detail-stop-name">${esc(leg.boardStop?.name || 'stop')}</span>
+            <span class="tp-detail-clock">${boardClock}</span>
+          </div>
+          ${waitNote}
+          <div class="tp-detail-ride-chip" style="border-left-color:${color}">
             <span class="tp-route-badge" style="background:${color};color:${textColor}">${esc(leg.lineName || leg.lineId)}</span>
+            <span class="tp-detail-ride-chip-text">${stops} stop${stops === 1 ? '' : 's'} · ${rideMins} min${leg.rideSSource === 'heuristic' ? ' · estimated' : ''}</span>
             ${warn}
           </div>
-          <div class="tp-detail-step-sub">${waitLabel}board at ${boardClock} — ${esc(leg.boardStop?.name || 'stop')}</div>
-          <div class="tp-detail-step-sub">Ride ${stops} stop${stops === 1 ? '' : 's'} (${rideMins} min)${leg.rideSSource === 'heuristic' ? ' · estimated' : ''}</div>
-          <div class="tp-detail-step-sub">Alight at ${alightClock} — ${esc(leg.alightStop?.name || 'stop')}</div>
+          <div class="tp-detail-stop-row">
+            <span class="tp-detail-stop-name">${esc(leg.alightStop?.name || 'stop')}</span>
+            <span class="tp-detail-clock">${alightClock}</span>
+          </div>
         </div>
       </div>`;
   }
