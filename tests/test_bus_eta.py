@@ -18,10 +18,10 @@ def _shape(n=13, step_m=100.0):
     return shape, cum
 
 
-def _line(stop_positions_m, route_id="67"):
+def _line(stop_positions_m, route_id="67", n=13, step_m=100.0):
     """stop_positions_m: list of arc-length positions (metres) for each stop, in
     travel order -- e.g. [0, 300, 900, 1200] for 4 stops along the shape."""
-    shape, cum = _shape(n=13, step_m=100.0)
+    shape, cum = _shape(n=n, step_m=step_m)
     stops = [
         Stop(id=f"s{i}", name=f"s{i}", lat=0.0, lon=pos / 111_320.0, source="uts", arc_pos=pos)
         for i, pos in enumerate(stop_positions_m)
@@ -217,12 +217,13 @@ def test_arriving_radius_overrides_arc_length_on_a_self_overlapping_route():
     # next to is almost a full loop away. Confirmed live: a vehicle ~129m from a
     # stop by real coordinates had an arc_pos placing it ~178m PAST that same
     # stop, giving an 8000+ second estimate for something already arriving.
-    line = _line([0, 5000])  # target stop is arc-length "on the other side" of the loop
+    line = _line([0, 6000], n=101, step_m=100.0)  # 10km loop, target 60% of it away by arc-length
     target = line.stops[1]
-    # Vehicle is geographically RIGHT NEXT TO the target stop (50m away) despite
-    # its arc-length position (s_pos=0) being nowhere near the stop's arc_pos
-    # (5000m, half the route away).
-    vehicle_lat, vehicle_lon = target.lat, target.lon + (50.0 / 111_320.0)
+    # Vehicle is geographically RIGHT NEXT TO the target stop (50m away, just
+    # short of it -- i.e. still approaching) despite its arc-length position
+    # (s_pos=0) being nowhere near the stop's arc_pos (6000m, well over half
+    # the route away).
+    vehicle_lat, vehicle_lon = target.lat, target.lon - (50.0 / 111_320.0)
     assert haversine_m(vehicle_lat, vehicle_lon, target.lat, target.lon) < eta.ARRIVING_RADIUS_M
     result = eta.estimate_stop_eta_s(
         line, 0.0, 5.0, target, hop_time_fn=lambda *a: None, when=0.0,
@@ -231,6 +232,147 @@ def test_arriving_radius_overrides_arc_length_on_a_self_overlapping_route():
     assert result is not None
     assert result.seconds == 0.0
     assert result.source == "live"
+
+
+def test_arriving_radius_does_not_misfire_on_an_already_passed_nearby_stop():
+    # Regression for a real bug found live on Green Line: Stadium Rd @ Runk
+    # Dining Hall and Hereford Dr @ Runk Dining Hall are only ~144m apart in
+    # real coordinates despite being consecutive (not overlapping) stops -- so
+    # a vehicle sitting at Hereford, having JUST LEFT Stadium, showed "Due" for
+    # Stadium too.
+    #
+    # Real stops like this sit on a DIFFERENT street, not simply N metres
+    # behind on the same road -- Stadium Rd vs Hereford Dr, at some real angle
+    # to each other -- so the target's real coordinates here get a
+    # perpendicular offset too, not just a same-axis "behind" gap. (A purely
+    # colinear "behind" test is a stricter, degenerate case where ANY vertex
+    # only slightly ahead of the vehicle can still land within
+    # ARRIVING_RADIUS_M of a same-axis target close behind -- that's just
+    # geometry, not a bug in the forward-only walk itself; see
+    # test_forward_sweep_does_not_fire_on_a_stop_directly_behind_the_vehicle
+    # for that narrower claim, with a target far enough behind to sidestep it.)
+    deg_per_m_lon = 1.0 / 111_320.0
+    deg_per_m_lat = 1.0 / 110_540.0
+    line = _line([0, 300, 6000], n=101, step_m=100.0)
+    target = line.stops[1]  # arc_pos=300 unaffected -- only its real coordinates change below
+    target.lat = 100.0 * deg_per_m_lat
+    target.lon = 250.0 * deg_per_m_lon
+    vehicle_lat, vehicle_lon = 0.0, 350.0 * deg_per_m_lon
+    assert haversine_m(vehicle_lat, vehicle_lon, target.lat, target.lon) <= eta.ARRIVING_RADIUS_M
+    result = eta.estimate_stop_eta_s(
+        line, 400.0, 5.0, target, hop_time_fn=lambda *a: 60.0, when=0.0,
+        vehicle_lat=vehicle_lat, vehicle_lon=vehicle_lon,
+    )
+    assert result is not None
+    assert result.seconds > 0.0
+    assert result.source != "live"
+
+
+def test_arriving_radius_does_not_misfire_on_a_moderate_forward_stop():
+    # Regression for a real bug found live on Green Line: Hereford Dr @
+    # Johnson House sits ~117m from Hereford Dr @ Runk Dining Hall in real
+    # coordinates, but ~920m of genuine forward travel away (the first stop of
+    # the next lap) -- well beyond FORWARD_SWEEP_M, so the override must not
+    # fire even though the stop is well within ARRIVING_RADIUS_M. Perpendicular
+    # offset for the same reason as the already-passed test above.
+    deg_per_m_lon = 1.0 / 111_320.0
+    deg_per_m_lat = 1.0 / 110_540.0
+    line = _line([0, 900, 6000], n=101, step_m=100.0)
+    target = line.stops[0]  # arc_pos=0
+    target.lat = 100.0 * deg_per_m_lat
+    vehicle_lat, vehicle_lon = 0.0, 100.0 * deg_per_m_lon
+    assert haversine_m(vehicle_lat, vehicle_lon, target.lat, target.lon) < eta.ARRIVING_RADIUS_M
+    result = eta.estimate_stop_eta_s(
+        line, 9000.0, 5.0, target, hop_time_fn=lambda *a: 60.0, when=0.0,
+        vehicle_lat=vehicle_lat, vehicle_lon=vehicle_lon,
+    )
+    assert result is not None
+    # 1000m of genuine forward travel at 5 m/s -- not the arriving-radius
+    # override's instant "0.0s" (a real, non-trivial live projection to the
+    # actual next stop is the correct answer here, not "Due").
+    assert result.seconds > 100.0
+
+
+def _curving_line():
+    """A->B heads due east; B->C turns sharply north; C->D heads back west,
+    ending up physically close to (but arc-length far past) where the route
+    started -- models a hairpin/self-overlap without reusing the straight-line
+    _line() helper. Used to prove the arriving-radius check follows the REAL
+    road shape instead of a straight-line bearing (see the module comment on
+    why an earlier, heading-based version of this check was rejected: a bus
+    can be pointed due east *right now* while the road it's on curves back
+    within a couple hundred metres to a stop that, by straight-line bearing
+    alone, looks like it's behind or off to the side)."""
+    deg_per_m = 1.0 / 111_320.0
+    shape = [
+        (0.0, 0.0),                     # A
+        (0.0, 100 * deg_per_m),         # B -- A->B heads ~due east
+        (0.0015, 100 * deg_per_m),      # C -- B->C turns sharply north
+        (0.0015, -20 * deg_per_m),      # D -- C->D heads back west
+    ]
+    cum = [0.0]
+    for i in range(1, len(shape)):
+        cum.append(cum[-1] + haversine_m(*shape[i - 1], *shape[i]))
+    return Line(id="curve", name="Curve", color="#fff", source="uts", stops=[], loop=True, shape=shape, shape_cum=cum), shape, cum
+
+
+def test_forward_sweep_follows_a_curving_road_not_a_straight_line_bearing():
+    line, shape, cum = _curving_line()
+    # Vehicle is 30m into segment A->B, heading due east (bearing ~90). D sits
+    # physically close to the road just past the curve, but a straight-line
+    # bearing from the vehicle to D points roughly north-west/behind --
+    # heading_diff against a ~90 degree heading would be well over 90 degrees,
+    # which an earlier, heading-based version of this check would have
+    # rejected. The forward sweep, which walks the actual A->B->C->D shape
+    # starting from the vehicle's real coordinates, must still find it.
+    vehicle_lat, vehicle_lon = 0.0, 30.0 / 111_320.0
+    target_lat, target_lon = shape[3]  # D
+    assert cum[3] - 30.0 < eta.FORWARD_SWEEP_M  # sanity: reachable within the sweep horizon
+    assert eta._forward_sweep_passes_near(line, vehicle_lat, vehicle_lon, target_lat, target_lon)
+
+
+def test_forward_sweep_has_a_bounded_horizon():
+    # Same curving shape, but padded further out past FORWARD_SWEEP_M of real
+    # road travel -- the sweep must not "find" a stop that's genuinely too far
+    # ahead, even along a real, followable path.
+    deg_per_m = 1.0 / 111_320.0
+    line, shape, cum = _curving_line()
+    far_lat, far_lon = 0.0015, -3000 * deg_per_m  # far past D, well beyond the sweep horizon
+    shape = shape + [(far_lat, far_lon)]
+    cum = cum + [cum[-1] + haversine_m(shape[-2][0], shape[-2][1], far_lat, far_lon)]
+    line = Line(id="curve", name="Curve", color="#fff", source="uts", stops=[], loop=True, shape=shape, shape_cum=cum)
+    vehicle_lat, vehicle_lon = 0.0, 30.0 / 111_320.0
+    assert cum[-1] - 30.0 > eta.FORWARD_SWEEP_M  # sanity: genuinely out of reach
+    assert not eta._forward_sweep_passes_near(line, vehicle_lat, vehicle_lon, far_lat, far_lon)
+
+
+def test_forward_sweep_does_not_fire_on_a_stop_directly_behind_the_vehicle():
+    # Regression for a real bug caught by this very test suite: an earlier
+    # version of the sweep checked the vehicle's OWN starting point against
+    # the target before walking forward at all -- but that check doesn't
+    # know about direction, so on a plain straight road it "confirmed" a stop
+    # sitting directly BEHIND the vehicle just as readily as one ahead. Only
+    # points strictly ahead (walked forward one real vertex at a time) may
+    # ever match.
+    #
+    # The gap here (300m) deliberately exceeds ARRIVING_RADIUS_M: on a plain
+    # colinear road, a target CLOSER behind than ARRIVING_RADIUS_M is a
+    # genuinely ambiguous case for ANY radius-based check, not a bug in this
+    # one specifically -- the first vertex checked can sit arbitrarily close
+    # to the vehicle's own true position (a vehicle mid-segment can be a
+    # hair's width from the next vertex), so a same-axis target within that
+    # radius of the vehicle's OWN position will always be within radius of
+    # that first vertex too, "ahead" or not. That's just geometry on a single
+    # straight line; real close-behind stops (see the already-passed test
+    # below) sit on a genuinely different street at a real angle, which this
+    # unambiguously-far-behind case doesn't need to model.
+    deg_per_m = 1.0 / 111_320.0
+    shape = [(0.0, i * 100 * deg_per_m) for i in range(51)]
+    cum = [i * 100.0 for i in range(51)]
+    line = Line(id="straight", name="Straight", color="#fff", source="uts", stops=[], loop=True, shape=shape, shape_cum=cum)
+    vehicle_lat, vehicle_lon = 0.0, 350.0 * deg_per_m
+    target_lat, target_lon = 0.0, 50.0 * deg_per_m
+    assert not eta._forward_sweep_passes_near(line, vehicle_lat, vehicle_lon, target_lat, target_lon)
 
 
 def test_arriving_radius_does_not_misfire_on_a_genuinely_distant_stop():

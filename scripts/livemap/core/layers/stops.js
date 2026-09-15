@@ -90,6 +90,22 @@ export function setStopsVisible(v) {
   applyStopVisibility();
 }
 
+/** Fly to a physical stop (by its `key`, from getStops()) and open its popup --
+ *  the search box's "pick a stop" result uses this, mirroring how picking a
+ *  building highlights it and picking a vehicle flies + follows. Ensures the
+ *  stop layer is actually showing first, so a search pick isn't invisible
+ *  under a hidden route filter. */
+export function focusStop(key) {
+  const stop = stops.find((s) => s.key === key);
+  if (!stop) return;
+  if (!stopsShown) setStopsVisible(true);
+  const map = getMap();
+  if (!map) return;
+  const zoom = Math.max(map.getZoom(), 16.5);
+  map.flyTo({ center: [stop.lng, stop.lat], zoom, duration: 850 });
+  map.once('moveend', () => openPopup(stop.key));
+}
+
 function applyStopVisibility() {
   const map = getMap();
   if (!map) return;

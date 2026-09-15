@@ -91,6 +91,16 @@ export function getDestination() {
   return destination;
 }
 
+/** Hide/show a field's own marker without clearing its point -- used while the
+ *  panel's drag-to-adjust mode is active, so the real pin (which stays fixed
+ *  at its old geographic coordinate) doesn't visually fight the on-screen
+ *  centered pin that represents the CANDIDATE coordinate as the map is
+ *  dragged underneath it. */
+export function setMarkerVisible(field, visible) {
+  const marker = field === 'origin' ? originMarker : destMarker;
+  marker?.getElement()?.style.setProperty('visibility', visible ? '' : 'hidden');
+}
+
 /** Drop both pins, the drawn route, and any results. Leaves the panel itself alone. */
 export function clearAll() {
   setOrigin(null);

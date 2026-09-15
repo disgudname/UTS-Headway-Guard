@@ -1,16 +1,21 @@
 // livemap/ui/search.js
 // -----------------------------------------------------------------------------
-// Search (top-centre). One box over two indexes:
+// Search (top-centre). One box over three indexes:
 //
 //   * Vehicles — every bus / CAT bus / van currently on the map, matched
 //     client-side on its number (and, for a dispatcher, its block). Picking one
 //     flies to it and locks the follow camera (same as the follow chip).
+//   * Bus stops — every physical UTS stop, matched client-side by name off the
+//     same live stop index stops.js renders (core/data/transloc.js's
+//     getStops()) -- no extra fetch, it's already loaded for the map itself.
+//     Picking one flies to it and opens its arrivals popup.
 //   * Buildings — UVA building footprints via `/v1/uva/facility_search` (a proxy
 //     of UVA Facilities' public search, the same service the Visitor Map uses).
 //     Picking one flies to it and highlights the footprint.
 //
-// Vehicle matches are shown first (they're the live, operational thing); results
-// are grouped under "Vehicles" / "Buildings" headers when both are present.
+// Vehicles and stops resolve instantly (client-side indexes); buildings need a
+// network round trip and fold in once that lands. Results are grouped under
+// "Vehicles" / "Bus stops" / "Buildings" headers when more than one is present.
 // -----------------------------------------------------------------------------
 
 import { API_BASE } from '../core/config.js';
@@ -18,10 +23,14 @@ import { getMap } from '../core/map.js';
 import { debounce } from '../core/util.js';
 import { highlightBuilding, clearBuildingHighlight } from '../core/layers/building-highlight.js';
 import { listVehicles, followVehicle, stopFollow, unitDisplayName, onFollowChange } from '../core/layers/vehicles.js';
+import { getStops as getUtsStops, getRouteName } from '../core/data/transloc.js';
+import { focusStop } from '../core/layers/stops.js';
 
 const MIN_CHARS = 2;
 const DEBOUNCE_MS = 220;
 const MAX_VEHICLES = 8;
+const MAX_STOPS = 8;
+const GROUP_LABELS = { vehicle: 'Vehicles', stop: 'Bus stops', building: 'Buildings' };
 
 export class SearchBox {
   /** @param {HTMLElement} [parent] where to append the box (default document.body).
@@ -94,13 +103,15 @@ export class SearchBox {
     }
     const seq = ++this._reqSeq;
 
-    // Vehicles resolve instantly off the in-memory index — show them right away,
-    // then fold the building results in when the fetch lands. Until it does we're
-    // still "Searching…" — never say "No matches" while the building lookup is in
-    // flight, or a building-only query flashes a wrong empty state first.
+    // Vehicles and stops resolve instantly off in-memory indexes — show them
+    // right away, then fold the building results in when the fetch lands.
+    // Until it does we're still "Searching…" — never say "No matches" while
+    // the building lookup is in flight, or a building-only query flashes a
+    // wrong empty state first.
     const vehicles = matchVehicles(q);
+    const stops = matchStops(q);
     this._loading = true;
-    this._render(vehicles);
+    this._render([...vehicles, ...stops]);
 
     this._el.classList.add('is-loading');
     try {
@@ -118,11 +129,11 @@ export class SearchBox {
         bbox: b.bbox,
       }));
       this._loading = false;
-      this._render([...vehicles, ...buildings]);
+      this._render([...vehicles, ...stops, ...buildings]);
     } catch {
       if (seq === this._reqSeq) {
         this._loading = false;
-        this._render(vehicles);
+        this._render([...vehicles, ...stops]);
       }
     } finally {
       if (seq === this._reqSeq) this._el.classList.remove('is-loading');
@@ -159,7 +170,7 @@ export class SearchBox {
     let prevKind = null;
     items.forEach((it, i) => {
       if (it.kind !== prevKind) {
-        html += `<div class="lsb-head">${it.kind === 'vehicle' ? 'Vehicles' : 'Buildings'}</div>`;
+        html += `<div class="lsb-head">${GROUP_LABELS[it.kind] || 'Buildings'}</div>`;
         prevKind = it.kind;
       }
       html += rowHtml(it, i);
@@ -228,6 +239,7 @@ export class SearchBox {
       stopFollow();
     }
     if (it.kind === 'vehicle') this._pickVehicle(it);
+    else if (it.kind === 'stop') this._pickStop(it);
     else this._pickBuilding(it);
   }
 
@@ -244,6 +256,11 @@ export class SearchBox {
     // Lock the follow camera once the fly-to settles (following snaps the centre
     // every frame, which would otherwise fight the animation).
     map.once('moveend', () => followVehicle(v.id));
+  }
+
+  _pickStop(s) {
+    clearBuildingHighlight();
+    focusStop(s.key);
   }
 
   _pickBuilding(b) {
@@ -360,6 +377,35 @@ function matchVehicles(q) {
     color: v.routeColor,
     name: unitDisplayName(v.agency, v.label),
     meta: [v.block, v.routeName].filter(Boolean).join(' · '),
+  }));
+}
+
+/** Match the live UTS stop index (same data stops.js renders) against a query;
+ *  best matches first, capped. CAT stops aren't included -- there's no
+ *  equivalent live client-side index for them yet (see core/data/cat.js). */
+function matchStops(q) {
+  const ql = q.toLowerCase();
+  const scored = [];
+  for (const s of getUtsStops()) {
+    if (!Number.isFinite(s.lng) || !Number.isFinite(s.lat)) continue;
+    const name = String(s.name || '').toLowerCase();
+    let score = -1;
+    if (name === ql) score = 0;
+    else if (name.startsWith(ql)) score = 1;
+    else if (name.includes(ql)) score = 2;
+    if (score < 0) continue;
+    scored.push({ s, score });
+  }
+  scored.sort(
+    (a, b) => a.score - b.score || String(a.s.name).localeCompare(String(b.s.name), undefined, { numeric: true }),
+  );
+  return scored.slice(0, MAX_STOPS).map(({ s }) => ({
+    kind: 'stop',
+    key: s.key,
+    lng: s.lng,
+    lat: s.lat,
+    name: s.name,
+    meta: s.routeIds.map((rid) => getRouteName(rid)).filter(Boolean).join(', '),
   }));
 }
 

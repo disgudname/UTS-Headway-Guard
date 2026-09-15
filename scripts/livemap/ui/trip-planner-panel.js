@@ -16,12 +16,14 @@ import { API_BASE } from '../core/config.js';
 import { getMap } from '../core/map.js';
 import { debounce, parseColor, luminance } from '../core/util.js';
 import { onCatEnabled } from '../core/data/cat.js';
+import { getStops as getUtsStops, getRouteName } from '../core/data/transloc.js';
 import { getRouteVisibility, setRouteHidden } from '../core/layers/routes.js';
 import * as TripPlanner from '../core/trip-planner.js';
 
 const MIN_CHARS = 2;
 const DEBOUNCE_MS = 220;
 const NEGLIGIBLE_WALK_M = 20;
+const MAX_FIELD_STOPS = 6;
 
 // Small inline icon set (stroke-based, currentColor) -- kept as raw markup rather than
 // CSS ::before content so they scale/recolor cleanly and don't need a font/sprite sheet.
@@ -67,16 +69,16 @@ export class TripPlannerPanel {
       <div class="tp-fields">
         <div class="tp-field" data-field="origin">
           <span class="tp-field-badge tp-field-badge--origin">A</span>
-          <input type="text" placeholder="Origin — building or address" autocomplete="off" spellcheck="false" />
+          <input type="text" placeholder="Origin — building, stop, or address" autocomplete="off" spellcheck="false" />
           <button type="button" class="tp-field-btn tp-field-btn--locate" title="Use my location" aria-label="Use my location">${ICONS.locate}</button>
-          <button type="button" class="tp-field-btn tp-field-btn--pin" title="Click the map to set" aria-label="Click the map to set">${ICONS.pin}</button>
+          <button type="button" class="tp-field-btn tp-field-btn--pin" title="Drag the map to set" aria-label="Drag the map to set">${ICONS.pin}</button>
           <div class="tp-field-results" hidden></div>
         </div>
         <div class="tp-field" data-field="destination">
           <span class="tp-field-badge tp-field-badge--destination">B</span>
-          <input type="text" placeholder="Destination — building or address" autocomplete="off" spellcheck="false" />
+          <input type="text" placeholder="Destination — building, stop, or address" autocomplete="off" spellcheck="false" />
           <button type="button" class="tp-field-btn tp-field-btn--locate" title="Use my location" aria-label="Use my location" hidden>${ICONS.locate}</button>
-          <button type="button" class="tp-field-btn tp-field-btn--pin" title="Click the map to set" aria-label="Click the map to set">${ICONS.pin}</button>
+          <button type="button" class="tp-field-btn tp-field-btn--pin" title="Drag the map to set" aria-label="Drag the map to set">${ICONS.pin}</button>
           <div class="tp-field-results" hidden></div>
         </div>
         <button type="button" class="tp-swap" title="Swap origin and destination" aria-label="Swap origin and destination">${ICONS.swap}</button>
@@ -131,6 +133,7 @@ export class TripPlannerPanel {
 
     this._toggle.addEventListener('click', () => this._setExpanded(true));
     cardEl.querySelector('.tp-close').addEventListener('click', () => {
+      this._stopPicking(false);
       this._setExpanded(false);
       TripPlanner.clearAll();
     });
@@ -169,8 +172,6 @@ export class TripPlannerPanel {
       this._replan();
     });
 
-    this._mapClickHandler = (e) => this._onMapClick(e);
-
     const root = parent || document.body;
     root.appendChild(el);
     root.appendChild(cardEl);
@@ -185,7 +186,7 @@ export class TripPlannerPanel {
     this._unsubItineraries?.();
     this._unsubSelected?.();
     this._unsubCatEnabled?.();
-    this._stopPicking();
+    this._stopPicking(false);
     this._el?.remove();
     this._cardEl?.remove();
   }
@@ -241,22 +242,31 @@ export class TripPlannerPanel {
       return;
     }
     const seq = ++f.reqSeq;
+    // Stops resolve instantly off the same live client-side index the search
+    // box and stops.js use (core/data/transloc.js's getStops()) -- show them
+    // right away, then fold buildings in once that fetch lands, same
+    // two-phase pattern as ui/search.js.
+    const stopItems = matchFieldStops(q);
+    f.items = stopItems;
+    this._renderFieldResults(field);
     try {
       const r = await fetch(`${API_BASE}/v1/uva/facility_search?q=${encodeURIComponent(q)}`, {
         cache: 'no-store',
       });
       if (seq !== f.reqSeq) return;
       const data = r.ok ? await r.json() : { results: [] };
-      f.items = (Array.isArray(data.results) ? data.results : []).map((b) => ({
+      const buildings = (Array.isArray(data.results) ? data.results : []).map((b) => ({
+        kind: 'building',
         name: b.name,
         number: b.number,
         address: b.address,
         bbox: b.bbox,
       }));
+      f.items = [...stopItems, ...buildings];
       this._renderFieldResults(field);
     } catch {
       if (seq === f.reqSeq) {
-        f.items = [];
+        f.items = stopItems;
         this._renderFieldResults(field);
       }
     }
@@ -269,31 +279,40 @@ export class TripPlannerPanel {
       f.results.innerHTML = '';
       return;
     }
-    f.results.innerHTML = f.items
-      .map(
-        (it, i) => `
+    let html = '';
+    let prevKind = null;
+    f.items.forEach((it, i) => {
+      if (it.kind !== prevKind) {
+        html += `<div class="tp-field-head">${it.kind === 'stop' ? 'Bus stops' : 'Buildings'}</div>`;
+        prevKind = it.kind;
+      }
+      html += `
       <button type="button" class="tp-field-item" data-i="${i}">
         <span class="tp-field-item-name"></span>
         <span class="tp-field-item-meta"></span>
-      </button>`,
-      )
-      .join('');
+      </button>`;
+    });
+    f.results.innerHTML = html;
     [...f.results.querySelectorAll('.tp-field-item')].forEach((btn) => {
       const it = f.items[Number(btn.dataset.i)];
       btn.querySelector('.tp-field-item-name').textContent = it.name;
-      btn.querySelector('.tp-field-item-meta').textContent = [
-        it.number && `#${it.number}`,
-        it.address,
-      ]
-        .filter(Boolean)
-        .join(' · ');
-      btn.addEventListener('click', () => this._pickBuilding(field, it));
+      btn.querySelector('.tp-field-item-meta').textContent =
+        it.kind === 'stop' ? it.meta : [it.number && `#${it.number}`, it.address].filter(Boolean).join(' · ');
+      btn.addEventListener('click', () => this._pickResult(field, it));
     });
     f.results.hidden = false;
   }
 
   _closeFieldResults(field) {
     this._fields[field].results.hidden = true;
+  }
+
+  _pickResult(field, it) {
+    if (it.kind === 'stop') {
+      this._applyPoint(field, { lat: it.lat, lng: it.lng, label: it.name });
+      return;
+    }
+    this._pickBuilding(field, it);
   }
 
   _pickBuilding(field, b) {
@@ -326,34 +345,77 @@ export class TripPlannerPanel {
     );
   }
 
+  /** Drag-to-adjust: a pin fixed at the map's screen centre while the rider
+   *  pans the map underneath it (the classic Uber/Maps "set pickup" pattern) --
+   *  more precise than a raw click, especially on mobile where a fingertip
+   *  covers far more than the point being tapped. Toggling the same field's
+   *  pin button again cancels; the overlay's own "Set location" button
+   *  confirms. */
   _togglePicking(field) {
     if (this._pickMode === field) {
-      this._stopPicking();
+      this._stopPicking(true); // cancel: leave the point as it was
       return;
     }
-    this._pickMode = field;
-    for (const other of Object.keys(this._fields)) {
-      this._fields[other].pinBtn.classList.toggle('is-active', other === field);
-    }
-    const map = getMap();
-    map?.getCanvas()?.classList.add('tp-picking-cursor');
-    map?.on('click', this._mapClickHandler);
+    this._startAdjusting(field);
   }
 
-  _stopPicking() {
+  _startAdjusting(field) {
+    this._stopPicking(true); // in case the OTHER field was mid-adjust
+    const map = getMap();
+    if (!map) return;
+    this._pickMode = field;
+    for (const f of Object.keys(this._fields)) {
+      this._fields[f].pinBtn.classList.toggle('is-active', f === field);
+    }
+    TripPlanner.setMarkerVisible(field, false);
+    this._showCenterPin(field);
+    // Start the pin exactly where the field's current point is (if it has
+    // one) so adjusting reads as "fine-tune", not "start over from nowhere".
+    const existing = field === 'origin' ? TripPlanner.getOrigin() : TripPlanner.getDestination();
+    if (existing) map.easeTo({ center: [existing.lng, existing.lat], duration: 300 });
+    map.getCanvas()?.classList.add('tp-picking-cursor');
+  }
+
+  _showCenterPin(field) {
+    const map = getMap();
+    const container = map?.getContainer();
+    if (!container) return;
+    const pinEl = document.createElement('div');
+    pinEl.className = `tp-center-pin tp-center-pin--${field}`;
+    pinEl.innerHTML = `<span class="tp-center-pin-badge">${field === 'origin' ? 'A' : 'B'}</span>`;
+    container.appendChild(pinEl);
+    this._centerPinEl = pinEl;
+
+    const bar = document.createElement('div');
+    bar.className = 'tp-center-pin-bar';
+    bar.innerHTML = `
+      <span class="tp-center-pin-hint">Drag the map to move the pin</span>
+      <button type="button" class="tp-center-pin-confirm">Set ${field === 'origin' ? 'origin' : 'destination'}</button>`;
+    bar.querySelector('.tp-center-pin-confirm').addEventListener('click', () => this._confirmAdjusting());
+    container.appendChild(bar);
+    this._centerPinBar = bar;
+  }
+
+  _confirmAdjusting() {
+    const field = this._pickMode;
+    if (!field) return;
+    const center = getMap()?.getCenter();
+    this._stopPicking(false); // the point is about to be replaced below, no need to restore
+    if (center) this._applyPoint(field, { lat: center.lat, lng: center.lng, label: 'Dropped pin' });
+  }
+
+  _stopPicking(restoreMarker) {
     if (!this._pickMode) return;
+    const field = this._pickMode;
     this._pickMode = null;
     for (const f of Object.values(this._fields)) f.pinBtn.classList.remove('is-active');
     const map = getMap();
     map?.getCanvas()?.classList.remove('tp-picking-cursor');
-    map?.off('click', this._mapClickHandler);
-  }
-
-  _onMapClick(e) {
-    const field = this._pickMode;
-    if (!field) return;
-    this._applyPoint(field, { lat: e.lngLat.lat, lng: e.lngLat.lng, label: 'Dropped pin' });
-    this._stopPicking();
+    this._centerPinEl?.remove();
+    this._centerPinEl = null;
+    this._centerPinBar?.remove();
+    this._centerPinBar = null;
+    if (restoreMarker) TripPlanner.setMarkerVisible(field, true);
   }
 
   _applyPoint(field, point) {
@@ -499,7 +561,11 @@ export class TripPlannerPanel {
     const visibleLegs = itinerary.legs.filter(
       (leg) => !(leg.kind === 'walk' && leg.distanceM != null && leg.distanceM < NEGLIGIBLE_WALK_M),
     );
-    const legsHtml = visibleLegs.map((leg, li) => this._legRowHtml(leg, li === visibleLegs.length - 1)).join('');
+    // Waiting at the stop is its own timeline step -- Walk, then Wait, then
+    // Ride -- not a parenthetical tucked inside the ride row (which read like
+    // the wait happened AFTER the ride, not before boarding).
+    const steps = timelineSteps(visibleLegs);
+    const legsHtml = steps.map((step, si) => this._stepRowHtml(step, si === steps.length - 1)).join('');
     return `
       <button type="button" class="tp-itin" data-i="${i}">
         <div class="tp-itin-top">
@@ -511,34 +577,52 @@ export class TripPlannerPanel {
       </button>`;
   }
 
-  _legRowHtml(leg, isLast) {
+  _stepRowHtml(step, isLast) {
+    if (step.type === 'wait') return this._waitRowHtml(step, isLast);
+    if (step.type === 'walk') return this._walkRowHtml(step.leg, isLast);
+    return this._rideRowHtml(step.leg, isLast);
+  }
+
+  _walkRowHtml(leg, isLast) {
     const lastClass = isLast ? ' tp-leg--last' : '';
-    if (leg.kind === 'walk') {
-      // Honest sub-minute wording instead of flooring up to a misleading "1 min" --
-      // paired with the NEGLIGIBLE_WALK_M filter above, which drops the truly-zero
-      // case (same-stop transfers, origin/destination right at a stop) entirely.
-      const rawMins = Math.round(leg.durationS / 60);
-      const timeLabel = rawMins < 1 ? '&lt;1 min' : `${rawMins} min`;
-      const dist = leg.distanceM != null ? ` · ${Math.round(leg.distanceM)}m` : '';
-      return `
-        <div class="tp-leg tp-leg--walk${lastClass}">
-          <span class="tp-leg-dot tp-leg-dot--walk"></span>
-          <span class="tp-leg-text">Walk <b>${timeLabel}</b><span class="tp-leg-sub">${dist}</span></span>
-        </div>`;
-    }
+    // Honest sub-minute wording instead of flooring up to a misleading "1 min" --
+    // paired with the NEGLIGIBLE_WALK_M filter above, which drops the truly-zero
+    // case (same-stop transfers, origin/destination right at a stop) entirely.
+    const rawMins = Math.round(leg.durationS / 60);
+    const timeLabel = rawMins < 1 ? '&lt;1 min' : `${rawMins} min`;
+    const dist = leg.distanceM != null ? ` · ${Math.round(leg.distanceM)}m` : '';
+    return `
+      <div class="tp-leg tp-leg--walk${lastClass}">
+        <span class="tp-leg-dot tp-leg-dot--walk"></span>
+        <span class="tp-leg-text">Walk <b>${timeLabel}</b><span class="tp-leg-sub">${dist}</span></span>
+      </div>`;
+  }
+
+  _waitRowHtml(step, isLast) {
+    const lastClass = isLast ? ' tp-leg--last' : '';
+    const known = step.waitS != null;
+    const mins = known ? Math.max(0, Math.round(step.waitS / 60)) : null;
+    const timeLabel = !known ? '' : mins < 1 ? '&lt;1 min' : `${mins} min`;
+    return `
+      <div class="tp-leg tp-leg--wait${lastClass}">
+        <span class="tp-leg-dot tp-leg-dot--wait"></span>
+        <span class="tp-leg-text">${
+          known ? `Wait <b>${timeLabel}</b>` : '<span class="tp-leg-sub--muted">Wait time unknown</span>'
+        }</span>
+      </div>`;
+  }
+
+  _rideRowHtml(leg, isLast) {
+    const lastClass = isLast ? ' tp-leg--last' : '';
     const color = normalizeColor(leg.color);
     const textColor = readableTextColor(color);
     const mins = Math.round((leg.rideS || 0) / 60);
-    const waitSub =
-      leg.waitS != null
-        ? `<span class="tp-leg-sub"> · ${Math.max(0, Math.round(leg.waitS / 60))} min wait</span>`
-        : '<span class="tp-leg-sub tp-leg-sub--muted"> · wait unknown</span>';
     return `
       <div class="tp-leg tp-leg--ride${lastClass}">
         <span class="tp-leg-dot" style="background:${color}"></span>
         <span class="tp-leg-text">
           <span class="tp-route-badge" style="background:${color};color:${textColor}">${esc(leg.lineName || leg.lineId)}</span>
-          <span class="tp-leg-sub">${mins} min ride${waitSub}</span>
+          <span class="tp-leg-sub">${mins} min ride</span>
         </span>
       </div>`;
   }
@@ -585,7 +669,17 @@ export class TripPlannerPanel {
     // position in the original list rather than assuming a 1:1 index match.
     for (const leg of visibleLegs) {
       const i = itinerary.legs.indexOf(leg);
-      rows.push(this._detailStepHtml(leg, clocks[i]));
+      const startMs = clocks[i];
+      if (leg.kind === 'walk') {
+        rows.push(this._detailWalkStepHtml(leg));
+      } else {
+        // Waiting at the stop is its own step, in order -- shown BEFORE the
+        // board/ride/alight step, not tucked inside it, so the sequence reads
+        // "arrive, wait, board" instead of implying the wait happens after
+        // you've already boarded.
+        rows.push(this._detailWaitStepHtml(leg));
+        rows.push(this._detailRideStepHtml(leg, startMs));
+      }
     }
     rows.push(
       `<div class="tp-detail-point">
@@ -597,30 +691,45 @@ export class TripPlannerPanel {
     return `<div class="tp-detail-steps">${rows.join('')}</div>`;
   }
 
-  _detailStepHtml(leg, startMs) {
-    if (leg.kind === 'walk') {
-      const mins = Math.round(leg.durationS / 60);
-      const timeLabel = mins < 1 ? '<1 min' : `${mins} min`;
-      const dist = leg.distanceM != null ? ` (${Math.round(leg.distanceM)}m)` : '';
-      return `
-        <div class="tp-detail-step tp-detail-step--walk">
-          <span class="tp-leg-dot tp-leg-dot--walk"></span>
-          <div class="tp-detail-step-body">
-            <div class="tp-detail-step-main">Walk ${timeLabel}${dist}</div>
-            ${leg.source === 'straight_line' ? '<div class="tp-detail-step-sub tp-leg-sub--muted">Estimated route</div>' : ''}
+  _detailWalkStepHtml(leg) {
+    const mins = Math.round(leg.durationS / 60);
+    const timeLabel = mins < 1 ? '<1 min' : `${mins} min`;
+    const dist = leg.distanceM != null ? ` (${Math.round(leg.distanceM)}m)` : '';
+    return `
+      <div class="tp-detail-step tp-detail-step--walk">
+        <span class="tp-leg-dot tp-leg-dot--walk"></span>
+        <div class="tp-detail-step-body">
+          <div class="tp-detail-step-main">Walk ${timeLabel}${dist}</div>
+          ${leg.source === 'straight_line' ? '<div class="tp-detail-step-sub tp-leg-sub--muted">Estimated route</div>' : ''}
+        </div>
+      </div>`;
+  }
+
+  /** Its own step (own dot, own row) between the walk-in and the ride -- not a
+   *  note buried inside the ride step, which used to read as if the wait
+   *  happened AFTER boarding instead of before it. */
+  _detailWaitStepHtml(leg) {
+    const known = leg.waitS != null;
+    const mins = known ? Math.max(0, Math.round(leg.waitS / 60)) : null;
+    const timeLabel = known ? (mins < 1 ? '<1 min' : `${mins} min`) : null;
+    return `
+      <div class="tp-detail-step tp-detail-step--wait">
+        <span class="tp-leg-dot tp-leg-dot--wait"></span>
+        <div class="tp-detail-step-body">
+          <div class="tp-detail-step-main">
+            ${known ? `Wait ${timeLabel}` : '<span class="tp-leg-sub--muted">Wait time unknown</span>'}
           </div>
-        </div>`;
-    }
+        </div>
+      </div>`;
+  }
+
+  _detailRideStepHtml(leg, startMs) {
     const color = normalizeColor(leg.color);
     const textColor = readableTextColor(color);
     // stopCount, not coordinates.length -- coordinates is now the line's real
     // road-following shape (dense polyline vertices), not one point per stop.
     const stops = leg.stopCount || 1;
     const rideMins = Math.round((leg.rideS || 0) / 60);
-    const waitNote =
-      leg.waitS != null
-        ? `<div class="tp-detail-wait-note">${Math.max(0, Math.round(leg.waitS / 60))} min wait</div>`
-        : '<div class="tp-detail-wait-note tp-leg-sub--muted">wait unknown</div>';
     const warn = leg.lastRideWarning
       ? `<span class="tp-itin-tag tp-itin-tag--warn">${ICONS.warn}Last bus soon</span>`
       : '';
@@ -639,7 +748,6 @@ export class TripPlannerPanel {
             <span class="tp-detail-stop-name">${esc(leg.boardStop?.name || 'stop')}</span>
             <span class="tp-detail-clock">${boardClock}</span>
           </div>
-          ${waitNote}
           <div class="tp-detail-ride-chip" style="border-left-color:${color}">
             <span class="tp-route-badge" style="background:${color};color:${textColor}">${esc(leg.lineName || leg.lineId)}</span>
             <span class="tp-detail-ride-chip-text">${stops} stop${stops === 1 ? '' : 's'} · ${rideMins} min${leg.rideSSource === 'heuristic' ? ' · estimated' : ''}</span>
@@ -665,6 +773,51 @@ export class TripPlannerPanel {
       </div>
       ${tag}`;
   }
+}
+
+/** Match the live UTS stop index against a query for an origin/destination
+ *  field -- same matching approach as ui/search.js's matchStops. CAT stops
+ *  aren't included; there's no equivalent live client-side index for them. */
+function matchFieldStops(q) {
+  const ql = q.toLowerCase();
+  const scored = [];
+  for (const s of getUtsStops()) {
+    if (!Number.isFinite(s.lng) || !Number.isFinite(s.lat)) continue;
+    const name = String(s.name || '').toLowerCase();
+    let score = -1;
+    if (name === ql) score = 0;
+    else if (name.startsWith(ql)) score = 1;
+    else if (name.includes(ql)) score = 2;
+    if (score < 0) continue;
+    scored.push({ s, score });
+  }
+  scored.sort(
+    (a, b) => a.score - b.score || String(a.s.name).localeCompare(String(b.s.name), undefined, { numeric: true }),
+  );
+  return scored.slice(0, MAX_FIELD_STOPS).map(({ s }) => ({
+    kind: 'stop',
+    name: s.name,
+    meta: s.routeIds.map((rid) => getRouteName(rid)).filter(Boolean).join(', '),
+    lat: s.lat,
+    lng: s.lng,
+  }));
+}
+
+/** Flattens legs into card-timeline steps, splitting each ride leg into its
+ *  own "wait" step followed by its own "ride" step -- waiting at the stop is
+ *  a real step in the trip (Walk, then Wait, then Ride), not a parenthetical
+ *  folded into the ride's sub-label. */
+function timelineSteps(legs) {
+  const steps = [];
+  for (const leg of legs) {
+    if (leg.kind === 'walk') {
+      steps.push({ type: 'walk', leg });
+    } else {
+      steps.push({ type: 'wait', waitS: leg.waitS });
+      steps.push({ type: 'ride', leg });
+    }
+  }
+  return steps;
 }
 
 function normalizeColor(c) {

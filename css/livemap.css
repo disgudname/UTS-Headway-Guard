@@ -2521,6 +2521,17 @@ body {
   box-shadow: var(--panel-shadow);
   z-index: 1;
 }
+.tp-field-head {
+  padding: 6px 12px 3px;
+  font-size: var(--fs-micro);
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  opacity: 0.5;
+}
+.tp-field-head:first-child {
+  padding-top: 7px;
+}
 .tp-field-item {
   display: flex;
   flex-direction: column;
@@ -2695,6 +2706,14 @@ body {
   background: var(--panel-muted);
   opacity: 0.6;
 }
+.tp-leg-dot--wait {
+  width: 7px;
+  height: 7px;
+  margin: 1px;
+  background: transparent;
+  border: 1.5px solid var(--panel-muted);
+  opacity: 0.8;
+}
 .tp-leg:not(.tp-leg--last)::after {
   content: '';
   position: absolute;
@@ -2705,7 +2724,8 @@ body {
   background: var(--panel-border);
   z-index: -1;
 }
-.tp-leg--walk:not(.tp-leg--last)::after {
+.tp-leg--walk:not(.tp-leg--last)::after,
+.tp-leg--wait:not(.tp-leg--last)::after {
   left: 3px;
 }
 .tp-leg-text {
@@ -2800,10 +2820,6 @@ body {
   font: 700 var(--fs-sm)/1.3 inherit;
   color: var(--panel-heading);
 }
-.tp-detail-wait-note {
-  font: 500 var(--fs-xs)/1.4 inherit;
-  color: var(--panel-muted);
-}
 .tp-detail-ride-chip {
   display: flex;
   align-items: center;
@@ -2858,7 +2874,83 @@ body {
 }
 
 .tp-picking-cursor {
-  cursor: crosshair !important;
+  cursor: grab !important;
+}
+.tp-picking-cursor:active {
+  cursor: grabbing !important;
+}
+
+/* Drag-to-adjust: a pin fixed at the map's screen centre (not a maplibre
+   marker -- it never moves geographically, the MAP pans underneath it) while
+   the rider drags to position it, the classic Uber/Maps "set pickup" pattern.
+   Positioned by the panel via container.appendChild on the map's own DOM
+   container, not the page body, so it always sits exactly over that map.
+   Centred (not tip-anchored) to match how the real origin/destination
+   markers are placed once confirmed -- see core/trip-planner.js's makePin,
+   `anchor: 'center'` -- so the coordinate under the pin's true centre is
+   exactly what gets committed on "Set location". */
+.tp-center-pin {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  pointer-events: none;
+  z-index: 5;
+  border: 2px solid #fff;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.45), 0 14px 6px -8px rgba(0, 0, 0, 0.3);
+  display: grid;
+  place-items: center;
+}
+.tp-center-pin--origin {
+  background: var(--ok);
+}
+.tp-center-pin--destination {
+  background: var(--bad);
+}
+.tp-center-pin-badge {
+  color: #fff;
+  font: 700 var(--fs-xs)/1 inherit;
+}
+
+.tp-center-pin-bar {
+  position: absolute;
+  left: 50%;
+  bottom: 22px;
+  transform: translateX(-50%);
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 8px 8px 14px;
+  border-radius: 999px;
+  background: var(--panel-surface);
+  border: 1px solid var(--panel-border);
+  box-shadow: var(--panel-shadow);
+  z-index: 5;
+  white-space: nowrap;
+}
+.tp-center-pin-hint {
+  font-size: var(--fs-xs);
+  color: var(--panel-muted);
+}
+.tp-center-pin-confirm {
+  padding: 6px 14px;
+  border-radius: 999px;
+  border: none;
+  background: var(--accent);
+  color: #fff;
+  font: 700 var(--fs-xs)/1 inherit;
+  cursor: pointer;
+}
+.tp-center-pin-confirm:hover {
+  filter: brightness(1.08);
+}
+@media (max-width: 768px) {
+  .tp-center-pin-bar {
+    bottom: 16px;
+  }
 }
 
 /* Mobile: a bottom sheet instead of a left-docked sidebar -- there's no spare full-

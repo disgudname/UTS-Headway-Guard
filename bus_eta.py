@@ -72,13 +72,70 @@ MIN_PROJECTION_MPS = 1.0
 # coordinates projected to an arc-length position ~178m PAST that same stop,
 # because the nearest point on the polyline happened to be on a different pass
 # of a self-near road than the stop's own projection landed on -- arc-length
-# math alone then concluded the stop was nearly a full loop away. 150m is
-# generous enough to catch that kind of projection ambiguity (which showed up
-# at ~130-180m in the wild) while nowhere near typical stop-to-stop spacing
-# (confirmed live: UTS stops are essentially never under ~300m apart on the
-# routes this was tested against), so it shouldn't ever misfire on a genuinely
-# distant stop.
+# math alone then concluded the stop was nearly a full loop away.
+#
+# IMPORTANT: this radius alone is NOT sufficient to decide "arriving now" --
+# confirmed live on Green Line/Loop, where Stadium Rd @ Runk Dining Hall and
+# Hereford Dr @ Runk Dining Hall are only ~144m apart (and a third stop,
+# Hereford Dr @ Johnson House, sits ~117-135m away, on a DIFFERENT part of the
+# loop reached only after wrapping past the route's recorded end) -- a real
+# UTS stop cluster well inside this radius, disproving the original "stops
+# are essentially never under 300m apart" assumption this constant shipped
+# with. Naively trusting proximity alone made a vehicle sitting at Hereford
+# Dr @ Runk show "Due" for Stadium Rd (the stop it had JUST LEFT).
+#
+# Two mechanisms are required in addition to this radius before the override
+# fires -- see _forward_sweep_passes_near:
+#   1. Walking the route's ACTUAL polyline forward (not a straight line, not
+#      arc-length arithmetic, and NOT the vehicle's instantaneous heading --
+#      an earlier version compared heading to a straight-line bearing, but
+#      that breaks on exactly the curving/self-overlapping roads this whole
+#      mechanism exists for: a bus can be pointed away from a stop's
+#      straight-line direction right now while a curve just ahead is about to
+#      take it straight there -- flagged as a real risk before that version
+#      shipped).
+#   2. FORWARD_SWEEP_MATCH_RADIUS_M, a MUCH tighter per-vertex match distance
+#      than this outer gate -- confirmed live, that distinction is load-
+#      bearing, not belt-and-suspenders: in the exact stop cluster above, the
+#      forward-walked road never gets closer than ~119m to Stadium (it
+#      genuinely doesn't go anywhere near it) while it passes within ~3m of
+#      Johnson House -- so "was any swept vertex within this OUTER 150m
+#      radius" cannot tell them apart (both qualify), but "did the swept path
+#      actually get close" cleanly can.
 ARRIVING_RADIUS_M = 150.0
+
+# Below this real-world distance, skip the forward-sweep sanity check entirely
+# -- the vehicle is essentially standing on the stop's own coordinates.
+ARRIVING_RADIUS_EXEMPT_M = 40.0
+
+# How close (real metres) a forward-swept polyline vertex must come to the
+# target to count as "the road actually passes by here soon" -- see
+# ARRIVING_RADIUS_M's comment for why this needs to be much tighter than that
+# outer gate, not the same value. Confirmed live: a stop the road genuinely
+# passes should come within single-digit metres of *some* vertex (2.8m for
+# Johnson House); a stop that just happens to sit inside the outer radius
+# without the road ever actually approaching it stayed 119m+ away at every
+# vertex checked (Stadium Rd). 60m splits those with real margin on both
+# sides.
+FORWARD_SWEEP_MATCH_RADIUS_M = 60.0
+
+# How far forward (real road metres, walked along the route's actual polyline
+# -- not a straight line, not arc-length arithmetic) to look for the target
+# stop before giving up. Comfortably more than the ~130-180m the confirmed
+# Gold Line misprojection bug showed.
+FORWARD_SWEEP_M = 400.0
+
+# How much dead-reckoning the current (partial) segment's live-speed
+# projection trusts a vehicle's speed once it's essentially AT a stop, in
+# arc-length metres. See the dwell-time comment in estimate_stop_eta_s: a
+# vehicle sitting at a stop (a scheduled recovery/hold, a long boarding, a
+# red light right at the stop) reads as "very slow" the same way a vehicle
+# genuinely stuck in mid-block traffic does, but the two mean very different
+# things for how fast it'll travel once it resumes. Confirmed live: a Green
+# Line bus dwelling at a timepoint stop showed ~7 minutes to a stop a few hops
+# away, which dropped to ~2 minutes the instant it actually pulled away --
+# the live-speed pace correction was reading "dwelling" as "running behind."
+DWELL_DETECTION_RADIUS_M = 40.0
 
 # Plausibility bounds on the speed any single historical hop-time bucket is
 # allowed to imply (hop_distance_m / hop_seconds) -- see the inline comment
@@ -130,6 +187,79 @@ def _forward_distance(from_s: float, to_s: float, route_length_m: float) -> floa
     return (to_s - from_s) % route_length_m
 
 
+def _nearest_polyline_point(lat: float, lon: float, shape: List[Tuple[float, float]]) -> Tuple[int, float]:
+    """(segment_index, fraction_along_segment) of the point on `shape` nearest
+    to (lat, lon) -- a fresh, direct nearest-point search using only real
+    coordinates and the route's real shape. Same brute-force approach as
+    app.py's own _project_onto_polyline (duplicated here in pure form to
+    avoid a circular import -- app.py imports this module)."""
+    best_seg, best_frac, best_d2 = 0, 0.0, float("inf")
+    for i in range(len(shape) - 1):
+        alat, alon = shape[i]
+        blat, blon = shape[i + 1]
+        dlat, dlon = blat - alat, blon - alon
+        seg2 = dlat * dlat + dlon * dlon
+        t = 0.0 if seg2 == 0 else max(0.0, min(1.0, ((lat - alat) * dlat + (lon - alon) * dlon) / seg2))
+        rlat, rlon = alat + t * dlat, alon + t * dlon
+        d2 = (lat - rlat) ** 2 + (lon - rlon) ** 2
+        if d2 < best_d2:
+            best_d2 = d2
+            best_seg, best_frac = i, t
+    return best_seg, best_frac
+
+
+def _forward_sweep_passes_near(
+    line: Line, vehicle_lat: float, vehicle_lon: float, target_lat: float, target_lon: float,
+) -> bool:
+    """Does the route's ACTUAL polyline, walked forward for up to
+    FORWARD_SWEEP_M real metres starting from wherever the vehicle's REAL
+    coordinates land on it, come within FORWARD_SWEEP_MATCH_RADIUS_M (much
+    tighter than ARRIVING_RADIUS_M -- see that constant's comment for why) of
+    (target_lat, target_lon)?
+
+    Deliberately does NOT use vehicle_s_pos as the starting point -- on
+    exactly the self-overlapping routes this exists for, vehicle_s_pos can
+    itself be the corrupted value (confirmed live: the original Gold Line bug
+    was a vehicle's own arc-length position landing on the wrong physical pass
+    of the road). Re-deriving a fresh starting point from the vehicle's real
+    lat/lon sidesteps that -- it's always ground truth, never a stale/biased
+    arc-length projection. Also does NOT re-check that starting point against
+    the target before sweeping (an earlier version of this function did, and
+    a regression test caught it: that first check ignores direction entirely,
+    so on a straight road it could just as easily "confirm" a stop directly
+    BEHIND the vehicle as one ahead of it -- only points strictly ahead, walked
+    forward one real polyline vertex at a time, are checked). Follows the real
+    road shape (so it correctly handles a curving road), not straight-line
+    arithmetic or the vehicle's instantaneous heading -- see ARRIVING_RADIUS_M's
+    comment for why both of those break down here. Loops the polyline (wraps
+    past its last vertex back to its first) so a vehicle near the end of the
+    shape can still sweep into a stop near the start."""
+    shape = line.shape
+    cum = line.shape_cum
+    n = len(shape) if shape else 0
+    if n < 2 or not cum or len(cum) != n:
+        return False
+    n_segs = n - 1
+
+    seg, frac = _nearest_polyline_point(vehicle_lat, vehicle_lon, shape)
+    seg_len = cum[seg + 1] - cum[seg]
+    # Distance still ahead to reach shape[i + 1] -- computed and added to
+    # `swept` BEFORE each vertex is checked (not after), so a single long
+    # segment can't let a vertex miles down the road slip through the
+    # FORWARD_SWEEP_M budget check on a stale, too-small swept total.
+    swept = (1.0 - frac) * seg_len
+    i = seg
+    guard = 0
+    while swept <= FORWARD_SWEEP_M and guard < n_segs:
+        vlat, vlon = shape[i + 1]
+        if haversine_m(vlat, vlon, target_lat, target_lon) <= FORWARD_SWEEP_MATCH_RADIUS_M:
+            return True
+        guard += 1
+        i = (i + 1) % n_segs
+        swept += cum[i + 1] - cum[i]
+    return False
+
+
 def _next_stop_index(stops: List[Stop], vehicle_s_pos: float, route_length_m: float) -> Optional[int]:
     """Index of the first stop ahead of the vehicle in travel direction -- the one
     that defines the vehicle's current (partial) segment. None if no stop has a
@@ -179,7 +309,14 @@ def estimate_stop_eta_s(
         return None
 
     if vehicle_lat is not None and vehicle_lon is not None:
-        if haversine_m(vehicle_lat, vehicle_lon, target_stop.lat, target_stop.lon) <= ARRIVING_RADIUS_M:
+        dist_m = haversine_m(vehicle_lat, vehicle_lon, target_stop.lat, target_stop.lon)
+        if dist_m <= ARRIVING_RADIUS_EXEMPT_M:
+            # Essentially standing on the stop's own coordinates -- skip the
+            # sanity check below entirely, it'd just be measuring GPS noise.
+            return BusEtaEstimate(seconds=0.0, source="live")
+        if dist_m <= ARRIVING_RADIUS_M and _forward_sweep_passes_near(
+            line, vehicle_lat, vehicle_lon, target_stop.lat, target_stop.lon
+        ):
             return BusEtaEstimate(seconds=0.0, source="live")
 
     next_idx = _next_stop_index(stops, vehicle_s_pos, route_length_m)
