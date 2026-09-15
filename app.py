@@ -2600,6 +2600,17 @@ class State:
         # afterward -- see trip_planner_uts_graph() in app.py.
         self.uts_route_shape_cache: Dict[str, Dict[str, Any]] = {}
         self.uts_route_shape_cache_day: str = ""
+        # Never reset (unlike uts_route_shape_cache above) -- a route whose block
+        # starts fresh rather than interlining from an already-running one (e.g. Night
+        # Pilot, which doesn't take over any other route's vehicle) has literally no
+        # shape available from TransLoc's "current" feed until the moment it actually
+        # starts, and the interline-borrowing fallback doesn't apply since nothing
+        # chains into it -- confirmed live: at 9:58pm, three minutes before Night
+        # Pilot's 10pm start, it was completely absent from the trip planner's line
+        # list. A RouteID's physical shape essentially never changes day to day, so
+        # whatever was last seen live (any previous day) is a reasonable fallback
+        # right up until this session sees it live itself and overwrites it.
+        self.uts_route_shape_history: Dict[str, Dict[str, Any]] = {}
         self.anti_cache: Optional[Dict] = None
         self.anti_cache_ts: float = 0.0
         # Per-day mileage and block history
@@ -15323,7 +15334,7 @@ async def _uts_lines_for_trip_planner() -> Tuple[List[Dict[str, Any]], trip_plan
     current schedule phase -- confirmed live: at 4:51pm it returned Gold Line's daytime
     RouteID 67 but NOT its evening RouteID 57, even though 57 is scheduled to start at
     5:51pm. A route that hasn't gone "current" yet has no shape data available from
-    TransLoc at all. Two mitigations, both applied here:
+    TransLoc at all. Three mitigations, all applied here:
 
     1. state.uts_route_shape_cache accumulates each RouteID's shape the first time
        it's seen today (reset at local-day rollover) and keeps serving it after
@@ -15333,6 +15344,14 @@ async def _uts_lines_for_trip_planner() -> Tuple[List[Dict[str, Any]], trip_plan
        (present in route_service.windows) and has a known interline predecessor
        (chain_next), borrow the predecessor's shape -- same physical loop, just not
        relabeled yet. Tagged shapeSource="borrowed" so callers/tests can tell.
+    3. Otherwise, fall back to state.uts_route_shape_history (never resets) -- whatever
+       shape this RouteID last had on ANY previous day this process has been running.
+       Covers a route that starts fresh rather than interlining from an already-running
+       vehicle (Night Pilot doesn't take over anyone else's block) -- confirmed live:
+       three minutes before Night Pilot's 10pm start, mitigations 1 and 2 both came up
+       empty and it was completely missing from the trip planner. Tagged
+       shapeSource="historical". A restart of the app loses this fallback until each
+       route has been seen live at least once again, same as the other two.
     """
     today = datetime.now(ZoneInfo("America/New_York")).strftime("%Y-%m-%d")
     if state.uts_route_shape_cache_day != today:
@@ -15345,9 +15364,9 @@ async def _uts_lines_for_trip_planner() -> Tuple[List[Dict[str, Any]], trip_plan
         color = (route_obj.color if route_obj else "888888").lstrip("#")
         stops_out = _ordered_route_stops_with_coords(rid, routes_obj, stop_info, stops_for_route)
         if len(stops_out) >= 2:
-            state.uts_route_shape_cache[str(rid)] = {
-                "name": disp_name, "color": color, "stops": stops_out,
-            }
+            shape_entry = {"name": disp_name, "color": color, "stops": stops_out}
+            state.uts_route_shape_cache[str(rid)] = shape_entry
+            state.uts_route_shape_history[str(rid)] = shape_entry
 
     async with state.lock:
         block_groups = list((state.blocks_cache or {}).get("block_groups") or [])
@@ -15362,8 +15381,9 @@ async def _uts_lines_for_trip_planner() -> Tuple[List[Dict[str, Any]], trip_plan
     names_by_rid = {str(rid): name for rid, name in (routes_all or {}).items()}
 
     known = dict(state.uts_route_shape_cache)
+    history = state.uts_route_shape_history
     lines: List[Dict[str, Any]] = []
-    for rid in set(known) | set(service.windows):
+    for rid in set(known) | set(service.windows) | set(history):
         shape = known.get(rid)
         shape_source = "live"
         if shape is None:
@@ -15371,6 +15391,9 @@ async def _uts_lines_for_trip_planner() -> Tuple[List[Dict[str, Any]], trip_plan
             if predecessor and predecessor in known:
                 shape = known[predecessor]
                 shape_source = "borrowed"
+        if shape is None:
+            shape = history.get(rid)
+            shape_source = "historical"
         if shape is None:
             continue
         lines.append({
