@@ -12,13 +12,18 @@
 // routes/vehicles tick (core/layers/routes.js's syncSource()), which would wipe
 // an itinerary mid-display.
 //
-// Four layers, bottom to top:
+// Five layers, bottom to top:
 //   ride-casing — white/dark halo under a ride leg, matching route-style.js's look
 //   ride-line   — the route-coloured stroke for a ride leg
-//   walk        — a thin dashed line for a walk leg (line-dasharray can't be a
-//                 data-driven property in MapLibre, so it needs its own layer —
-//                 see basemap-style.js's addVandispatchRouteLayer for the same
-//                 constraint solved the same way)
+//   walk-casing — white/dark halo under the walk dashes, same reason as ride-casing:
+//                 a thin grey dashed line on top of a basemap road (which is also
+//                 grey) was reading as nearly invisible -- the halo is what actually
+//                 separates it from the road underneath, same as the ride leg
+//   walk        — a dashed line for a walk leg, in a colour that reads as "walking"
+//                 by map convention (blue) rather than a low-contrast grey
+//                 (line-dasharray can't be a data-driven property in MapLibre, so it
+//                 needs its own layer — see basemap-style.js's addVandispatchRouteLayer
+//                 for the same constraint solved the same way)
 //   stop        — every stop a ride leg passes through (board, intermediate,
 //                 alight) -- shown while trip planning hides the ambient stop
 //                 layer (see core/layers/routes.js/stops.js), so a rider isn't
@@ -30,6 +35,7 @@
 export const TRIP_PLANNER_SOURCE_ID = 'livemap-trip-planner';
 export const TRIP_PLANNER_CASING_LAYER = 'livemap-trip-planner-casing';
 export const TRIP_PLANNER_RIDE_LAYER = 'livemap-trip-planner-ride';
+export const TRIP_PLANNER_WALK_CASING_LAYER = 'livemap-trip-planner-walk-casing';
 export const TRIP_PLANNER_WALK_LAYER = 'livemap-trip-planner-walk';
 export const TRIP_PLANNER_STOP_LAYER = 'livemap-trip-planner-stop';
 
@@ -40,12 +46,16 @@ export const TRIP_PLANNER_SOURCE_DEF = {
 
 const CASING_WIDTH = ['interpolate', ['linear'], ['zoom'], 10, 4, 14, 6.5, 18, 12];
 const RIDE_WIDTH = ['interpolate', ['linear'], ['zoom'], 10, 2, 14, 3.6, 18, 7.5];
-const WALK_WIDTH = ['interpolate', ['linear'], ['zoom'], 10, 1.6, 14, 2.4, 18, 4];
+const WALK_WIDTH = ['interpolate', ['linear'], ['zoom'], 10, 2.2, 14, 3.4, 18, 5.5];
+const WALK_CASING_WIDTH = ['interpolate', ['linear'], ['zoom'], 10, 4, 14, 6, 18, 9.5];
 
-/** The three itinerary layers, themed. `theme` is 'light' | 'dark'. */
+/** The four itinerary layers, themed. `theme` is 'light' | 'dark'. */
 export function tripPlannerLayerDefs(theme) {
   const casing = theme === 'dark' ? '#0b0f18' : '#ffffff';
-  const walkColor = theme === 'dark' ? '#9aa5ba' : '#5b6472';
+  // Map-convention "walking" blue -- high-contrast against both the grey basemap
+  // roads and typical route colours (Gold/Green/Silver/Purple/Orange/Night Pilot),
+  // instead of the old low-contrast grey that visually merged with grey roads.
+  const walkColor = theme === 'dark' ? '#5EA1FF' : '#1A6FE0';
   return [
     {
       id: TRIP_PLANNER_CASING_LAYER,
@@ -67,6 +77,14 @@ export function tripPlannerLayerDefs(theme) {
       },
     },
     {
+      id: TRIP_PLANNER_WALK_CASING_LAYER,
+      type: 'line',
+      source: TRIP_PLANNER_SOURCE_ID,
+      filter: ['==', ['get', 'kind'], 'walk'],
+      layout: { visibility: 'none', 'line-cap': 'round', 'line-join': 'round' },
+      paint: { 'line-color': casing, 'line-width': WALK_CASING_WIDTH, 'line-opacity': 0.95 },
+    },
+    {
       id: TRIP_PLANNER_WALK_LAYER,
       type: 'line',
       source: TRIP_PLANNER_SOURCE_ID,
@@ -76,7 +94,7 @@ export function tripPlannerLayerDefs(theme) {
         'line-color': walkColor,
         'line-width': WALK_WIDTH,
         'line-dasharray': [1.6, 1.8],
-        'line-opacity': 0.9,
+        'line-opacity': 1,
       },
     },
     {

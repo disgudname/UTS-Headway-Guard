@@ -17,6 +17,7 @@ import {
   TRIP_PLANNER_SOURCE_ID,
   TRIP_PLANNER_CASING_LAYER,
   TRIP_PLANNER_RIDE_LAYER,
+  TRIP_PLANNER_WALK_CASING_LAYER,
   TRIP_PLANNER_WALK_LAYER,
   TRIP_PLANNER_STOP_LAYER,
 } from './layers/trip-planner-style.js';
@@ -231,7 +232,7 @@ function drawItinerary(itinerary) {
   src.setData({ type: 'FeatureCollection', features });
 
   const visible = features.length > 0;
-  for (const id of [TRIP_PLANNER_CASING_LAYER, TRIP_PLANNER_RIDE_LAYER, TRIP_PLANNER_WALK_LAYER, TRIP_PLANNER_STOP_LAYER]) {
+  for (const id of [TRIP_PLANNER_CASING_LAYER, TRIP_PLANNER_RIDE_LAYER, TRIP_PLANNER_WALK_CASING_LAYER, TRIP_PLANNER_WALK_LAYER, TRIP_PLANNER_STOP_LAYER]) {
     if (map.getLayer(id)) map.setLayoutProperty(id, 'visibility', visible ? 'visible' : 'none');
   }
 }
