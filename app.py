@@ -15206,12 +15206,54 @@ async def madmap_page():
 async def metromap_page():
     return HTMLResponse(METROMAP_HTML)
 
+# When a route passes near a given real-world point more than once -- a
+# bidirectional street with stops on each side, or a genuine loop-closure
+# point -- multiple candidate nearest-points on the polyline can land within
+# this many metres of each other. Below this margin, plain nearest-point
+# distance can't reliably tell which pass is correct (confirmed live: Gold
+# Line's northbound and southbound passes down Emmet St gave IDENTICAL
+# nearest distances, 8.1m, to Emmet St @ Central Grounds Garage), so
+# _project_onto_polyline falls back to which side of the road the point is
+# actually on instead of an arbitrary iteration-order tie-break.
+STOP_SIDE_TIE_TOLERANCE_M = 15.0
+
+
+def _side_of_travel(a: Tuple[float, float], b: Tuple[float, float], p: Tuple[float, float]) -> float:
+    """Cross-product sign of point p relative to the direction from a to b, in
+    a local tangent-plane approximation: negative means p is on the RIGHT of
+    that direction of travel (the side a right-hand-traffic bus's doors open
+    toward -- the side a stop should be on to be served by a bus heading a->b),
+    positive means the LEFT."""
+    bx, by = ll_to_xy(b[0], b[1], a[0], a[1])
+    px, py = ll_to_xy(p[0], p[1], a[0], a[1])
+    return bx * py - by * px
+
+
 def _project_onto_polyline(lat: float, lon: float, poly: List[Tuple[float, float]], cum: List[float]) -> float:
-    """Return the arc-length (metres) of the closest point on poly to (lat, lon)."""
+    """Return the arc-length (metres) of the closest point on poly to (lat, lon).
+
+    When the route passes near (lat, lon) more than once, picking whichever
+    candidate is barely nearest is an arbitrary, iteration-order coin-flip --
+    confirmed live on Gold Line's Emmet St corridor, where the northbound and
+    southbound passes gave IDENTICAL nearest distances to Emmet St @ Central
+    Grounds Garage, and blind nearest-point search put BOTH that stop and
+    Emmet St @ Contemplative Commons (its southbound counterpart, on the
+    opposite side of the same street) onto the SAME northbound pass --
+    despite the user confirming Gold genuinely serves each in its own
+    direction. Confirmed this isn't a one-off: most UTS routes run
+    bidirectionally with stops on both sides for real stretches, not just
+    this one corridor -- and this arc_pos feeds bus_eta.py's hop-walking math
+    too (see project_bus_eta_engine memory), not just route/stop ordering.
+
+    Fix: among every candidate within STOP_SIDE_TIE_TOLERANCE_M of the global
+    nearest distance, prefer the one where (lat, lon) sits on the RIGHT side
+    of that segment's own direction of travel (see _side_of_travel). Falls
+    back to plain nearest-point when there's no genuine tie or no candidate
+    is cleanly on the right (the overwhelming majority of stops), so this
+    only changes behavior for the specific ambiguous bidirectional case."""
     if len(poly) < 2:
         return 0.0
-    best_s = 0.0
-    best_d2 = float('inf')
+    candidates = []  # (dist_m, arc_s, seg_idx)
     for i in range(len(poly) - 1):
         alat, alon = poly[i]
         blat, blon = poly[i + 1]
@@ -15219,11 +15261,18 @@ def _project_onto_polyline(lat: float, lon: float, poly: List[Tuple[float, float
         seg2 = dlat * dlat + dlon * dlon
         t = 0.0 if seg2 == 0 else max(0.0, min(1.0, ((lat - alat) * dlat + (lon - alon) * dlon) / seg2))
         rlat, rlon = alat + t * dlat, alon + t * dlon
-        d2 = (lat - rlat) ** 2 + (lon - rlon) ** 2
-        if d2 < best_d2:
-            best_d2 = d2
-            best_s = cum[i] + t * (cum[i + 1] - cum[i])
-    return best_s
+        dx, dy = ll_to_xy(lat, lon, rlat, rlon)
+        candidates.append((math.hypot(dx, dy), cum[i] + t * (cum[i + 1] - cum[i]), i))
+    if not candidates:
+        return 0.0
+    candidates.sort(key=lambda c: c[0])
+    best_dist = candidates[0][0]
+    tied = [c for c in candidates if c[0] - best_dist <= STOP_SIDE_TIE_TOLERANCE_M]
+    if len(tied) <= 1:
+        return candidates[0][1]
+    right_side = [c for c in tied if _side_of_travel(poly[c[2]], poly[c[2] + 1], (lat, lon)) < 0]
+    pick = min(right_side, key=lambda c: c[0]) if right_side else candidates[0]
+    return pick[1]
 
 
 async def _snapshot_uts_stop_topology():
