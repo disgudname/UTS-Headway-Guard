@@ -23,6 +23,7 @@ import {
   getRouteColor,
   getRouteName,
 } from '../data/transloc.js';
+import { startBusEtaFeed, onBusEta, getBusEtaForStop } from '../data/bus-eta.js';
 import { isRouteShown, onRouteVisibility } from './routes.js';
 import {
   STOP_SOURCE_ID as SRC,
@@ -61,6 +62,11 @@ export function installStopLayer() {
 
   pollArrivals();
   setInterval(pollArrivals, ARRIVALS_POLL_MS);
+
+  startBusEtaFeed(); // idempotent; second opinion alongside TransLoc's own arrivals
+  onBusEta(() => {
+    if (popupKey) refreshPopup();
+  });
 }
 
 // --- style lifecycle --------------------------------------------------------
@@ -396,7 +402,12 @@ function popupHTML(stop) {
     const name = a?.routeDescription || getRouteName(routeId) || `Route ${routeId}`;
     const color = a?.color || getRouteColor(routeId);
     const etas = a && a.secs.length ? a.secs.map(etaLabel).join(', ') : '—';
-    rows.push({ name, color, etas, has: !!(a && a.secs.length) });
+    // Our own second-opinion ETA (see bus_eta.py) -- keyed the SAME (routeId,
+    // routeStopId) pair TransLoc's own arrival above was, so both lines in the
+    // row describe the exact same physical route-stop.
+    const ours = getBusEtaForStop(routeId, m.routeStopId);
+    const oursLabel = ours.length ? ours.map((t) => etaLabel(t.seconds)).join(', ') : null;
+    rows.push({ name, color, etas, has: !!(a && a.secs.length), oursLabel });
   }
   // De-dupe by route name (a stop can list the same line twice).
   const seen = new Set();
@@ -410,7 +421,10 @@ function popupHTML(stop) {
       <div class="ls-row">
         <span class="ls-sw" style="background:${escapeAttr(r.color)}"></span>
         <span class="ls-route">${escapeHTML(r.name)}</span>
-        <span class="ls-eta${r.has ? '' : ' is-none'}">${escapeHTML(r.etas)}</span>
+        <span class="ls-eta-col">
+          <span class="ls-eta${r.has ? '' : ' is-none'}">${escapeHTML(r.etas)}</span>
+          ${r.oursLabel ? `<span class="ls-eta ls-eta--ours" title="Our own estimate">${escapeHTML(r.oursLabel)}</span>` : ''}
+        </span>
       </div>`,
         )
         .join('')

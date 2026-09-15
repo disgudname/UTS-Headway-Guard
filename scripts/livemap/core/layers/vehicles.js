@@ -49,6 +49,7 @@ import {
   startMicrotransitFeed,
   vanManifest,
 } from '../data/microtransit.js';
+import { startBusEtaFeed, onBusEta, getBusEtaForVehicle } from '../data/bus-eta.js';
 import { isRouteHidden, onRouteVisibility } from './routes.js';
 import {
   VEHICLE_SOURCE_ID as SRC,
@@ -151,6 +152,10 @@ export function installVehicleLayer(opts = {}) {
     // transloc.js's feed into polling mode right away rather than waiting for a
     // checkbox toggle that may never come this load.
     if (staleShown) setShowStaleVehicles(true);
+    startBusEtaFeed(); // idempotent; UTS-only second-opinion ETAs (see bus_eta.py)
+    onBusEta(() => {
+      if (popupId) refreshPopupContent();
+    });
   }
   if (useMicro) startMicrotransitFeed(); // no-op output until the overlay is enabled
 }
@@ -568,6 +573,7 @@ function deriveProps(v) {
   // the speed pill on the bottom. The public never builds a composite at all.
   const subLabel = isBlockValue(block) ? block : speedLabel;
   return {
+    routeId: v.routeId, // needed by bus_eta.js's per-vehicle lookup (popupHTML)
     routeColor: v.routeColor,
     routeName: v.routeName,
     label: v.label, // always the vehicle number
@@ -1201,6 +1207,30 @@ function popupHTML(id) {
   const metaBits = [p.stopped ? 'Stopped' : speed];
   if (age) metaBits.push(`fix ${age}${p.dim ? ' · stale' : ''}`);
 
+  // This vehicle's own upcoming stops, our second-opinion ETA (see bus_eta.py)
+  // -- UTS only, CAT/vans have no hop-time model to predict from. Shows the
+  // next couple of stops it's headed to, soonest first.
+  let etaBlock = '';
+  if (p.agency === 'uts') {
+    const rawId = id.startsWith(UTS_PREFIX) ? id.slice(UTS_PREFIX.length) : id;
+    const upcoming = getBusEtaForVehicle(p.routeId, rawId).slice(0, 3);
+    if (upcoming.length) {
+      etaBlock = `
+      <div class="lv-eta">
+        <div class="lv-eta-h">Next stops <span class="lv-eta-h-tag">our estimate</span></div>
+        ${upcoming
+          .map(
+            (t) => `
+          <div class="lv-eta-row">
+            <span class="lv-eta-stop">${escapeHTML(t.stopName || 'stop')}</span>
+            <span class="lv-eta-time${t.source === 'live' ? '' : ' is-est'}">${vehicleEtaLabel(t.seconds)}</span>
+          </div>`,
+          )
+          .join('')}
+      </div>`;
+    }
+  }
+
   const tag =
     p.agency === 'cat' ? 'CAT'
     : p.agency === 'spare' ? 'UVA FLEXRIDE'
@@ -1278,12 +1308,19 @@ function popupHTML(id) {
       ${vanLine}
       ${accessLine}
       <div class="lv-meta">${metaBits.join(' · ')}</div>
+      ${etaBlock}
       ${manifestBlock}
       ${occ}
       <button type="button" class="lv-follow${following ? ' is-on' : ''}" data-action="follow">
         ${following ? 'Following — tap to release' : `Follow this ${unitNoun(p.agency).toLowerCase()}`}
       </button>
     </div>`;
+}
+
+function vehicleEtaLabel(sec) {
+  const m = Math.round(sec / 60);
+  if (m <= 0) return 'Due';
+  return `${m} min`;
 }
 
 function escapeHTML(str) {

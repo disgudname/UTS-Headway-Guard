@@ -50,6 +50,7 @@ from headway_tracker import (
 from viriciti_client import ViriCitiClient, VehicleSOC
 import trip_planner
 import trip_planner_history
+import bus_eta
 
 from fastapi import Body, FastAPI, HTTPException, Request, Response, Query
 from starlette.middleware.gzip import GZipMiddleware
@@ -15780,6 +15781,79 @@ async def trip_planner_plan(
         "itineraries": [_serialize_itinerary(it) for it in itineraries],
         "generated_at": datetime.now(timezone.utc).isoformat(),
     }
+
+
+@app.get("/v1/eta/uts_stop_arrivals")
+async def eta_uts_stop_arrivals():
+    """Our own predicted stop arrivals for UTS routes -- a second opinion alongside
+    TransLoc's own GetStopArrivalTimes, computed from each live vehicle's real-time
+    position along its route plus the historical hop-time model (see bus_eta.py for
+    the algorithm and the research it's grounded in).
+
+    Shaped to closely mirror TransLoc's own arrivals response (RouteId,
+    RouteStopId, Times:[{VehicleId, Seconds}]) -- deliberately, so the frontend
+    (livemap's vehicle and stop marker popups) can show both side by side with
+    minimal glue, rather than TransLoc's estimate being replaced outright. UTS
+    only: CAT has no block-schedule/hop-time-model infrastructure to compute a
+    historical baseline from (same reason trip_planner.py's CAT branch requires a
+    live TransLoc ETA rather than estimating its own).
+
+    Computed live per-request against current state, same pattern as
+    _uts_live_wait_lookup/trip_planner_plan -- no dedicated caching layer yet
+    (UTS's vehicle count is small enough that this is cheap; revisit if it isn't)."""
+    uts_lines_raw, _route_service = await _uts_lines_for_trip_planner()
+    lines_by_id = {
+        entry["id"]: _trip_planner_line_from_graph(entry, source="uts", loop=True)
+        for entry in uts_lines_raw
+    }
+
+    hop_time_fn = None
+    headway_storage = getattr(app.state, "headway_storage", None)
+    if headway_storage is not None:
+        try:
+            hop_model = trip_planner_history.load_model(
+                headway_storage, now=datetime.now(ZoneInfo("America/New_York"))
+            )
+            hop_time_fn = hop_model.lookup
+        except Exception as exc:
+            print(f"[bus-eta] hop-time model unavailable, using flat estimate: {exc}")
+
+    when_ts = time.time()
+    async with state.lock:
+        vehicles_by_route = {rid: dict(vehs) for rid, vehs in state.vehicles_by_route.items()}
+
+    # "{route_id}|{stop_id}" -> {"RouteId", "RouteStopId", "StopDescription", "Times": [...]}
+    out: Dict[str, Dict[str, Any]] = {}
+    for route_id_int, vehs in vehicles_by_route.items():
+        route_id = str(route_id_int)
+        line = lines_by_id.get(route_id)
+        if line is None or not line.shape_cum or len(line.stops) < 2:
+            continue
+        for vid, veh in vehs.items():
+            for stop in line.stops:
+                if stop.arc_pos is None:
+                    continue
+                result = bus_eta.estimate_stop_eta_s(
+                    line, veh.s_pos, veh.ema_mps, stop, hop_time_fn, when_ts,
+                    vehicle_lat=veh.lat, vehicle_lon=veh.lon,
+                )
+                if result is None:
+                    continue
+                key = f"{route_id}|{stop.id}"
+                entry = out.setdefault(
+                    key,
+                    {"RouteId": route_id, "RouteStopId": stop.id, "StopDescription": stop.name, "Times": []},
+                )
+                entry["Times"].append({
+                    "VehicleId": str(vid),
+                    "Seconds": round(result.seconds, 1),
+                    "Source": result.source,
+                })
+
+    for entry in out.values():
+        entry["Times"].sort(key=lambda t: t["Seconds"])
+
+    return {"arrivals": list(out.values()), "generated_at": datetime.now(timezone.utc).isoformat()}
 
 
 @app.get("/v1/metromap/debug")

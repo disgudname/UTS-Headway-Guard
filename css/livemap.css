@@ -471,6 +471,58 @@ body {
   margin-left: 14px;
 }
 
+/* This vehicle's own upcoming-stops ETA (see bus_eta.py) -- our second opinion,
+   shown in the vehicle popup itself rather than only a stop's popup. Same
+   header/hairline treatment as .lv-manifest above for visual consistency. */
+.lv-eta {
+  margin-top: 8px;
+  border-top: 1px solid var(--pop-hairline);
+  padding-top: 6px;
+}
+
+.lv-eta-h {
+  font-size: var(--fs-micro);
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  opacity: 0.6;
+  margin-bottom: 3px;
+}
+
+.lv-eta-h-tag {
+  text-transform: none;
+  letter-spacing: normal;
+  font-weight: 600;
+  opacity: 0.75;
+}
+
+.lv-eta-row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: var(--fs-sm);
+  padding: 2px 0;
+}
+
+.lv-eta-stop {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.lv-eta-time {
+  flex: 0 0 auto;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+
+.lv-eta-time.is-est {
+  font-weight: 600;
+  opacity: 0.8;
+}
+
 .lv-occ {
   margin-top: 8px;
 }
@@ -633,6 +685,22 @@ body {
 .ls-eta.is-none {
   font-weight: 500;
   opacity: 0.55;
+}
+
+/* Two stacked ETA lines per route row -- TransLoc's own arrival on top, our
+   second opinion (see bus_eta.py) underneath, right-aligned to match. */
+.ls-eta-col {
+  flex: 0 0 auto;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 1px;
+}
+.ls-eta--ours {
+  font-size: var(--fs-xs);
+  font-weight: 600;
+  color: var(--accent);
+  opacity: 0.85;
 }
 
 .ls-empty {
