@@ -111,30 +111,47 @@ def build_hop_time_samples(
     lookback_days = LOOKBACK_DAYS if lookback_days is None else lookback_days
     resolve_stop_id = resolve_stop_id or (lambda ev: ev.stop_id)
     start = now - timedelta(days=lookback_days)
-    events = storage.query_events(start, now)
-
-    runs: Dict[Tuple[str, str], List] = defaultdict(list)  # (block, local_date) -> [events]
-    for ev in events:
-        if ev.event_type != "arrival" or not ev.block or not ev.stop_id or not ev.route_id:
-            continue
-        local_date = ev.timestamp.astimezone(NY_TZ).date().isoformat()
-        runs[(ev.block, local_date)].append(ev)
 
     samples: Dict[str, List[float]] = defaultdict(list)
-    for run_events in runs.values():
-        run_events.sort(key=lambda e: e.timestamp)
-        for a, b in zip(run_events, run_events[1:]):
-            if a.route_id != b.route_id:
+
+    # One NY-local calendar day at a time, rather than one big query_events(start,
+    # now) covering the whole lookback -- a "run" is grouped by (block, local_date)
+    # below (local_date is NY-based) and so never spans an NY day boundary anyway,
+    # meaning day-by-day changes nothing about the result as long as each window
+    # aligns to NY days too (query_events itself is UTC-file-based internally and
+    # handles a window spanning two on-disk files transparently). This bounds peak
+    # memory to a single day's parsed events instead of the entire window:
+    # confirmed live, a full-archive rebuild (~2.6M events across 9+ months)
+    # OOM-killed the app's small production machine when loaded in one shot via a
+    # single query_events() call.
+    day_cursor = start.astimezone(NY_TZ).replace(hour=0, minute=0, second=0, microsecond=0)
+    end_local = now.astimezone(NY_TZ)
+    while day_cursor <= end_local:
+        day_end = day_cursor + timedelta(days=1, microseconds=-1)
+        day_events = storage.query_events(max(day_cursor, start), min(day_end, now))
+        day_cursor += timedelta(days=1)
+
+        runs: Dict[Tuple[str, str], List] = defaultdict(list)  # (block, local_date) -> [events]
+        for ev in day_events:
+            if ev.event_type != "arrival" or not ev.block or not ev.stop_id or not ev.route_id:
                 continue
-            a_stop, b_stop = resolve_stop_id(a), resolve_stop_id(b)
-            if a_stop == b_stop:
-                continue
-            duration = (b.timestamp - a.timestamp).total_seconds()
-            if duration <= 0 or duration > MAX_PLAUSIBLE_HOP_S:
-                continue
-            local_dt = a.timestamp.astimezone(NY_TZ)
-            key = _bucket_key(a.route_id, a_stop, b_stop, local_dt.weekday(), local_dt.hour)
-            samples[key].append(duration)
+            local_date = ev.timestamp.astimezone(NY_TZ).date().isoformat()
+            runs[(ev.block, local_date)].append(ev)
+
+        for run_events in runs.values():
+            run_events.sort(key=lambda e: e.timestamp)
+            for a, b in zip(run_events, run_events[1:]):
+                if a.route_id != b.route_id:
+                    continue
+                a_stop, b_stop = resolve_stop_id(a), resolve_stop_id(b)
+                if a_stop == b_stop:
+                    continue
+                duration = (b.timestamp - a.timestamp).total_seconds()
+                if duration <= 0 or duration > MAX_PLAUSIBLE_HOP_S:
+                    continue
+                local_dt = a.timestamp.astimezone(NY_TZ)
+                key = _bucket_key(a.route_id, a_stop, b_stop, local_dt.weekday(), local_dt.hour)
+                samples[key].append(duration)
     return samples
 
 

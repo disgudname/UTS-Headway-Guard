@@ -58,7 +58,9 @@ def test_build_hop_time_samples_buckets_by_route_stop_weekday_hour():
     storage = FakeStorage(events)
     samples = tph.build_hop_time_samples(storage, now=_wed_5pm(0) + timedelta(hours=1))
     key = tph._bucket_key("67", "A", "B", 2, 17)  # Wednesday == weekday() 2
-    assert samples[key] == [300.0, 310.0, 320.0]
+    # Order isn't part of the contract (build_hop_time_samples processes one day at
+    # a time, oldest first, to bound memory -- see its docstring) -- just the set.
+    assert sorted(samples[key]) == [300.0, 310.0, 320.0]
 
 
 def test_refresh_hop_time_cache_drops_sparse_buckets(tmp_path, monkeypatch):
