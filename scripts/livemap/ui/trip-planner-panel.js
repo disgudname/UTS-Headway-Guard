@@ -91,10 +91,36 @@ export class TripPlannerPanel {
       <div class="tp-results" hidden></div>
       <div class="tp-detail-footer" hidden></div>`;
 
+    // Mobile-only, full-screen search takeover (see MOBILE_BREAKPOINT below): on a
+    // phone-width bottom sheet there's no room to show more than a sliver of a
+    // field's autocomplete dropdown (confirmed live -- the sheet's own overflow:
+    // hidden clipped all but ~1 row of it), and cramming a real destination-picking
+    // flow into that little space reads nothing like it does on every map app
+    // people already know. Matches Google Maps: tapping a field goes to a
+    // dedicated full-screen search-only view; picking a result returns to the
+    // previous screen with both fields visible. Implemented by RELOCATING the
+    // tapped field's whole `.tp-field` element (input + buttons + its results
+    // dropdown, which is already a child of it) into this overlay, then moving it
+    // straight back on close -- reuses every bit of existing field logic
+    // (search/pick/locate/pin) instead of duplicating it for a second UI.
+    const overlayEl = document.createElement('div');
+    overlayEl.className = 'tp-search-overlay';
+    overlayEl.hidden = true;
+    overlayEl.innerHTML = `
+      <div class="tp-search-overlay-head">
+        <button type="button" class="tp-search-overlay-back" aria-label="Back">${ICONS.back}</button>
+      </div>
+      <div class="tp-search-overlay-body"></div>`;
+    overlayEl.querySelector('.tp-search-overlay-back').addEventListener('click', () => this._closeOverlay());
+
     this._el = el;
     this._cardEl = cardEl;
     this._toggle = el.querySelector('.tp-toggle');
     this._card = cardEl;
+    this._overlayEl = overlayEl;
+    this._overlayHead = overlayEl.querySelector('.tp-search-overlay-head');
+    this._overlayBody = overlayEl.querySelector('.tp-search-overlay-body');
+    this._overlayField = null;
     this._results = cardEl.querySelector('.tp-results');
     this._detailFooter = cardEl.querySelector('.tp-detail-footer');
     this._backBtn = cardEl.querySelector('.tp-back');
@@ -123,16 +149,14 @@ export class TripPlannerPanel {
 
     cardEl.querySelector('.tp-swap').addEventListener('click', () => this._swap());
 
-    // Mobile-only bottom sheet: tapping the handle toggles between a short "peek"
-    // height and a tall "full" one (see the (max-width: 768px) CSS) -- a fixed
-    // two-state toggle rather than real drag-to-resize, but reads the same way at
-    // rest. Harmless on desktop, where the handle itself is hidden via CSS.
-    cardEl.querySelector('.tp-drag-handle').addEventListener('click', () => {
-      this._card.classList.toggle('is-expanded');
-    });
+    // Mobile-only bottom sheet: the handle is a real drag, not just a toggle -- see
+    // _wireDragHandle. Harmless on desktop, where the handle itself is hidden via CSS
+    // and pointer events on it never fire.
+    this._wireDragHandle(cardEl.querySelector('.tp-drag-handle'));
 
     this._toggle.addEventListener('click', () => this._setExpanded(true));
     cardEl.querySelector('.tp-close').addEventListener('click', () => {
+      this._closeOverlay();
       this._stopPicking(false);
       this._setExpanded(false);
       TripPlanner.clearAll();
@@ -175,6 +199,7 @@ export class TripPlannerPanel {
     const root = parent || document.body;
     root.appendChild(el);
     root.appendChild(cardEl);
+    root.appendChild(overlayEl);
     return this;
   }
 
@@ -186,12 +211,106 @@ export class TripPlannerPanel {
     this._unsubItineraries?.();
     this._unsubSelected?.();
     this._unsubCatEnabled?.();
+    this._closeOverlay();
     this._stopPicking(false);
     this._el?.remove();
     this._cardEl?.remove();
+    this._overlayEl?.remove();
+  }
+
+  /** Mobile bottom sheet only (no-op everywhere the handle is display:none, i.e.
+   *  desktop). Real drag-to-resize -- the sheet follows the pointer 1:1 while
+   *  dragging, then snaps to whichever "detent" (candidate resting height) is
+   *  closest once released. Which detents apply depends on what's currently
+   *  showing, per the user's ask for detents "based on what you're interacting
+   *  with": the list view (fields + itinerary results) gets a peek/half/full set,
+   *  while the detail view (one itinerary's step-by-step breakdown) only ever had
+   *  two states to begin with, so it keeps just peek/full. A near-zero-movement
+   *  pointerdown+up (a plain tap, not a drag) jumps straight between the smallest
+   *  and largest detent -- the same gesture the old toggle-only handle supported,
+   *  so tapping still works for anyone who doesn't drag at all. */
+  _wireDragHandle(handle) {
+    const TAP_THRESHOLD_PX = 6;
+    let drag = null;
+    handle.addEventListener('pointerdown', (e) => {
+      handle.setPointerCapture(e.pointerId);
+      drag = {
+        pointerId: e.pointerId,
+        startY: e.clientY,
+        startHeight: this._cardEl.getBoundingClientRect().height,
+        detents: this._computeSheetDetents(),
+      };
+      this._cardEl.classList.add('tp-card--dragging');
+      // The base (non-.is-expanded) rule caps height at max-height:46vh -- fine for
+      // the plain two-state toggle, but it silently clamps a dragged/snapped height
+      // that's meant to land anywhere between the peek and full detents (confirmed
+      // live: dragged to the ~50vh "half" detent, inline height was set correctly,
+      // but the box still rendered at 46vh because max-height is a separate
+      // constraint that setting `height` doesn't override). Neutralized for as long
+      // as a manual height is in effect; _resetDragHeight() puts it back.
+      this._cardEl.style.maxHeight = 'none';
+    });
+    handle.addEventListener('pointermove', (e) => {
+      if (!drag || e.pointerId !== drag.pointerId) return;
+      const dy = e.clientY - drag.startY; // dragging UP (negative dy) grows the sheet
+      const min = drag.detents[0];
+      const max = drag.detents[drag.detents.length - 1];
+      const next = Math.min(max, Math.max(min, drag.startHeight - dy));
+      this._cardEl.style.height = `${next}px`;
+    });
+    const endDrag = (e) => {
+      if (!drag || e.pointerId !== drag.pointerId) return;
+      handle.releasePointerCapture(drag.pointerId);
+      const current = this._cardEl.getBoundingClientRect().height;
+      const detents = drag.detents;
+      const moved = Math.abs(current - drag.startHeight);
+      let target;
+      if (moved < TAP_THRESHOLD_PX) {
+        const mid = (detents[0] + detents[detents.length - 1]) / 2;
+        target = current < mid ? detents[detents.length - 1] : detents[0];
+      } else {
+        target = detents.reduce((best, d) => (Math.abs(d - current) < Math.abs(best - current) ? d : best));
+      }
+      this._cardEl.classList.remove('tp-card--dragging');
+      this._cardEl.style.height = `${target}px`;
+      this._card.classList.toggle('is-expanded', target === detents[detents.length - 1]);
+      drag = null;
+    };
+    handle.addEventListener('pointerup', endDrag);
+    handle.addEventListener('pointercancel', endDrag);
+  }
+
+  /** Detent heights in px, largest last. Measured from the actual content of the
+   *  current view rather than guessed viewport fractions where that content's size
+   *  is what defines a sensible "peek" -- e.g. detail view's peek is exactly the
+   *  drag handle + synopsis footer (the only things shown there), whatever their
+   *  real rendered height happens to be, not an arbitrary number that could drift
+   *  out of sync with a font-size or content change. */
+  _computeSheetDetents() {
+    const vh = window.innerHeight;
+    const handleH = this._cardEl.querySelector('.tp-drag-handle').offsetHeight;
+    if (this._view === 'detail') {
+      return [handleH + (this._detailFooter.offsetHeight || 0), vh * 0.85];
+    }
+    const peek =
+      handleH +
+      this._cardEl.querySelector('.tp-card-head').offsetHeight +
+      this._cardEl.querySelector('.tp-fields').offsetHeight +
+      this._cardEl.querySelector('.tp-when').offsetHeight;
+    return [Math.min(peek, vh * 0.46), vh * 0.5, vh * 0.85];
+  }
+
+  /** Drops any height a manual drag pinned inline, so the next programmatic state
+   *  change (a fresh plan landing, switching to detail, etc.) goes back to sizing
+   *  itself off the plain is-expanded class/CSS instead of being stuck at wherever
+   *  the sheet was last dragged to. */
+  _resetDragHeight() {
+    this._cardEl.style.height = '';
+    this._cardEl.style.maxHeight = '';
   }
 
   _setExpanded(open) {
+    if (open) this._resetDragHeight(); // reopen at the plain default, not wherever it was last dragged to
     this._toggle.setAttribute('aria-expanded', String(open));
     this._card.hidden = !open;
     this._toggle.hidden = open;
@@ -224,14 +343,52 @@ export class TripPlannerPanel {
     const f = this._fields[field];
     f.debouncedSearch = debounce((q) => this._searchField(field, q), DEBOUNCE_MS);
     f.input.addEventListener('input', () => f.debouncedSearch(f.input.value.trim()));
+    f.input.addEventListener('focus', () => this._maybeOpenOverlay(field));
     f.input.addEventListener('keydown', (e) => {
-      if (e.key === 'Escape') this._closeFieldResults(field);
+      if (e.key !== 'Escape') return;
+      if (this._overlayField === field) this._closeOverlay();
+      else this._closeFieldResults(field);
     });
     document.addEventListener('click', (e) => {
       if (!f.wrap.contains(e.target)) this._closeFieldResults(field);
     });
     f.locateBtn?.addEventListener('click', () => this._useMyLocation(field));
     f.pinBtn.addEventListener('click', () => this._togglePicking(field));
+  }
+
+  /** Phone-width bottom sheet only -- see mount()'s comment on the overlay. Desktop's
+   *  sidebar is tall enough for the inline dropdown as-is, so this is a deliberate
+   *  no-op there (matches the same 768px breakpoint the CSS already uses throughout
+   *  this widget). */
+  _isMobileLayout() {
+    return window.matchMedia('(max-width: 768px)').matches;
+  }
+
+  _maybeOpenOverlay(field) {
+    if (!this._isMobileLayout() || this._overlayField === field) return;
+    const f = this._fields[field];
+    this._overlayField = field;
+    this._overlayReturn = { parent: f.wrap.parentNode, next: f.wrap.nextSibling };
+    f.wrap.classList.add('tp-field--overlay');
+    f.results.classList.add('tp-field-results--overlay');
+    this._overlayHead.appendChild(f.wrap);
+    this._overlayBody.appendChild(f.results);
+    this._overlayEl.hidden = false;
+    f.input.focus();
+  }
+
+  _closeOverlay() {
+    const field = this._overlayField;
+    if (!field) return;
+    const f = this._fields[field];
+    f.input.blur();
+    f.wrap.classList.remove('tp-field--overlay');
+    f.results.classList.remove('tp-field-results--overlay');
+    const { parent, next } = this._overlayReturn || {};
+    parent?.insertBefore(f.wrap, next || null);
+    this._overlayEl.hidden = true;
+    this._overlayField = null;
+    this._overlayReturn = null;
   }
 
   async _searchField(field, q) {
@@ -279,6 +436,18 @@ export class TripPlannerPanel {
       f.results.innerHTML = '';
       return;
     }
+    // Mobile bottom sheet: the dropdown is an absolutely-positioned child of the
+    // sheet, which clips its own content to .tp-card's box (needed elsewhere so the
+    // itinerary list scrolls internally instead of spilling past the sheet). At the
+    // sheet's default "peek" height that box is only ~46vh tall, so a dropdown
+    // opened right after tapping a field (before anything else has expanded the
+    // sheet) was rendering almost entirely off-screen -- confirmed live, only the
+    // section header and a sliver of the first result were visible. Reuse the same
+    // .is-expanded (85vh) state already used once results come back, which is a
+    // no-op on desktop (that class only does anything inside the mobile media
+    // query) -- see _renderStatus('idle')'s classList.remove for where this gets
+    // cleared back out once the widget is closed/reset.
+    this._card.classList.add('is-expanded');
     let html = '';
     let prevKind = null;
     f.items.forEach((it, i) => {
@@ -352,6 +521,10 @@ export class TripPlannerPanel {
    *  pin button again cancels; the overlay's own "Set location" button
    *  confirms. */
   _togglePicking(field) {
+    // The drag-to-adjust pin lives on the map, which the full-screen search overlay
+    // covers entirely -- close it first so the pin (and the map underneath it) is
+    // actually visible instead of silently starting off-screen.
+    if (this._overlayField === field) this._closeOverlay();
     if (this._pickMode === field) {
       this._stopPicking(true); // cancel: leave the point as it was
       return;
@@ -420,6 +593,7 @@ export class TripPlannerPanel {
 
   _applyPoint(field, point) {
     this._closeFieldResults(field);
+    if (this._overlayField === field) this._closeOverlay(); // back to the field-pair screen, Maps-style
     if (field === 'origin') TripPlanner.setOrigin(point);
     else TripPlanner.setDestination(point);
     this._maybePlan();
@@ -517,6 +691,7 @@ export class TripPlannerPanel {
    *  map; tapping that peek (or the drag handle) expands it into the scrollable
    *  detail seen here. */
   _setView(view) {
+    this._resetDragHeight(); // don't let a stale manual-drag height outlive a real state change
     this._view = view;
     const inDetail = view === 'detail';
     this._cardEl.dataset.view = view;

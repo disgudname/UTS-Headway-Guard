@@ -15625,6 +15625,47 @@ async def _uts_live_wait_lookup() -> Dict[Tuple[str, str], List[float]]:
     return lookup
 
 
+async def _bus_eta_wait_lookup() -> Dict[Tuple[str, str], List[float]]:
+    """(line_id, stop_id) -> sorted list of seconds-until-arrival, sourced from our
+    own bus_eta.py engine instead of TransLoc's GetStopArrivalTimes -- merged into
+    _uts_live_wait_lookup's result (see _bus_eta_wait_lookup's call site in
+    trip_planner_plan) rather than replacing it, since the two are complementary.
+
+    Why this is needed: TransLoc's live feed only ever carries each currently-active
+    vehicle's *next* upcoming pass at a stop -- once that passes without being
+    catchable, GetStopArrivalTimes has nothing further out to offer for that
+    vehicle, and _live_wait_with_chain's chain_next fallback only covers a vehicle
+    handing off to a DIFFERENT RouteID at end of shift (e.g. Gold's 67->57), not a
+    standalone loop route (like Silver) that just keeps circulating under the same
+    RouteID all day. Confirmed live: a trip transferring onto Silver Line (2
+    vehicles) after an ~10-minute first leg found both of Silver's known live
+    arrivals already elapsed by the time the rider would reach the stop, with no
+    chain to fall back on -- "wait time unknown", even though Silver obviously
+    keeps running. bus_eta.estimate_stop_eta_s doesn't have this ceiling: it walks
+    the vehicle's route forward stop-by-stop (using the historical hop-time model
+    for any segment with no live signal), wrapping all the way around a loop if
+    that's what it takes to reach the target stop -- exactly the case TransLoc's
+    own short-horizon predictor can't cover.
+
+    Reuses /v1/eta/uts_stop_arrivals's own 12s-TTL cache (see BUS_ETA_CACHE_TTL_S)
+    rather than recomputing -- that endpoint already polls every currently-tracked
+    UTS vehicle against every stop on its route each cycle for livemap's own
+    popups, so this is free to piggyback on rather than doing that work twice."""
+    payload = await eta_uts_stop_arrivals()
+    lookup: Dict[Tuple[str, str], List[float]] = {}
+    for entry in payload.get("arrivals", []):
+        route_id = entry.get("RouteId")
+        stop_id = entry.get("RouteStopId")
+        times = entry.get("Times") or []
+        seconds_values = [
+            t.get("Seconds") for t in times if isinstance(t.get("Seconds"), (int, float))
+        ]
+        if route_id is None or stop_id is None or not seconds_values:
+            continue
+        lookup[(str(route_id), str(stop_id))] = sorted(seconds_values)
+    return lookup
+
+
 async def _cat_live_wait_lookup(stop_ids: set) -> Dict[Tuple[str, str], List[float]]:
     """(line_id, stop_id) -> sorted list of seconds-until-arrival, one per vehicle
     currently en route, for the given candidate stop IDs only. CAT has no bulk "every
@@ -15796,14 +15837,27 @@ async def trip_planner_plan(
         cat_candidate_ids = trip_planner.nearby_stop_ids(cat_lines, origin) | trip_planner.nearby_stop_ids(
             cat_lines, destination
         )
-        uts_wait_lookup, cat_wait_lookup = await asyncio.gather(
-            _uts_live_wait_lookup(), _cat_live_wait_lookup(cat_candidate_ids)
+        uts_wait_lookup, bus_eta_wait_lookup, cat_wait_lookup = await asyncio.gather(
+            _uts_live_wait_lookup(), _bus_eta_wait_lookup(), _cat_live_wait_lookup(cat_candidate_ids)
         )
     else:
-        uts_wait_lookup = await _uts_live_wait_lookup()
+        uts_wait_lookup, bus_eta_wait_lookup = await asyncio.gather(
+            _uts_live_wait_lookup(), _bus_eta_wait_lookup()
+        )
 
     lines = uts_lines + cat_lines
-    live_wait_lookup = {**uts_wait_lookup, **cat_wait_lookup}
+    # Merge (not replace) TransLoc's own live wait data with our own bus_eta-based
+    # estimates for the same (route, stop) -- see _bus_eta_wait_lookup's docstring
+    # for why the latter is needed: it covers stops/times TransLoc's own
+    # short-horizon predictor has nothing left to say about (e.g. a loop route like
+    # Silver with too few vehicles for a distant transfer to land on any of
+    # TransLoc's still-live entries). CAT is untouched -- bus_eta is UTS-only.
+    uts_combined_wait_lookup: Dict[Tuple[str, str], List[float]] = {}
+    for key in set(uts_wait_lookup) | set(bus_eta_wait_lookup):
+        uts_combined_wait_lookup[key] = sorted(
+            set(uts_wait_lookup.get(key, ())) | set(bus_eta_wait_lookup.get(key, ()))
+        )
+    live_wait_lookup = {**uts_combined_wait_lookup, **cat_wait_lookup}
 
     hop_time_fn = None
     headway_storage = getattr(app.state, "headway_storage", None)

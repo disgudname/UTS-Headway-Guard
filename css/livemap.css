@@ -29,6 +29,10 @@
      button chips. Values reproduced, not the (Codex-written) CSS. */
   --panel-bg: rgba(255, 255, 255, 0.94);
   --panel-surface: linear-gradient(180deg, rgba(255, 255, 255, 0.96), rgba(245, 248, 255, 0.96));
+  /* Fully opaque, unlike every --panel-* surface above (all translucent, meant to
+     float over the map with a blur) -- the full-screen mobile search takeover
+     needs to completely hide the map behind it, not show it faded through. */
+  --overlay-solid-bg: #ffffff;
   /* Right column (live status / routes — a monitoring surface, not controls)
      reads a shade cooler so the two sides feel like distinct purposes. */
   --panel-surface-alt: linear-gradient(180deg, rgba(246, 249, 255, 0.96), rgba(233, 239, 251, 0.96));
@@ -126,6 +130,8 @@
   --head-bg: linear-gradient(135deg, #35466f, #283755);
   --head-sheen: rgba(255, 255, 255, 0.14);
   --head-hairline: rgba(0, 0, 0, 0.45);
+
+  --overlay-solid-bg: #141a26;
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -2955,9 +2961,13 @@ body {
 
 /* Mobile: a bottom sheet instead of a left-docked sidebar -- there's no spare full-
    height edge to dock to on a phone-width screen, and this is what Maps itself does
-   there too. Peek height shows the fields + top result; tapping the drag handle (or
-   a plan actually landing, see _renderItineraries) expands to a tall scrollable list;
-   collapsing back to peek is the same tap, or the close button. */
+   there too. The handle is a real drag (see _wireDragHandle in trip-planner-panel.js):
+   it follows the finger continuously and snaps to whichever "detents" apply to the
+   current view (list: peek/half/full; detail: peek/full) on release -- a plain tap
+   (near-zero movement) just jumps between the smallest and largest detent, the same
+   two-state toggle this used to be exclusively. A plan actually landing (see
+   _renderItineraries) still auto-expands to full, same as Maps popping its own sheet
+   open once directions come back. */
 @media (max-width: 768px) {
   /* .tp-widget (the collapsed toggle's own small wrapper) stays bottom-centre, same
      as desktop -- no override needed. Only the expanded card changes shape. */
@@ -2971,25 +2981,40 @@ body {
     border-radius: var(--radius-lg) var(--radius-lg) 0 0;
     border: 1px solid var(--panel-border);
     border-bottom: none;
-    transition: max-height var(--dur) var(--ease);
+    transition: max-height var(--dur) var(--ease), height var(--dur) var(--ease);
   }
   .tp-card.is-expanded {
     max-height: 85vh;
   }
+  /* While actively dragging, height is set inline per pointer position on every
+     frame -- the eased transition above would fight that and read as laggy, so it's
+     suspended for the duration of the drag and re-enabled the instant it ends (see
+     _wireDragHandle's pointerup/pointercancel), which is what makes the final snap
+     to the nearest detent animate instead of jumping. */
+  .tp-card--dragging {
+    transition: none;
+  }
+  /* Same navy as .tp-card-head, not a background of its own -- was leaving a sliver
+     of the card's whitish default surface visible above the header, reading as an
+     odd stripe rather than one continuous navy top. */
   .tp-drag-handle {
     display: flex;
     justify-content: center;
-    padding: 8px 0 2px;
+    padding: 8px 0 6px;
     border: none;
-    background: none;
-    cursor: pointer;
+    background: var(--head-bg);
+    cursor: grab;
+    touch-action: none; /* otherwise the browser tries to scroll/pull-to-refresh the page underneath the drag */
     flex: 0 0 auto;
+  }
+  .tp-card--dragging .tp-drag-handle {
+    cursor: grabbing;
   }
   .tp-drag-handle span {
     width: 36px;
     height: 4px;
     border-radius: var(--radius-pill);
-    background: var(--panel-border);
+    background: rgba(255, 255, 255, 0.5);
   }
   /* Detail view, collapsed: only the drag handle + synopsis footer show, so the
      map (now fit to this one itinerary's route) is the main thing on screen --
@@ -3006,4 +3031,95 @@ body {
   body.hg-nav-active .tp-card {
     bottom: var(--hg-nav-bottom-offset, 0px);
   }
+  /* Unlike the rest of this widget, the full-screen search stays ABOVE the bottom
+     nav bar rather than covering it -- user wants Live Map/Parking/Staff Tools
+     still reachable while searching, unlike the Google Maps reference this was
+     otherwise modeled on. */
+  body.hg-nav-active .tp-search-overlay {
+    bottom: var(--hg-nav-bottom-offset, 0px);
+  }
+}
+
+/* Full-screen field search (mobile only -- see trip-planner-panel.js mount()'s
+   comment). Sits well above the bottom nav bar (z-index 1100 in nav-bar.js) so it
+   genuinely takes over the whole screen, same as tapping a field in Google Maps. */
+.tp-search-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 1200;
+  display: flex;
+  flex-direction: column;
+  background: var(--overlay-solid-bg);
+}
+.tp-search-overlay[hidden] {
+  display: none !important; /* same override reason as .tp-card[hidden] above */
+}
+.tp-search-overlay-head {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex: 0 0 auto;
+  padding: 10px 12px;
+  padding-top: calc(10px + env(safe-area-inset-top, 0px));
+  border-bottom: 1px solid var(--panel-border);
+  background: var(--overlay-solid-bg);
+}
+.tp-search-overlay-back {
+  flex: 0 0 auto;
+  width: 34px;
+  height: 34px;
+  border-radius: 50%;
+  border: none;
+  background: none;
+  color: var(--panel-fg);
+  display: grid;
+  place-items: center;
+  cursor: pointer;
+}
+.tp-search-overlay-back:hover {
+  background: var(--hover-bg);
+}
+.tp-search-overlay-body {
+  flex: 1 1 auto;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+}
+/* The relocated .tp-field sheds its boxed "pill inside a card" look and instead
+   reads as the header's own full-width search input -- no border/background of
+   its own, just an input row next to the back arrow. */
+.tp-field--overlay {
+  flex: 1 1 auto;
+  margin: 0;
+  padding: 4px 2px;
+  border: none;
+  background: none;
+}
+.tp-field--overlay input {
+  font: 500 17px/1.3 inherit; /* bumped from --fs-sm (12px) -- too small at arm's length */
+}
+/* The relocated results list fills the overlay body edge-to-edge instead of being
+   a small floating dropdown -- and every size here is bumped up from the inline
+   dropdown's (--fs-micro/--fs-xs/--fs-sm, 10-12px), which read as "way too small"
+   held at arm's length on a phone, compared to every map app people already use. */
+.tp-field-results--overlay {
+  position: static;
+  max-height: none;
+  overflow-y: visible;
+  border: none;
+  border-radius: 0;
+  box-shadow: none;
+  background: none;
+}
+.tp-field-results--overlay .tp-field-head {
+  padding: 16px 16px 6px;
+  font-size: 12px;
+}
+.tp-field-results--overlay .tp-field-item {
+  padding: 12px 16px;
+}
+.tp-field-results--overlay .tp-field-item-name {
+  font: 600 16px/1.3 inherit;
+}
+.tp-field-results--overlay .tp-field-item-meta {
+  font: 400 13px/1.3 inherit;
 }
