@@ -15783,6 +15783,24 @@ async def trip_planner_plan(
     }
 
 
+_bus_eta_cache_lock = asyncio.Lock()
+_bus_eta_cache_payload: Optional[Dict[str, Any]] = None
+_bus_eta_cache_at: float = 0.0
+# Recomputing this from scratch is expensive -- it rebuilds the entire UTS
+# route/stop graph via _uts_lines_for_trip_planner (an O(stops x polyline
+# points) nearest-point scan per route, ~9 routes) -- and uncached, that was
+# blocking Fly's single-CPU event loop long enough to delay unrelated requests
+# on the same process. Confirmed live: kiosk-checkin calls (normally ~70ms)
+# spiked past 600ms with just a handful of concurrent callers to this endpoint,
+# which was enough to occasionally trip a kiosk's own ~15s check-in fetch
+# timeout and send it to the /downed fallback for a cycle. Every open livemap
+# tab/kiosk polls this endpoint independently every 25s (bus-eta.js), so
+# without a cache N open tabs means N fully-redundant recomputations landing
+# on the event loop back to back. A short TTL, comfortably under that 25s poll
+# interval, collapses concurrent/near-simultaneous requests onto one computation.
+BUS_ETA_CACHE_TTL_S = 12.0
+
+
 @app.get("/v1/eta/uts_stop_arrivals")
 async def eta_uts_stop_arrivals():
     """Our own predicted stop arrivals for UTS routes -- a second opinion alongside
@@ -15798,9 +15816,23 @@ async def eta_uts_stop_arrivals():
     historical baseline from (same reason trip_planner.py's CAT branch requires a
     live TransLoc ETA rather than estimating its own).
 
-    Computed live per-request against current state, same pattern as
-    _uts_live_wait_lookup/trip_planner_plan -- no dedicated caching layer yet
-    (UTS's vehicle count is small enough that this is cheap; revisit if it isn't)."""
+    Served from a short-TTL cache -- see BUS_ETA_CACHE_TTL_S -- not computed
+    fresh per request."""
+    global _bus_eta_cache_payload, _bus_eta_cache_at
+    now = time.time()
+    if _bus_eta_cache_payload is not None and now - _bus_eta_cache_at < BUS_ETA_CACHE_TTL_S:
+        return _bus_eta_cache_payload
+    async with _bus_eta_cache_lock:
+        now = time.time()
+        if _bus_eta_cache_payload is not None and now - _bus_eta_cache_at < BUS_ETA_CACHE_TTL_S:
+            return _bus_eta_cache_payload
+        payload = await _compute_bus_eta_arrivals()
+        _bus_eta_cache_payload = payload
+        _bus_eta_cache_at = time.time()
+        return payload
+
+
+async def _compute_bus_eta_arrivals() -> Dict[str, Any]:
     uts_lines_raw, _route_service = await _uts_lines_for_trip_planner()
     lines_by_id = {
         entry["id"]: _trip_planner_line_from_graph(entry, source="uts", loop=True)
