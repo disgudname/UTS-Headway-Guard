@@ -18,6 +18,21 @@ if [ -n "$VEH_LOG_DIRS" ]; then
     fi
   done
 fi
+
+# Join the home-LAN Tailnet to reach the self-hosted Valhalla router (see
+# ROUTING_ENGINE.md). Fly Machines don't grant a real tun device, so this runs in
+# userspace-networking mode with a local outbound HTTP proxy -- trip_planner.py's
+# WALK_ROUTER_PROXY_URL points at it. Skipped entirely (app behaves exactly as before)
+# when TS_AUTHKEY isn't set, and any failure here is non-fatal to app startup.
+if [ -n "$TS_AUTHKEY" ]; then
+  mkdir -p /var/lib/tailscale
+  /usr/sbin/tailscaled --tun=userspace-networking --socks5-server=localhost:1055 \
+    --outbound-http-proxy-listen=localhost:1055 --state=/var/lib/tailscale/tailscaled.state \
+    >/var/log/tailscaled.log 2>&1 &
+  tailscale up --authkey="$TS_AUTHKEY" --hostname="${FLY_MACHINE_ID:-uts-headway-guard}" \
+    --accept-dns=false --timeout=20s || echo "[start.sh] tailscale up failed, continuing without walk router"
+fi
+
 # Preserve the environment (Fly.io secrets) when switching to appuser
 exec su --preserve-environment appuser -c "exec python -m uvicorn app:app --host 0.0.0.0 --port ${PORT:-8080}"
 

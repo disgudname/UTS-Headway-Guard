@@ -14,6 +14,11 @@ RUN apt-get update -y && apt-get install -y --no-install-recommends \
     build-essential curl && \
     rm -rf /var/lib/apt/lists/*
 
+# Tailscale: reaches the self-hosted Valhalla router on the home LAN (see
+# ROUTING_ENGINE.md). Only activates at runtime if TS_AUTHKEY is set; harmless to ship
+# in every image otherwise.
+RUN curl -fsSL https://tailscale.com/install.sh | sh
+
 # Install Python deps
 COPY requirements.txt /app/
 RUN python -m pip install --upgrade pip && \

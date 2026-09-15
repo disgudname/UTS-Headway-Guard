@@ -20,10 +20,13 @@ Two things here exist specifically because a naive planner would strand someone:
 from __future__ import annotations
 
 import math
+import os
 import re
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 from typing import Callable, Dict, List, Optional, Tuple
+
+import httpx
 
 # --- walking --------------------------------------------------------------------
 
@@ -33,6 +36,18 @@ WALK_DETOUR_FACTOR = 1.3  # straight-line underestimates any real path; pad for 
 WALK_SNAP_RADIUS_M = 600.0  # how far a rider is assumed willing to walk to/from a stop
 MAX_WALK_ONLY_DISTANCE_M = 3000.0  # beyond this, a walk-only itinerary isn't worth offering
 TRANSFER_WALK_RADIUS_M = 250.0  # how far apart two stops can be and still count as a transfer
+
+# Self-hosted Valhalla (see ROUTING_ENGINE.md). Unset in dev/most deployments, in which
+# case estimate_walk_leg() falls back to the straight-line estimate below unconditionally.
+WALK_ROUTER_URL = os.getenv("WALK_ROUTER_URL", "").strip() or None
+# Fly Machines don't get a real tun device, so reaching a Tailscale peer from the Fly
+# app goes through tailscaled's local outbound HTTP proxy rather than a direct socket --
+# see the Dockerfile/start.sh tailscale setup. Unset when calling the router directly
+# (e.g. testing from the home LAN itself).
+WALK_ROUTER_PROXY_URL = os.getenv("WALK_ROUTER_PROXY_URL", "").strip() or None
+# Home-LAN/Tailscale hop, not a public API -- fail fast to the straight-line fallback
+# rather than let one slow walk leg stall a trip-planning request.
+WALK_ROUTER_TIMEOUT_S = 2.0
 
 # Ranking preference, not a real-world speed adjustment: a minute spent walking counts
 # for more than a minute spent riding when picking which stops/itinerary to prefer.
@@ -69,11 +84,70 @@ class WalkLeg:
     source: str = "straight_line"  # swap point for a real router later -- see ROUTING_ENGINE.md
 
 
+def _decode_valhalla_shape(encoded: str, precision: int = 6) -> List[Tuple[float, float]]:
+    """Decode Valhalla's polyline (Google polyline algorithm, 1e-6 precision) into
+    [(lat, lon), ...]."""
+    inv = 10**-precision
+    decoded: List[Tuple[float, float]] = []
+    previous = [0, 0]
+    index = 0
+    while index < len(encoded):
+        coords = [0, 0]
+        for i in range(2):
+            shift, result = 0, 0
+            while True:
+                byte = ord(encoded[index]) - 63
+                index += 1
+                result |= (byte & 0x1F) << shift
+                shift += 5
+                if byte < 0x20:
+                    break
+            delta = ~(result >> 1) if result & 1 else (result >> 1)
+            coords[i] = previous[i] + delta
+            previous[i] = coords[i]
+        decoded.append((coords[0] * inv, coords[1] * inv))
+    return decoded
+
+
+def _routed_walk_leg(start: Tuple[float, float], end: Tuple[float, float]) -> Optional[WalkLeg]:
+    """Call the self-hosted Valhalla router for a real pedestrian route. Returns None on
+    any failure so the caller can fall back to the straight-line estimate -- a degraded
+    walking line is better than no itinerary (see ROUTING_ENGINE.md)."""
+    try:
+        response = httpx.post(
+            WALK_ROUTER_URL,
+            json={
+                "locations": [
+                    {"lat": start[0], "lon": start[1]},
+                    {"lat": end[0], "lon": end[1]},
+                ],
+                "costing": "pedestrian",
+                "units": "kilometers",
+            },
+            timeout=WALK_ROUTER_TIMEOUT_S,
+            proxy=WALK_ROUTER_PROXY_URL,
+        )
+        response.raise_for_status()
+        leg = response.json()["trip"]["legs"][0]
+        return WalkLeg(
+            coordinates=_decode_valhalla_shape(leg["shape"]),
+            distance_m=leg["summary"]["length"] * 1000.0,
+            duration_s=leg["summary"]["time"],
+            source="routed",
+        )
+    except Exception:
+        return None
+
+
 def estimate_walk_leg(start: Tuple[float, float], end: Tuple[float, float]) -> WalkLeg:
-    """The only place walk-leg geometry gets computed. v1 is a straight-line estimate;
-    a real router (see ROUTING_ENGINE.md) drops in here without touching any caller --
-    they all consume {coordinates, distance_m, duration_s, source} regardless of how it
-    was produced."""
+    """The only place walk-leg geometry gets computed. Tries the self-hosted router
+    first when WALK_ROUTER_URL is configured; a real router (see ROUTING_ENGINE.md)
+    drops in here without touching any caller -- they all consume
+    {coordinates, distance_m, duration_s, source} regardless of how it was produced."""
+    if WALK_ROUTER_URL:
+        routed = _routed_walk_leg(start, end)
+        if routed is not None:
+            return routed
     straight_m = haversine_m(start[0], start[1], end[0], end[1])
     distance_m = straight_m * WALK_DETOUR_FACTOR
     duration_s = distance_m / WALK_SPEED_MPS

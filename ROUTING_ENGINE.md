@@ -30,14 +30,32 @@ three use cases above**, not three separate engines.
 
 ## Current state (as of this writing)
 
-- Nothing is self-hosted yet. The home server needs to be set up first.
-- `trip_planner.py`'s walking legs are straight-line only, by deliberate choice for the
-  initial trip-planner ship: it avoids putting new public-traffic load on the paid ORS
-  key that only serves a handful of dispatcher-viewed vans today, and it doesn't block
-  the whole feature on infrastructure that doesn't exist yet.
+- **Home server is up.** A VirtualBox VM (`valhalla-server`, Ubuntu 24.04, headless, on
+  the Windows home box) runs Valhalla in Docker, tiled from a Geofabrik Virginia extract
+  cut down to a Charlottesville/Albemarle bbox via `osmium extract --strategy simple`
+  (`--strategy simple` specifically because the default strategy OOM-killed on the home
+  box's 8GB RAM; `simple` trades multipolygon/admin-boundary completeness for much lower
+  memory, which is fine since we don't build admin/timezone databases anyway). Verified
+  serving real pedestrian routes on port 8002.
+- Connectivity is Tailscale, installed on the Windows host itself (not inside the VM) --
+  VirtualBox's NAT port-forward for 8002 is rebound to all host interfaces (was
+  `127.0.0.1`-only) so it's reachable at the host's Tailscale IP.
+- `trip_planner.py`'s `estimate_walk_leg()` now calls `WALK_ROUTER_URL` when set (Valhalla
+  `/route`, pedestrian costing, decodes the returned polyline), falling back to the
+  straight-line estimate on any failure, exactly per the seam described below.
+  `app.py`'s call into `trip_planner.find_trips` is wrapped in `asyncio.to_thread` so the
+  (now potentially network-calling) walk-leg estimation can't stall the shared event loop
+  -- this app has a documented history of event-loop-stall bugs under load.
+- The Fly side: `Dockerfile`/`start.sh` install and conditionally start Tailscale
+  (`TS_AUTHKEY` env var/secret; no-op if unset) in userspace-networking mode with a local
+  outbound HTTP proxy at `localhost:1055`, since Fly Machines don't grant a real tun
+  device. `WALK_ROUTER_PROXY_URL` (also unset by default) points `trip_planner.py`'s
+  router calls at that proxy when deployed. **Not yet deployed/tested end-to-end from an
+  actual Fly machine** -- `TS_AUTHKEY` and `WALK_ROUTER_URL`/`WALK_ROUTER_PROXY_URL`
+  still need to be set as Fly secrets/env and a real deploy verified.
 - `/api/routes/leg` and `/api/ondemand/routes` (`app.py:4215-4243`, `4268-4349`) are
-  hosted-ORS, driving-car only, dispatcher-gated. Migrating these to the self-hosted
-  engine is a separate future task, not part of standing up the engine itself.
+  still hosted-ORS, driving-car only, dispatcher-gated. Migrating these to the
+  self-hosted engine is still a separate future task, not done as part of this.
 
 ## The seam: `trip_planner.estimate_walk_leg()`
 
@@ -93,29 +111,46 @@ Leaning Valhalla over self-hosted ORS or OSRM:
 
 ## Connectivity: home server -> Fly app
 
-Not yet decided — pick one when starting this work:
+**Decided: Tailscale.** Installed on the Windows host (not inside the Valhalla VM) --
+VirtualBox NAT forwards the VM's Valhalla port to the host, and the host's Tailscale IP
+is what's reachable from outside. On the Fly side, `Dockerfile`/`start.sh` run
+`tailscaled` in userspace-networking mode (Fly Machines don't grant a real tun device)
+with a local outbound HTTP proxy; `trip_planner.py` routes its Valhalla calls through
+that proxy via `WALK_ROUTER_PROXY_URL`. See "Current state" above for exactly what's
+wired vs. still needs a real deploy to verify.
 
-- **Tailscale** between the Fly machine and the home box (Fly has a documented pattern
-  for this) — probably the simplest, no public exposure of the home box.
-- **Port-forward + reverse proxy** (Caddy/nginx) on the home box, with TLS and an auth
-  token, if Tailscale doesn't fit the home network setup.
-
-Either way, the goal is one URL (`WALK_ROUTER_URL`, and later a similar var for
+The goal is still one URL (`WALK_ROUTER_URL`, and later a similar var for
 Tracklayer/ORS migration) that this app calls — the specific tunnel mechanism is an
 implementation detail behind that URL, not something callers need to know about.
 
 ## Setup checklist for the home-server session
 
-1. Confirm Docker is installed on the home box (RAM/disk free, OS/distro).
-2. Pull `ghcr.io/valhalla/valhalla`, download the Virginia (or Charlottesville-extracted)
-   `.osm.pbf` from Geofabrik, run the tile build.
-3. Verify locally on the home box: `curl` the Valhalla `/route` endpoint with a
+1. ~~Confirm Docker is installed on the home box (RAM/disk free, OS/distro).~~ Done --
+   home box is an 8GB-RAM Windows 11 machine; Docker runs inside a VirtualBox Ubuntu VM
+   rather than Docker Desktop directly (Windows' WSL2/Hyper-V component store was
+   corrupted and not worth fighting; VirtualBox sidesteps it entirely).
+2. ~~Pull `ghcr.io/valhalla/valhalla`, download the Virginia (or
+   Charlottesville-extracted) `.osm.pbf` from Geofabrik, run the tile build.~~ Done --
+   note the image is the bare Valhalla binaries, not a self-building wrapper: config via
+   `valhalla_build_config`, tiles via `valhalla_build_tiles`, served via
+   `valhalla_service config.json 1`. No `tiles.tar` extract was built (not required --
+   `tile_dir` alone works fine), and no admin/timezone sqlite databases were built either
+   (not needed for pedestrian/auto costing without time-dependent restrictions).
+3. ~~Verify locally on the home box: `curl` the Valhalla `/route` endpoint with a
    `pedestrian` costing request between two known Charlottesville points, confirm it
-   returns a sane polyline.
-4. Stand up connectivity back to the Fly app (Tailscale recommended, see above).
-5. Set `WALK_ROUTER_URL` on the Fly app (`fly secrets set` or `fly.toml`, per the user's
-   own judgment on secret vs. plain env var) and implement the `estimate_walk_leg()`
-   branch described above.
+   returns a sane polyline.~~ Done -- UVA Rotunda to the Downtown Mall returns real
+   sidewalk/stairs-level turn-by-turn.
+4. ~~Stand up connectivity back to the Fly app.~~ Done on the home-box side (Tailscale on
+   the Windows host, VirtualBox NAT rebound to all interfaces). **Not yet done on the Fly
+   side**: `TS_AUTHKEY` needs to be generated (Tailscale admin console) and set as a Fly
+   secret, and a real deploy needs to confirm the Fly machine can actually reach the
+   proxy and the home box.
+5. `estimate_walk_leg()`'s router branch is implemented in `trip_planner.py`, and
+   `WALK_ROUTER_URL`/`WALK_ROUTER_PROXY_URL` are wired through, but **`WALK_ROUTER_URL`
+   is not yet set on Fly** -- until it is, this is a no-op and behavior is unchanged.
+   Once `TS_AUTHKEY` is set and a deploy confirms Tailscale connects, set
+   `WALK_ROUTER_URL=http://<home-box-tailscale-ip>:8002/route` and
+   `WALK_ROUTER_PROXY_URL=http://localhost:1055` as Fly secrets/env.
 6. Once that's solid, treat `/api/routes/leg` / `/api/ondemand/routes` migrating off
    hosted ORS to the same engine (`auto` costing) as a separate follow-up task, and
    Tracklayer's road-snapping (also `auto`, or a custom costing for "prefer roads a bus

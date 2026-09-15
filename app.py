@@ -15816,7 +15816,12 @@ async def trip_planner_plan(
         except Exception as exc:
             print(f"[trip-planner] hop-time model unavailable, using flat estimate: {exc}")
 
-    itineraries = trip_planner.find_trips(
+    # find_trips can call out to the self-hosted walk router (see trip_planner.py's
+    # estimate_walk_leg / ROUTING_ENGINE.md) once per walk leg it evaluates -- run it off
+    # the event loop so a slow/unreachable router doesn't stall unrelated requests, same
+    # concern as /v1/eta/uts_stop_arrivals above.
+    itineraries = await asyncio.to_thread(
+        trip_planner.find_trips,
         origin=origin,
         destination=destination,
         lines=lines,
