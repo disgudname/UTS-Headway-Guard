@@ -85,7 +85,7 @@ export class TripPlannerPanel {
     el.className = 'tp-widget';
     el.innerHTML = `
       <button type="button" class="tp-toggle" aria-expanded="false" aria-label="Plan a trip">
-        <span class="tp-toggle-icon" aria-hidden="true"></span>
+        <span class="tp-toggle-icon" aria-hidden="true">${ICONS.pin}</span>
         <span class="tp-toggle-label">Plan a trip</span>
       </button>`;
 
@@ -810,7 +810,18 @@ export class TripPlannerPanel {
       <span class="tp-center-pin-hint">Drag the map to move the pin</span>
       <button type="button" class="tp-center-pin-confirm">Set ${field === 'origin' ? 'origin' : 'destination'}</button>`;
     bar.querySelector('.tp-center-pin-confirm').addEventListener('click', () => this._confirmAdjusting());
-    container.appendChild(bar);
+    // A fixed viewport-bottom offset sits UNDER the mobile bottom sheet --
+    // confirmed live, the confirm button was unreachable, covered by the
+    // sheet at every one of its peek/half/full detents. Float the bar just
+    // above the sheet's own current top edge instead, so it stays clear no
+    // matter which detent (or mid-drag height) the sheet is resting at.
+    // Appended to document.body (not the map container) for the same reason
+    // .tp-card itself is: `position: fixed` needs an untransformed ancestor.
+    if (this._isMobileLayout() && !this._cardEl.hidden) {
+      const cardTop = this._cardEl.getBoundingClientRect().top;
+      bar.style.bottom = `${Math.max(16, window.innerHeight - cardTop + 12)}px`;
+    }
+    document.body.appendChild(bar);
     this._centerPinBar = bar;
   }
 

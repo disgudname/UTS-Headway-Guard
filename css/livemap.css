@@ -1077,6 +1077,7 @@ body {
   .map-ctrl-navhere,
   .map-ctrl-tp-slot .tp-toggle {
     width: 40px;
+    height: 40px;
     padding: 0;
     justify-content: center;
   }
@@ -2513,13 +2514,13 @@ body {
 .tp-toggle:hover {
   background: var(--hover-bg);
 }
+/* An actual SVG glyph (ICONS.pin in trip-planner-panel.js) now, not a CSS-
+   drawn shape -- the old hollow border-trick teardrop read as faint/flat
+   next to the cluster's bolder stroke-based SVG icons once this button
+   collapsed to icon-only at phone width (confirmed live: "ended up kinda
+   flat" on a real phone), so it's been swapped for the same icon style. */
 .tp-toggle-icon {
-  width: 14px;
-  height: 14px;
-  border: 2px solid currentColor;
-  border-radius: 50% 50% 50% 0;
-  transform: rotate(-45deg);
-  opacity: 0.75;
+  display: flex;
   flex: 0 0 auto;
 }
 
@@ -3073,7 +3074,7 @@ body {
 }
 
 .tp-center-pin-bar {
-  position: absolute;
+  position: fixed;
   left: 50%;
   bottom: 22px;
   transform: translateX(-50%);
@@ -3085,7 +3086,10 @@ body {
   background: var(--panel-surface);
   border: 1px solid var(--panel-border);
   box-shadow: var(--panel-shadow);
-  z-index: 5;
+  /* Above .tp-card (470) -- on the mobile bottom sheet this bar floats just
+     above the sheet's own top edge (see _showCenterPin's inline `bottom`),
+     which only works if it isn't drawn underneath the sheet to begin with. */
+  z-index: 480;
   white-space: nowrap;
 }
 .tp-center-pin-hint {
