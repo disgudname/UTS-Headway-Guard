@@ -15752,6 +15752,7 @@ def _serialize_leg(leg) -> Dict[str, Any]:
             # stop layer (see ui/trip-planner-panel.js).
             "stops": [_stop_out(s) for s in leg.path],
             "waitS": leg.wait_s,
+            "waitSSource": leg.wait_s_source,
             "rideS": leg.ride_s,
             "rideSSource": leg.ride_s_source,
             "serviceEndsTs": leg.service_ends_ts,

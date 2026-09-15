@@ -778,11 +778,18 @@ export class TripPlannerPanel {
     const known = step.waitS != null;
     const mins = known ? Math.max(0, Math.round(step.waitS / 60)) : null;
     const timeLabel = !known ? '' : mins < 1 ? '&lt;1 min' : `${mins} min`;
+    // "extrapolated" -- no live arrival reaches this far out (common on a
+    // sparsely-vehicled route like Silver), so this is projected from the route's
+    // own recently-observed headway rather than a directly-seen upcoming bus. Same
+    // "estimated" language as a heuristic ride duration, not a separate concept.
+    const estimated = step.waitSSource === 'extrapolated' ? ' · estimated' : '';
     return `
       <div class="tp-leg tp-leg--wait${lastClass}">
         <span class="tp-leg-dot tp-leg-dot--wait"></span>
         <span class="tp-leg-text">${
-          known ? `Wait <b>${timeLabel}</b>` : '<span class="tp-leg-sub--muted">Wait time unknown</span>'
+          known
+            ? `Wait <b>${timeLabel}</b><span class="tp-leg-sub">${estimated}</span>`
+            : '<span class="tp-leg-sub--muted">Wait time unknown</span>'
         }</span>
       </div>`;
   }
@@ -887,12 +894,13 @@ export class TripPlannerPanel {
     const known = leg.waitS != null;
     const mins = known ? Math.max(0, Math.round(leg.waitS / 60)) : null;
     const timeLabel = known ? (mins < 1 ? '<1 min' : `${mins} min`) : null;
+    const estimated = leg.waitSSource === 'extrapolated' ? ' · estimated' : '';
     return `
       <div class="tp-detail-step tp-detail-step--wait">
         <span class="tp-leg-dot tp-leg-dot--wait"></span>
         <div class="tp-detail-step-body">
           <div class="tp-detail-step-main">
-            ${known ? `Wait ${timeLabel}` : '<span class="tp-leg-sub--muted">Wait time unknown</span>'}
+            ${known ? `Wait ${timeLabel}${estimated}` : '<span class="tp-leg-sub--muted">Wait time unknown</span>'}
           </div>
         </div>
       </div>`;
@@ -988,7 +996,7 @@ function timelineSteps(legs) {
     if (leg.kind === 'walk') {
       steps.push({ type: 'walk', leg });
     } else {
-      steps.push({ type: 'wait', waitS: leg.waitS });
+      steps.push({ type: 'wait', waitS: leg.waitS, waitSSource: leg.waitSSource });
       steps.push({ type: 'ride', leg });
     }
   }

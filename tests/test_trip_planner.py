@@ -206,6 +206,45 @@ def test_ride_leg_cat_not_recommended_when_every_live_bus_is_uncatchable():
     assert tp._ride_leg(line, 0, 2, board_time, when, None, live_wait_lookup) is None
 
 
+def test_ride_leg_extrapolates_wait_past_a_sparse_vehicle_stops_known_arrivals():
+    # Regression for a real bug reported live: a sparsely-vehicled loop route (e.g.
+    # Silver, 2 vehicles) only ever reports each vehicle's single NEXT pass at a stop
+    # -- once a rider's first leg (or just a longer walk) takes longer than every
+    # known arrival, "wait unknown" showed up even with bus_eta's own farther-
+    # reaching estimates merged in (see app.py's _bus_eta_wait_lookup), because
+    # neither source had a THIRD, later arrival to offer. The route obviously keeps
+    # running -- extrapolate the next arrival from the real observed gap between the
+    # two known ones instead of giving up.
+    service = tp.RouteService(windows={"67": [(_ts(5), _ts(22))]})
+    line = _line("67")
+    when = _ts(12)
+    board_time = when + 500.0  # takes ~8.3 minutes to walk/transfer to the stop
+    # Known gap is 60s; both arrivals are already too soon for a rider arriving at
+    # 500s. Extrapolating forward from the later one (360s) by the 60s gap reaches
+    # 420, 480, 540 -- the first at or past 500.
+    live_wait_lookup = {("67", "67-A"): [300.0, 360.0]}
+    result = tp._ride_leg(line, 0, 2, board_time, when, service, live_wait_lookup)
+    assert result is not None
+    leg, _alight_time = result
+    assert leg.wait_s_source == "extrapolated"
+    assert abs(leg.wait_s - (540.0 - 500.0)) < 0.01
+
+
+def test_ride_leg_does_not_extrapolate_from_a_single_uncatchable_arrival():
+    # A lone data point gives no real headway to measure -- extrapolating off nothing
+    # would be a guess dressed up as data, not an estimate. Must still report unknown.
+    service = tp.RouteService(windows={"67": [(_ts(5), _ts(22))]})
+    line = _line("67")
+    when = _ts(12)
+    board_time = when + 500.0
+    live_wait_lookup = {("67", "67-A"): [60.0]}  # long gone before the rider arrives
+    result = tp._ride_leg(line, 0, 2, board_time, when, service, live_wait_lookup)
+    assert result is not None
+    leg, _alight_time = result
+    assert leg.wait_s is None
+    assert leg.wait_s_source is None
+
+
 def test_ride_leg_path_includes_every_stop_in_travel_order():
     service = tp.RouteService(windows={"67": [(_ts(5), _ts(22))]})
     line = _line("67")
@@ -339,6 +378,28 @@ def test_hop_distance_non_loop_cannot_go_backward():
 def test_hop_distance_loop_wraps_around():
     line = _line("67", loop=True)
     assert tp._hop_distance(line, 2, 0) == 1  # wraps past the end back to index 0
+
+
+# --- ranking: transfer penalty ------------------------------------------------------
+
+
+def test_build_itinerary_penalizes_transfers_in_rank_cost_only():
+    # A transfer costs real minutes beyond the clock time it adds -- a missed
+    # connection, an unfamiliar stop, an extra wait outdoors. TRANSFER_RANK_PENALTY_S
+    # makes a one-transfer itinerary need to beat a same-shape direct one by more than
+    # that to out-rank it (user-specified: 3 minutes). Must only affect rank_cost --
+    # never the real total shown to the rider.
+    walk = tp.WalkLeg(duration_s=100.0)
+    ride = tp.RideLeg(wait_s=50.0, ride_s=200.0)
+
+    direct = tp._build_itinerary([walk, ride, walk])  # 1 ride leg -> 0 transfers
+    one_transfer = tp._build_itinerary([walk, ride, walk, ride, walk])  # 2 ride legs -> 1 transfer
+
+    assert direct.rank_cost == 2 * tp.WALK_RANK_WEIGHT * 100.0 + 250.0
+    # one_transfer has one more walk leg (100s) and one more ride leg (250s) than
+    # direct, plus the flat per-transfer penalty.
+    assert one_transfer.rank_cost == direct.rank_cost + tp.WALK_RANK_WEIGHT * 100.0 + 250.0 + tp.TRANSFER_RANK_PENALTY_S
+    assert one_transfer.total_duration_s == direct.total_duration_s + 100.0 + 250.0
 
 
 # --- find_trips: end-to-end direct itinerary ---------------------------------------

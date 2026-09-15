@@ -22,6 +22,7 @@ from __future__ import annotations
 import math
 import os
 import re
+import statistics
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 from typing import Callable, Dict, List, Optional, Tuple
@@ -59,6 +60,16 @@ WALK_ROUTER_TIMEOUT_S = 2.0
 # unweighted total. 1.4 is a starting point (common range for this kind of walk
 # penalty in transit routing is roughly 1.3-2x), not derived from rider data.
 WALK_RANK_WEIGHT = 1.4
+
+# A transfer is a real cost beyond the minutes it takes -- a missed connection,
+# unfamiliar stop, or an extra wait in the weather all make a same-duration trip with
+# a transfer worse than one without. Added to rank_cost per transfer (see
+# _build_itinerary) so a one-transfer option must beat a direct/walk-only one by MORE
+# than this to out-rank it -- i.e. a direct option up to TRANSFER_RANK_PENALTY_S
+# *slower* still wins. Only affects ranking/ordering, never the duration shown to the
+# rider (Itinerary.total_duration_s is always the real, unweighted total, same
+# principle as WALK_RANK_WEIGHT above). User-specified: 3 minutes.
+TRANSFER_RANK_PENALTY_S = 180.0
 
 # --- service windows / interlining -----------------------------------------------
 
@@ -362,6 +373,7 @@ class RideLeg:
     # used for hop-counting/routing, which stays based on `path`/stop indices.
     coordinates: List[Tuple[float, float]] = field(default_factory=list)
     wait_s: Optional[float] = None  # None = no live ETA available
+    wait_s_source: Optional[str] = None  # "live" | "extrapolated" -- see _first_catchable_wait
     ride_s: Optional[float] = None
     ride_s_source: str = "heuristic"  # "historical" if every segment came from real data
     service_ends_ts: Optional[float] = None
@@ -538,18 +550,50 @@ def _estimate_ride_seconds(
     return total, ("historical" if all_historical else "heuristic")
 
 
-def _first_catchable_wait(times: Optional[List[float]], min_wait_s: float) -> Optional[float]:
+MAX_HEADWAY_EXTRAPOLATIONS = 20  # guard against spinning forever on a bogus/zero headway
+
+
+def _first_catchable_wait(times: Optional[List[float]], min_wait_s: float) -> Optional[Tuple[float, str]]:
     """`times` is every vehicle currently en route to this stop, as seconds-from-now
-    (TransLoc/CAT report one entry per active vehicle, not just the single soonest --
-    see _uts_live_wait_lookup/_cat_live_wait_lookup in app.py). Only an entry at or
-    after `min_wait_s` (how long from now the rider will actually be standing at the
-    stop) is a bus they can catch; anything sooner will have already left. `times` is
-    sorted ascending, so the first catchable entry is also the soonest one."""
+    (TransLoc/CAT report one entry per active vehicle, not just the single soonest,
+    and bus_eta.py's own estimates are merged in alongside them -- see
+    _uts_live_wait_lookup/_bus_eta_wait_lookup/_cat_live_wait_lookup in app.py). Only
+    an entry at or after `min_wait_s` (how long from now the rider will actually be
+    standing at the stop) is a bus they can catch; anything sooner will have already
+    left. `times` is sorted ascending, so the first catchable entry is also the
+    soonest one. Returns (seconds, "live") for a real known upcoming arrival.
+
+    If NONE of the known arrivals are catchable, extrapolate one forward using the
+    real observed gap between the known arrivals (a live proxy for this route's
+    actual current headway) instead of giving up -- confirmed live: on a
+    sparsely-vehicled loop route (e.g. Silver, 2 vehicles), every source only ever
+    reports each vehicle's single NEXT pass at a stop; once a rider's first leg takes
+    longer than both of those, "wait unknown" showed up even with bus_eta's own
+    farther-reaching estimates merged in, because neither source has any THIRD,
+    later arrival to offer -- the route obviously keeps running, there's just no
+    direct observation of when it'll next be there. Returns (seconds, "extrapolated")
+    in that case. Needs at least 2 known times to have a real gap to measure; a
+    single already-too-soon data point gives no basis to guess one, so that case
+    (and an empty/all-non-positive-gap list) still returns None -- extrapolating off
+    nothing would be a guess dressed up as data, not an estimate."""
     if not times:
         return None
     for t in times:
         if t >= min_wait_s:
-            return t
+            return (t, "live")
+    if len(times) < 2:
+        return None
+    gaps = [b - a for a, b in zip(times, times[1:]) if b > a]
+    if not gaps:
+        return None
+    headway = statistics.median(gaps)
+    if headway <= 0:
+        return None
+    projected = times[-1]
+    for _ in range(MAX_HEADWAY_EXTRAPOLATIONS):
+        if projected >= min_wait_s:
+            return (projected, "extrapolated")
+        projected += headway
     return None
 
 
@@ -559,10 +603,11 @@ def _live_wait_with_chain(
     route_service: Optional[RouteService],
     live_wait_lookup: Dict[Tuple[str, str], List[float]],
     min_wait_s: float = 0.0,
-) -> Optional[float]:
-    """Soonest live wait (seconds from now) for this line/stop that the rider could
-    actually catch given `min_wait_s`, following the same interline chain that extends
-    a route's service window forward (RouteService.effective_window) if the line's own
+) -> Optional[Tuple[float, str]]:
+    """Soonest (seconds, source) wait for this line/stop that the rider could actually
+    catch given `min_wait_s` -- source is "live" or "extrapolated", see
+    _first_catchable_wait -- following the same interline chain that extends a
+    route's service window forward (RouteService.effective_window) if the line's own
     id has no catchable entry.
 
     Why this matters: TransLoc's live vehicle feed reports under whichever RouteID is
@@ -618,7 +663,7 @@ def _ride_leg(
     board_stop = line.stops[board_idx]
     alight_stop = line.stops[alight_idx]
     min_wait_s = max(0.0, board_time - when)  # how long it takes to walk/transfer here
-    absolute_wait_s = _live_wait_with_chain(line, board_stop.id, route_service, live_wait_lookup, min_wait_s)
+    wait_result = _live_wait_with_chain(line, board_stop.id, route_service, live_wait_lookup, min_wait_s)
     ride_s, ride_s_source = _estimate_ride_seconds(line, board_idx, alight_idx, board_time, hop_time_fn)
 
     # absolute_wait_s is seconds-from-`when` (already picked to be >= min_wait_s, i.e. a
@@ -628,12 +673,14 @@ def _ride_leg(
     # is not what a rider means by "wait" -- they mean how long they stand at the stop
     # *after* walking there. Subtracting the walk/transfer time they've already spent
     # gives that real, experienced wait instead of double-counting it.
-    if absolute_wait_s is not None:
+    if wait_result is not None:
+        absolute_wait_s, wait_s_source = wait_result
         actual_board_time = when + absolute_wait_s
         wait_s: Optional[float] = max(0.0, absolute_wait_s - min_wait_s)
     else:
         actual_board_time = board_time
         wait_s = None
+        wait_s_source = None
     service_ends_ts: Optional[float] = None
     last_ride_warning = False
 
@@ -652,10 +699,15 @@ def _ride_leg(
         service_ends_ts = end_ts
         last_ride_warning = (end_ts - actual_board_time) <= LAST_RIDE_WARNING_S
     else:
-        # CAT: no block-schedule data available (separate agency/API). Require a live
-        # ETA as the availability signal -- no live arrival means don't recommend it,
-        # rather than presenting a pattern that may not actually be running right now.
-        if wait_s is None:
+        # CAT: no block-schedule data available (separate agency/API), unlike UTS
+        # above which double-checks an extrapolated wait against route_service's real
+        # effective_window. Require a genuinely LIVE ETA as the availability signal --
+        # an extrapolated one is a real, well-founded projection (see
+        # _first_catchable_wait) but is still just a guess about whether the route is
+        # STILL running by then, and CAT has no independent way to check that guess.
+        # No live arrival at all, or only an extrapolated one, means don't recommend
+        # it, rather than presenting a pattern that may not actually be running.
+        if wait_s is None or wait_s_source == "extrapolated":
             return None
 
     path = _path_stops(line, board_idx, alight_idx)
@@ -669,6 +721,7 @@ def _ride_leg(
         path=path,
         coordinates=coordinates,
         wait_s=wait_s,
+        wait_s_source=wait_s_source,
         ride_s=ride_s,
         ride_s_source=ride_s_source,
         service_ends_ts=service_ends_ts,
@@ -938,15 +991,21 @@ def _build_itinerary(legs: List[object]) -> Itinerary:
     total = 0.0
     rank_cost = 0.0
     is_estimate = False
+    ride_leg_count = 0
     for leg in legs:
         if isinstance(leg, WalkLeg):
             total += leg.duration_s
             rank_cost += WALK_RANK_WEIGHT * leg.duration_s
             is_estimate = is_estimate or leg.source == "straight_line"
         elif isinstance(leg, RideLeg):
+            ride_leg_count += 1
             if leg.wait_s is None or leg.ride_s is None:
                 is_estimate = True
             ride_time = (leg.wait_s or 0.0) + (leg.ride_s or 0.0)
             total += ride_time
             rank_cost += ride_time
+    # Number of ride legs minus one -- a walk-only (0 ride legs) or direct (1 ride leg)
+    # itinerary has 0 transfers; connecting two lines (2 ride legs) has 1, etc.
+    transfers = max(0, ride_leg_count - 1)
+    rank_cost += transfers * TRANSFER_RANK_PENALTY_S
     return Itinerary(legs=legs, total_duration_s=total, rank_cost=rank_cost, duration_is_estimate=is_estimate)
