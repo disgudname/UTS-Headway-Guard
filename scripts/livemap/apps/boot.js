@@ -31,6 +31,7 @@ import { SearchBox } from '../ui/search.js';
 import { KioskStatus } from '../ui/kiosk-status.js';
 import { installTripPlanner } from '../core/trip-planner.js';
 import { TripPlannerPanel } from '../ui/trip-planner-panel.js';
+import { MapControls } from '../ui/map-controls.js';
 
 /** MapLibre GL v5 renders only through WebGL 2. */
 function hasWebGL2() {
@@ -121,10 +122,19 @@ async function boot() {
     if (getOperatorMode() === 'adminKiosk') startKioskSchedule();
   } else {
     new Panels().mount();
-    new SearchBox().mount();
+    // Mounted after Panels (DOM order matters -- see the sibling selector in
+    // css/livemap.css that syncs this cluster's position to the right column's
+    // away-state) and before the trip planner, whose own toggle button lives
+    // inside this cluster now instead of its old standalone bottom-centre pill.
+    const mapControls = new MapControls().mount();
     installCoordCopy();
     installTripPlanner();
-    new TripPlannerPanel().mount();
+    const tripPlannerPanel = new TripPlannerPanel().mount(mapControls.tripPlannerSlot);
+    // The "Navigate here" button is a shortcut INTO the planner -- once it's up
+    // (however it got opened) the button has done its job and would otherwise
+    // just sit there stale next to the very panel it opened.
+    tripPlannerPanel.onExpand(() => mapControls.setNavigateHere(null));
+    new SearchBox().mount(document.body, { mapControls, tripPlannerPanel });
   }
 
   loading?.classList.add('is-hidden');

@@ -934,6 +934,158 @@ body {
   pointer-events: none;
 }
 
+/* --- bottom-right control cluster (ui/map-controls.js) --------------------
+   Zoom in/out, "my location", the trip planner's own toggle, and a contextual
+   "Navigate here" button, all in one bar. Replaces MapLibre's stock
+   NavigationControl, which the right column above could grow tall enough to
+   sit on top of (confirmed live: "zoom controls are hidden under the right
+   panel") -- this cluster instead SLIDES to stay clear of that column
+   whenever it's open (the same sibling-selector technique
+   .livemap-right-column.is-away already establishes elsewhere in this file),
+   while remaining its own separate floating bar -- own border/shadow/radius,
+   never touching the column's box -- rather than looking merged with it. */
+.map-ctrl-cluster {
+  position: absolute;
+  right: 10px;
+  bottom: 22px;
+  z-index: 455;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  transition: transform var(--dur) var(--ease);
+}
+/* DOM order matters here: boot.js mounts this cluster right after Panels, so
+   it's a later sibling of .livemap-right-column and this selector can see its
+   away-state. Shifts left by the column's own width + its slide gap so the
+   two never overlap, regardless of how tall the column's content happens to
+   render. */
+.livemap-right-column:not(.is-away) ~ .map-ctrl-cluster {
+  transform: translateX(calc(-232px - 14px));
+}
+
+.map-ctrl-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  height: 40px;
+  min-width: 40px;
+  padding: 0 12px;
+  border: 1px solid var(--panel-border);
+  border-radius: var(--radius-pill);
+  background: var(--panel-surface);
+  box-shadow: var(--panel-shadow);
+  color: var(--panel-fg);
+  font: 600 var(--fs-md)/1 inherit;
+  cursor: pointer;
+  backdrop-filter: var(--panel-blur);
+}
+.map-ctrl-btn:hover {
+  background: var(--hover-bg);
+}
+.map-ctrl-btn[hidden] {
+  display: none !important;
+}
+
+.map-ctrl-locate,
+.map-ctrl-zoom-in,
+.map-ctrl-zoom-out {
+  padding: 0;
+  width: 40px;
+}
+
+.map-ctrl-zoom {
+  display: flex;
+  border: 1px solid var(--panel-border);
+  border-radius: var(--radius-pill);
+  overflow: hidden;
+  box-shadow: var(--panel-shadow);
+  backdrop-filter: var(--panel-blur);
+}
+.map-ctrl-zoom .map-ctrl-btn {
+  border: none;
+  border-radius: 0;
+  box-shadow: none;
+  backdrop-filter: none;
+}
+.map-ctrl-zoom .map-ctrl-btn + .map-ctrl-btn {
+  border-left: 1px solid var(--panel-border);
+}
+
+/* Contextual -- hidden until ui/search.js's setNavigateHere() shows it, and
+   stuck to the LEFT end of the cluster. */
+.map-ctrl-navhere {
+  order: -1;
+  color: #fff;
+  background: var(--accent);
+  border-color: var(--accent);
+}
+.map-ctrl-navhere:hover {
+  filter: brightness(1.08);
+}
+
+/* The trip planner toggle mounts here as a plain flex child now (see
+   trip-planner-panel.js's mount()) instead of its old independently
+   `position: fixed` bottom-centre pill. */
+.map-ctrl-tp-slot {
+  display: contents;
+}
+.map-ctrl-tp-slot .tp-widget {
+  display: contents;
+}
+
+/* Google-Maps-style "my location" marker -- pulse ring + solid core, centred
+   on the coordinate via the marker's own `anchor: 'center'`. */
+.map-ctrl-userdot {
+  position: relative;
+  width: 16px;
+  height: 16px;
+}
+.map-ctrl-userdot-core {
+  position: absolute;
+  inset: 0;
+  margin: auto;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: #1a73e8;
+  border: 2px solid #fff;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.4);
+}
+.map-ctrl-userdot-pulse {
+  position: absolute;
+  inset: 0;
+  margin: auto;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: rgba(26, 115, 232, 0.35);
+  animation: map-ctrl-userdot-pulse 2.2s ease-out infinite;
+}
+@keyframes map-ctrl-userdot-pulse {
+  0% { transform: scale(1); opacity: 0.7; }
+  100% { transform: scale(2.6); opacity: 0; }
+}
+
+/* Phone width: confirmed live, "Navigate here" + "Plan a trip" showing as text
+   pills at the same time (a building selected but the planner not open yet)
+   ran the cluster past a 390px-wide viewport, pushing the zoom buttons half
+   off-screen. Both collapse to icon-only circles here -- same 40px size as
+   the locate/zoom buttons -- accessible name preserved via each button's own
+   aria-label since the visible label text is what's hidden. */
+@media (max-width: 480px) {
+  .map-ctrl-navhere,
+  .map-ctrl-tp-slot .tp-toggle {
+    width: 40px;
+    padding: 0;
+    justify-content: center;
+  }
+  .map-ctrl-label,
+  .tp-toggle-label {
+    display: none;
+  }
+}
+
 /* Cooler surface on the right column so the read-only monitoring side reads
    as distinct from the left control panel. */
 .livemap-right-column .livemap-panel {
@@ -1993,6 +2145,13 @@ body {
   .livemap-right-column:not(.is-away) ~ .livemap-search {
     display: none;
   }
+
+  /* At this width the open right column is itself near-full-width (see its own
+     width rule above), so sliding the cluster left by a fixed offset wouldn't
+     clear it -- hide entirely instead, same as the search bar just above. */
+  .livemap-right-column:not(.is-away) ~ .map-ctrl-cluster {
+    display: none;
+  }
 }
 
 /* --- overlapping-marker menu ---------------------------------------------- */
@@ -2307,28 +2466,20 @@ body {
 }
 
 /* ---------------------------------------------------------------------------
- * Trip planner (bottom-centre — the Panels columns run near-full-height down
- * the left/right edges, so a corner spot collides with them on anything but a
- * tall viewport; bottom-centre is where .livemap-follow-chip already lives,
- * confirmed clear of both columns and the top-centre search box). Same panel
- * design language as the rest of livemap: --panel-* / --radius-* / --fs-*
- * tokens, --accent for the active state.
+ * Trip planner. The collapsed toggle lives inside ui/map-controls.js's
+ * bottom-right cluster (.map-ctrl-tp-slot, styled above alongside the rest of
+ * that cluster) rather than its own independently-positioned pill. The
+ * expanded card is a SEPARATE story: it docks to the left edge like Maps' own
+ * directions panel, `position: fixed` against the viewport regardless of
+ * where the toggle lives, so it can cover that edge (layered above --
+ * z-index 470 vs .livemap-panel--left's 450 -- the main UVA Transit panel
+ * while open). Mobile (see the (max-width: 768px) block at the end of this
+ * file): the card becomes a bottom sheet instead, the other half of "two
+ * layouts, like Maps". Same panel design language as the rest of livemap:
+ * --panel-* / --radius-* / --fs-* tokens, --accent for the active state.
  * ------------------------------------------------------------------------- */
 
-/* The collapsed toggle stays bottom-centre (proven clear of both side columns --
-   see the original note this replaced). The expanded card is a SEPARATE story: it
-   docks to the left edge like Maps' own directions panel, `position: fixed` against
-   the viewport rather than positioned relative to this small bottom-centre wrapper,
-   so it can cover that edge (layered above -- z-index 470 vs .livemap-panel--left's
-   450 -- the main UVA Transit panel while open) independent of where the toggle
-   lives. Mobile (see the (max-width: 768px) block at the end of this file): the
-   card becomes a bottom sheet instead, the other half of "two layouts, like Maps". */
 .tp-widget {
-  position: absolute;
-  left: 50%;
-  bottom: 22px;
-  transform: translateX(-50%);
-  z-index: 460;
   font: 400 var(--fs-sm)/1.35 inherit;
   color: var(--panel-fg);
 }
@@ -3016,6 +3167,21 @@ body {
     border-radius: var(--radius-pill);
     background: rgba(255, 255, 255, 0.5);
   }
+  /* The drag surface is the WHOLE navy top bar, not just the thin grip strip above
+     it -- matches how the two already read as one continuous bar visually (see the
+     handle's navy background above). _wireDragHandle ignores a pointerdown that
+     lands on .tp-back/.tp-close so they still work as plain taps. */
+  .tp-card-head {
+    cursor: grab;
+    touch-action: none;
+  }
+  .tp-card--dragging .tp-card-head {
+    cursor: grabbing;
+  }
+  .tp-card-head .tp-back,
+  .tp-card-head .tp-close {
+    touch-action: auto; /* the buttons themselves stay ordinary taps, not drag surface */
+  }
   /* Detail view, collapsed: only the drag handle + synopsis footer show, so the
      map (now fit to this one itinerary's route) is the main thing on screen --
      matches Maps collapsing a selected option down to just its bottom summary bar.
@@ -3025,7 +3191,7 @@ body {
   .tp-card[data-view="detail"]:not(.is-expanded) .tp-results {
     display: none;
   }
-  body.hg-nav-active .tp-widget {
+  body.hg-nav-active .map-ctrl-cluster {
     bottom: calc(22px + var(--hg-nav-bottom-offset, 0px));
   }
   body.hg-nav-active .tp-card {
@@ -3050,6 +3216,14 @@ body {
   display: flex;
   flex-direction: column;
   background: var(--overlay-solid-bg);
+  /* Slides in/out like a screen being pushed/popped (matches having a back
+     arrow, unlike the bottom sheet's up/down motion) -- transform, not
+     left/right, so it animates on its own compositor layer instead of
+     triggering layout on every frame. Base resting state; opening/closing is
+     driven from JS (trip-planner-panel.js's _maybeOpenOverlay/_closeOverlay),
+     same start-flush-end pattern as the sheet's own height animation. */
+  transform: translateX(0);
+  transition: transform var(--dur) var(--ease);
 }
 .tp-search-overlay[hidden] {
   display: none !important; /* same override reason as .tp-card[hidden] above */

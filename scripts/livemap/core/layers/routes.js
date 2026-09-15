@@ -167,6 +167,22 @@ export function setAllHidden(hide) {
   bus.emit('change', routeList());
 }
 
+/** Show exactly the routes with a bus on them right now (same `routeActive` check
+ *  that drives the picker's "no buses" note/dimming) and hide every idle one --
+ *  a one-click "just show me what's actually running" alongside All/None. Clears
+ *  `pinned` too: an idle route the user had pinned on is, by definition, not one
+ *  of "the active routes" this button means to select. */
+export function setActiveOnly() {
+  hidden.clear();
+  pinned.clear();
+  for (const r of routes) {
+    if (!routeActive(r.id)) hidden.add(r.id);
+  }
+  persist();
+  syncSource();
+  bus.emit('change', routeList());
+}
+
 // --- internals ------------------------------------------------------------
 
 /** Does this RouteID have a bus on it in the latest report? */

@@ -35,8 +35,15 @@ const GROUP_LABELS = { vehicle: 'Vehicles', stop: 'Bus stops', building: 'Buildi
 export class SearchBox {
   /** @param {HTMLElement} [parent] where to append the box (default document.body).
    *  vandispatch2 passes its map pane so the box centres over the map, not the
-   *  whole window. */
-  mount(parent = document.body) {
+   *  whole window.
+   *  @param {{mapControls?: import('./map-controls.js').MapControls, tripPlannerPanel?: import('./trip-planner-panel.js').TripPlannerPanel}} [opts]
+   *  When both are given, selecting a building shows a contextual "Navigate
+   *  here" button in the map-controls cluster that pre-fills the trip planner's
+   *  destination and opens its origin picker. Omitted by vandispatch2, which
+   *  has neither. */
+  mount(parent = document.body, { mapControls, tripPlannerPanel } = {}) {
+    this._mapControls = mapControls;
+    this._tripPlannerPanel = tripPlannerPanel;
     const el = document.createElement('div');
     el.className = 'livemap-search';
     el.innerHTML = `
@@ -245,6 +252,7 @@ export class SearchBox {
 
   _pickVehicle(v) {
     clearBuildingHighlight();
+    this._mapControls?.setNavigateHere(null);
     this._followedVehicleId = v.id;
     const map = getMap();
     if (!map) {
@@ -260,6 +268,7 @@ export class SearchBox {
 
   _pickStop(s) {
     clearBuildingHighlight();
+    this._mapControls?.setNavigateHere(null);
     focusStop(s.key);
   }
 
@@ -275,6 +284,18 @@ export class SearchBox {
         { padding: 90, maxZoom: 18, duration: 850 },
       );
     }
+    // "Navigate here": needs a point, which needs a bbox to derive a centre from
+    // -- same requirement ui/trip-planner-panel.js's own building picker has.
+    if (this._mapControls && this._tripPlannerPanel && b.bbox && b.bbox.length >= 4) {
+      const point = {
+        lat: (b.bbox[1] + b.bbox[3]) / 2,
+        lng: (b.bbox[0] + b.bbox[2]) / 2,
+        label: b.name,
+      };
+      this._mapControls.setNavigateHere(() => this._tripPlannerPanel.openForDestination(point));
+    } else {
+      this._mapControls?.setNavigateHere(null);
+    }
   }
 
   _reset(focus) {
@@ -286,6 +307,7 @@ export class SearchBox {
     this._render([]);
     this._closeResults();
     clearBuildingHighlight();
+    this._mapControls?.setNavigateHere(null);
     // Clearing the box (the × button, Escape) while it's following a bus we
     // searched for stops that follow too — the two are meant to travel
     // together. (When onFollowChange calls _reset because following stopped

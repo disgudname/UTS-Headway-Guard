@@ -14,7 +14,7 @@
 
 import { API_BASE } from '../core/config.js';
 import { getMap } from '../core/map.js';
-import { debounce, parseColor, luminance } from '../core/util.js';
+import { debounce, parseColor, luminance, lsGet, lsSet } from '../core/util.js';
 import { onCatEnabled } from '../core/data/cat.js';
 import { getStops as getUtsStops, getRouteName } from '../core/data/transloc.js';
 import { getRouteVisibility, setRouteHidden } from '../core/layers/routes.js';
@@ -38,22 +38,55 @@ const ICONS = {
     '<svg viewBox="0 0 16 16" width="11" height="11" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round" stroke-linecap="round"><path d="M8 1.6 14.8 14H1.2L8 1.6Z"/><path d="M8 6.2v3.4"/><circle cx="8" cy="11.6" r="0.15" fill="currentColor" stroke="none"/></svg>',
   back:
     '<svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M10 3 5 8l5 5"/></svg>',
+  recent:
+    '<svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="8" cy="8.5" r="5.5"/><path d="M8 5.5V8.5L10.2 10"/></svg>',
 };
 
+// Locally-cached previous picks, most-recent-first -- shown in a field's dropdown
+// when it's focused with nothing typed, Google-Maps style (see _showEmptyStateResults).
+// Shared between the origin and destination fields: a place picked as a
+// destination once is just as likely to be searched as an origin later.
+const RECENTS_KEY = 'livemap.tripplanner.recents.v1';
+const MAX_RECENTS = 6;
+
+function loadRecentPoints() {
+  try {
+    const arr = JSON.parse(lsGet(RECENTS_KEY, '[]'));
+    return Array.isArray(arr) ? arr : [];
+  } catch {
+    return [];
+  }
+}
+
+/** Bumps `point` to the front, dedupes on label+coords, caps the list. Skips
+ *  the synthetic "My location"/"Dropped pin" labels -- those describe how a
+ *  point was set, not a place worth resurfacing as a searchable recent. */
+function saveRecentPoint(point) {
+  if (!point || !point.label || point.label === 'My location' || point.label === 'Dropped pin') return;
+  const list = loadRecentPoints().filter(
+    (p) => !(p.label === point.label && p.lat === point.lat && p.lng === point.lng),
+  );
+  list.unshift({ lat: point.lat, lng: point.lng, label: point.label });
+  lsSet(RECENTS_KEY, JSON.stringify(list.slice(0, MAX_RECENTS)));
+}
+
 export class TripPlannerPanel {
+  /** @param {HTMLElement} [parent] where to mount just the collapsed toggle button --
+   *  normally ui/map-controls.js's `tripPlannerSlot`, so it renders as part of that
+   *  bottom-right cluster. The card and full-screen search overlay always mount to
+   *  document.body regardless: both are `position: fixed` against the viewport (see
+   *  below for why), and a `transform` on any ancestor -- which the cluster needs
+   *  for its own slide-with-the-right-panel animation -- becomes the containing
+   *  block for `position: fixed` descendants, confirmed live, the card once
+   *  collapsed to a sliver positioned relative to the toggle instead of the
+   *  viewport when it shared a transformed ancestor with it. */
   mount(parent = document.body) {
-    // Two separate top-level elements, not one nested inside the other: .tp-widget
-    // (just the small bottom-centre toggle) has its own `transform` for centring,
-    // and a `transform` on any ancestor becomes the containing block for
-    // `position: fixed` descendants -- confirmed live, the card collapsed to a
-    // sliver positioned relative to the tiny toggle pill instead of the viewport
-    // when it lived inside .tp-widget. Keeping them as siblings avoids that trap.
     const el = document.createElement('div');
     el.className = 'tp-widget';
     el.innerHTML = `
-      <button type="button" class="tp-toggle" aria-expanded="false">
+      <button type="button" class="tp-toggle" aria-expanded="false" aria-label="Plan a trip">
         <span class="tp-toggle-icon" aria-hidden="true"></span>
-        <span>Plan a trip</span>
+        <span class="tp-toggle-label">Plan a trip</span>
       </button>`;
 
     const cardEl = document.createElement('div');
@@ -121,12 +154,14 @@ export class TripPlannerPanel {
     this._overlayHead = overlayEl.querySelector('.tp-search-overlay-head');
     this._overlayBody = overlayEl.querySelector('.tp-search-overlay-body');
     this._overlayField = null;
+    this._overlayCloseFinish = null; // pending close-animation finisher, if one is in flight
     this._results = cardEl.querySelector('.tp-results');
     this._detailFooter = cardEl.querySelector('.tp-detail-footer');
     this._backBtn = cardEl.querySelector('.tp-back');
     this._cardTitle = cardEl.querySelector('.tp-card-title');
     this._whenInput = cardEl.querySelector('.tp-when-input');
     this._pickMode = null; // 'origin' | 'destination' | null
+    this._sheetDragging = false; // true while a mobile sheet drag owns the gesture -- see _wireDragHandle
     this._when = null; // Date | null ("now")
     this._view = 'list'; // 'list' | 'detail' -- which content _results/_detailFooter show
     this._routesHiddenForPlanning = null; // route IDs hidden while planning, to restore
@@ -152,14 +187,21 @@ export class TripPlannerPanel {
     // Mobile-only bottom sheet: the handle is a real drag, not just a toggle -- see
     // _wireDragHandle. Harmless on desktop, where the handle itself is hidden via CSS
     // and pointer events on it never fire.
-    this._wireDragHandle(cardEl.querySelector('.tp-drag-handle'));
+    this._wireDragHandle(cardEl.querySelector('.tp-drag-handle'), cardEl.querySelector('.tp-card-head'));
 
     this._toggle.addEventListener('click', () => this._setExpanded(true));
     cardEl.querySelector('.tp-close').addEventListener('click', () => {
       this._closeOverlay();
       this._stopPicking(false);
-      this._setExpanded(false);
+      // clearAll() BEFORE _setExpanded(false): it synchronously fires the 'idle'
+      // status, which _renderStatus resets the sheet height for (_setView calls
+      // _resetDragHeight()) -- confirmed live, running it AFTER _setExpanded set
+      // up the close (slide-down-then-hide) animation wiped the just-set height:0
+      // back to '' before the browser ever painted that frame, so the sheet just
+      // snapped shut with no visible animation at all. Settling every OTHER state
+      // change first means _setExpanded's own height assignment is the last word.
       TripPlanner.clearAll();
+      this._setExpanded(false);
     });
     this._backBtn.addEventListener('click', () => this._showList());
     // Tapping the collapsed synopsis bar expands it, same as tapping a selected
@@ -196,10 +238,9 @@ export class TripPlannerPanel {
       this._replan();
     });
 
-    const root = parent || document.body;
-    root.appendChild(el);
-    root.appendChild(cardEl);
-    root.appendChild(overlayEl);
+    (parent || document.body).appendChild(el);
+    document.body.appendChild(cardEl);
+    document.body.appendChild(overlayEl);
     return this;
   }
 
@@ -218,6 +259,26 @@ export class TripPlannerPanel {
     this._overlayEl?.remove();
   }
 
+  /** Registers a single callback fired whenever the panel opens (toggle click,
+   *  or openForDestination below) -- e.g. search.js clears its contextual
+   *  "Navigate here" button once the planner it points at is actually up. */
+  onExpand(fn) {
+    this._onExpand = fn;
+  }
+
+  /** Public entry point for ui/search.js's "Navigate here" button on a selected
+   *  building: pre-fills the destination and puts the rider straight into
+   *  picking an origin, mirroring Maps' "Directions" action from a place card. */
+  openForDestination(point) {
+    if (this._cardEl.hidden) this._setExpanded(true);
+    else this._onExpand?.(); // already open -- _setExpanded(true) (and its hook call) won't run
+    TripPlanner.setDestination(point);
+    // Let the just-opened sheet/sidebar finish laying out before moving focus --
+    // particularly on mobile, where _setExpanded's slide-up animation is still
+    // running and the origin field may not even be at its final size yet.
+    requestAnimationFrame(() => this._fields.origin.input.focus());
+  }
+
   /** Mobile bottom sheet only (no-op everywhere the handle is display:none, i.e.
    *  desktop). Real drag-to-resize -- the sheet follows the pointer 1:1 while
    *  dragging, then snaps to whichever "detent" (candidate resting height) is
@@ -229,55 +290,79 @@ export class TripPlannerPanel {
    *  pointerdown+up (a plain tap, not a drag) jumps straight between the smallest
    *  and largest detent -- the same gesture the old toggle-only handle supported,
    *  so tapping still works for anyone who doesn't drag at all. */
-  _wireDragHandle(handle) {
+  /** `triggers` are every element that should act as the drag surface -- not just
+   *  the thin grip strip. User's ask: the whole navy top bar (grip strip + "Plan a
+   *  trip"/"Trip details" header) should be draggable, matching how it already
+   *  reads as one continuous bar visually (see the drag-handle navy-background fix
+   *  above) -- not just a sliver of it functionally. The back/close buttons living
+   *  inside that header still need to work as plain taps, so a pointerdown that
+   *  lands on one of them is left alone entirely (untouched by drag or the
+   *  tap-toggle below) rather than trying to distinguish "tap the button" from
+   *  "tap-not-drag the header" after the fact. */
+  _wireDragHandle(...triggers) {
     const TAP_THRESHOLD_PX = 6;
     let drag = null;
-    handle.addEventListener('pointerdown', (e) => {
-      handle.setPointerCapture(e.pointerId);
-      drag = {
-        pointerId: e.pointerId,
-        startY: e.clientY,
-        startHeight: this._cardEl.getBoundingClientRect().height,
-        detents: this._computeSheetDetents(),
+    for (const trigger of triggers) {
+      trigger.addEventListener('pointerdown', (e) => {
+        // .tp-card-head is also the always-visible desktop sidebar title bar (no
+        // drag/detent concept there -- see _isMobileLayout's comment) -- without
+        // this guard, grabbing it on desktop would still kick off a drag and pin
+        // an inline height onto a sidebar that's meant to just stretch full height.
+        if (!this._isMobileLayout()) return;
+        if (e.target.closest('.tp-back, .tp-close')) return;
+        e.currentTarget.setPointerCapture(e.pointerId);
+        this._sheetDragging = true;
+        drag = {
+          pointerId: e.pointerId,
+          captureEl: e.currentTarget,
+          startY: e.clientY,
+          startHeight: this._cardEl.getBoundingClientRect().height,
+          detents: this._computeSheetDetents(),
+        };
+        this._cardEl.classList.add('tp-card--dragging');
+        // The base (non-.is-expanded) rule caps height at max-height:46vh -- fine
+        // for the plain two-state toggle, but it silently clamps a dragged/snapped
+        // height that's meant to land anywhere between the peek and full detents
+        // (confirmed live: dragged to the ~50vh "half" detent, inline height was
+        // set correctly, but the box still rendered at 46vh because max-height is
+        // a separate constraint that setting `height` doesn't override).
+        // Neutralized for as long as a manual height is in effect;
+        // _resetDragHeight() puts it back.
+        this._cardEl.style.maxHeight = 'none';
+      });
+      trigger.addEventListener('pointermove', (e) => {
+        if (!drag || e.pointerId !== drag.pointerId) return;
+        const dy = e.clientY - drag.startY; // dragging UP (negative dy) grows the sheet
+        const min = drag.detents[0];
+        const max = drag.detents[drag.detents.length - 1];
+        const next = Math.min(max, Math.max(min, drag.startHeight - dy));
+        this._cardEl.style.height = `${next}px`;
+      });
+      const endDrag = (e) => {
+        if (!drag || e.pointerId !== drag.pointerId) return;
+        drag.captureEl.releasePointerCapture(drag.pointerId);
+        const current = this._cardEl.getBoundingClientRect().height;
+        const detents = drag.detents;
+        const moved = Math.abs(current - drag.startHeight);
+        let target;
+        if (moved < TAP_THRESHOLD_PX) {
+          const mid = (detents[0] + detents[detents.length - 1]) / 2;
+          target = current < mid ? detents[detents.length - 1] : detents[0];
+        } else {
+          target = detents.reduce((best, d) => (Math.abs(d - current) < Math.abs(best - current) ? d : best));
+        }
+        this._cardEl.classList.remove('tp-card--dragging');
+        this._cardEl.style.height = `${target}px`;
+        this._card.classList.toggle('is-expanded', target === detents[detents.length - 1]);
+        drag = null;
+        // Deferred, not immediate: see the input 'focus' listener's comment -- a
+        // stray native focus tied to this gesture can land AFTER pointerup fires,
+        // so the guard needs to still be up for one more tick.
+        setTimeout(() => { this._sheetDragging = false; }, 0);
       };
-      this._cardEl.classList.add('tp-card--dragging');
-      // The base (non-.is-expanded) rule caps height at max-height:46vh -- fine for
-      // the plain two-state toggle, but it silently clamps a dragged/snapped height
-      // that's meant to land anywhere between the peek and full detents (confirmed
-      // live: dragged to the ~50vh "half" detent, inline height was set correctly,
-      // but the box still rendered at 46vh because max-height is a separate
-      // constraint that setting `height` doesn't override). Neutralized for as long
-      // as a manual height is in effect; _resetDragHeight() puts it back.
-      this._cardEl.style.maxHeight = 'none';
-    });
-    handle.addEventListener('pointermove', (e) => {
-      if (!drag || e.pointerId !== drag.pointerId) return;
-      const dy = e.clientY - drag.startY; // dragging UP (negative dy) grows the sheet
-      const min = drag.detents[0];
-      const max = drag.detents[drag.detents.length - 1];
-      const next = Math.min(max, Math.max(min, drag.startHeight - dy));
-      this._cardEl.style.height = `${next}px`;
-    });
-    const endDrag = (e) => {
-      if (!drag || e.pointerId !== drag.pointerId) return;
-      handle.releasePointerCapture(drag.pointerId);
-      const current = this._cardEl.getBoundingClientRect().height;
-      const detents = drag.detents;
-      const moved = Math.abs(current - drag.startHeight);
-      let target;
-      if (moved < TAP_THRESHOLD_PX) {
-        const mid = (detents[0] + detents[detents.length - 1]) / 2;
-        target = current < mid ? detents[detents.length - 1] : detents[0];
-      } else {
-        target = detents.reduce((best, d) => (Math.abs(d - current) < Math.abs(best - current) ? d : best));
-      }
-      this._cardEl.classList.remove('tp-card--dragging');
-      this._cardEl.style.height = `${target}px`;
-      this._card.classList.toggle('is-expanded', target === detents[detents.length - 1]);
-      drag = null;
-    };
-    handle.addEventListener('pointerup', endDrag);
-    handle.addEventListener('pointercancel', endDrag);
+      trigger.addEventListener('pointerup', endDrag);
+      trigger.addEventListener('pointercancel', endDrag);
+    }
   }
 
   /** Detent heights in px, largest last. Measured from the actual content of the
@@ -288,16 +373,29 @@ export class TripPlannerPanel {
    *  out of sync with a font-size or content change. */
   _computeSheetDetents() {
     const vh = window.innerHeight;
-    const handleH = this._cardEl.querySelector('.tp-drag-handle').offsetHeight;
-    if (this._view === 'detail') {
-      return [handleH + (this._detailFooter.offsetHeight || 0), vh * 0.85];
-    }
-    const peek =
-      handleH +
-      this._cardEl.querySelector('.tp-card-head').offsetHeight +
-      this._cardEl.querySelector('.tp-fields').offsetHeight +
-      this._cardEl.querySelector('.tp-when').offsetHeight;
-    return [Math.min(peek, vh * 0.46), vh * 0.5, vh * 0.85];
+    const full = vh * 0.85;
+    const top = this._cardEl.querySelector('.tp-drag-handle').getBoundingClientRect().top;
+    // The direct pixel span from the handle's top to the last visible element's
+    // bottom -- NOT a sum of each child's own offsetHeight. offsetHeight excludes
+    // an element's external margin, and .tp-when (like .tp-fields) carries a
+    // top margin for spacing between rows -- summing offsetHeights silently
+    // dropped that gap, confirmed live: the Now/Later row was clipped on first
+    // open because the computed "peek" came out ~10px shorter than the content
+    // actually needed. A bounding-rect span can't miss a gap like that; it's
+    // measuring the real rendered layout, not reconstructing it from parts.
+    const bottomEl = this._view === 'detail' ? this._detailFooter : this._cardEl.querySelector('.tp-when');
+    const bottom = bottomEl.getBoundingClientRect().bottom;
+    // +4px: a small cushion for the card's own border/padding below the last
+    // element, which this span (deliberately) doesn't otherwise account for.
+    const peek = bottom - top + 4;
+    // Sorted + deduped rather than a flat [peek, half, full]: `peek` used to be
+    // capped at a flat 46vh, which on a short viewport could be SMALLER than the
+    // content it's meant to fit. Only capped against `full` now (a detent taller
+    // than the sheet's own max makes no sense); if that still leaves peek bigger
+    // than the nominal "half" checkpoint, sorting keeps the three detents in
+    // valid ascending order instead of an invalid peek > half.
+    const half = vh * 0.5;
+    return [...new Set([Math.min(peek, full), half, full].sort((a, b) => a - b))];
   }
 
   /** Drops any height a manual drag pinned inline, so the next programmatic state
@@ -310,11 +408,68 @@ export class TripPlannerPanel {
   }
 
   _setExpanded(open) {
-    if (open) this._resetDragHeight(); // reopen at the plain default, not wherever it was last dragged to
-    this._toggle.setAttribute('aria-expanded', String(open));
-    this._card.hidden = !open;
-    this._toggle.hidden = open;
-    this._setRoutesHiddenForPlanning(open);
+    this._setRoutesHiddenForPlanning(open); // real state change happens immediately either way
+    if (open) {
+      this._onExpand?.(); // e.g. search.js clearing its contextual "Navigate here" button
+      this._resetDragHeight(); // reopen at the plain default, not wherever it was last dragged to
+      this._toggle.setAttribute('aria-expanded', 'true');
+      this._toggle.hidden = true; // hide right away -- the sheet is what's animating in now
+      this._card.hidden = false;
+      if (this._isMobileLayout()) {
+        // CSS's static max-height:46vh is a guess that doesn't necessarily fit
+        // this content on a shorter viewport -- confirmed live, it clipped the
+        // Now/Later row on first open. Un-hidden above, so offsetHeight reads
+        // inside _computeSheetDetents() now return real numbers -- measure the
+        // real target BEFORE collapsing to 0 below, since a 0-height flex column
+        // can shrink its children along with it and throw the measurement off.
+        const targetHeight = this._computeSheetDetents()[0];
+        // Slide up from nothing rather than snapping straight to full height: a
+        // freshly-unhidden element has no previous rendered frame for .tp-card's
+        // own `transition: height` to interpolate from, so setting the target
+        // height in the same tick as un-hiding just appears instantly at that
+        // height instead of animating in. Pin height to 0 with the transition
+        // suspended, force a layout flush so the browser commits that as a real
+        // frame, then hand back to the CSS transition for the actual target --
+        // the standard way to animate an element in from a hidden state.
+        this._cardEl.style.transition = 'none';
+        this._cardEl.style.maxHeight = 'none';
+        this._cardEl.style.height = '0px';
+        void this._cardEl.offsetHeight; // force reflow -- commits the 0px frame
+        this._cardEl.style.transition = '';
+        this._cardEl.style.height = `${targetHeight}px`;
+      }
+      return;
+    }
+
+    this._toggle.setAttribute('aria-expanded', 'false');
+    if (!this._isMobileLayout() || this._cardEl.hidden) {
+      // Desktop has no slide concept for this sidebar; already-hidden needs no
+      // animation either.
+      this._card.hidden = true;
+      this._toggle.hidden = false;
+      return;
+    }
+    // Mirror the open animation on the way out -- an instant vanish read as
+    // jarring right next to a sheet that now visibly slides in. Pin the CURRENT
+    // rendered height first (it may be CSS-driven/"none" rather than an explicit
+    // inline px value) so there's a real starting frame for the transition down
+    // to 0, then actually hide once that transition finishes.
+    this._cardEl.style.maxHeight = 'none';
+    this._cardEl.style.height = `${this._cardEl.getBoundingClientRect().height}px`;
+    void this._cardEl.offsetHeight;
+    this._cardEl.style.height = '0px';
+    let done = false;
+    const finish = () => {
+      if (done) return;
+      done = true;
+      this._card.hidden = true;
+      this._toggle.hidden = false;
+      this._resetDragHeight();
+    };
+    this._cardEl.addEventListener('transitionend', finish, { once: true });
+    // Fallback in case transitionend never fires (e.g. reduced-motion collapses
+    // --dur low enough that the browser treats it as a no-op transition).
+    setTimeout(finish, 300);
   }
 
   /** While trip planning is open, hide every ambient route (and, as a side
@@ -342,8 +497,36 @@ export class TripPlannerPanel {
   _wireField(field) {
     const f = this._fields[field];
     f.debouncedSearch = debounce((q) => this._searchField(field, q), DEBOUNCE_MS);
-    f.input.addEventListener('input', () => f.debouncedSearch(f.input.value.trim()));
-    f.input.addEventListener('focus', () => this._maybeOpenOverlay(field));
+    f.input.addEventListener('input', () => {
+      const q = f.input.value.trim();
+      if (!q) {
+        // Cancel rather than let a just-superseded debounced search call land
+        // a beat later and clobber this render with stale stop/building results.
+        f.debouncedSearch.cancel();
+        this._showEmptyStateResults(field);
+        return;
+      }
+      f.debouncedSearch(q);
+    });
+    f.input.addEventListener('focus', () => {
+      // Confirmed live: a real (non-synthetic) drag on the header bar can make the
+      // browser fire a genuine, un-scripted 'focus' event on this input mid-drag --
+      // stack trace showed a bare 2-frame native origin, not a call from anywhere
+      // in this file, even though every pointer event for the whole gesture still
+      // correctly targeted .tp-card-head throughout (capture was never lost). A
+      // synthetic PointerEvent-dispatch reproduction of the same gesture did NOT
+      // trigger it, so this looks like a platform/input-stack quirk specific to a
+      // real held-button drag, not a bug in the drag code's own event handling.
+      // Whatever the exact cause, focus landing here while a sheet drag owns the
+      // gesture is never something a user actually meant -- blur it back out
+      // rather than opening the full-screen search mid-drag.
+      if (this._sheetDragging) {
+        f.input.blur();
+        return;
+      }
+      if (!f.input.value.trim()) this._showEmptyStateResults(field);
+      this._maybeOpenOverlay(field);
+    });
     f.input.addEventListener('keydown', (e) => {
       if (e.key !== 'Escape') return;
       if (this._overlayField === field) this._closeOverlay();
@@ -366,6 +549,11 @@ export class TripPlannerPanel {
 
   _maybeOpenOverlay(field) {
     if (!this._isMobileLayout() || this._overlayField === field) return;
+    // A close animation for the OTHER field might still be in flight (rapid tap
+    // from one field to another) -- finish it synchronously (no animation, just
+    // the cleanup) rather than leaving two fields' worth of DOM parented inside
+    // the overlay at once.
+    if (this._overlayCloseFinish) this._overlayCloseFinish();
     const f = this._fields[field];
     this._overlayField = field;
     this._overlayReturn = { parent: f.wrap.parentNode, next: f.wrap.nextSibling };
@@ -374,6 +562,15 @@ export class TripPlannerPanel {
     this._overlayHead.appendChild(f.wrap);
     this._overlayBody.appendChild(f.results);
     this._overlayEl.hidden = false;
+    // Slide in from the right (a screen being pushed, matching the back arrow) --
+    // same "pin a start frame, flush, hand off to the CSS transition" pattern as
+    // the bottom sheet's own open animation, needed for the same reason: a
+    // freshly-unhidden element has no previous frame to transition from.
+    this._overlayEl.style.transition = 'none';
+    this._overlayEl.style.transform = 'translateX(100%)';
+    void this._overlayEl.offsetHeight;
+    this._overlayEl.style.transition = '';
+    this._overlayEl.style.transform = 'translateX(0)';
     f.input.focus();
   }
 
@@ -382,11 +579,36 @@ export class TripPlannerPanel {
     if (!field) return;
     const f = this._fields[field];
     f.input.blur();
+    if (!this._isMobileLayout() || this._overlayEl.hidden) {
+      this._finishCloseOverlay(field, f);
+      return;
+    }
+    // Slide back out to the right (a screen being popped), then actually detach
+    // once that finishes -- mirrors the open animation, and keeps the field's
+    // DOM visually leaving WITH the overlay instead of jumping back into the
+    // main sheet a beat before the overlay has finished sliding away.
+    this._overlayEl.style.transform = 'translateX(100%)';
+    let done = false;
+    const finish = () => {
+      if (done) return;
+      done = true;
+      this._overlayCloseFinish = null;
+      this._finishCloseOverlay(field, f);
+    };
+    this._overlayCloseFinish = finish;
+    this._overlayEl.addEventListener('transitionend', finish, { once: true });
+    // Fallback in case transitionend never fires (e.g. reduced-motion collapses
+    // --dur low enough that the browser treats it as a no-op transition).
+    setTimeout(finish, 300);
+  }
+
+  _finishCloseOverlay(field, f) {
     f.wrap.classList.remove('tp-field--overlay');
     f.results.classList.remove('tp-field-results--overlay');
     const { parent, next } = this._overlayReturn || {};
     parent?.insertBefore(f.wrap, next || null);
     this._overlayEl.hidden = true;
+    this._overlayEl.style.transform = '';
     this._overlayField = null;
     this._overlayReturn = null;
   }
@@ -429,6 +651,20 @@ export class TripPlannerPanel {
     }
   }
 
+  /** Shown when a field is focused with nothing typed: a pinned "Your Location"
+   *  row (origin only -- destination has no equivalent "use my location" button
+   *  either, see the field markup in mount()) followed by locally-cached recent
+   *  picks, most-recent-first. Google Maps shows the same shape for an empty
+   *  origin/destination field. */
+  _showEmptyStateResults(field) {
+    const f = this._fields[field];
+    const items = [];
+    if (field === 'origin') items.push({ kind: 'location', name: 'Your Location' });
+    for (const p of loadRecentPoints()) items.push({ kind: 'recent', name: p.label, lat: p.lat, lng: p.lng });
+    f.items = items;
+    this._renderFieldResults(field);
+  }
+
   _renderFieldResults(field) {
     const f = this._fields[field];
     if (!f.items.length) {
@@ -448,15 +684,20 @@ export class TripPlannerPanel {
     // query) -- see _renderStatus('idle')'s classList.remove for where this gets
     // cleared back out once the widget is closed/reset.
     this._card.classList.add('is-expanded');
+    const KIND_HEADS = { stop: 'Bus stops', building: 'Buildings', recent: 'Recent' };
     let html = '';
     let prevKind = null;
     f.items.forEach((it, i) => {
-      if (it.kind !== prevKind) {
-        html += `<div class="tp-field-head">${it.kind === 'stop' ? 'Bus stops' : 'Buildings'}</div>`;
-        prevKind = it.kind;
+      // "Your Location" is a single pinned row, not a group -- no header, same
+      // as Google Maps.
+      if (it.kind !== prevKind && it.kind !== 'location') {
+        html += `<div class="tp-field-head">${KIND_HEADS[it.kind] || 'Buildings'}</div>`;
       }
+      prevKind = it.kind;
+      const icon = it.kind === 'location' ? ICONS.locate : it.kind === 'recent' ? ICONS.recent : '';
       html += `
       <button type="button" class="tp-field-item" data-i="${i}">
+        ${icon ? `<span class="tp-field-item-icon">${icon}</span>` : ''}
         <span class="tp-field-item-name"></span>
         <span class="tp-field-item-meta"></span>
       </button>`;
@@ -466,7 +707,7 @@ export class TripPlannerPanel {
       const it = f.items[Number(btn.dataset.i)];
       btn.querySelector('.tp-field-item-name').textContent = it.name;
       btn.querySelector('.tp-field-item-meta').textContent =
-        it.kind === 'stop' ? it.meta : [it.number && `#${it.number}`, it.address].filter(Boolean).join(' · ');
+        it.kind === 'building' ? [it.number && `#${it.number}`, it.address].filter(Boolean).join(' · ') : it.meta || '';
       btn.addEventListener('click', () => this._pickResult(field, it));
     });
     f.results.hidden = false;
@@ -477,7 +718,11 @@ export class TripPlannerPanel {
   }
 
   _pickResult(field, it) {
-    if (it.kind === 'stop') {
+    if (it.kind === 'location') {
+      this._useMyLocation(field);
+      return;
+    }
+    if (it.kind === 'stop' || it.kind === 'recent') {
       this._applyPoint(field, { lat: it.lat, lng: it.lng, label: it.name });
       return;
     }
@@ -594,6 +839,7 @@ export class TripPlannerPanel {
   _applyPoint(field, point) {
     this._closeFieldResults(field);
     if (this._overlayField === field) this._closeOverlay(); // back to the field-pair screen, Maps-style
+    saveRecentPoint(point);
     if (field === 'origin') TripPlanner.setOrigin(point);
     else TripPlanner.setDestination(point);
     this._maybePlan();

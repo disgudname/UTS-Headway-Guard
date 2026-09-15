@@ -69,13 +69,18 @@ export const wait = (ms) => new Promise((r) => setTimeout(r, ms));
 /** Clamp `n` into [min, max]. */
 export const clamp = (n, min, max) => Math.min(max, Math.max(min, n));
 
-/** Trailing-edge debounce. */
+/** Trailing-edge debounce. The returned function also carries `.cancel()`, for
+ *  a caller that needs to drop a pending call rather than let it eventually
+ *  fire (e.g. superseding a debounced search with an instant synchronous
+ *  render for the empty-query case). */
 export function debounce(fn, ms) {
   let t = 0;
-  return (...args) => {
+  const wrapped = (...args) => {
     clearTimeout(t);
     t = setTimeout(() => fn(...args), ms);
   };
+  wrapped.cancel = () => clearTimeout(t);
+  return wrapped;
 }
 
 // --- colour helpers (used by the dark basemap treatment) --------------------

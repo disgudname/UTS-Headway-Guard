@@ -16,7 +16,7 @@ import { getMap } from '../core/map.js';
 import { lsGet, lsSet } from '../core/util.js';
 import { onStatus, onVehicles } from '../core/data/transloc.js';
 import { getThemeMode, setThemeMode, onThemeChange } from '../core/theme.js';
-import { onRouteVisibility, setRouteHidden, setAllHidden } from '../core/layers/routes.js';
+import { onRouteVisibility, setRouteHidden, setAllHidden, setActiveOnly } from '../core/layers/routes.js';
 import { areStopsVisible, setStopsVisible } from '../core/layers/stops.js';
 import {
   areLabelsVisible,
@@ -461,8 +461,18 @@ function buildRight() {
         <button type="button" data-bulk="all">All</button>
         <button type="button" data-bulk="none">None</button>
       </span>`;
+  // UTS-only: "Active" shows exactly the routes with a bus on them right now --
+  // the same active/idle check already behind each row's "no buses" note (see
+  // routes.js's routeActive/setActiveOnly). CAT has no equivalent active-route
+  // tracking today, so its picker keeps just All/None.
+  const utsBulkHead = `
+      <span class="lp-bulk">
+        <button type="button" data-bulk="all">All</button>
+        <button type="button" data-bulk="active">Active</button>
+        <button type="button" data-bulk="none">None</button>
+      </span>`;
 
-  const routes = section('routes', 'Routes', { headExtra: bulkHead });
+  const routes = section('routes', 'Routes', { headExtra: utsBulkHead });
   routes.wrap.classList.add('livemap-panel', 'livemap-panel--routes');
   routes.body.classList.add('lp-routes');
 
@@ -475,6 +485,7 @@ function buildRight() {
   el.append(status, alerts.wrap, routes.wrap, catRoutes.wrap);
 
   routes.wrap.querySelector('[data-bulk="all"]').addEventListener('click', () => setAllHidden(false));
+  routes.wrap.querySelector('[data-bulk="active"]').addEventListener('click', () => setActiveOnly());
   routes.wrap.querySelector('[data-bulk="none"]').addEventListener('click', () => setAllHidden(true));
   catRoutes.wrap.querySelector('[data-bulk="all"]').addEventListener('click', () => setCatAllHidden(false));
   catRoutes.wrap.querySelector('[data-bulk="none"]').addEventListener('click', () => setCatAllHidden(true));

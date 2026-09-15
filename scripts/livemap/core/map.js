@@ -152,9 +152,10 @@ export function createMap(containerId, initialStyle) {
       map[h]?.disable?.();
     }
     map.getContainer().classList.add('livemap-map--locked');
-  } else {
-    map.addControl(new maplibregl.NavigationControl({ showCompass: false }), 'bottom-right');
   }
+  // Non-kiosk chrome gets its own zoom buttons as part of ui/map-controls.js's
+  // bottom-right cluster instead of MapLibre's stock NavigationControl, so they
+  // can sit alongside "locate me" / "Plan a trip" / "Navigate here" in one bar.
 
   return new Promise((resolve) => {
     map.once('style.load', () => {
