@@ -25,9 +25,13 @@ fi
 # WALK_ROUTER_PROXY_URL points at it. Skipped entirely (app behaves exactly as before)
 # when TS_AUTHKEY isn't set, and any failure here is non-fatal to app startup.
 if [ -n "$TS_AUTHKEY" ]; then
-  mkdir -p /var/lib/tailscale
+  # State lives on the persistent /data volume, not the container's ephemeral root fs --
+  # otherwise every machine restart wipes the login and a non-reusable auth key can only
+  # ever work for the very first boot (confirmed live: the very next restart came back
+  # "Logged out").
+  mkdir -p /data/tailscale
   /usr/sbin/tailscaled --tun=userspace-networking --socks5-server=localhost:1055 \
-    --outbound-http-proxy-listen=localhost:1055 --state=/var/lib/tailscale/tailscaled.state \
+    --outbound-http-proxy-listen=localhost:1055 --state=/data/tailscale/tailscaled.state \
     >/var/log/tailscaled.log 2>&1 &
   tailscale up --authkey="$TS_AUTHKEY" --hostname="${FLY_MACHINE_ID:-uts-headway-guard}" \
     --accept-dns=false --timeout=20s || echo "[start.sh] tailscale up failed, continuing without walk router"
