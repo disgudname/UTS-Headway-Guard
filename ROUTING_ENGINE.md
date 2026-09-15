@@ -11,9 +11,10 @@ Two features in this app want real, sidewalk/road-following directions, not stra
 lines:
 
 1. **`/livemap`'s trip planner** (`trip_planner.py`) — walking legs between a rider's
-   origin/destination and a bus stop. Currently a straight-line estimate
-   (`trip_planner.estimate_walk_leg()`), explicitly marked `source: "straight_line"` in
-   its output and labeled as an estimate in the UI. **Not wired to any router yet.**
+   origin/destination and a bus stop. `trip_planner.estimate_walk_leg()` now calls the
+   self-hosted router when `WALK_ROUTER_URL` is set (it is, in production — see "Current
+   state" below), returning `source: "routed"` with a real polyline; it still falls back
+   to the straight-line estimate (`source: "straight_line"`) on any failure.
 2. **Tracklayer** (planned, not built — see the project's own notes) — a route-sketching
    tool for drafting new UTS routes, snapping dragged waypoints to roads.
 3. **On-demand van routes** (`app.py`'s `/api/ondemand/routes`, `/api/routes/leg`) —
@@ -49,10 +50,27 @@ three use cases above**, not three separate engines.
 - The Fly side: `Dockerfile`/`start.sh` install and conditionally start Tailscale
   (`TS_AUTHKEY` env var/secret; no-op if unset) in userspace-networking mode with a local
   outbound HTTP proxy at `localhost:1055`, since Fly Machines don't grant a real tun
-  device. `WALK_ROUTER_PROXY_URL` (also unset by default) points `trip_planner.py`'s
-  router calls at that proxy when deployed. **Not yet deployed/tested end-to-end from an
-  actual Fly machine** -- `TS_AUTHKEY` and `WALK_ROUTER_URL`/`WALK_ROUTER_PROXY_URL`
-  still need to be set as Fly secrets/env and a real deploy verified.
+  device. `WALK_ROUTER_PROXY_URL` points `trip_planner.py`'s router calls at that proxy.
+  **Deployed and verified end-to-end**: `TS_AUTHKEY`, `WALK_ROUTER_URL`, and
+  `WALK_ROUTER_PROXY_URL` are all set as Fly secrets, the Fly machine shows up as a
+  connected peer in the tailnet, and a live `/v1/trip-planner/plan` request against
+  production returns a walk leg with `source: "routed"` and a real sidewalk-following
+  polyline.
+  - **Gotcha hit and fixed**: `tailscaled`'s state dir must live on the persistent `/data`
+    volume (`start.sh` uses `/data/tailscale/tailscaled.state`), not the container's
+    ephemeral root filesystem. The first attempt used the default ephemeral path and a
+    non-reusable auth key; the very next machine restart (triggered by an unrelated
+    `flyctl secrets set`) wiped the login and the one-time key couldn't re-auth. Confirmed
+    live via `tailscale status` inside the machine showing "Logged out." after a restart
+    that had nothing to do with Tailscale. Fixed by pointing `--state` at `/data/tailscale`
+    and using a reusable key as a safety net. A side effect: the old consumed identity
+    still shows up offline in the Tailscale admin console as a stale device
+    (`login.tailscale.com/admin/machines`) — harmless, safe to delete whenever.
+  - Also note: `flyctl secrets set`/`flyctl deploy` occasionally needs a follow-up
+    `flyctl secrets deploy` before a newly-set secret actually shows up in the running
+    process's environment — confirmed by diffing `/proc/<pid>/environ` before and after.
+    If a router/Tailscale env var seems to have "not taken" after a deploy that reported
+    success, try that before assuming the code is wrong.
 - `/api/routes/leg` and `/api/ondemand/routes` (`app.py:4215-4243`, `4268-4349`) are
   still hosted-ORS, driving-car only, dispatcher-gated. Migrating these to the
   self-hosted engine is still a separate future task, not done as part of this.
@@ -140,18 +158,13 @@ implementation detail behind that URL, not something callers need to know about.
    `pedestrian` costing request between two known Charlottesville points, confirm it
    returns a sane polyline.~~ Done -- UVA Rotunda to the Downtown Mall returns real
    sidewalk/stairs-level turn-by-turn.
-4. ~~Stand up connectivity back to the Fly app.~~ Done on the home-box side (Tailscale on
-   the Windows host, VirtualBox NAT rebound to all interfaces). **Not yet done on the Fly
-   side**: `TS_AUTHKEY` needs to be generated (Tailscale admin console) and set as a Fly
-   secret, and a real deploy needs to confirm the Fly machine can actually reach the
-   proxy and the home box.
-5. `estimate_walk_leg()`'s router branch is implemented in `trip_planner.py`, and
-   `WALK_ROUTER_URL`/`WALK_ROUTER_PROXY_URL` are wired through, but **`WALK_ROUTER_URL`
-   is not yet set on Fly** -- until it is, this is a no-op and behavior is unchanged.
-   Once `TS_AUTHKEY` is set and a deploy confirms Tailscale connects, set
-   `WALK_ROUTER_URL=http://<home-box-tailscale-ip>:8002/route` and
-   `WALK_ROUTER_PROXY_URL=http://localhost:1055` as Fly secrets/env.
-6. Once that's solid, treat `/api/routes/leg` / `/api/ondemand/routes` migrating off
-   hosted ORS to the same engine (`auto` costing) as a separate follow-up task, and
-   Tracklayer's road-snapping (also `auto`, or a custom costing for "prefer roads a bus
-   fits down") as another.
+4. ~~Stand up connectivity back to the Fly app.~~ Done both sides -- Tailscale on the
+   Windows host (VirtualBox NAT rebound to all interfaces) and `TS_AUTHKEY` set on Fly;
+   the Fly machine shows up as a connected tailnet peer. See the state-persistence gotcha
+   above if a redeploy ever comes back "Logged out."
+5. ~~Wire `estimate_walk_leg()`'s router branch and set `WALK_ROUTER_URL`/
+   `WALK_ROUTER_PROXY_URL` on Fly.~~ Done -- verified live against production
+   (`/v1/trip-planner/plan` returns `source: "routed"` with a real polyline).
+6. Next up: treat `/api/routes/leg` / `/api/ondemand/routes` migrating off hosted ORS to
+   the same engine (`auto` costing) as a follow-up task, and Tracklayer's road-snapping
+   (also `auto`, or a custom costing for "prefer roads a bus fits down") as another.
