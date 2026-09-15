@@ -285,6 +285,7 @@ def estimate_stop_eta_s(
     when: float,
     vehicle_lat: Optional[float] = None,
     vehicle_lon: Optional[float] = None,
+    vehicle_dir_sign: int = 0,
 ) -> Optional[BusEtaEstimate]:
     """Seconds until this vehicle reaches target_stop, or None if the line/target
     don't carry the shape+arc_pos data this needs (e.g. CAT, or a UTS route whose
@@ -295,7 +296,20 @@ def estimate_stop_eta_s(
     catches a specific, confirmed-live failure mode on routes whose shape passes
     near itself, where arc-length position matching alone can conclude a stop the
     vehicle is genuinely right next to is actually almost a full loop away. Without
-    them, ETAs still work, just without that safety net."""
+    them, ETAs still work, just without that safety net.
+
+    vehicle_dir_sign is app.py's own signed flag (Vehicle.dir_sign) for whether the
+    vehicle's arc-length position is actually advancing in the route's canonical
+    forward direction (+1), retreating (-1), or unknown/stationary (0) -- computed
+    independently, from a wrap-aware delta between consecutive polls' real arc-length
+    positions (see the vehicle-tracking loop in app.py). Every hop-walk below
+    (_next_stop_index onward) assumes forward travel; confirmed live, a vehicle
+    running a detour pattern with dir_sign=-1 (Gold Line, RouteID 67) had its ETA to
+    a stop ~6935m of real forward travel away (~21 min, matching TransLoc almost
+    exactly) computed as 196.5s -- off by 6x, because the forward-only math was
+    applied to a vehicle actually moving the other way relative to the captured
+    shape. The ARRIVING_RADIUS_M proximity check above is unaffected by this (it's
+    driven by real GPS distance, not arc-length direction) and still applies first."""
     if not line.shape_cum or len(line.shape_cum) < 2:
         return None
     if target_stop.arc_pos is None:
@@ -319,27 +333,79 @@ def estimate_stop_eta_s(
         ):
             return BusEtaEstimate(seconds=0.0, source="live")
 
+    if vehicle_dir_sign < 0:
+        # Confidently moving backward relative to the shape's forward direction --
+        # every hop-walk below would silently produce nonsense (see docstring). No
+        # valid arc-length-based estimate exists for this vehicle/stop pair right
+        # now; better to report nothing than a confidently wrong number.
+        return None
+
     next_idx = _next_stop_index(stops, vehicle_s_pos, route_length_m)
     if next_idx is None:
         return None
     next_stop = stops[next_idx]
+    # prev_stop is next_idx - 1 because the ordered stop list wraps around a loop
+    # the same way the route itself does. Needed up here (not just for pace_ratio
+    # further down) -- see dwelling_at_prev below.
+    prev_stop = stops[(next_idx - 1) % len(stops)]
+
+    # Dwelling vs. genuinely crawling: a vehicle sitting still because it's ON HOLD
+    # at a stop (a scheduled recovery, boarding, a timepoint wait) tells us nothing
+    # about how fast it'll travel once it goes. Two distinct symptoms if this isn't
+    # accounted for, both confirmed live (user reports):
+    #   1. dwelling_at_next (already at/near next_stop, arc-length hasn't quite
+    #      caught up): the depressed live speed feeds into pace_ratio further down
+    #      and reads as "running behind schedule", INFLATING every downstream hop
+    #      for as long as it sits there -- a Green Line vehicle held for ~5 minutes
+    #      showed a STATIC ~5-minute ETA for the stop after next the entire time,
+    #      dropping to ~2 minutes the instant it pulled away.
+    #   2. dwelling_at_prev (arc-length has already ticked past prev_stop even
+    #      though the vehicle is still sitting right there): current_leg_s below
+    #      would otherwise project the vehicle's live speed across the FULL
+    #      upcoming hop as if the trip were already underway -- the opposite,
+    #      falsely LOW failure mode explicitly flagged before this was fixed: a
+    #      10-minute layover reading as a static ~1-minute ETA to the stop after
+    #      it for the entire layover, because nothing about that math knows the
+    #      bus hasn't moved an inch yet.
+    # DWELL_DETECTION_RADIUS_M is much tighter than ARRIVING_RADIUS_M -- being
+    # generously "near" a stop isn't enough to conclude dwelling, only sitting
+    # right on top of one is.
+    dwelling_at_next = (
+        vehicle_lat is not None
+        and vehicle_lon is not None
+        and haversine_m(vehicle_lat, vehicle_lon, next_stop.lat, next_stop.lon) <= DWELL_DETECTION_RADIUS_M
+    )
+    dwelling_at_prev = (
+        not dwelling_at_next
+        and vehicle_lat is not None
+        and vehicle_lon is not None
+        and prev_stop.lat is not None
+        and prev_stop.lon is not None
+        and haversine_m(vehicle_lat, vehicle_lon, prev_stop.lat, prev_stop.lon) <= DWELL_DETECTION_RADIUS_M
+    )
 
     # The vehicle's current (partial) segment: live-projected, not historical --
     # this is the one piece of the estimate grounded entirely in "what's happening
-    # right now" rather than a typical-day baseline.
+    # right now" rather than a typical-day baseline. EXCEPT when dwelling_at_prev:
+    # the vehicle hasn't started this hop yet, so live-speed-projecting the FULL
+    # hop distance is exactly backwards. Use the segment's own historical time (or
+    # a distance/typical-speed fallback with no historical coverage) instead --
+    # same "trust the baseline, the live signal means nothing right now" reasoning
+    # pace_ratio's neutralization below applies to every hop after this one.
     dist_to_next = _forward_distance(vehicle_s_pos, next_stop.arc_pos, route_length_m)
     projection_mps = max(MIN_PROJECTION_MPS, vehicle_ema_mps)
-    current_leg_s = dist_to_next / projection_mps
+    if dwelling_at_prev:
+        prev_to_next_s = hop_time_fn(line.id, prev_stop.id, next_stop.id, when) if hop_time_fn else None
+        current_leg_s = prev_to_next_s if prev_to_next_s and prev_to_next_s > 0 else dist_to_next / TYPICAL_BUS_SPEED_MPS
+    else:
+        current_leg_s = dist_to_next / projection_mps
 
     if next_stop.id == target_stop.id:
-        return BusEtaEstimate(seconds=current_leg_s, source="live")
+        return BusEtaEstimate(seconds=current_leg_s, source="live" if not dwelling_at_prev else "historical")
 
     # Pace factor: how the vehicle's actual current speed compares to what's
     # historically typical for the segment it's in right now (the one it's
-    # currently between the previous stop and next_stop for -- see module
-    # docstring). prev_stop is next_idx - 1 because the ordered stop list wraps
-    # around a loop the same way the route itself does.
-    prev_stop = stops[(next_idx - 1) % len(stops)]
+    # currently between prev_stop and next_stop for -- see module docstring).
     current_seg_dist = _forward_distance(prev_stop.arc_pos, next_stop.arc_pos, route_length_m) if prev_stop.arc_pos is not None else None
     historical_current_seg_s = (
         hop_time_fn(line.id, prev_stop.id, next_stop.id, when) if hop_time_fn else None
@@ -353,9 +419,19 @@ def estimate_stop_eta_s(
     # compounding effect. Confirmed live: an implausibly fast one-bucket estimate
     # for the vehicle's current segment alone was enough to inflate a whole
     # multi-stop prediction by thousands of seconds. Clamp both speeds into the
-    # same plausible range before dividing.
+    # same plausible range before dividing. Neutralized (see dwelling comment
+    # above) for either flavor of dwelling -- a paused vehicle is a weak predictor
+    # of its own pace, let alone the pace of hops further out.
+    dwelling = dwelling_at_next or dwelling_at_prev
+
     pace_ratio = 1.0
-    if current_seg_dist and current_seg_dist > 0 and historical_current_seg_s and historical_current_seg_s > 0:
+    if (
+        not dwelling
+        and current_seg_dist
+        and current_seg_dist > 0
+        and historical_current_seg_s
+        and historical_current_seg_s > 0
+    ):
         historical_expected_mps = current_seg_dist / historical_current_seg_s
         if historical_expected_mps > 0:
             clamped_expected_mps = max(MIN_HOP_SPEED_MPS, min(MAX_HOP_SPEED_MPS, historical_expected_mps))
@@ -368,6 +444,14 @@ def estimate_stop_eta_s(
     idx = next_idx
     hop_number = 0
     guard = 0
+    # Same dwelling neutralization as pace_ratio above, applied to the OTHER place
+    # a depressed live speed can leak in: the fallback_mps baseline a hop with no
+    # historical bucket decays from (a few lines down). Without this, a vehicle
+    # dwelling somewhere with no historical coverage on the hops right after it
+    # would still get every one of those hops inflated from its parked-speed
+    # projection_mps before any decay even starts -- the exact same failure this
+    # module already fixed for pace_ratio, just reachable through a second path.
+    fallback_baseline_mps = TYPICAL_BUS_SPEED_MPS if dwelling else projection_mps
     while stops[idx].id != target_stop.id:
         guard += 1
         if guard > len(stops):
@@ -403,7 +487,7 @@ def estimate_stop_eta_s(
             # weak predictor of its pace ten stops from now; by then, "typical"
             # is the better assumption.
             fallback_decay = PACE_DECAY ** hop_number
-            fallback_mps = TYPICAL_BUS_SPEED_MPS + (projection_mps - TYPICAL_BUS_SPEED_MPS) * fallback_decay
+            fallback_mps = TYPICAL_BUS_SPEED_MPS + (fallback_baseline_mps - TYPICAL_BUS_SPEED_MPS) * fallback_decay
             hop_s = hop_dist / fallback_mps if hop_dist else SECONDS_PER_HOP_ESTIMATE
             all_historical = False
         elif hop_dist:

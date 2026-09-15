@@ -15970,12 +15970,24 @@ async def _compute_bus_eta_arrivals() -> Dict[str, Any]:
         if line is None or not line.shape_cum or len(line.stops) < 2:
             continue
         for vid, veh in vehs.items():
+            # A reading sitting AT the smoothing ceiling isn't a real observed speed
+            # -- it means a glitchy raw reading (a GPS jump, a bad arc-length
+            # projection) pegged the EMA and it hasn't decayed back down yet.
+            # Confirmed live: a Green Line vehicle sitting at exactly MAX_SPEED_CEIL
+            # (22.0 m/s, ~2x that route's real speed limit) while bus_eta's own
+            # historical-based estimate for the same stop disagreed with TransLoc's
+            # by ~17 minutes. Fall back to bus_eta's own "typical" constant rather
+            # than feeding a physically implausible speed into the ETA math.
+            ema_mps = veh.ema_mps
+            if ema_mps >= MAX_SPEED_CEIL:
+                ema_mps = bus_eta.TYPICAL_BUS_SPEED_MPS
             for stop in line.stops:
                 if stop.arc_pos is None:
                     continue
                 result = bus_eta.estimate_stop_eta_s(
-                    line, veh.s_pos, veh.ema_mps, stop, hop_time_fn, when_ts,
+                    line, veh.s_pos, ema_mps, stop, hop_time_fn, when_ts,
                     vehicle_lat=veh.lat, vehicle_lon=veh.lon,
+                    vehicle_dir_sign=getattr(veh, "dir_sign", 0),
                 )
                 if result is None:
                     continue
