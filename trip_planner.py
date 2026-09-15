@@ -657,6 +657,28 @@ def _walk_seconds(a: Tuple[float, float], b: Tuple[float, float]) -> float:
     return haversine_m(a[0], a[1], b[0], b[1]) * WALK_DETOUR_FACTOR / WALK_SPEED_MPS
 
 
+RANKING_HOP_SPEED_MPS = 6.0  # rough average bus speed incl. stops/traffic -- ranking only
+RANKING_HOP_FLOOR_S = 20.0  # even adjacent stops involve some slow/stop/dwell/go overhead
+
+
+def _ranking_ride_seconds(line: Line, board_idx: int, alight_idx: int) -> float:
+    """Ranking-only ride-time estimate between two stop indices, used when comparing
+    candidate board/alight pairs (see _best_direct_pair/_best_transfer) -- NOT the
+    estimate shown to the rider (see _estimate_ride_seconds, which prefers real
+    historical data). SECONDS_PER_HOP_ESTIMATE is a flat system-wide average that's
+    fine for a typical hop, but badly overstates a hop between two stops that happen
+    to sit right next to each other -- confirmed live: two stops ~65m apart scored as
+    if skipping that one hop cost a full 90s, which made walking an extra ~65m to
+    reach the farther one look like a wash against saving that "90s" hop, so the
+    search picked the farther stop over a much closer one for a savings that wasn't
+    real. Estimating each hop from the actual distance between its two stops instead
+    fixes that without needing real per-segment history to exist yet."""
+    return sum(
+        max(RANKING_HOP_FLOOR_S, haversine_m(a.lat, a.lon, b.lat, b.lon) / RANKING_HOP_SPEED_MPS)
+        for a, b in _segment_stop_pairs(line, board_idx, alight_idx)
+    )
+
+
 def _best_direct_pair(
     line: Line,
     origin_idxs: List[int],
@@ -671,9 +693,9 @@ def _best_direct_pair(
     An earlier version of this picked the pair with the fewest hops alone, which
     could walk right past the closest stop to shave off one hop, or hop off several
     stops early and walk the rest of the way, whenever that trimmed the hop count --
-    confirmed live. Hops are still what drives the ride-time estimate (see
-    SECONDS_PER_HOP_ESTIMATE), but the walk legs it costs to reach that pairing now
-    count against it too, in the same units, so the comparison is apples-to-apples."""
+    confirmed live. Ride time is estimated geometrically per candidate pair (see
+    _ranking_ride_seconds), and the walk legs it costs to reach that pairing count
+    against it too, in the same units, so the comparison is apples-to-apples."""
     best: Optional[Tuple[int, int, float]] = None
     for board_idx in origin_idxs:
         board_stop = line.stops[board_idx]
@@ -684,7 +706,7 @@ def _best_direct_pair(
                 continue
             alight_stop = line.stops[alight_idx]
             walk_from = _walk_seconds((alight_stop.lat, alight_stop.lon), destination)
-            score = WALK_RANK_WEIGHT * (walk_to + walk_from) + hops * SECONDS_PER_HOP_ESTIMATE
+            score = WALK_RANK_WEIGHT * (walk_to + walk_from) + _ranking_ride_seconds(line, board_idx, alight_idx)
             if best is None or score < best[2]:
                 best = (board_idx, alight_idx, score)
     return None if best is None else (best[0], best[1])
@@ -737,8 +759,8 @@ def _best_transfer(
                     walk_from = _walk_seconds((alight_b_stop.lat, alight_b_stop.lon), destination)
                     score = (
                         WALK_RANK_WEIGHT * (walk_to + transfer_walk_s + walk_from)
-                        + hops_a * SECONDS_PER_HOP_ESTIMATE
-                        + hops_b * SECONDS_PER_HOP_ESTIMATE
+                        + _ranking_ride_seconds(line_a, board_a, a_idx)
+                        + _ranking_ride_seconds(line_b, b_idx, alight_b)
                     )
                     if best is None or score < best[5]:
                         best = (board_a, a_idx, b_idx, alight_b, needs_walk, score)

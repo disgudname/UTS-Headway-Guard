@@ -313,23 +313,28 @@ def test_find_trips_prefers_a_short_walk_over_a_roundabout_ride():
 
 
 def test_best_direct_pair_beats_nearest_to_each_point_independently():
-    # Loop order: 0=OriginClose, 1=DestFar(but in-radius), 2=DestClose, 3=OriginFar.
-    # Picking the stop nearest EACH point independently (the old behaviour) gives
-    # board=0, alight=2 -> 2 hops. But board=0, alight=1 is only 1 hop and both stops
-    # are still valid candidates (within radius of their respective point) -- the
-    # exhaustive search must find that shorter pairing instead.
+    # Out-and-back loop (same shape as test_find_trips_prefers_a_short_walk_over_a_
+    # roundabout_ride): "out1" and "back2" sit right next to each other physically
+    # (~56m apart) but are 5 hops apart the long way around the loop, and only 3 hops
+    # apart the OTHER way around. Picking the stop nearest EACH point independently
+    # (board=out1 exact, alight=back2 exact -- both zero walk) takes the long 5-hop
+    # path. The exhaustive search must find that riding the shorter 3-hop path,
+    # despite it costing a small walk at both ends, is actually cheaper.
+    out_lons = [0.0, 0.008, 0.016, 0.024]
+    back_lons = [0.024, 0.016, 0.008, 0.0]
     stops = [
-        tp.Stop(id="origin-close", name="origin-close", lat=0.0, lon=0.0, source="uts"),
-        tp.Stop(id="dest-far", name="dest-far", lat=0.0015, lon=0.0, source="uts"),
-        tp.Stop(id="dest-close", name="dest-close", lat=0.001, lon=0.0, source="uts"),
-        tp.Stop(id="origin-far", name="origin-far", lat=0.0005, lon=0.0, source="uts"),
+        tp.Stop(id=f"out{i}", name=f"out{i}", lat=0.0, lon=out_lons[i], source="uts")
+        for i in range(4)
+    ] + [
+        tp.Stop(id=f"back{i}", name=f"back{i}", lat=0.0005, lon=back_lons[i], source="uts")
+    for i in range(4)
     ]
     line = tp.Line(id="loop1", name="Loop", color="#fff", source="uts", stops=stops, loop=True)
-    origin_idxs = [0, 3]  # both within radius of the origin
-    dest_idxs = [1, 2]  # both within radius of the destination
-    origin = (0.0, 0.0)
-    destination = (0.001, 0.0)
-    assert tp._best_direct_pair(line, origin_idxs, dest_idxs, origin, destination) == (0, 1)
+    origin = (stops[1].lat, stops[1].lon)  # "out1"
+    destination = (stops[6].lat, stops[6].lon)  # "back2" -- ~56m from origin
+    origin_idxs = [1, 6]  # both within walking radius of the origin
+    dest_idxs = [6, 1]  # both within walking radius of the destination
+    assert tp._best_direct_pair(line, origin_idxs, dest_idxs, origin, destination) == (6, 1)
 
 
 def test_best_direct_pair_does_not_walk_past_the_closest_stop_to_save_one_hop():
@@ -355,6 +360,28 @@ def test_best_direct_pair_does_not_walk_past_the_closest_stop_to_save_one_hop():
     origin_idxs = [0, 1]
     dest_idxs = [3]
     assert tp._best_direct_pair(line, origin_idxs, dest_idxs, origin, destination) == (0, 3)
+
+
+def test_best_direct_pair_does_not_treat_a_short_hop_as_a_full_flat_estimate():
+    # Regression for a real bug reported live (Johnson House -> Pinn Hall on Night
+    # Pilot): two stops sat only ~64m apart on the same line -- "close" (45m from the
+    # rider) then, one hop later, "far" (109m from the rider). The flat
+    # SECONDS_PER_HOP_ESTIMATE (90s) values that one short hop the same as any other,
+    # making "walk 64m further to save a hop" look like a wash (in production it
+    # narrowly picked the farther stop). Ranking a hop by the real distance between
+    # its two stops instead correctly recognizes this particular hop is a quick ~65m
+    # hop, not worth an extra 64m walk to skip.
+    stops = [
+        tp.Stop(id="close", name="close", lat=0.0, lon=0.000404, source="uts"),  # ~45m out
+        tp.Stop(id="far", name="far", lat=0.0, lon=0.000979, source="uts"),  # ~109m out
+        tp.Stop(id="alight", name="alight", lat=0.0, lon=0.003, source="uts"),  # ~334m past "far"
+    ]
+    line = tp.Line(id="59", name="Night Pilot", color="#fff", source="uts", stops=stops, loop=True)
+    origin = (0.0, 0.0)
+    destination = (stops[2].lat, stops[2].lon)
+    origin_idxs = [0, 1]  # both "close" and "far" are within walking radius
+    dest_idxs = [2]
+    assert tp._best_direct_pair(line, origin_idxs, dest_idxs, origin, destination) == (0, 2)
 
 
 def test_best_transfer_returns_its_own_optimized_alight_stop():
