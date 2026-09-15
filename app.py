@@ -1456,8 +1456,9 @@ async def fetch_block_groups(
     base_url: Optional[str] = None,
     *,
     include_metadata: bool = False,
+    target_date: Optional[date] = None,
 ) -> Union[List[Dict], Tuple[List[Dict], Dict[str, Any]]]:
-    d = datetime.now(ZoneInfo("America/New_York"))
+    d = target_date or datetime.now(ZoneInfo("America/New_York")).date()
     ds = f"{d.month}/{d.day}/{d.year}"
     r1_url = build_transloc_url(
         base_url, f"GetScheduleVehicleCalendarByDateAndRoute?dateString={quote(ds)}"
@@ -15278,6 +15279,40 @@ async def metromap_data():
 # ---------------------------
 # TRIP PLANNER (see trip_planner.py + ROUTING_ENGINE.md)
 # ---------------------------
+
+# Per-date cache of block groups for a trip plan requested on a day other than today
+# (state.blocks_cache only ever holds TODAY's continuously-polled "current schedule" --
+# see _uts_lines_for_trip_planner's docstring -- so a future-dated plan needs its own
+# fetch against GetScheduleVehicleCalendarByDateAndRoute/GetDispatchBlockGroupData for
+# that specific date). One TTLCache per date string, created on first use; a short TTL
+# is enough since a given future date's schedule doesn't change within a session.
+_future_block_groups_caches: Dict[str, TTLCache] = {}
+_FUTURE_BLOCK_GROUPS_TTL_S = 600.0
+
+
+async def _block_groups_for_date(target_date: date) -> List[Dict[str, Any]]:
+    key = target_date.isoformat()
+    cache = _future_block_groups_caches.setdefault(key, TTLCache(_FUTURE_BLOCK_GROUPS_TTL_S))
+
+    async def fetch():
+        async with httpx.AsyncClient() as client:
+            return await fetch_block_groups(client, target_date=target_date)
+
+    return await cache.get(fetch)
+
+
+async def _uts_route_service_for_date(target_date: date) -> trip_planner.RouteService:
+    """Same windows/chain-table computation _uts_lines_for_trip_planner does, but for
+    an arbitrary date rather than always "today" -- see that function for why
+    state.blocks_cache alone isn't enough once the rider asks about a different day
+    (e.g. a weekday's plan doesn't tell you anything about tomorrow's weekend
+    schedule). Route *topology* (stop shapes) still comes from today's live data --
+    UTS's physical routes don't change day to day, only which ones are in service."""
+    block_groups = await _block_groups_for_date(target_date)
+    reference_date = datetime.combine(target_date, dtime(0, 0), tzinfo=ZoneInfo("America/New_York"))
+    return trip_planner.build_route_service(block_groups, reference_date)
+
+
 async def _uts_lines_for_trip_planner() -> Tuple[List[Dict[str, Any]], trip_planner.RouteService]:
     """Every UTS route's ordered stop topology, shaped for the trip planner's Line
     graph, PLUS the route-service windows/chain table computed along the way (callers
@@ -15596,13 +15631,19 @@ async def trip_planner_plan(
     now"; service-window/interline gating in trip_planner.find_trips runs against that
     boarding time, not the current time, so a future query correctly reflects which
     route variant (e.g. Gold Line's day vs. evening RouteID) would actually be running
-    then. Live wait times, however, only ever reflect right now -- there is no way to
-    know a real future wait in advance -- so a future-dated plan's itineraries fall
-    back to ride-time estimates only and will generally show `durationIsEstimate:
-    true`. CAT legs specifically require a live wait to be considered available at all
-    (see trip_planner._ride_leg's CAT branch -- CAT has no schedule data source the way
-    UTS's block groups provide), so a future-dated plan effectively drops CAT anyway
-    even when `cat=true`.
+    then -- including on a day other than today, since a `when` that lands on a
+    different America/New_York calendar date fetches that date's own block-group
+    schedule (see _uts_route_service_for_date) rather than reusing today's, which
+    would otherwise reject every ride outright (today's windows end hours before a
+    tomorrow-evening `when` even starts) and silently leave only a walk-only result --
+    confirmed live, this was a real bug: routes covering "today" but not the requested
+    future date matched none of it. Live wait times, however, only ever reflect right
+    now -- there is no way to know a real future wait in advance -- so a future-dated
+    plan's itineraries fall back to ride-time estimates only and will generally show
+    `durationIsEstimate: true`. CAT legs specifically require a live wait to be
+    considered available at all (see trip_planner._ride_leg's CAT branch -- CAT has no
+    schedule data source the way UTS's block groups provide), so a future-dated plan
+    effectively drops CAT anyway even when `cat=true`.
     """
     if when:
         try:
@@ -15615,7 +15656,13 @@ async def trip_planner_plan(
     else:
         when_ts = time.time()
 
+    ny_tz = ZoneInfo("America/New_York")
+    target_date = datetime.fromtimestamp(when_ts, tz=ny_tz).date()
+    today_ny = datetime.now(ny_tz).date()
+
     uts_lines_raw, route_service = await _uts_lines_for_trip_planner()
+    if target_date != today_ny:
+        route_service = await _uts_route_service_for_date(target_date)
     uts_lines = [_trip_planner_line_from_graph(entry, source="uts", loop=True) for entry in uts_lines_raw]
 
     origin = (from_lat, from_lon)
