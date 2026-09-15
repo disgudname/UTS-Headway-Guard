@@ -1,3 +1,4 @@
+import json
 import sys
 from datetime import datetime, timedelta
 from pathlib import Path
@@ -23,7 +24,7 @@ class FakeStorage:
         return [e for e in self._events if start <= e.timestamp <= end]
 
 
-def _event(dt, route_id, stop_id, block, event_type="arrival"):
+def _event(dt, route_id, stop_id, block, event_type="arrival", address_id=None):
     return HeadwayEvent(
         timestamp=dt,
         route_id=route_id,
@@ -35,6 +36,7 @@ def _event(dt, route_id, stop_id, block, event_type="arrival"):
         headway_departure_arrival=None,
         dwell_seconds=None,
         block=block,
+        address_id=address_id,
     )
 
 
@@ -113,6 +115,47 @@ def test_different_blocks_are_not_treated_as_one_run():
     assert samples == {}
 
 
+def test_build_hop_time_samples_resolve_stop_id_overrides_recorded_stop_id():
+    # Regression coverage for build_eta_model.py: an event's recorded stop_id can be
+    # wrong (see StopPoint.route_stop_ids' docstring in headway_tracker.py) -- a
+    # resolver keyed off address_id (untouched by that bug) should be used for
+    # bucketing instead, with no change to callers that don't pass one.
+    start = _wed_5pm(0)
+    events = [
+        _event(start, "67", "wrong-a", "Gold_01", address_id="addr-a"),
+        _event(start + timedelta(seconds=300), "67", "wrong-b", "Gold_01", address_id="addr-b"),
+    ]
+    storage = FakeStorage(events)
+    corrected = {"addr-a": "A", "addr-b": "B"}
+    samples = tph.build_hop_time_samples(
+        storage,
+        now=start + timedelta(hours=1),
+        resolve_stop_id=lambda ev: corrected[ev.address_id],
+    )
+    key = tph._bucket_key("67", "A", "B", 2, 17)
+    assert samples[key] == [300.0]
+    # Without a resolver, the (wrong) recorded stop_id is bucketed as-is.
+    uncorrected = tph.build_hop_time_samples(storage, now=start + timedelta(hours=1))
+    wrong_key = tph._bucket_key("67", "wrong-a", "wrong-b", 2, 17)
+    assert uncorrected[wrong_key] == [300.0]
+
+
+def test_build_hop_time_samples_respects_custom_lookback_days():
+    # build_eta_model.py passes a much longer lookback than the live 60-day default
+    # to reach the full archive -- an event just outside the default LOOKBACK_DAYS
+    # must still be found when a longer window is requested.
+    old = _wed_5pm(0) - timedelta(days=tph.LOOKBACK_DAYS + 10)
+    events = [
+        _event(old, "67", "A", "Gold_01"),
+        _event(old + timedelta(seconds=300), "67", "B", "Gold_01"),
+    ]
+    storage = FakeStorage(events)
+    key = tph._bucket_key("67", "A", "B", old.weekday(), old.hour)
+    assert key not in tph.build_hop_time_samples(storage, now=_wed_5pm(0))
+    deep = tph.build_hop_time_samples(storage, now=_wed_5pm(0), lookback_days=tph.LOOKBACK_DAYS + 30)
+    assert deep[key] == [300.0]
+
+
 def test_hop_time_model_lookup_returns_none_for_unknown_bucket():
     model = tph.HopTimeModel(buckets={})
     when = _wed_5pm(0).timestamp()
@@ -124,6 +167,35 @@ def test_hop_time_model_lookup_returns_known_bucket():
     key = tph._bucket_key("67", "A", "B", when_dt.weekday(), when_dt.hour)
     model = tph.HopTimeModel(buckets={key: {"seconds": 310.0, "samples": 3}})
     assert model.lookup("67", "A", "B", when_dt.timestamp()) == 310.0
+
+
+def test_hop_time_model_falls_back_to_deep_model_when_primary_misses():
+    when_dt = _wed_5pm(0)
+    key = tph._bucket_key("67", "A", "B", when_dt.weekday(), when_dt.hour)
+    deep = tph.HopTimeModel(buckets={key: {"seconds": 500.0, "samples": 10}})
+    primary = tph.HopTimeModel(buckets={}, fallback=deep)
+    assert primary.lookup("67", "A", "B", when_dt.timestamp()) == 500.0
+
+
+def test_hop_time_model_prefers_primary_over_fallback():
+    when_dt = _wed_5pm(0)
+    key = tph._bucket_key("67", "A", "B", when_dt.weekday(), when_dt.hour)
+    deep = tph.HopTimeModel(buckets={key: {"seconds": 500.0, "samples": 10}})
+    primary = tph.HopTimeModel(buckets={key: {"seconds": 310.0, "samples": 3}}, fallback=deep)
+    assert primary.lookup("67", "A", "B", when_dt.timestamp()) == 310.0
+
+
+def test_load_model_wires_the_deep_cache_as_fallback(tmp_path, monkeypatch):
+    monkeypatch.setattr(tph, "CACHE_PATH", tmp_path / "hop_times.json")
+    monkeypatch.setattr(tph, "DEEP_CACHE_PATH", tmp_path / "hop_times_deep.json")
+    when_dt = _wed_5pm(0)
+    deep_key = tph._bucket_key("67", "X", "Y", when_dt.weekday(), when_dt.hour)
+    (tmp_path / "hop_times_deep.json").write_text(
+        json.dumps({"refreshed_at": when_dt.isoformat(), "buckets": {deep_key: {"seconds": 900.0, "samples": 20}}})
+    )
+    storage = FakeStorage([])  # empty live archive -- the live 60-day cache stays empty
+    model = tph.load_model(storage, now=when_dt + timedelta(hours=1))
+    assert model.lookup("67", "X", "Y", when_dt.timestamp()) == 900.0
 
 
 def test_is_cache_stale_true_when_never_refreshed():

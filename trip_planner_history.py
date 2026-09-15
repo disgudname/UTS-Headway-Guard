@@ -22,7 +22,7 @@ import statistics
 from collections import defaultdict
 from datetime import datetime, timedelta
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Callable, Dict, List, Optional, Tuple
 
 from zoneinfo import ZoneInfo
 
@@ -83,17 +83,34 @@ def _bucket_key(route_id: str, from_stop_id: str, to_stop_id: str, weekday: int,
     return f"{route_id}|{from_stop_id}|{to_stop_id}|{weekday}|{hour}"
 
 
-def build_hop_time_samples(storage, now: Optional[datetime] = None) -> Dict[str, List[float]]:
-    """Read the last LOOKBACK_DAYS of headway events and bucket real stop-to-stop
-    travel-time samples by (route_id, from_stop_id, to_stop_id, weekday, hour).
+def build_hop_time_samples(
+    storage,
+    now: Optional[datetime] = None,
+    lookback_days: Optional[int] = None,
+    resolve_stop_id: Optional[Callable[[Any], str]] = None,
+) -> Dict[str, List[float]]:
+    """Read the last `lookback_days` (default LOOKBACK_DAYS) of headway events and
+    bucket real stop-to-stop travel-time samples by (route_id, from_stop_id,
+    to_stop_id, weekday, hour).
 
     Two consecutive "arrival" events sharing the same `block` (one physical vehicle's
     run) at two different stops are one real historical sample of how long that hop
     took -- dwell time included, since a rider re-boarding cares about total elapsed
     time between stops, not just moving time.
+
+    `resolve_stop_id`, if given, replaces `ev.stop_id` for bucketing purposes --
+    build_eta_model.py (an offline, occasionally-run script, NOT part of this
+    module's own daily refresh) passes one that re-derives the correct RouteStopID
+    from `ev.address_id` via an accumulated (route,address)->RouteStopID table, to
+    recover history recorded before headway_tracker.py's stop-id fix (see that
+    file's StopPoint.route_stop_ids docstring). The live daily refresh below never
+    passes this -- events it reads were already recorded correctly by the fixed
+    tracker, so there's nothing to resolve.
     """
     now = now or datetime.now(NY_TZ)
-    start = now - timedelta(days=LOOKBACK_DAYS)
+    lookback_days = LOOKBACK_DAYS if lookback_days is None else lookback_days
+    resolve_stop_id = resolve_stop_id or (lambda ev: ev.stop_id)
+    start = now - timedelta(days=lookback_days)
     events = storage.query_events(start, now)
 
     runs: Dict[Tuple[str, str], List] = defaultdict(list)  # (block, local_date) -> [events]
@@ -107,13 +124,16 @@ def build_hop_time_samples(storage, now: Optional[datetime] = None) -> Dict[str,
     for run_events in runs.values():
         run_events.sort(key=lambda e: e.timestamp)
         for a, b in zip(run_events, run_events[1:]):
-            if a.stop_id == b.stop_id or a.route_id != b.route_id:
+            if a.route_id != b.route_id:
+                continue
+            a_stop, b_stop = resolve_stop_id(a), resolve_stop_id(b)
+            if a_stop == b_stop:
                 continue
             duration = (b.timestamp - a.timestamp).total_seconds()
             if duration <= 0 or duration > MAX_PLAUSIBLE_HOP_S:
                 continue
             local_dt = a.timestamp.astimezone(NY_TZ)
-            key = _bucket_key(a.route_id, a.stop_id, b.stop_id, local_dt.weekday(), local_dt.hour)
+            key = _bucket_key(a.route_id, a_stop, b_stop, local_dt.weekday(), local_dt.hour)
             samples[key].append(duration)
     return samples
 
@@ -146,29 +166,57 @@ class HopTimeModel:
     to_stop_id, weekday, hour); no same-hour/cross-weekday fallback in v1 -- a missing
     bucket just means trip_planner falls back to its own flat heuristic for that
     segment, which is a safe default (never blocks an itinerary, only makes its
-    duration estimate less precise)."""
+    duration estimate less precise).
 
-    def __init__(self, buckets: Dict[str, Dict[str, Any]]):
+    `fallback`, if given, is tried when this model's own buckets miss -- load_model()
+    wires the occasionally-run build_eta_model.py's DEEP_CACHE_PATH in as the live
+    60-day model's fallback, so a route/stop/time combo the last 60 days haven't
+    accumulated MIN_SAMPLES for yet can still use real history further back, without
+    that deeper (and occasionally stale) data ever overriding fresher live buckets."""
+
+    def __init__(self, buckets: Dict[str, Dict[str, Any]], fallback: Optional["HopTimeModel"] = None):
         self._buckets = buckets
+        self._fallback = fallback
 
     def lookup(self, route_id: str, from_stop_id: str, to_stop_id: str, when: float) -> Optional[float]:
         local_dt = datetime.fromtimestamp(when, tz=NY_TZ)
         key = _bucket_key(route_id, from_stop_id, to_stop_id, local_dt.weekday(), local_dt.hour)
         bucket = self._buckets.get(key)
-        if not bucket:
-            return None
-        try:
-            return float(bucket["seconds"])
-        except (KeyError, TypeError, ValueError):
-            return None
+        if bucket:
+            try:
+                return float(bucket["seconds"])
+            except (KeyError, TypeError, ValueError):
+                pass
+        if self._fallback is not None:
+            return self._fallback.lookup(route_id, from_stop_id, to_stop_id, when)
+        return None
 
     @classmethod
-    def from_cache(cls, cache: Dict[str, Any]) -> "HopTimeModel":
+    def from_cache(cls, cache: Dict[str, Any], fallback: Optional["HopTimeModel"] = None) -> "HopTimeModel":
         buckets = cache.get("buckets") if isinstance(cache, dict) else None
-        return cls(buckets if isinstance(buckets, dict) else {})
+        return cls(buckets if isinstance(buckets, dict) else {}, fallback=fallback)
+
+
+# Written only by the occasional, manually-run build_eta_model.py -- never by this
+# module's own daily refresh. See that script's docstring.
+DEEP_CACHE_PATH = Path(os.getenv("TRIP_PLANNER_DEEP_HOP_TIME_CACHE", "/data/trip_planner_hop_times_deep.json"))
+
+
+def _load_deep_cache() -> Dict[str, Any]:
+    if not DEEP_CACHE_PATH.exists():
+        return {}
+    try:
+        with DEEP_CACHE_PATH.open("r", encoding="utf-8") as f:
+            return json.load(f)
+    except (OSError, json.JSONDecodeError):
+        return {}
 
 
 def load_model(storage, now: Optional[datetime] = None) -> HopTimeModel:
-    """Convenience: ensure the cache is fresh and return a ready-to-use HopTimeModel."""
+    """Convenience: ensure the live (60-day) cache is fresh, layer the deep/corrected
+    historical model (if build_eta_model.py has ever been run) in as its fallback,
+    and return a ready-to-use HopTimeModel."""
     cache = ensure_hop_time_cache(storage, now=now)
-    return HopTimeModel.from_cache(cache)
+    deep_cache = _load_deep_cache()
+    deep_model = HopTimeModel.from_cache(deep_cache) if deep_cache.get("buckets") else None
+    return HopTimeModel.from_cache(cache, fallback=deep_model)
