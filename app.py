@@ -15842,6 +15842,21 @@ async def trip_planner_plan(
     else:
         when_ts = time.time()
 
+    # A live ETA is a snapshot of where vehicles are RIGHT NOW -- it says nothing
+    # about a `when` any real distance away, even though nothing in the wait-
+    # matching math below actually checks that (a live "arriving in 5 min" value
+    # gets treated as "5 min after `when`" regardless of when `when` actually is).
+    # Confirmed live: a next-day search still came back with legs labeled
+    # `waitSSource: "live"`, borrowed from whatever happened to be en route at
+    # request time -- a false precision a schedule/estimate label wouldn't
+    # claim. Skip fetching live data at all once `when` is far enough from the
+    # real current moment that "live" can't mean anything for it; UTS still
+    # falls back to route_service's real window/interline logic exactly as it
+    # already does for `durationIsEstimate`, and CAT falls back to cat_gtfs's
+    # published schedule.
+    LIVE_WAIT_RELEVANCE_S = 5 * 60.0
+    when_is_live_relevant = abs(when_ts - time.time()) <= LIVE_WAIT_RELEVANCE_S
+
     ny_tz = ZoneInfo("America/New_York")
     target_date = datetime.fromtimestamp(when_ts, tz=ny_tz).date()
     today_ny = datetime.now(ny_tz).date()
@@ -15863,23 +15878,31 @@ async def trip_planner_plan(
             _trip_planner_line_from_graph(entry, source="cat", loop=False, id_prefix="cat:")
             for entry in cat_lines_raw
         ]
-        cat_candidate_ids = trip_planner.nearby_stop_ids(cat_lines, origin) | trip_planner.nearby_stop_ids(
-            cat_lines, destination
+        cat_candidate_ids = (
+            trip_planner.nearby_stop_ids(cat_lines, origin) | trip_planner.nearby_stop_ids(cat_lines, destination)
+            if when_is_live_relevant
+            else set()
         )
         # Off the event loop: a stale cache means a real (blocking) fetch to
         # charlottesville.gov, same concern as the walk router's own httpx.post --
         # see trip_planner.estimate_walk_leg. A no-op the other ~24h/day.
-        uts_wait_lookup, bus_eta_wait_lookup, cat_wait_lookup, _ = await asyncio.gather(
-            _uts_live_wait_lookup(),
-            _bus_eta_wait_lookup(),
-            _cat_live_wait_lookup(cat_candidate_ids),
-            asyncio.to_thread(cat_gtfs.refresh),
-        )
+        if when_is_live_relevant:
+            uts_wait_lookup, bus_eta_wait_lookup, cat_wait_lookup, _ = await asyncio.gather(
+                _uts_live_wait_lookup(),
+                _bus_eta_wait_lookup(),
+                _cat_live_wait_lookup(cat_candidate_ids),
+                asyncio.to_thread(cat_gtfs.refresh),
+            )
+        else:
+            uts_wait_lookup, bus_eta_wait_lookup = {}, {}
+            await asyncio.to_thread(cat_gtfs.refresh)
         cat_schedule_fn = _cat_schedule_lookup_fn(ny_tz)
-    else:
+    elif when_is_live_relevant:
         uts_wait_lookup, bus_eta_wait_lookup = await asyncio.gather(
             _uts_live_wait_lookup(), _bus_eta_wait_lookup()
         )
+    else:
+        uts_wait_lookup, bus_eta_wait_lookup = {}, {}
 
     lines = uts_lines + cat_lines
     # Merge (not replace) TransLoc's own live wait data with our own bus_eta-based
