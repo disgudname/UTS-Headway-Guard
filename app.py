@@ -15629,9 +15629,14 @@ async def _uts_live_wait_lookup() -> Dict[Tuple[str, str], List[float]]:
 
 async def _bus_eta_wait_lookup() -> Dict[Tuple[str, str], List[float]]:
     """(line_id, stop_id) -> sorted list of seconds-until-arrival, sourced from our
-    own bus_eta.py engine instead of TransLoc's GetStopArrivalTimes -- merged into
-    _uts_live_wait_lookup's result (see _bus_eta_wait_lookup's call site in
-    trip_planner_plan) rather than replacing it, since the two are complementary.
+    own bus_eta.py engine instead of TransLoc's GetStopArrivalTimes -- preferred
+    OUTRIGHT over _uts_live_wait_lookup's result for any (route, stop) key it
+    covers (see _bus_eta_wait_lookup's call site in trip_planner_plan), not just
+    merged in as an equal alternative: TransLoc's predictor has no concept of a
+    scheduled timestop hold, so during one its number can be a smaller, wrong,
+    un-held-adjusted value, and a naive "pick whichever is smaller" merge would
+    surface exactly that. TransLoc's raw values are still used as a fallback for
+    any (route, stop) bus_eta has nothing for at all.
 
     Why this is needed: TransLoc's live feed only ever carries each currently-active
     vehicle's *next* upcoming pass at a stop -- once that passes without being
@@ -15666,6 +15671,34 @@ async def _bus_eta_wait_lookup() -> Dict[Tuple[str, str], List[float]]:
             continue
         lookup[(str(route_id), str(stop_id))] = sorted(seconds_values)
     return lookup
+
+
+def _merge_uts_wait_lookups(
+    transloc_lookup: Dict[Tuple[str, str], List[float]],
+    bus_eta_lookup: Dict[Tuple[str, str], List[float]],
+) -> Dict[Tuple[str, str], List[float]]:
+    """Combine TransLoc's own live wait data with our own bus_eta-based estimates
+    for the same (route, stop) keys, for trip_planner_plan's live_wait_lookup.
+
+    Deliberately NOT a union: for any (route, stop) bus_eta has an answer for,
+    its values are used OUTRIGHT, entirely replacing TransLoc's for that key,
+    not merged alongside them. TransLoc's own predictor has no concept of a
+    scheduled timestop hold at all (see bus_eta.py's scheduled_timestop_fn), so
+    during an active hold its number for a stop downstream of it can be a
+    smaller, wrong, un-held-adjusted value -- and trip_planner._first_catchable_wait
+    always picks the SMALLEST catchable value from the list it's given, so a
+    naive union would silently surface TransLoc's wrong number and defeat the
+    hold detection entirely. Confirmed live as a real risk, not just a
+    theoretical one -- see this function's call site.
+
+    TransLoc's raw values are still used as a fallback for any (route, stop)
+    bus_eta has nothing for at all (e.g. missing shape data -- see
+    bus_eta.estimate_stop_eta_s's docstring)."""
+    merged: Dict[Tuple[str, str], List[float]] = {}
+    for key in set(transloc_lookup) | set(bus_eta_lookup):
+        bus_eta_values = bus_eta_lookup.get(key)
+        merged[key] = sorted(bus_eta_values) if bus_eta_values else sorted(transloc_lookup.get(key, ()))
+    return merged
 
 
 def _cat_schedule_lookup_fn(ny_tz: ZoneInfo) -> trip_planner.CatScheduleFn:
@@ -15927,18 +15960,7 @@ async def trip_planner_plan(
         uts_wait_lookup, bus_eta_wait_lookup = {}, {}
 
     lines = uts_lines + cat_lines
-    # Merge (not replace) TransLoc's own live wait data with our own bus_eta-based
-    # estimates for the same (route, stop) -- see _bus_eta_wait_lookup's docstring
-    # for why the latter is needed: it covers stops/times TransLoc's own
-    # short-horizon predictor has nothing left to say about (e.g. a loop route like
-    # Silver with too few vehicles for a distant transfer to land on any of
-    # TransLoc's still-live entries). CAT is untouched -- bus_eta is UTS-only.
-    uts_combined_wait_lookup: Dict[Tuple[str, str], List[float]] = {}
-    for key in set(uts_wait_lookup) | set(bus_eta_wait_lookup):
-        uts_combined_wait_lookup[key] = sorted(
-            set(uts_wait_lookup.get(key, ())) | set(bus_eta_wait_lookup.get(key, ()))
-        )
-    live_wait_lookup = {**uts_combined_wait_lookup, **cat_wait_lookup}
+    live_wait_lookup = {**_merge_uts_wait_lookups(uts_wait_lookup, bus_eta_wait_lookup), **cat_wait_lookup}
 
     hop_time_fn = None
     headway_storage = getattr(app.state, "headway_storage", None)
