@@ -559,8 +559,17 @@ export class TripPlannerPanel {
         f.input.blur();
         return;
       }
-      if (!f.input.value.trim()) this._showEmptyStateResults(field);
+      // Move f.wrap/f.results into the overlay FIRST, then populate results --
+      // not the other way around. Confirmed live: on a real phone, opening a
+      // field the very first time could leave "Your Location"/"Choose on map"
+      // simply not visible until switching apps and back forced a repaint;
+      // switching apps away and back is a textbook trigger for a stale-paint
+      // bug on an element that was made visible and then immediately
+      // reparented in the same tick (populating an empty, not-yet-visible
+      // f.results before the move means there's nothing rendered-then-moved
+      // for the browser to get wrong).
       this._maybeOpenOverlay(field);
+      if (!f.input.value.trim()) this._showEmptyStateResults(field);
     });
     f.input.addEventListener('keydown', (e) => {
       if (e.key !== 'Escape') return;
@@ -760,6 +769,11 @@ export class TripPlannerPanel {
       btn.addEventListener('click', () => this._pickResult(field, it));
     });
     f.results.hidden = false;
+    // Force a synchronous layout right after un-hiding -- cheap insurance
+    // against the same class of stale-paint bug the reordering in the focus
+    // listener above targets, on the offchance content lands here through
+    // some other path while f.results is mid-reparent.
+    void f.results.offsetHeight;
   }
 
   _closeFieldResults(field) {
