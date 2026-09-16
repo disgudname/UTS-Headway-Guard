@@ -43,6 +43,18 @@ let reqSeq = 0;
 let originMarker = null;
 let destMarker = null;
 
+// fitToItinerary's padding used to be a flat 70px on every edge, measured
+// against the full map canvas -- but the desktop sidebar and mobile bottom
+// sheet permanently cover part of that canvas, so a chunk of the "fit" area
+// was actually hidden behind them. The result reads as "always too zoomed
+// in" (confirmed live) since the VISIBLE remainder is smaller than the fit
+// assumed. ui/trip-planner-panel.js registers a function here that reports
+// how much of each edge its own chrome is currently covering.
+let boundsPaddingFn = () => 70;
+export function setBoundsPadding(fn) {
+  boundsPaddingFn = typeof fn === 'function' ? fn : () => fn;
+}
+
 /** Call once at boot (livemap's full-chrome branch only — see apps/boot.js). */
 export function installTripPlanner() {
   // The source/layers are already baked into the basemap style (empty, hidden) --
@@ -185,7 +197,7 @@ function fitToItinerary(itinerary) {
     if (lat < minLat) minLat = lat;
     if (lat > maxLat) maxLat = lat;
   }
-  map.fitBounds([[minLng, minLat], [maxLng, maxLat]], { padding: 70, maxZoom: 17, duration: 700 });
+  map.fitBounds([[minLng, minLat], [maxLng, maxLat]], { padding: boundsPaddingFn(), maxZoom: 17, duration: 700 });
 }
 
 function legFeatures(leg) {

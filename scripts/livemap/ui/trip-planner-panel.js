@@ -234,6 +234,14 @@ export class TripPlannerPanel {
       this._replan();
     });
 
+    // The desktop sidebar and mobile bottom sheet permanently cover part of
+    // the map -- fitToItinerary needs to know how much so a selected route
+    // isn't fit against the FULL canvas and end up with a chunk of that fit
+    // hidden behind this panel (confirmed live: routes always looked too
+    // zoomed in, since the actually-visible remainder was smaller than what
+    // the fit assumed).
+    TripPlanner.setBoundsPadding(() => this._computeFitPadding());
+
     (parent || document.body).appendChild(el);
     document.body.appendChild(cardEl);
     document.body.appendChild(overlayEl);
@@ -392,6 +400,37 @@ export class TripPlannerPanel {
     // valid ascending order instead of an invalid peek > half.
     const half = vh * 0.5;
     return [...new Set([Math.min(peek, full), half, full].sort((a, b) => a - b))];
+  }
+
+  /** How much of each map edge this panel's own chrome is covering right now,
+   *  for TripPlanner.setBoundsPadding -- see the registration comment in
+   *  mount() for why fitToItinerary needs this.
+   *
+   *  Deliberately does NOT read `.tp-card`'s own getBoundingClientRect(): its
+   *  height is what's mid-transition right when a fit is triggered (adding/
+   *  removing .is-expanded happens the same tick as selecting an itinerary),
+   *  and a synchronous read in that same tick still reflects the PRE-change
+   *  height, not the target one -- the same reason _setExpanded has to pin a
+   *  frame and force a reflow rather than just trusting a plain read. Instead
+   *  this reuses _computeSheetDetents' peek/full heights above, which measure
+   *  fixed content elements (handle/fields/when/detail-footer) that don't
+   *  themselves resize as the card animates, so they're valid immediately
+   *  regardless of transition state. */
+  _computeFitPadding() {
+    if (this._isMobileLayout()) {
+      if (this._cardEl.hidden) return { top: 24, bottom: 24, left: 24, right: 24 };
+      const detents = this._computeSheetDetents();
+      // A fit is triggered from exactly two places: auto-selecting the first
+      // result right as it lands (list view, sheet expands to full) or
+      // tapping a result for its detail (sheet collapses to peek) -- use
+      // whichever this._view implies instead of the mid-transition height.
+      const target = this._view === 'detail' ? detents[0] : detents[detents.length - 1];
+      return { top: 24, bottom: target + 16, left: 24, right: 24 };
+    }
+    // Desktop: the sidebar is a fixed-width, always-full-height dock (see
+    // .tp-card's own CSS) -- no measurement needed, it covers the same strip
+    // of the left edge regardless of view state.
+    return { top: 70, bottom: 70, left: 350, right: 70 };
   }
 
   /** Drops any height a manual drag pinned inline, so the next programmatic state
@@ -1013,7 +1052,6 @@ export class TripPlannerPanel {
   _showDetail(index) {
     const itinerary = this._itineraries[index];
     if (!itinerary) return;
-    TripPlanner.selectItinerary(index);
     this._setView('detail');
     this._selectedItinerary = itinerary;
     this._detailFooter.hidden = false;
@@ -1024,6 +1062,11 @@ export class TripPlannerPanel {
     // has no peek concept (see the [data-view="detail"] CSS, mobile-only) -- there,
     // the step list just stays visible in the always-full-height sidebar.
     this._card.classList.remove('is-expanded');
+    // Selected LAST, after this._view/_detailFooter above are already set to
+    // their detail-view values -- this is what triggers the map's fitBounds
+    // (via TripPlanner.selectItinerary -> fitToItinerary -> the
+    // _computeFitPadding callback), which reads both to size its padding.
+    TripPlanner.selectItinerary(index);
   }
 
   _itineraryCardHtml(itinerary, i) {
