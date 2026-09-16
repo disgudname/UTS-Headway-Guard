@@ -567,8 +567,16 @@ export class TripPlannerPanel {
       if (this._overlayField === field) this._closeOverlay();
       else this._closeFieldResults(field);
     });
+    // f.wrap and f.results are siblings once the mobile overlay is open (see
+    // _maybeOpenOverlay -- wrap goes into the overlay head, results into its
+    // body, two separate containers), so a click landing on a *result row*
+    // isn't inside f.wrap at all. Checking f.wrap alone means the click that
+    // bubbles up from tapping a row (after that row's own handler already ran)
+    // reads as "outside" and closes the list right as it's being used --
+    // the likely explanation for the empty-state list reportedly flashing
+    // closed and reopening on its own.
     document.addEventListener('click', (e) => {
-      if (!f.wrap.contains(e.target)) this._closeFieldResults(field);
+      if (!f.wrap.contains(e.target) && !f.results.contains(e.target)) this._closeFieldResults(field);
     });
   }
 
@@ -1126,7 +1134,12 @@ export class TripPlannerPanel {
     // sparsely-vehicled route like Silver), so this is projected from the route's
     // own recently-observed headway rather than a directly-seen upcoming bus. Same
     // "estimated" language as a heuristic ride duration, not a separate concept.
-    const estimated = step.waitSSource === 'extrapolated' ? ' · estimated' : '';
+    // "scheduled" (CAT only, see cat_gtfs.py) is a real published-timetable
+    // departure rather than a guess, so it gets its own more confident label --
+    // no live vehicle is being tracked for it yet, but the route not existing
+    // isn't in question the way an extrapolation's continued existence is.
+    const estimated =
+      step.waitSSource === 'extrapolated' ? ' · estimated' : step.waitSSource === 'scheduled' ? ' · scheduled' : '';
     return `
       <div class="tp-leg tp-leg--wait${lastClass}">
         <span class="tp-leg-dot tp-leg-dot--wait"></span>
@@ -1238,7 +1251,8 @@ export class TripPlannerPanel {
     const known = leg.waitS != null;
     const mins = known ? Math.max(0, Math.round(leg.waitS / 60)) : null;
     const timeLabel = known ? (mins < 1 ? '<1 min' : `${mins} min`) : null;
-    const estimated = leg.waitSSource === 'extrapolated' ? ' · estimated' : '';
+    const estimated =
+      leg.waitSSource === 'extrapolated' ? ' · estimated' : leg.waitSSource === 'scheduled' ? ' · scheduled' : '';
     return `
       <div class="tp-detail-step tp-detail-step--wait">
         <span class="tp-leg-dot tp-leg-dot--wait"></span>

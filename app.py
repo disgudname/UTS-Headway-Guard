@@ -50,6 +50,7 @@ from headway_tracker import (
 from viriciti_client import ViriCitiClient, VehicleSOC
 import trip_planner
 import trip_planner_history
+import cat_gtfs
 import bus_eta
 
 from fastapi import Body, FastAPI, HTTPException, Request, Response, Query
@@ -15666,6 +15667,30 @@ async def _bus_eta_wait_lookup() -> Dict[Tuple[str, str], List[float]]:
     return lookup
 
 
+def _cat_schedule_lookup_fn(ny_tz: ZoneInfo) -> trip_planner.CatScheduleFn:
+    """Builds the CatScheduleFn trip_planner._ride_leg falls back to once no live/
+    extrapolated wait exists (see cat_gtfs.py) -- a real published-timetable
+    departure, not a guess, so it's what makes a future ("Later") CAT search or a
+    momentary gap in live tracking usable at all instead of just dropping the leg.
+    Reads whatever cat_gtfs.refresh() last loaded; the caller is responsible for
+    calling that first (see trip_planner_plan)."""
+
+    def _lookup(line_id: str, stop_id: str, after_ts: float) -> Optional[float]:
+        pattern_id = line_id[4:] if line_id.startswith("cat:") else line_id
+        local_date = datetime.fromtimestamp(after_ts, tz=ny_tz).date()
+        deps_s = cat_gtfs.scheduled_departures_s(pattern_id, stop_id, local_date)
+        if not deps_s:
+            return None
+        midnight_ts = datetime.combine(local_date, dtime.min, tzinfo=ny_tz).timestamp()
+        for dep_s in deps_s:
+            epoch = midnight_ts + dep_s
+            if epoch >= after_ts:
+                return epoch
+        return None  # nothing left scheduled at this stop for the rest of the service day
+
+    return _lookup
+
+
 async def _cat_live_wait_lookup(stop_ids: set) -> Dict[Tuple[str, str], List[float]]:
     """(line_id, stop_id) -> sorted list of seconds-until-arrival, one per vehicle
     currently en route, for the given candidate stop IDs only. CAT has no bulk "every
@@ -15799,10 +15824,12 @@ async def trip_planner_plan(
     future date matched none of it. Live wait times, however, only ever reflect right
     now -- there is no way to know a real future wait in advance -- so a future-dated
     plan's itineraries fall back to ride-time estimates only and will generally show
-    `durationIsEstimate: true`. CAT legs specifically require a live wait to be
-    considered available at all (see trip_planner._ride_leg's CAT branch -- CAT has no
-    schedule data source the way UTS's block groups provide), so a future-dated plan
-    effectively drops CAT anyway even when `cat=true`.
+    `durationIsEstimate: true`. CAT legs used to require a live wait to be considered
+    available at all, which meant a future-dated plan effectively dropped CAT
+    entirely even with `cat=true` (and made "now" itself flaky whenever nothing
+    happened to be live-tracked at query time) -- see cat_gtfs.py and
+    trip_planner._ride_leg's CAT branch for the real published-timetable fallback
+    that replaced that restriction.
     """
     if when:
         try:
@@ -15829,6 +15856,7 @@ async def trip_planner_plan(
 
     cat_lines: List[trip_planner.Line] = []
     cat_wait_lookup: Dict[Tuple[str, str], List[float]] = {}
+    cat_schedule_fn: Optional[trip_planner.CatScheduleFn] = None
     if cat:
         cat_lines_raw = await _cat_lines_for_trip_planner()
         cat_lines = [
@@ -15838,9 +15866,16 @@ async def trip_planner_plan(
         cat_candidate_ids = trip_planner.nearby_stop_ids(cat_lines, origin) | trip_planner.nearby_stop_ids(
             cat_lines, destination
         )
-        uts_wait_lookup, bus_eta_wait_lookup, cat_wait_lookup = await asyncio.gather(
-            _uts_live_wait_lookup(), _bus_eta_wait_lookup(), _cat_live_wait_lookup(cat_candidate_ids)
+        # Off the event loop: a stale cache means a real (blocking) fetch to
+        # charlottesville.gov, same concern as the walk router's own httpx.post --
+        # see trip_planner.estimate_walk_leg. A no-op the other ~24h/day.
+        uts_wait_lookup, bus_eta_wait_lookup, cat_wait_lookup, _ = await asyncio.gather(
+            _uts_live_wait_lookup(),
+            _bus_eta_wait_lookup(),
+            _cat_live_wait_lookup(cat_candidate_ids),
+            asyncio.to_thread(cat_gtfs.refresh),
         )
+        cat_schedule_fn = _cat_schedule_lookup_fn(ny_tz)
     else:
         uts_wait_lookup, bus_eta_wait_lookup = await asyncio.gather(
             _uts_live_wait_lookup(), _bus_eta_wait_lookup()
@@ -15884,6 +15919,7 @@ async def trip_planner_plan(
         live_wait_lookup=live_wait_lookup,
         when=when_ts,
         hop_time_fn=hop_time_fn,
+        cat_schedule_fn=cat_schedule_fn,
     )
 
     return {

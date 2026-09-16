@@ -206,6 +206,85 @@ def test_ride_leg_cat_not_recommended_when_every_live_bus_is_uncatchable():
     assert tp._ride_leg(line, 0, 2, board_time, when, None, live_wait_lookup) is None
 
 
+def test_ride_leg_cat_falls_back_to_gtfs_schedule_when_no_live_wait():
+    # No live wait at all (e.g. a "Later" search, or just a gap between live
+    # reports right now) -- a real published-timetable departure should still make
+    # the leg available, not silently disappear the way it used to.
+    line = _line("cat-7", loop=False, source="cat")
+    when = _ts(12)
+    board_time = when + 120.0  # 2 minutes to walk to the stop
+    scheduled_ts = board_time + 300.0  # next scheduled departure, 5 min after arriving
+    result = tp._ride_leg(
+        line, 0, 2, board_time, when, None, {}, cat_schedule_fn=lambda line_id, stop_id, after_ts: scheduled_ts
+    )
+    assert result is not None
+    leg, _alight_time = result
+    assert leg.wait_s_source == "scheduled"
+    assert abs(leg.wait_s - 300.0) < 0.01
+
+
+def test_ride_leg_cat_still_none_when_schedule_fn_finds_nothing():
+    # The pattern simply isn't running that day/time (weekend-only route on a
+    # weekday, after the last trip, a holiday calendar_dates removal, ...) --
+    # cat_schedule_fn correctly reports "nothing", so the leg still isn't offered.
+    line = _line("cat-7", loop=False, source="cat")
+    when = _ts(12)
+    board_time = when + 120.0
+    result = tp._ride_leg(
+        line, 0, 2, board_time, when, None, {}, cat_schedule_fn=lambda line_id, stop_id, after_ts: None
+    )
+    assert result is None
+
+
+def test_ride_leg_cat_prefers_live_wait_over_schedule_fallback():
+    # A genuinely catchable live wait must win outright -- the schedule fallback
+    # should never even be trusted once real live data says otherwise. Rig the
+    # fallback to return an obviously-wrong value so the test would catch it
+    # leaking through.
+    line = _line("cat-7", loop=False, source="cat")
+    when = _ts(12)
+    live_wait_lookup = {("cat-7", "cat-7-A"): [300.0]}
+    result = tp._ride_leg(
+        line,
+        0,
+        2,
+        when,
+        when,
+        None,
+        live_wait_lookup,
+        cat_schedule_fn=lambda line_id, stop_id, after_ts: when + 999_999.0,
+    )
+    assert result is not None
+    leg, _alight_time = result
+    assert leg.wait_s_source == "live"
+    assert abs(leg.wait_s - 300.0) < 0.01
+
+
+def test_ride_leg_cat_schedule_fallback_wins_over_extrapolation():
+    # An "extrapolated" wait is still just a guess about whether the route is
+    # STILL running -- the real schedule is strictly better evidence and should
+    # be preferred over trusting the extrapolation directly.
+    line = _line("cat-7", loop=False, source="cat")
+    when = _ts(12)
+    board_time = when + 500.0
+    live_wait_lookup = {("cat-7", "cat-7-A"): [300.0, 360.0]}  # would extrapolate to 540s if trusted
+    scheduled_ts = when + 600.0
+    result = tp._ride_leg(
+        line,
+        0,
+        2,
+        board_time,
+        when,
+        None,
+        live_wait_lookup,
+        cat_schedule_fn=lambda line_id, stop_id, after_ts: scheduled_ts,
+    )
+    assert result is not None
+    leg, _alight_time = result
+    assert leg.wait_s_source == "scheduled"
+    assert abs(leg.wait_s - 100.0) < 0.01
+
+
 def test_ride_leg_extrapolates_wait_past_a_sparse_vehicle_stops_known_arrivals():
     # Regression for a real bug reported live: a sparsely-vehicled loop route (e.g.
     # Silver, 2 vehicles) only ever reports each vehicle's single NEXT pass at a stop

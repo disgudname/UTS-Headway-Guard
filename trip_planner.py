@@ -414,6 +414,14 @@ SECONDS_PER_HOP_ESTIMATE = 90.0  # rough per-stop dwell+travel time -- used per-
 # this module stays testable without needing real event history.
 HopTimeFn = Callable[[str, str, str, float], Optional[float]]
 
+# (pattern_id, stop_id, after_epoch_s) -> the next scheduled departure at/after
+# after_epoch_s, as an epoch timestamp, or None if the pattern has no more
+# service at that stop that day. See cat_gtfs.py for the real implementation
+# (CAT's own published GTFS timetable); kept as an injected callback, not an
+# import, for the same reason HopTimeFn is -- this module stays testable
+# without a real GTFS feed on hand.
+CatScheduleFn = Callable[[str, str, float], Optional[float]]
+
 
 def _stop_index_within_radius(
     line: Line, point: Tuple[float, float], radius_m: float
@@ -662,6 +670,7 @@ def _ride_leg(
     route_service: Optional[RouteService],
     live_wait_lookup: Dict[Tuple[str, str], List[float]],
     hop_time_fn: Optional[HopTimeFn] = None,
+    cat_schedule_fn: Optional[CatScheduleFn] = None,
 ) -> Optional[Tuple[RideLeg, float]]:
     """Build one ride leg. `board_time` (epoch seconds) is the earliest the rider can
     physically be standing at this stop -- e.g. `when` plus however long the walk here
@@ -716,16 +725,23 @@ def _ride_leg(
         service_ends_ts = end_ts
         last_ride_warning = (end_ts - actual_board_time) <= LAST_RIDE_WARNING_S
     else:
-        # CAT: no block-schedule data available (separate agency/API), unlike UTS
-        # above which double-checks an extrapolated wait against route_service's real
-        # effective_window. Require a genuinely LIVE ETA as the availability signal --
-        # an extrapolated one is a real, well-founded projection (see
-        # _first_catchable_wait) but is still just a guess about whether the route is
-        # STILL running by then, and CAT has no independent way to check that guess.
-        # No live arrival at all, or only an extrapolated one, means don't recommend
-        # it, rather than presenting a pattern that may not actually be running.
+        # CAT: prefer a genuinely LIVE ETA as the availability signal -- an
+        # extrapolated one is a real, well-founded projection (see
+        # _first_catchable_wait) but is still just a guess about whether the
+        # route is STILL running by then, and unlike UTS's block-schedule
+        # window above, there used to be no independent way to check that
+        # guess at all. Now there is: cat_gtfs.py's real published timetable
+        # (see CatScheduleFn) -- fall back to it instead of refusing the leg
+        # outright, which is what made CAT unusable for a "Later" search
+        # (no live vehicle exists yet for a future time) and flaky even for
+        # "now" whenever nothing happened to be live-tracked at query time.
         if wait_s is None or wait_s_source == "extrapolated":
-            return None
+            scheduled_ts = cat_schedule_fn(line.id, board_stop.id, board_time) if cat_schedule_fn else None
+            if scheduled_ts is None:
+                return None
+            actual_board_time = scheduled_ts
+            wait_s = max(0.0, (scheduled_ts - when) - min_wait_s)
+            wait_s_source = "scheduled"
 
     path = _path_stops(line, board_idx, alight_idx)
     coordinates = _ride_leg_shape(line, board_stop, alight_stop) or [(s.lat, s.lon) for s in path]
@@ -756,6 +772,7 @@ def find_trips(
     when: float,
     max_results: int = 4,
     hop_time_fn: Optional[HopTimeFn] = None,
+    cat_schedule_fn: Optional[CatScheduleFn] = None,
 ) -> List[Itinerary]:
     """Rank up to `max_results` walk -> ride[-> walk -> ride] -> walk itineraries.
 
@@ -769,6 +786,10 @@ def find_trips(
     `hop_time_fn`, if given, is consulted for real historical per-segment ride times
     (see trip_planner_history.HopTimeModel.lookup); segments it doesn't know fall back
     to the flat SECONDS_PER_HOP_ESTIMATE heuristic.
+
+    `cat_schedule_fn`, if given, is consulted for a CAT leg once no live/extrapolated
+    wait is available -- see cat_gtfs.py and _ride_leg's CAT branch. Never used for
+    UTS, which already has its own real schedule via `route_service`.
     """
     origin_candidates: Dict[str, List[int]] = {}
     dest_candidates: Dict[str, List[int]] = {}
@@ -815,7 +836,9 @@ def find_trips(
 
         walk_to = estimate_walk_leg(origin, (board_stop.lat, board_stop.lon))
         board_time = when + walk_to.duration_s
-        result = _ride_leg(line, board_idx, alight_idx, board_time, when, route_service, live_wait_lookup, hop_time_fn)
+        result = _ride_leg(
+            line, board_idx, alight_idx, board_time, when, route_service, live_wait_lookup, hop_time_fn, cat_schedule_fn
+        )
         if result is None:
             continue
         ride_leg, alight_time = result
@@ -841,7 +864,15 @@ def find_trips(
             walk_to = estimate_walk_leg(origin, (a_board_stop.lat, a_board_stop.lon))
             board_time = when + walk_to.duration_s
             result_a = _ride_leg(
-                line_a, a_board_idx, a_alight_idx, board_time, when, route_service, live_wait_lookup, hop_time_fn
+                line_a,
+                a_board_idx,
+                a_alight_idx,
+                board_time,
+                when,
+                route_service,
+                live_wait_lookup,
+                hop_time_fn,
+                cat_schedule_fn,
             )
             if result_a is None:
                 continue
@@ -858,7 +889,15 @@ def find_trips(
                 board_b_time += transfer_leg.duration_s
 
             result_b = _ride_leg(
-                line_b, b_board_idx, b_alight_idx, board_b_time, when, route_service, live_wait_lookup, hop_time_fn
+                line_b,
+                b_board_idx,
+                b_alight_idx,
+                board_b_time,
+                when,
+                route_service,
+                live_wait_lookup,
+                hop_time_fn,
+                cat_schedule_fn,
             )
             if result_b is None:
                 continue
