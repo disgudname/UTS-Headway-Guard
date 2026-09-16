@@ -1185,6 +1185,51 @@ def heading_diff(a: float, b: float) -> float:
     """Smallest absolute difference between two headings in degrees."""
     return abs((a - b + 180.0) % 360.0 - 180.0)
 
+# Below this TransLoc-reported ground speed (m/s), a vehicle is trusted as
+# genuinely stationary -- see _resolve_dir_sign for why this matters.
+DIR_SIGN_STATIONARY_MPS = 0.5
+
+
+def _resolve_dir_sign(
+    mps: float, along_mps: float, prev_sign: int, dir_eps: float = 0.3,
+    stationary_mps: float = DIR_SIGN_STATIONARY_MPS,
+) -> Tuple[int, bool]:
+    """Which way (+1 forward, -1 backward, 0 unknown) a vehicle is moving along
+    its route right now. Returns (dir_sign, needs_heading_tiebreak) -- the
+    caller resolves the tiebreak using route geometry it has and this function
+    doesn't (see the updater() loop's own call site).
+
+    `mps` is TransLoc's own reported ground speed (independent of our route
+    projection); `along_mps` is OUR derived speed from the delta between this
+    poll's and the previous poll's arc-length position on the route polyline.
+
+    Confirmed live as a real bug: when TransLoc itself reports the vehicle as
+    essentially stationary (mps <= stationary_mps -- e.g. holding at a
+    scheduled timestop, now a common, MINUTES-long state thanks to the
+    schedule-hold feature, giving this far more opportunity to trigger than
+    the brief dwells before it), along_mps can still read as a large, wrongly
+    -signed value if the route's polyline passes near itself where the
+    vehicle is sitting -- a few metres of ordinary GPS jitter can snap the
+    nearest-point projection to a completely different arc-length position on
+    another pass of the road, producing a big APPARENT delta despite zero
+    real motion. bus_eta.estimate_stop_eta_s treats dir_sign < 0 as "no valid
+    estimate at all" for every stop except the one close enough to trigger
+    its own arriving-now radius exemption, so a single spurious flip here
+    silently drops EVERY downstream ETA for that vehicle -- confirmed live on
+    both Silver and Green Line vehicles sitting still at a timestop, where
+    only the stop the vehicle was standing on kept showing up. TransLoc's own
+    speedometer is trusted over our derived signal whenever they'd disagree
+    about direction, since a vehicle TransLoc itself says isn't moving can't
+    really be "moving backward fast" no matter what our own polyline
+    projection derived."""
+    if mps <= stationary_mps:
+        return prev_sign, False
+    if along_mps > dir_eps:
+        return 1, False
+    if along_mps < -dir_eps:
+        return -1, False
+    return prev_sign, prev_sign == 0
+
 def cumulative_distance(poly: List[Tuple[float,float]]) -> Tuple[List[float], float]:
     cum = [0.0]
     for i in range(1, len(poly)):
@@ -6001,18 +6046,13 @@ async def startup():
                             else:
                                 along_mps = 0.0
                             DIR_EPS = 0.3
-                            if along_mps > DIR_EPS:
-                                dir_sign = +1
-                            elif along_mps < -DIR_EPS:
-                                dir_sign = -1
-                            else:
-                                dir_sign = prev_sign
-                                if abs(along_mps) <= DIR_EPS and prev_sign == 0 and seg_idx is not None:
-                                    seg_heading = bearing_between(
-                                        state.routes[rid].poly[seg_idx],
-                                        state.routes[rid].poly[seg_idx + 1],
-                                    )
-                                    dir_sign = +1 if heading_diff(heading, seg_heading) <= 90 else -1
+                            dir_sign, needs_heading_tiebreak = _resolve_dir_sign(mps, along_mps, prev_sign, DIR_EPS)
+                            if needs_heading_tiebreak and seg_idx is not None:
+                                seg_heading = bearing_between(
+                                    state.routes[rid].poly[seg_idx],
+                                    state.routes[rid].poly[seg_idx + 1],
+                                )
+                                dir_sign = +1 if heading_diff(heading, seg_heading) <= 90 else -1
                             disp = abs(along_mps)
                             measured = 0.5 * mps + 0.5 * disp if mps > 0 else (disp if prev else mps)
                             ema = EMA_ALPHA * measured + (1 - EMA_ALPHA) * ema
