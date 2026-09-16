@@ -285,6 +285,80 @@ def test_ride_leg_cat_schedule_fallback_wins_over_extrapolation():
     assert abs(leg.wait_s - 100.0) < 0.01
 
 
+def test_ride_leg_uts_falls_back_to_block_schedule_when_no_live_wait():
+    # Same idea as the CAT fallback above, but for UTS's Block Package schedule
+    # (uts_blocks.py) via uts_schedule_fn -- a mapped "timestop" stop with a real
+    # scheduled time should make the leg usable even with zero live coverage.
+    service = tp.RouteService(windows={"67": [(_ts(5), _ts(22))]})
+    line = _line("67")
+    when = _ts(12)
+    board_time = when + 120.0
+    scheduled_ts = board_time + 300.0
+    result = tp._ride_leg(
+        line, 0, 2, board_time, when, service, {},
+        uts_schedule_fn=lambda line_id, stop_id, after_ts: scheduled_ts,
+    )
+    assert result is not None
+    leg, _alight_time = result
+    assert leg.wait_s_source == "scheduled"
+    assert abs(leg.wait_s - 300.0) < 0.01
+
+
+def test_ride_leg_uts_still_valid_when_schedule_fn_finds_nothing():
+    # Unlike CAT, a UTS leg isn't rejected just because uts_schedule_fn came up
+    # empty -- most stops aren't a mapped timestop at all (see uts_blocks.py),
+    # and route_service's own window is still UTS's real existence check.
+    service = tp.RouteService(windows={"67": [(_ts(5), _ts(22))]})
+    line = _line("67")
+    when = _ts(12)
+    board_time = when + 120.0
+    result = tp._ride_leg(
+        line, 0, 2, board_time, when, service, {},
+        uts_schedule_fn=lambda line_id, stop_id, after_ts: None,
+    )
+    assert result is not None
+    leg, _alight_time = result
+    assert leg.wait_s_source is None
+
+
+def test_ride_leg_uts_prefers_live_wait_over_schedule_fallback():
+    # A genuinely catchable live wait must win outright -- rig the schedule
+    # fallback to return an obviously-wrong value so the test would catch it
+    # leaking through.
+    service = tp.RouteService(windows={"67": [(_ts(5), _ts(22))]})
+    line = _line("67")
+    when = _ts(12)
+    live_wait_lookup = {("67", "67-A"): [300.0]}
+    result = tp._ride_leg(
+        line, 0, 2, when, when, service, live_wait_lookup,
+        uts_schedule_fn=lambda line_id, stop_id, after_ts: when + 999_999.0,
+    )
+    assert result is not None
+    leg, _alight_time = result
+    assert leg.wait_s_source == "live"
+    assert abs(leg.wait_s - 300.0) < 0.01
+
+
+def test_ride_leg_uts_schedule_fallback_wins_over_extrapolation():
+    # An "extrapolated" wait is still just a guess -- the real schedule is
+    # strictly better evidence and should be preferred over trusting the
+    # extrapolation directly, same reasoning as CAT's equivalent test.
+    service = tp.RouteService(windows={"67": [(_ts(5), _ts(22))]})
+    line = _line("67")
+    when = _ts(12)
+    board_time = when + 500.0
+    live_wait_lookup = {("67", "67-A"): [300.0, 360.0]}  # would extrapolate to 540s if trusted
+    scheduled_ts = when + 600.0
+    result = tp._ride_leg(
+        line, 0, 2, board_time, when, service, live_wait_lookup,
+        uts_schedule_fn=lambda line_id, stop_id, after_ts: scheduled_ts,
+    )
+    assert result is not None
+    leg, _alight_time = result
+    assert leg.wait_s_source == "scheduled"
+    assert abs(leg.wait_s - 100.0) < 0.01
+
+
 def test_ride_leg_extrapolates_wait_past_a_sparse_vehicle_stops_known_arrivals():
     # Regression for a real bug reported live: a sparsely-vehicled loop route (e.g.
     # Silver, 2 vehicles) only ever reports each vehicle's single NEXT pass at a stop

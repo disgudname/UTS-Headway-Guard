@@ -422,6 +422,18 @@ HopTimeFn = Callable[[str, str, str, float], Optional[float]]
 # without a real GTFS feed on hand.
 CatScheduleFn = Callable[[str, str, float], Optional[float]]
 
+# Same shape as CatScheduleFn, for UTS instead: (route_id, stop_id, after_epoch_s)
+# -> the next scheduled visit at/after after_epoch_s, or None. route_service's
+# own schedule data only ever covers a route's overall operating WINDOW (does
+# it run at all right now), not a per-stop time -- this fills that gap for the
+# handful of named "timestop" locations UTS's own Block Packages document a
+# real schedule for (see uts_blocks.py). Most UTS stops aren't a mapped
+# timestop at all, so this returning None for a given stop is the common case,
+# not an error -- see _ride_leg's UTS branch, which never rejects a leg just
+# because this comes back empty, unlike the CAT branch which has no other
+# schedule signal to fall back on.
+UtsScheduleFn = Callable[[str, str, float], Optional[float]]
+
 
 def _stop_index_within_radius(
     line: Line, point: Tuple[float, float], radius_m: float
@@ -671,6 +683,7 @@ def _ride_leg(
     live_wait_lookup: Dict[Tuple[str, str], List[float]],
     hop_time_fn: Optional[HopTimeFn] = None,
     cat_schedule_fn: Optional[CatScheduleFn] = None,
+    uts_schedule_fn: Optional[UtsScheduleFn] = None,
 ) -> Optional[Tuple[RideLeg, float]]:
     """Build one ride leg. `board_time` (epoch seconds) is the earliest the rider can
     physically be standing at this stop -- e.g. `when` plus however long the walk here
@@ -711,6 +724,21 @@ def _ride_leg(
     last_ride_warning = False
 
     if line.source == "uts":
+        # Board_stop is one of the handful of named "timestop" locations UTS's
+        # own Block Packages document a real per-stop schedule for (see
+        # uts_blocks.py) -- most stops aren't, so this staying None is the
+        # common case, not a problem: route_service's window check below is
+        # still the real existence check for a UTS leg either way. Only
+        # consulted once no live/extrapolated wait exists, same gate as CAT's
+        # branch below, so a real live ETA is never second-guessed by a
+        # schedule that can go stale (a detour, a delay) in a way live data
+        # can't.
+        if wait_s is None or wait_s_source == "extrapolated":
+            scheduled_ts = uts_schedule_fn(line.id, board_stop.id, board_time) if uts_schedule_fn else None
+            if scheduled_ts is not None:
+                actual_board_time = scheduled_ts
+                wait_s = max(0.0, (scheduled_ts - when) - min_wait_s)
+                wait_s_source = "scheduled"
         if route_service is None:
             return None
         window = route_service.effective_window(line.id)
@@ -773,6 +801,7 @@ def find_trips(
     max_results: int = 4,
     hop_time_fn: Optional[HopTimeFn] = None,
     cat_schedule_fn: Optional[CatScheduleFn] = None,
+    uts_schedule_fn: Optional[UtsScheduleFn] = None,
 ) -> List[Itinerary]:
     """Rank up to `max_results` walk -> ride[-> walk -> ride] -> walk itineraries.
 
@@ -788,8 +817,10 @@ def find_trips(
     to the flat SECONDS_PER_HOP_ESTIMATE heuristic.
 
     `cat_schedule_fn`, if given, is consulted for a CAT leg once no live/extrapolated
-    wait is available -- see cat_gtfs.py and _ride_leg's CAT branch. Never used for
-    UTS, which already has its own real schedule via `route_service`.
+    wait is available -- see cat_gtfs.py and _ride_leg's CAT branch. `uts_schedule_fn`
+    plays the same role for a UTS leg (see uts_blocks.py and _ride_leg's UTS branch) --
+    `route_service` alone only knows whether a route is running at all, not a per-stop
+    time.
     """
     origin_candidates: Dict[str, List[int]] = {}
     dest_candidates: Dict[str, List[int]] = {}
@@ -837,7 +868,8 @@ def find_trips(
         walk_to = estimate_walk_leg(origin, (board_stop.lat, board_stop.lon))
         board_time = when + walk_to.duration_s
         result = _ride_leg(
-            line, board_idx, alight_idx, board_time, when, route_service, live_wait_lookup, hop_time_fn, cat_schedule_fn
+            line, board_idx, alight_idx, board_time, when, route_service, live_wait_lookup, hop_time_fn,
+            cat_schedule_fn, uts_schedule_fn,
         )
         if result is None:
             continue
@@ -873,6 +905,7 @@ def find_trips(
                 live_wait_lookup,
                 hop_time_fn,
                 cat_schedule_fn,
+                uts_schedule_fn,
             )
             if result_a is None:
                 continue
@@ -898,6 +931,7 @@ def find_trips(
                 live_wait_lookup,
                 hop_time_fn,
                 cat_schedule_fn,
+                uts_schedule_fn,
             )
             if result_b is None:
                 continue

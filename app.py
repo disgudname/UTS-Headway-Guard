@@ -52,6 +52,7 @@ import trip_planner
 import trip_planner_history
 import cat_gtfs
 import bus_eta
+import uts_blocks
 
 from fastapi import Body, FastAPI, HTTPException, Request, Response, Query
 from starlette.middleware.gzip import GZipMiddleware
@@ -15872,6 +15873,11 @@ async def trip_planner_plan(
     cat_lines: List[trip_planner.Line] = []
     cat_wait_lookup: Dict[Tuple[str, str], List[float]] = {}
     cat_schedule_fn: Optional[trip_planner.CatScheduleFn] = None
+    # Unlike cat_schedule_fn, not gated on the `cat` query flag -- UTS's own
+    # schedule data has nothing to do with whether CAT lines were requested.
+    uts_schedule_fn: Optional[trip_planner.UtsScheduleFn] = (
+        uts_blocks.next_scheduled_arrival_epoch if uts_blocks.is_loaded() else None
+    )
     if cat:
         cat_lines_raw = await _cat_lines_for_trip_planner()
         cat_lines = [
@@ -15943,6 +15949,7 @@ async def trip_planner_plan(
         when=when_ts,
         hop_time_fn=hop_time_fn,
         cat_schedule_fn=cat_schedule_fn,
+        uts_schedule_fn=uts_schedule_fn,
     )
 
     return {
@@ -16000,6 +16007,32 @@ async def eta_uts_stop_arrivals():
         return payload
 
 
+def _current_vehicle_block_id(vehicle_id: Optional[str]) -> Optional[str]:
+    """Same lookup as the headway tracker's own vehicle_block_lookup() closure
+    (see the updater() loop) -- reimplemented at module level so
+    _compute_bus_eta_arrivals can use it too without reaching into that
+    closure. state.blocks_cache["vehicle_to_block"] refreshes every
+    BLOCK_REFRESH_S straight from TransLoc's own dispatch data, so this is
+    live, not a guess -- see uts_blocks.py's module docstring for why bus_eta
+    needs to know a vehicle's block at all."""
+    if vehicle_id is None:
+        return None
+    blocks_cache = getattr(state, "blocks_cache", None)
+    if not blocks_cache:
+        return None
+    norm_vid = _normalize_vehicle_id_str(vehicle_id)
+    vehicle_to_block = blocks_cache.get("vehicle_to_block", {})
+    if norm_vid and vehicle_to_block:
+        block_id = vehicle_to_block.get(norm_vid)
+        if block_id:
+            return block_id
+    for block_entry in blocks_cache.get("plain_language_blocks", []):
+        vid = _block_entry_vehicle_id(block_entry)
+        if vid is not None and vid == norm_vid:
+            return block_entry.get("block_id") or block_entry.get("block")
+    return None
+
+
 async def _compute_bus_eta_arrivals() -> Dict[str, Any]:
     uts_lines_raw, _route_service = await _uts_lines_for_trip_planner()
     lines_by_id = {
@@ -16048,6 +16081,8 @@ async def _compute_bus_eta_arrivals() -> Dict[str, Any]:
                     line, veh.s_pos, ema_mps, stop, hop_time_fn, when_ts,
                     vehicle_lat=veh.lat, vehicle_lon=veh.lon,
                     vehicle_dir_sign=getattr(veh, "dir_sign", 0),
+                    vehicle_block_id=_current_vehicle_block_id(vid),
+                    scheduled_timestop_fn=uts_blocks.scheduled_hold_epoch if uts_blocks.is_loaded() else None,
                 )
                 if result is None:
                     continue

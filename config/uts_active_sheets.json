@@ -1,0 +1,22 @@
+{
+  "Gold Line": {
+    "file": "Gold Line 08.11.2026.xlsx",
+    "sheets": ["Gold Fall 2026 Wkday", "Gold Fall 2026 Wknd"]
+  },
+  "Green Line": {
+    "file": "Green Line 08.10.2026.xlsx",
+    "sheets": ["GRN Fall 2026 Wkday", "GRN Fall 2026 Wknd"]
+  },
+  "Night Pilot": {
+    "file": "Night Pilot 08.10.2026.xlsx",
+    "sheets": ["Sun-Wed NP", "Thu-Sat NP"]
+  },
+  "Orange Line": {
+    "file": "Orange Line 08.10.2026.xlsx",
+    "sheets": ["OR Fall 2026 Wkday", "OR Fall 2026 Wknd"]
+  },
+  "Silver Line": {
+    "file": "Silver Line 01.05.2026.xlsx",
+    "sheets": ["SLV Spring 2026"]
+  }
+}

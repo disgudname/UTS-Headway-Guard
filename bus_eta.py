@@ -38,9 +38,19 @@ historical baseline from (see trip_planner.py's CAT branch for the same reason).
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import List, Optional, Tuple
+from typing import Callable, List, Optional, Tuple
 
 from trip_planner import Line, Stop, HopTimeFn, SECONDS_PER_HOP_ESTIMATE, haversine_m
+
+# (route_id, stop_id, block_id, reference_ts) -> scheduled epoch seconds that
+# block is due at that stop, or None if that stop isn't a scheduled "timestop"
+# for this route, or nothing in the block's schedule is close enough to
+# reference_ts to plausibly be the same lap. reference_ts is an ESTIMATE of
+# when the vehicle will reach that stop (built up as estimate_stop_eta_s walks
+# forward), not necessarily real "now" -- see uts_blocks.scheduled_hold_epoch,
+# the only implementation of this today. Optional/UTS-only (no such schedule
+# exists for CAT) -- every caller must tolerate None throughout.
+ScheduledTimestopFn = Callable[[str, str, str, float], Optional[float]]
 
 # How much the current segment's live pace factor still influences a downstream
 # segment's estimate, per hop of distance from the vehicle's current position.
@@ -286,6 +296,8 @@ def estimate_stop_eta_s(
     vehicle_lat: Optional[float] = None,
     vehicle_lon: Optional[float] = None,
     vehicle_dir_sign: int = 0,
+    vehicle_block_id: Optional[str] = None,
+    scheduled_timestop_fn: Optional[ScheduledTimestopFn] = None,
 ) -> Optional[BusEtaEstimate]:
     """Seconds until this vehicle reaches target_stop, or None if the line/target
     don't carry the shape+arc_pos data this needs (e.g. CAT, or a UTS route whose
@@ -309,7 +321,24 @@ def estimate_stop_eta_s(
     exactly) computed as 196.5s -- off by 6x, because the forward-only math was
     applied to a vehicle actually moving the other way relative to the captured
     shape. The ARRIVING_RADIUS_M proximity check above is unaffected by this (it's
-    driven by real GPS distance, not arc-length direction) and still applies first."""
+    driven by real GPS distance, not arc-length direction) and still applies first.
+
+    vehicle_block_id/scheduled_timestop_fn (both optional, UTS-only) let a bus
+    intentionally holding at a scheduled "timestop" push out every downstream
+    ETA to account for it, rather than just neutralizing its dwelling speed and
+    falling back to a typical-pace guess the way dwelling_at_next/dwelling_at_prev
+    already do below on their own. Every time the walk below passes THROUGH a
+    stop (not just arriving at target_stop itself -- see the in-loop comment),
+    it checks whether that stop is this specific block's own scheduled timestop
+    and, if the schedule says it's not due to leave yet, clamps the running
+    total forward to that scheduled departure. Because this uses the block's
+    OWN schedule (not a proximity guess), it fires even for a stop the vehicle
+    hasn't reached yet -- a bus running early on the far side of its loop
+    already shows a held ETA for a timestop several stops ahead, not just once
+    it's physically sitting there. The clamp only ever pushes an ETA LATER
+    (`max()`), never earlier, so a bus already running behind schedule is
+    completely unaffected -- there's no failure mode where this makes an
+    already-accurate live estimate worse."""
     if not line.shape_cum or len(line.shape_cum) < 2:
         return None
     if target_stop.arc_pos is None:
@@ -458,6 +487,22 @@ def estimate_stop_eta_s(
             return None  # target unreachable in one lap -- shouldn't happen on a loop, but never spin forever
         nxt_idx = (idx + 1) % len(stops)
         a, b = stops[idx], stops[nxt_idx]
+
+        # Scheduled timestop hold: total_s right now represents the estimated
+        # time to REACH `a` (every hop added so far, including current_leg_s
+        # from before this loop even started -- so this also covers the very
+        # first stop, next_stop, on the loop's first iteration). If `a` is this
+        # block's own scheduled timestop and it isn't due to leave until later,
+        # clamp forward to that departure before adding the next hop -- see the
+        # docstring above. Deliberately NOT applied to target_stop's own arrival
+        # (only stops the walk passes THROUGH, i.e. departs from) -- a rider
+        # asking "when does it reach this stop" wants its honest physical
+        # arrival, not a hold that hasn't started yet.
+        if scheduled_timestop_fn is not None and vehicle_block_id:
+            hold_epoch = scheduled_timestop_fn(line.id, a.id, vehicle_block_id, when + total_s)
+            if hold_epoch is not None:
+                total_s = max(total_s, hold_epoch - when)
+
         hop_number += 1
         hop_dist = (
             _forward_distance(a.arc_pos, b.arc_pos, route_length_m)

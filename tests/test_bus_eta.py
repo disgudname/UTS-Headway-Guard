@@ -402,3 +402,79 @@ def test_wraps_forward_around_a_loop_when_target_is_behind_the_vehicle():
     result = eta.estimate_stop_eta_s(line, 950.0, 5.0, line.stops[0], hop_time_fn=lambda *a: 60.0, when=0.0)
     assert result is not None
     assert result.seconds > 0
+
+
+# --- Scheduled timestop hold clamp (vehicle_block_id/scheduled_timestop_fn) ---
+
+def _hold_fn(held_stop_id, held_epoch, held_block_id="B1"):
+    """A ScheduledTimestopFn stub: returns held_epoch only for the exact
+    (stop_id, block_id) it's configured for, None otherwise -- so a test can
+    assert the clamp fires exactly where expected and nowhere else."""
+    def _fn(route_id, stop_id, block_id, reference_ts):
+        if stop_id == held_stop_id and block_id == held_block_id:
+            return held_epoch
+        return None
+    return _fn
+
+
+def test_schedule_hold_pushes_out_downstream_stops():
+    line = _line([0, 300, 900, 1200])
+    hop_time_fn = _flat_hop_time_fn(60.0)
+    baseline = eta.estimate_stop_eta_s(line, 0.0, 5.0, line.stops[3], hop_time_fn, when=0.0)
+    assert baseline is not None and 175.0 < baseline.seconds < 185.0
+
+    # Block "B1" isn't scheduled to leave s1 until t=500 -- far later than the
+    # live/historical model alone would ever produce for reaching s1 (~60s).
+    result = eta.estimate_stop_eta_s(
+        line, 0.0, 5.0, line.stops[3], hop_time_fn, when=0.0,
+        vehicle_block_id="B1", scheduled_timestop_fn=_hold_fn(line.stops[1].id, 500.0),
+    )
+    assert result is not None
+    # Held until 500s at s1, then two more 60s hops to reach s3.
+    assert 615.0 < result.seconds < 625.0
+    assert result.seconds > baseline.seconds
+
+
+def test_schedule_hold_does_not_affect_arrival_at_the_held_stop_itself():
+    # Asking for the ETA to s1 itself -- the stop about to hold -- should stay
+    # an honest physical arrival estimate, not the hold's departure time. The
+    # hold only affects stops AFTER the one it applies to (see docstring).
+    line = _line([0, 300, 900])
+    result = eta.estimate_stop_eta_s(
+        line, 200.0, 10.0, line.stops[1], hop_time_fn=None, when=0.0,
+        vehicle_block_id="B1", scheduled_timestop_fn=_hold_fn(line.stops[1].id, 5000.0),
+    )
+    assert result is not None
+    assert abs(result.seconds - 10.0) < 0.01  # unchanged from test_current_partial_segment_uses_pure_live_projection
+
+
+def test_schedule_hold_never_makes_a_late_running_bus_look_earlier():
+    line = _line([0, 300, 900, 1200])
+    hop_time_fn = _flat_hop_time_fn(60.0)
+    baseline = eta.estimate_stop_eta_s(line, 0.0, 5.0, line.stops[3], hop_time_fn, when=0.0)
+    assert baseline is not None
+
+    # The "schedule" says s1 was due at t=1 -- long past by the time any live
+    # estimate would reach it -- simulating a bus already running behind. The
+    # clamp uses max(), so this must never pull the estimate earlier or later.
+    result = eta.estimate_stop_eta_s(
+        line, 0.0, 5.0, line.stops[3], hop_time_fn, when=0.0,
+        vehicle_block_id="B1", scheduled_timestop_fn=_hold_fn(line.stops[1].id, 1.0),
+    )
+    assert result is not None
+    assert abs(result.seconds - baseline.seconds) < 0.01
+
+
+def test_schedule_hold_inactive_without_a_block_id():
+    # scheduled_timestop_fn is provided but vehicle_block_id is None (e.g. the
+    # vehicle's block assignment isn't known right now) -- must be a no-op,
+    # never call the fn with a meaningless block id.
+    line = _line([0, 300, 900, 1200])
+    hop_time_fn = _flat_hop_time_fn(60.0)
+    baseline = eta.estimate_stop_eta_s(line, 0.0, 5.0, line.stops[3], hop_time_fn, when=0.0)
+    result = eta.estimate_stop_eta_s(
+        line, 0.0, 5.0, line.stops[3], hop_time_fn, when=0.0,
+        vehicle_block_id=None, scheduled_timestop_fn=_hold_fn(line.stops[1].id, 5000.0),
+    )
+    assert result is not None and baseline is not None
+    assert abs(result.seconds - baseline.seconds) < 0.01
