@@ -23,6 +23,7 @@ import math
 import os
 import re
 import statistics
+import time
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 from typing import Callable, Dict, List, Optional, Tuple
@@ -49,6 +50,17 @@ WALK_ROUTER_PROXY_URL = os.getenv("WALK_ROUTER_PROXY_URL", "").strip() or None
 # Home-LAN/Tailscale hop, not a public API -- fail fast to the straight-line fallback
 # rather than let one slow walk leg stall a trip-planning request.
 WALK_ROUTER_TIMEOUT_S = 2.0
+# A single find_trips() call can ask for dozens of walk legs (one candidate stop pair
+# per direct line, plus one per line-A x line-B transfer combination) -- if the router
+# is actually down, that's dozens of independent WALK_ROUTER_TIMEOUT_S waits stacked
+# back to back, confirmed live: a Rice Hall -> Pinn Hall request during a home-server
+# outage spun for minutes before finally failing, and since httpx.post here is
+# synchronous it blocks the single-CPU event loop the whole time, stalling every other
+# request too. Once one call fails, assume the router stays down for this long and skip
+# straight to the fallback for every other walk leg -- both in this request and any
+# other concurrent one -- rather than re-discovering the same outage per candidate.
+WALK_ROUTER_COOLDOWN_S = 30.0
+_walk_router_down_until = 0.0  # monotonic time; 0.0 == not currently known to be down
 
 # Ranking preference, not a real-world speed adjustment: a minute spent walking counts
 # for more than a minute spent riding when picking which stops/itinerary to prefer.
@@ -124,6 +136,9 @@ def _routed_walk_leg(start: Tuple[float, float], end: Tuple[float, float]) -> Op
     """Call the self-hosted Valhalla router for a real pedestrian route. Returns None on
     any failure so the caller can fall back to the straight-line estimate -- a degraded
     walking line is better than no itinerary (see ROUTING_ENGINE.md)."""
+    global _walk_router_down_until
+    if time.monotonic() < _walk_router_down_until:
+        return None  # already known down -- see WALK_ROUTER_COOLDOWN_S above
     try:
         response = httpx.post(
             WALK_ROUTER_URL,
@@ -140,6 +155,7 @@ def _routed_walk_leg(start: Tuple[float, float], end: Tuple[float, float]) -> Op
         )
         response.raise_for_status()
         leg = response.json()["trip"]["legs"][0]
+        _walk_router_down_until = 0.0  # a live response proves it's back up
         return WalkLeg(
             coordinates=_decode_valhalla_shape(leg["shape"]),
             distance_m=leg["summary"]["length"] * 1000.0,
@@ -147,6 +163,7 @@ def _routed_walk_leg(start: Tuple[float, float], end: Tuple[float, float]) -> Op
             source="routed",
         )
     except Exception:
+        _walk_router_down_until = time.monotonic() + WALK_ROUTER_COOLDOWN_S
         return None
 
 
