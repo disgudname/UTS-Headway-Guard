@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-09-16T10:04:14",
+  "generated_at": "2026-09-16T14:05:02",
   "source_files": {
     "Gold Line": "Gold Line 08.11.2026.xlsx",
     "Green Line": "Green Line 08.10.2026.xlsx",
@@ -9,6 +9,12 @@
   },
   "blocks": {
     "[09]": {
+      "route_ids": [
+        "56",
+        "57",
+        "67",
+        "78"
+      ],
       "weekday_groups": [
         {
           "weekdays": [
@@ -416,6 +422,12 @@
       ]
     },
     "[11]": {
+      "route_ids": [
+        "56",
+        "57",
+        "67",
+        "78"
+      ],
       "weekday_groups": [
         {
           "weekdays": [
@@ -823,6 +835,12 @@
       ]
     },
     "[12]": {
+      "route_ids": [
+        "56",
+        "57",
+        "67",
+        "78"
+      ],
       "weekday_groups": [
         {
           "weekdays": [
@@ -1014,6 +1032,12 @@
       ]
     },
     "[10]": {
+      "route_ids": [
+        "56",
+        "57",
+        "67",
+        "78"
+      ],
       "weekday_groups": [
         {
           "weekdays": [
@@ -1169,6 +1193,14 @@
       ]
     },
     "[01]": {
+      "route_ids": [
+        "52",
+        "54",
+        "66",
+        "68",
+        "71",
+        "80"
+      ],
       "weekday_groups": [
         {
           "weekdays": [
@@ -1492,6 +1524,14 @@
       ]
     },
     "[02]": {
+      "route_ids": [
+        "52",
+        "54",
+        "66",
+        "68",
+        "71",
+        "80"
+      ],
       "weekday_groups": [
         {
           "weekdays": [
@@ -1687,6 +1727,9 @@
       ]
     },
     "[03]": {
+      "route_ids": [
+        "59"
+      ],
       "weekday_groups": [
         {
           "weekdays": [
@@ -1798,6 +1841,9 @@
       ]
     },
     "[04]": {
+      "route_ids": [
+        "59"
+      ],
       "weekday_groups": [
         {
           "weekdays": [
@@ -1847,6 +1893,11 @@
       ]
     },
     "[05]": {
+      "route_ids": [
+        "53",
+        "55",
+        "70"
+      ],
       "weekday_groups": [
         {
           "weekdays": [
@@ -2514,6 +2565,11 @@
       ]
     },
     "[07]": {
+      "route_ids": [
+        "53",
+        "55",
+        "70"
+      ],
       "weekday_groups": [
         {
           "weekdays": [
@@ -3061,6 +3117,11 @@
       ]
     },
     "[08]": {
+      "route_ids": [
+        "53",
+        "55",
+        "70"
+      ],
       "weekday_groups": [
         {
           "weekdays": [
@@ -3460,6 +3521,11 @@
       ]
     },
     "[06]": {
+      "route_ids": [
+        "53",
+        "55",
+        "70"
+      ],
       "weekday_groups": [
         {
           "weekdays": [
@@ -3819,6 +3885,10 @@
       ]
     },
     "[13]": {
+      "route_ids": [
+        "9",
+        "58"
+      ],
       "weekday_groups": [
         {
           "weekdays": [
@@ -4054,6 +4124,10 @@
       ]
     },
     "[14]": {
+      "route_ids": [
+        "9",
+        "58"
+      ],
       "weekday_groups": [
         {
           "weekdays": [

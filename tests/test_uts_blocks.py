@@ -153,6 +153,48 @@ TWO_BLOCKS = {
 }
 
 
+# Regression fixture for a real bug: Gold Line block [11] and Silver Line
+# blocks [13]/[14] all visit "MCQ" (Massie Rd @ JPJ South Lot). A route-blind
+# "nearest scheduled visit" search pinned a Gold Line trip to a Silver
+# block's completely unrelated schedule just because its MCQ time happened
+# to be numerically closer, surfacing a nonsense hold Gold was never
+# actually going to make. Route "99" here stands in for Gold, "77" for
+# Silver -- block [11] is 5s further from the reference time than [13], so a
+# route-blind search would wrongly prefer [13].
+CROSS_ROUTE_TIMESTOPS = {"CCC": {"99": "stop-3", "77": "stop-3"}}
+CROSS_ROUTE_BLOCKS = {
+    "[11]": {
+        "route_ids": ["99"],
+        "weekday_groups": [{"weekdays": [0, 1, 2, 3, 4], "stops": [[36000, "CCC"]]}],  # 10:00:00
+    },
+    "[13]": {
+        "route_ids": ["77"],
+        "weekday_groups": [{"weekdays": [0, 1, 2, 3, 4], "stops": [[36030, "CCC"]]}],  # 10:00:30
+    },
+}
+
+
+def test_best_matching_block_never_crosses_into_a_different_routes_block(monkeypatch):
+    _patch_data(monkeypatch, CROSS_ROUTE_BLOCKS, CROSS_ROUTE_TIMESTOPS)
+    ref = _epoch(2026, 9, 14, 10, 0, 25)  # 5s from [13] (Silver), 25s from [11] (Gold)
+    # Querying as route "99" (Gold) must stay within Gold's own block [11],
+    # never drift to the numerically-closer but wrong-route [13].
+    assert uts_blocks.best_matching_block("99", "stop-3", ref) == "[11]"
+    # And the reverse: querying as route "77" (Silver) must pick [13], not [11].
+    assert uts_blocks.best_matching_block("77", "stop-3", ref) == "[13]"
+
+
+def test_next_scheduled_arrival_epoch_never_crosses_into_a_different_routes_block(monkeypatch):
+    _patch_data(monkeypatch, CROSS_ROUTE_BLOCKS, CROSS_ROUTE_TIMESTOPS)
+    after = _epoch(2026, 9, 14, 9, 59, 0)
+    # Both blocks have a CCC visit after 9:59, but querying as Gold ("99")
+    # must only ever see Gold's own [11] entry (10:00:00), never Silver's
+    # earlier-arriving [13] entry (10:00:30 is actually later here, but the
+    # point holds generally -- a route-blind search could return either).
+    assert uts_blocks.next_scheduled_arrival_epoch("99", "stop-3", after) == _epoch(2026, 9, 14, 10, 0, 0)
+    assert uts_blocks.next_scheduled_arrival_epoch("77", "stop-3", after) == _epoch(2026, 9, 14, 10, 0, 30)
+
+
 def test_best_matching_block_picks_nearest_candidate(monkeypatch):
     _patch_data(monkeypatch, TWO_BLOCKS, TWO_BLOCK_TIMESTOPS)
     # Monday 8:09am -- 60s from block [01]'s 8:10 BBB, 140s from block [02]'s

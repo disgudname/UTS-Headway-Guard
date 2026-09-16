@@ -86,6 +86,21 @@ def _weekday_groups_matching(block: Dict, weekday: int) -> List[Dict]:
     return [g for g in block.get("weekday_groups", []) if weekday in (g.get("weekdays") or [])]
 
 
+def _block_serves_route(block: Dict, route_id: str) -> bool:
+    """Is this block one of the ones build_uts_blocks.py tagged as belonging to
+    route_id's own route family (see config/uts_route_ids.json)? Confirmed live
+    as a real bug without this check: Gold Line block [11] and Silver Line
+    blocks [13]/[14] all visit the "MCQ" timestop (Massie Rd @ JPJ South Lot),
+    so a route-blind "nearest scheduled visit" search could pin a Gold Line
+    trip to a Silver block's completely unrelated schedule just because its
+    MCQ time happened to be numerically closer, surfacing a nonsense hold Gold
+    was never actually going to make. A block with no route_ids recorded
+    (older data predating this field) is treated as unrestricted rather than
+    silently excluded."""
+    route_ids = block.get("route_ids")
+    return not route_ids or str(route_id) in route_ids
+
+
 def scheduled_hold_epoch(
     route_id: str, stop_id: str, block_id: Optional[str], reference_ts: float,
 ) -> Optional[float]:
@@ -140,6 +155,8 @@ def next_scheduled_arrival_epoch(route_id: str, stop_id: str, after_ts: float) -
         d = (local_dt + timedelta(days=day_offset)).date()
         midnight_ts = datetime.combine(d, dtime.min, tzinfo=NY_TZ).timestamp()
         for block in _blocks.values():
+            if not _block_serves_route(block, route_id):
+                continue
             for group in _weekday_groups_matching(block, d.weekday()):
                 for time_s, entry_code in group.get("stops", []):
                     if entry_code != code:
@@ -171,6 +188,8 @@ def best_matching_block(route_id: str, stop_id: str, reference_ts: float) -> Opt
         midnight_ts = datetime.combine(d, dtime.min, tzinfo=NY_TZ).timestamp()
         weekday = d.weekday()
         for block_id, block in _blocks.items():
+            if not _block_serves_route(block, route_id):
+                continue
             for group in _weekday_groups_matching(block, weekday):
                 for time_s, entry_code in group.get("stops", []):
                     if entry_code != code:

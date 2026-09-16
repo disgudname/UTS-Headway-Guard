@@ -54,6 +54,7 @@ import openpyxl
 
 ROOT_DIR = Path(__file__).resolve().parent
 ACTIVE_SHEETS_PATH = ROOT_DIR / "config" / "uts_active_sheets.json"
+ROUTE_IDS_PATH = ROOT_DIR / "config" / "uts_route_ids.json"
 OUTPUT_PATH = ROOT_DIR / "config" / "uts_blocks.json"
 
 # A real timestop code is 2-8 uppercase letters, no digits (digits are reserved
@@ -200,6 +201,17 @@ def parse_sheet(rows: List[Tuple[Any, ...]]) -> Tuple[Optional[List[int]], Dict[
 
 def build(blocks_dir: Path) -> Dict[str, Any]:
     active_sheets = json.loads(ACTIVE_SHEETS_PATH.read_text(encoding="utf-8"))
+    # Which live TransLoc RouteIDs correspond to each Block Package route file --
+    # confirmed live (2026-09-16) against the real route list, e.g. Gold Line
+    # currently runs under RouteIDs 56/57/67/78 (detour/time-of-day variants).
+    # Needed so block-matching (see uts_blocks.best_matching_block) never pins a
+    # DIFFERENT route's block just because it happens to visit the same-named
+    # timestop at a numerically closer time -- confirmed live as a real bug:
+    # Gold Line block [11] and Silver Line blocks [13]/[14] all visit MCQ
+    # (Massie Rd @ JPJ South Lot), and without this filter a Gold Line trip
+    # could get "matched" to a Silver block's unrelated schedule, surfacing a
+    # nonsense hold at a stop Gold's own schedule was never actually holding at.
+    route_ids_by_name = json.loads(ROUTE_IDS_PATH.read_text(encoding="utf-8")) if ROUTE_IDS_PATH.exists() else {}
     blocks: Dict[str, Dict[str, Any]] = {}
     block_origin: Dict[str, str] = {}  # block_id -> which route file first defined it (collision check)
     source_files: Dict[str, str] = {}
@@ -232,7 +244,9 @@ def build(blocks_dir: Path) -> Dict[str, Any]:
                         f"globally unique across routes, this needs a human look"
                     )
                 block_origin[block_id] = route_name
-                entry = blocks.setdefault(block_id, {"weekday_groups": []})
+                entry = blocks.setdefault(
+                    block_id, {"route_ids": route_ids_by_name.get(route_name, []), "weekday_groups": []}
+                )
                 entry["weekday_groups"].append({"weekdays": weekdays, "stops": [list(t) for t in seq]})
 
     return {
