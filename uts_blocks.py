@@ -150,5 +150,57 @@ def next_scheduled_arrival_epoch(route_id: str, stop_id: str, after_ts: float) -
     return best
 
 
+def best_matching_block(route_id: str, stop_id: str, reference_ts: float) -> Optional[str]:
+    """Which block is most plausibly the one due at (route_id, stop_id) closest
+    to reference_ts -- lets a caller with no live vehicle to ask (trip
+    planning, not live tracking) pin down a SPECIFIC block's schedule from one
+    matched timestop, then follow that same block's schedule for the rest of
+    the ride (see hold_for_ride) instead of re-querying "nearest across every
+    block" at each stop, which would spuriously match a completely different
+    block's next lap ~20-40 minutes later every time and misread normal
+    headway as an enormous "hold". None if stop_id isn't a mapped timestop, or
+    nothing scheduled is within MATCH_TOLERANCE_S of reference_ts."""
+    code = timestop_code_for_stop(route_id, stop_id)
+    if code is None:
+        return None
+    local_dt = datetime.fromtimestamp(reference_ts, tz=NY_TZ)
+    best_block: Optional[str] = None
+    best_diff: Optional[float] = None
+    for day_offset in (0, -1):
+        d = (local_dt + timedelta(days=day_offset)).date()
+        midnight_ts = datetime.combine(d, dtime.min, tzinfo=NY_TZ).timestamp()
+        weekday = d.weekday()
+        for block_id, block in _blocks.items():
+            for group in _weekday_groups_matching(block, weekday):
+                for time_s, entry_code in group.get("stops", []):
+                    if entry_code != code:
+                        continue
+                    epoch = midnight_ts + time_s
+                    diff = abs(epoch - reference_ts)
+                    if diff <= MATCH_TOLERANCE_S and (best_diff is None or diff < best_diff):
+                        best_diff = diff
+                        best_block = block_id
+    return best_block
+
+
+def hold_for_ride(
+    route_id: str, stop_id: str, block_id: Optional[str], reference_ts: float,
+) -> Tuple[Optional[float], Optional[str]]:
+    """Trip-planning counterpart to scheduled_hold_epoch, for a rider's
+    planned ride rather than a live vehicle: if block_id is None (the first
+    mapped timestop this ride's walk has hit), pins one via
+    best_matching_block; either way, then checks THAT SAME block's schedule
+    at this stop. Returns (hold_epoch_or_None, the block_id used or newly
+    pinned) -- the caller (trip_planner._estimate_ride_seconds) threads the
+    returned block_id into its next call so the whole ride stays pinned to
+    one consistent block's schedule instead of drifting between blocks stop
+    to stop."""
+    if block_id is None:
+        block_id = best_matching_block(route_id, stop_id, reference_ts)
+        if block_id is None:
+            return None, None
+    return scheduled_hold_epoch(route_id, stop_id, block_id, reference_ts), block_id
+
+
 def is_loaded() -> bool:
     return bool(_blocks)

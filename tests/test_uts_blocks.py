@@ -134,6 +134,65 @@ def test_midnight_rollover_entry_resolves_against_previous_day(monkeypatch):
     assert result == ref
 
 
+# Two blocks that both visit "BBB" (mapped to stop-2), at different times --
+# used to verify best_matching_block/hold_for_ride pin ONE plausible block from
+# the nearest match and then keep following that same block, rather than
+# drifting to whichever block happens to be nearest at each individual stop.
+TWO_BLOCK_TIMESTOPS = {"AAA": {"99": "stop-1"}, "BBB": {"99": "stop-2"}}
+TWO_BLOCKS = {
+    "[01]": {
+        "weekday_groups": [
+            {"weekdays": [0, 1, 2, 3, 4], "stops": [[28800, "AAA"], [29400, "BBB"], [30000, "AAA"]]},
+        ]
+    },
+    "[02]": {
+        "weekday_groups": [
+            {"weekdays": [0, 1, 2, 3, 4], "stops": [[29200, "BBB"], [30800, "AAA"]]},
+        ]
+    },
+}
+
+
+def test_best_matching_block_picks_nearest_candidate(monkeypatch):
+    _patch_data(monkeypatch, TWO_BLOCKS, TWO_BLOCK_TIMESTOPS)
+    # Monday 8:09am -- 60s from block [01]'s 8:10 BBB, 140s from block [02]'s
+    # 8:06:40 BBB, so [01] should win.
+    ref = _epoch(2026, 9, 14, 8, 9)
+    assert uts_blocks.best_matching_block("99", "stop-2", ref) == "[01]"
+
+
+def test_best_matching_block_none_when_nothing_within_tolerance(monkeypatch):
+    _patch_data(monkeypatch, TWO_BLOCKS, TWO_BLOCK_TIMESTOPS)
+    ref = _epoch(2026, 9, 14, 14, 0)
+    assert uts_blocks.best_matching_block("99", "stop-2", ref) is None
+
+
+def test_best_matching_block_none_when_stop_unmapped(monkeypatch):
+    _patch_data(monkeypatch, TWO_BLOCKS, TWO_BLOCK_TIMESTOPS)
+    assert uts_blocks.best_matching_block("99", "nope", _epoch(2026, 9, 14, 8, 9)) is None
+
+
+def test_hold_for_ride_pins_a_block_then_keeps_following_it(monkeypatch):
+    _patch_data(monkeypatch, TWO_BLOCKS, TWO_BLOCK_TIMESTOPS)
+    ref1 = _epoch(2026, 9, 14, 8, 9)
+    hold1, block_id = uts_blocks.hold_for_ride("99", "stop-2", None, ref1)
+    assert block_id == "[01]"
+    assert hold1 == _epoch(2026, 9, 14, 8, 10)  # BBB at 8:10 per block [01], not [02]'s 8:06:40
+
+    # Same ride, next stop -- passing the pinned block_id must follow block
+    # [01]'s OWN next entry (AAA at 8:20), never block [02]'s.
+    ref2 = _epoch(2026, 9, 14, 8, 19)
+    hold2, block_id2 = uts_blocks.hold_for_ride("99", "stop-1", block_id, ref2)
+    assert block_id2 == "[01]"
+    assert hold2 == _epoch(2026, 9, 14, 8, 20)
+
+
+def test_hold_for_ride_none_when_stop_unmapped(monkeypatch):
+    _patch_data(monkeypatch, TWO_BLOCKS, TWO_BLOCK_TIMESTOPS)
+    hold, block_id = uts_blocks.hold_for_ride("99", "nope", None, _epoch(2026, 9, 14, 8, 9))
+    assert hold is None and block_id is None
+
+
 def test_is_loaded_reflects_whether_block_data_is_present(monkeypatch):
     _patch_data(monkeypatch, {}, {})
     assert uts_blocks.is_loaded() is False

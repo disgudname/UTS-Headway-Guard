@@ -359,6 +359,89 @@ def test_ride_leg_uts_schedule_fallback_wins_over_extrapolation():
     assert abs(leg.wait_s - 100.0) < 0.01
 
 
+# --- Mid-ride scheduled holds (_estimate_ride_seconds / uts_hold_fn) --------------
+
+def test_estimate_ride_seconds_no_holds_without_hold_fn():
+    line = _line("67")
+    total, source, holds = tp._estimate_ride_seconds(line, 0, 2, 0.0, lambda *a: 100.0)
+    assert total == 200.0
+    assert source == "historical"
+    assert holds == []
+
+
+def test_estimate_ride_seconds_detects_a_mid_ride_hold():
+    # Regression for a real rider complaint: a bus correctly holding for a
+    # scheduled departure reads as "the driver is taking a break." Surfacing
+    # it here is what lets the UI say otherwise.
+    line = _line("67")  # stops 67-A, 67-B, 67-C
+    def hold_fn(line_id, stop_id, block_id, ref_ts):
+        if stop_id == "67-B":
+            return ref_ts + 300.0, "B1"
+        return None, block_id
+    total, source, holds = tp._estimate_ride_seconds(line, 0, 2, 0.0, lambda *a: 120.0, hold_fn)
+    # A->B (120s), hold at B (300s), B->C (120s)
+    assert total == 540.0
+    assert len(holds) == 1
+    assert holds[0]["stop_id"] == "67-B"
+    assert holds[0]["hold_s"] == 300.0
+
+
+def test_estimate_ride_seconds_ignores_a_hold_under_the_display_threshold():
+    line = _line("67")
+    def hold_fn(line_id, stop_id, block_id, ref_ts):
+        return ref_ts + 10.0, "B1"  # below HOLD_DISPLAY_THRESHOLD_S
+    total, source, holds = tp._estimate_ride_seconds(line, 0, 2, 0.0, lambda *a: 100.0, hold_fn)
+    assert holds == []
+    assert total == 200.0
+
+
+def test_estimate_ride_seconds_threads_the_pinned_block_id_forward():
+    # The first stop has no block pinned yet (None); whatever hold_fn returns
+    # for it must be reused on the NEXT stop's call, not re-guessed.
+    line = _line("67")
+    seen_block_ids = []
+    def hold_fn(line_id, stop_id, block_id, ref_ts):
+        seen_block_ids.append(block_id)
+        return None, "PINNED"
+    tp._estimate_ride_seconds(line, 0, 2, 0.0, lambda *a: 100.0, hold_fn)
+    assert seen_block_ids == [None, "PINNED"]
+
+
+def test_ride_leg_uts_includes_mid_ride_hold():
+    service = tp.RouteService(windows={"67": [(_ts(5), _ts(22))]})
+    line = _line("67")
+    when = _ts(12)
+    def hold_fn(line_id, stop_id, block_id, ref_ts):
+        if stop_id == "67-B":
+            return ref_ts + 300.0, "B1"
+        return None, block_id
+    result = tp._ride_leg(
+        line, 0, 2, when, when, service, {}, lambda *a: 120.0,
+        uts_hold_fn=hold_fn,
+    )
+    assert result is not None
+    leg, alight_time = result
+    assert leg.ride_s == 540.0
+    assert len(leg.holds) == 1
+    assert leg.holds[0]["stop_id"] == "67-B"
+    assert leg.holds[0]["hold_s"] == 300.0
+    assert abs(alight_time - (when + 540.0)) < 0.01
+
+
+def test_ride_leg_cat_never_gets_holds():
+    # CAT has no block-schedule concept at all -- passing a hold_fn (it never
+    # would in practice, but as a safety check) must be a no-op for a CAT leg.
+    line = _line("cat-7", loop=False, source="cat")
+    when = _ts(12)
+    result = tp._ride_leg(
+        line, 0, 2, when, when, None, {}, lambda *a: 120.0,
+        cat_schedule_fn=lambda *a: when + 60.0,
+    )
+    assert result is not None
+    leg, _alight_time = result
+    assert leg.holds == []
+
+
 def test_ride_leg_extrapolates_wait_past_a_sparse_vehicle_stops_known_arrivals():
     # Regression for a real bug reported live: a sparsely-vehicled loop route (e.g.
     # Silver, 2 vehicles) only ever reports each vehicle's single NEXT pass at a stop

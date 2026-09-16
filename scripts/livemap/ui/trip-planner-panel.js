@@ -42,6 +42,22 @@ const ICONS = {
     '<svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M4 4l8 8M12 4l-8 8"/></svg>',
   recent:
     '<svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="8" cy="8.5" r="5.5"/><path d="M8 5.5V8.5L10.2 10"/></svg>',
+  // Dot + three arcs growing outward toward the upper-right, each pulsing in
+  // sequence -- the "this is a live GPS-based estimate" signal, not shown for
+  // a scheduled/estimated one (see waitSourceBadgeHtml). Path data (not a
+  // dasharray-clipped <circle>, which an earlier version of this tried --
+  // produced straight bar-like shapes instead of arcs when actually rendered)
+  // verified visually before shipping: for a quarter-circle from directly
+  // right of the dot to directly above it, large-arc-flag=0 sweep-flag=0 is
+  // the combination that bulges outward (away from the dot) the way a wifi
+  // icon does -- sweep=1 produces a completely different, wrong shape.
+  live:
+    '<svg viewBox="0 0 16 16" width="10" height="10" fill="none" aria-hidden="true">' +
+    '<circle cx="4" cy="13" r="1.5" fill="currentColor"/>' +
+    '<path class="tp-live-arc tp-live-arc--1" d="M7 13A3 3 0 0 0 4 10" stroke="currentColor" stroke-width="1.6" fill="none" stroke-linecap="round"/>' +
+    '<path class="tp-live-arc tp-live-arc--2" d="M9 13A5 5 0 0 0 4 8" stroke="currentColor" stroke-width="1.6" fill="none" stroke-linecap="round"/>' +
+    '<path class="tp-live-arc tp-live-arc--3" d="M11 13A7 7 0 0 0 4 6" stroke="currentColor" stroke-width="1.6" fill="none" stroke-linecap="round"/>' +
+    '</svg>',
 };
 
 // Locally-cached previous picks, most-recent-first -- shown in a field's dropdown
@@ -1131,7 +1147,7 @@ export class TripPlannerPanel {
     // case (same-stop transfers, origin/destination right at a stop) entirely.
     const rawMins = Math.round(leg.durationS / 60);
     const timeLabel = rawMins < 1 ? '&lt;1 min' : `${rawMins} min`;
-    const dist = leg.distanceM != null ? ` · ${Math.round(leg.distanceM)}m` : '';
+    const dist = leg.distanceM != null ? ` · ${formatWalkDistance(leg.distanceM)}` : '';
     return `
       <div class="tp-leg tp-leg--walk${lastClass}">
         <span class="tp-leg-dot tp-leg-dot--walk"></span>
@@ -1147,19 +1163,17 @@ export class TripPlannerPanel {
     // "extrapolated" -- no live arrival reaches this far out (common on a
     // sparsely-vehicled route like Silver), so this is projected from the route's
     // own recently-observed headway rather than a directly-seen upcoming bus. Same
-    // "estimated" language as a heuristic ride duration, not a separate concept.
-    // "scheduled" (CAT only, see cat_gtfs.py) is a real published-timetable
-    // departure rather than a guess, so it gets its own more confident label --
-    // no live vehicle is being tracked for it yet, but the route not existing
-    // isn't in question the way an extrapolation's continued existence is.
-    const estimated =
-      step.waitSSource === 'extrapolated' ? ' · estimated' : step.waitSSource === 'scheduled' ? ' · scheduled' : '';
+    // "estimated" language as a heuristic ride duration, not a separate concept --
+    // not confident enough to promote to a badge. "live"/"scheduled" get a real
+    // badge instead (see waitSourceBadgeHtml).
+    const estimated = step.waitSSource === 'extrapolated' ? ' · estimated' : '';
+    const badge = waitSourceBadgeHtml(step.waitSSource);
     return `
       <div class="tp-leg tp-leg--wait${lastClass}">
         <span class="tp-leg-dot tp-leg-dot--wait"></span>
         <span class="tp-leg-text">${
           known
-            ? `Wait <b>${timeLabel}</b><span class="tp-leg-sub">${estimated}</span>`
+            ? `Wait <b>${timeLabel}</b><span class="tp-leg-sub">${estimated}</span>${badge}`
             : '<span class="tp-leg-sub--muted">Wait time unknown</span>'
         }</span>
       </div>`;
@@ -1170,13 +1184,20 @@ export class TripPlannerPanel {
     const color = normalizeColor(leg.color);
     const textColor = readableTextColor(color);
     const mins = Math.round((leg.rideS || 0) / 60);
+    // Compact heads-up in the collapsed itinerary preview -- names the actual
+    // timestop and duration right here (a bare "scheduled hold" label with no
+    // specifics isn't worth showing), with the richer "until HH:MM" version in
+    // _detailRideStepHtml. A block-level div, not an inline span, so it gets
+    // its own line with real spacing instead of crowding the route badge.
+    const holdTag = leg.holds && leg.holds[0] ? holdTagHtml(leg.holds[0]) : '';
     return `
       <div class="tp-leg tp-leg--ride${lastClass}">
         <span class="tp-leg-dot" style="background:${color}"></span>
-        <span class="tp-leg-text">
+        <div class="tp-leg-text">
           <span class="tp-route-badge" style="background:${color};color:${textColor}">${esc(leg.lineName || leg.lineId)}</span>
           <span class="tp-leg-sub">${mins} min ride</span>
-        </span>
+          ${holdTag}
+        </div>
       </div>`;
   }
 
@@ -1247,7 +1268,7 @@ export class TripPlannerPanel {
   _detailWalkStepHtml(leg) {
     const mins = Math.round(leg.durationS / 60);
     const timeLabel = mins < 1 ? '<1 min' : `${mins} min`;
-    const dist = leg.distanceM != null ? ` (${Math.round(leg.distanceM)}m)` : '';
+    const dist = leg.distanceM != null ? ` (${formatWalkDistance(leg.distanceM)})` : '';
     return `
       <div class="tp-detail-step tp-detail-step--walk">
         <span class="tp-leg-dot tp-leg-dot--walk"></span>
@@ -1265,14 +1286,14 @@ export class TripPlannerPanel {
     const known = leg.waitS != null;
     const mins = known ? Math.max(0, Math.round(leg.waitS / 60)) : null;
     const timeLabel = known ? (mins < 1 ? '<1 min' : `${mins} min`) : null;
-    const estimated =
-      leg.waitSSource === 'extrapolated' ? ' · estimated' : leg.waitSSource === 'scheduled' ? ' · scheduled' : '';
+    const estimated = leg.waitSSource === 'extrapolated' ? ' · estimated' : '';
+    const badge = waitSourceBadgeHtml(leg.waitSSource);
     return `
       <div class="tp-detail-step tp-detail-step--wait">
         <span class="tp-leg-dot tp-leg-dot--wait"></span>
         <div class="tp-detail-step-body">
           <div class="tp-detail-step-main">
-            ${known ? `Wait ${timeLabel}${estimated}` : '<span class="tp-leg-sub--muted">Wait time unknown</span>'}
+            ${known ? `Wait ${timeLabel}${estimated}${badge}` : '<span class="tp-leg-sub--muted">Wait time unknown</span>'}
           </div>
         </div>
       </div>`;
@@ -1308,6 +1329,7 @@ export class TripPlannerPanel {
             <span class="tp-detail-ride-chip-text">${stops} stop${stops === 1 ? '' : 's'} · ${rideMins} min${leg.rideSSource === 'heuristic' ? ' · estimated' : ''}</span>
             ${warn}
           </div>
+          ${(leg.holds || []).map(holdNoteHtml).join('')}
           <div class="tp-detail-stop-row">
             <span class="tp-detail-stop-name">${esc(leg.alightStop?.name || 'stop')}</span>
             <span class="tp-detail-clock">${alightClock}</span>
@@ -1397,4 +1419,56 @@ function esc(s) {
 
 function formatClock(ms) {
   return new Date(ms).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+}
+
+/** US customary units, not metres -- riders here think in feet/miles, not the
+ *  metres the backend computes in (walk routing is metric internally). Below
+ *  0.1 mile shows feet rounded to the nearest 10 (matches Google Maps' own
+ *  cutover); at or above that, miles to one decimal place. */
+const WALK_FEET_PER_METER = 3.28084;
+const WALK_MILE_CUTOVER_FT = 528; // 0.1 mile
+function formatWalkDistance(meters) {
+  if (meters == null) return '';
+  const feet = meters * WALK_FEET_PER_METER;
+  if (feet < WALK_MILE_CUTOVER_FT) return `${Math.round(feet / 10) * 10} ft`;
+  return `${(feet / 5280).toFixed(1)} mi`;
+}
+
+/** Live/Scheduled badge for a wait time -- "extrapolated" stays the existing
+ *  plain "· estimated" text suffix (not confident enough to badge the way a
+ *  real live position or a published schedule time is). Only "live" gets the
+ *  animated icon (see ICONS.live) -- that's specifically a "this is moving,
+ *  GPS-based data" signal, not a generic wait-time decoration. */
+function waitSourceBadgeHtml(source) {
+  if (source === 'live') return `<span class="tp-source-badge tp-source-badge--live">${ICONS.live}Live</span>`;
+  if (source === 'scheduled') return `<span class="tp-source-badge tp-source-badge--scheduled">${ICONS.recent}Scheduled</span>`;
+  return '';
+}
+
+/** One scheduled mid-ride hold (see trip_planner.py's _estimate_ride_seconds) --
+ *  the bus intentionally sitting at a UTS "timestop" (never "timepoint") for a
+ *  scheduled departure, which riders otherwise mistake for a driver taking an
+ *  unscheduled break. Compact version (collapsed itinerary preview) and full
+ *  version (expanded detail, with the actual release time) share the same
+ *  underlying info -- a bare "scheduled hold" label with no specifics isn't
+ *  worth showing at all. */
+function holdTagHtml(hold) {
+  if (!hold) return '';
+  const mins = Math.max(1, Math.round((hold.holdS || 0) / 60));
+  return `
+    <div class="tp-hold-tag">
+      ${ICONS.recent}
+      <span>${mins} min timestop at <b>${esc(hold.stopName || 'a stop')}</b></span>
+    </div>`;
+}
+
+function holdNoteHtml(hold) {
+  if (!hold) return '';
+  const mins = Math.max(1, Math.round((hold.holdS || 0) / 60));
+  const until = hold.untilTs ? formatClock(hold.untilTs * 1000) : null;
+  return `
+    <div class="tp-hold-note">
+      ${ICONS.recent}
+      <span><b>${esc(hold.stopName || 'a stop')}</b> is a scheduled timestop — bus holds here ~${mins} min${until ? `, until ${until}` : ''}. This is expected, not a delay.</span>
+    </div>`;
 }

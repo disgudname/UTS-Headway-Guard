@@ -15783,6 +15783,19 @@ def _serialize_leg(leg) -> Dict[str, Any]:
             "rideSSource": leg.ride_s_source,
             "serviceEndsTs": leg.service_ends_ts,
             "lastRideWarning": leg.last_ride_warning,
+            # Scheduled mid-ride holds (UTS only, see uts_blocks.py / trip_planner.
+            # _estimate_ride_seconds) -- surfaced so the UI can tell a rider "the
+            # bus is scheduled to sit here a few minutes," not just show a longer
+            # ride time with no explanation.
+            "holds": [
+                {
+                    "stopId": h.get("stop_id"),
+                    "stopName": h.get("stop_name"),
+                    "holdS": h.get("hold_s"),
+                    "untilTs": h.get("until_ts"),
+                }
+                for h in (leg.holds or [])
+            ],
         }
     return {}
 
@@ -15878,6 +15891,9 @@ async def trip_planner_plan(
     uts_schedule_fn: Optional[trip_planner.UtsScheduleFn] = (
         uts_blocks.next_scheduled_arrival_epoch if uts_blocks.is_loaded() else None
     )
+    uts_hold_fn: Optional[trip_planner.UtsHoldFn] = (
+        uts_blocks.hold_for_ride if uts_blocks.is_loaded() else None
+    )
     if cat:
         cat_lines_raw = await _cat_lines_for_trip_planner()
         cat_lines = [
@@ -15950,6 +15966,7 @@ async def trip_planner_plan(
         hop_time_fn=hop_time_fn,
         cat_schedule_fn=cat_schedule_fn,
         uts_schedule_fn=uts_schedule_fn,
+        uts_hold_fn=uts_hold_fn,
     )
 
     return {

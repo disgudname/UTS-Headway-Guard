@@ -395,6 +395,12 @@ class RideLeg:
     ride_s_source: str = "heuristic"  # "historical" if every segment came from real data
     service_ends_ts: Optional[float] = None
     last_ride_warning: bool = False
+    # Every scheduled timestop (UTS only, see uts_blocks.py) along this ride where
+    # the Block Package schedule says the bus won't leave until later than this
+    # leg's own estimate says it otherwise would -- see _estimate_ride_seconds.
+    # Riders mistake a real scheduled hold for a driver taking an unscheduled
+    # break; surfacing it here is what lets the UI say otherwise.
+    holds: List[Dict[str, object]] = field(default_factory=list)
 
 
 @dataclass
@@ -433,6 +439,16 @@ CatScheduleFn = Callable[[str, str, float], Optional[float]]
 # because this comes back empty, unlike the CAT branch which has no other
 # schedule signal to fall back on.
 UtsScheduleFn = Callable[[str, str, float], Optional[float]]
+
+# (route_id, stop_id, known_block_id_or_None, reference_ts) -> (hold_epoch_or_None,
+# the block_id used or newly pinned). Lets _estimate_ride_seconds detect a
+# scheduled mid-ride hold (see that function) without trip_planner.py knowing
+# anything about what a "block" is -- it just carries the returned block_id
+# forward into the next call for the same ride so the whole walk stays pinned
+# to one consistent block's schedule (see uts_blocks.hold_for_ride, the only
+# real implementation) instead of drifting to a different block's next lap at
+# every stop, which would misread ordinary headway as one giant hold.
+UtsHoldFn = Callable[[str, str, Optional[str], float], Tuple[Optional[float], Optional[str]]]
 
 
 def _stop_index_within_radius(
@@ -565,26 +581,61 @@ def _ride_leg_shape(line: Line, board_stop: Stop, alight_stop: Stop) -> Optional
     return first + second
 
 
+# Minimum extra wait at one scheduled timestop worth surfacing to a rider as
+# "the bus intentionally holds here," rather than noise from schedule-match
+# tolerance. Below this, showing a hold note would be more distracting than
+# informative for a delay nobody would notice anyway.
+HOLD_DISPLAY_THRESHOLD_S = 60.0
+
+
 def _estimate_ride_seconds(
     line: Line,
     board_idx: int,
     alight_idx: int,
     when: float,
     hop_time_fn: Optional[HopTimeFn],
-) -> Tuple[float, str]:
+    uts_hold_fn: Optional[UtsHoldFn] = None,
+) -> Tuple[float, str, List[Dict[str, object]]]:
     """Sum real historical segment times where available (see HopTimeFn), falling back
-    to the flat per-segment heuristic elsewhere. Returns (total_seconds, source) where
-    source is "historical" only if EVERY segment had a real sample -- a ride that's
-    partly guessed shouldn't claim full historical confidence."""
-    total = 0.0
+    to the flat per-segment heuristic elsewhere. Returns (total_seconds, source, holds)
+    where source is "historical" only if EVERY segment had a real sample -- a ride
+    that's partly guessed shouldn't claim full historical confidence.
+
+    holds is every scheduled timestop along the way (UTS only -- uts_hold_fn is None
+    for CAT, which has no block-schedule concept at all) where the Block Package
+    schedule says the bus won't leave until later than this walk's own progressive
+    estimate says it otherwise would. This is the trip-planning analogue of
+    bus_eta.py's live schedule-hold clamp: same idea (a bus running ahead of a
+    scheduled timepoint has to wait there, not just idle for no reason), but since
+    there's no live vehicle/block to already know for a future ride, uts_hold_fn
+    pins one plausible block from the FIRST matched timestop (see
+    uts_blocks.hold_for_ride) and follows that same block's schedule for the rest
+    of the walk -- re-querying "nearest across every block" at each stop would
+    spuriously match a totally different block's next lap ~20-40 minutes later
+    every time and misread ordinary headway as one giant hold."""
+    elapsed = 0.0
     all_historical = True
+    holds: List[Dict[str, object]] = []
+    block_id: Optional[str] = None
     for from_stop, to_stop in _segment_stop_pairs(line, board_idx, alight_idx):
+        if uts_hold_fn is not None:
+            hold_epoch, block_id = uts_hold_fn(line.id, from_stop.id, block_id, when + elapsed)
+            if hold_epoch is not None:
+                extra = hold_epoch - (when + elapsed)
+                if extra > HOLD_DISPLAY_THRESHOLD_S:
+                    holds.append({
+                        "stop_id": from_stop.id,
+                        "stop_name": from_stop.name,
+                        "hold_s": extra,
+                        "until_ts": hold_epoch,
+                    })
+                    elapsed += extra
         seconds = hop_time_fn(line.id, from_stop.id, to_stop.id, when) if hop_time_fn else None
         if seconds is None:
             all_historical = False
             seconds = SECONDS_PER_HOP_ESTIMATE
-        total += seconds
-    return total, ("historical" if all_historical else "heuristic")
+        elapsed += seconds
+    return elapsed, ("historical" if all_historical else "heuristic"), holds
 
 
 MAX_HEADWAY_EXTRAPOLATIONS = 20  # guard against spinning forever on a bogus/zero headway
@@ -684,6 +735,7 @@ def _ride_leg(
     hop_time_fn: Optional[HopTimeFn] = None,
     cat_schedule_fn: Optional[CatScheduleFn] = None,
     uts_schedule_fn: Optional[UtsScheduleFn] = None,
+    uts_hold_fn: Optional[UtsHoldFn] = None,
 ) -> Optional[Tuple[RideLeg, float]]:
     """Build one ride leg. `board_time` (epoch seconds) is the earliest the rider can
     physically be standing at this stop -- e.g. `when` plus however long the walk here
@@ -703,7 +755,6 @@ def _ride_leg(
     alight_stop = line.stops[alight_idx]
     min_wait_s = max(0.0, board_time - when)  # how long it takes to walk/transfer here
     wait_result = _live_wait_with_chain(line, board_stop.id, route_service, live_wait_lookup, min_wait_s)
-    ride_s, ride_s_source = _estimate_ride_seconds(line, board_idx, alight_idx, board_time, hop_time_fn)
 
     # absolute_wait_s is seconds-from-`when` (already picked to be >= min_wait_s, i.e. a
     # bus the rider can actually catch) -- so boarding happens at when + absolute_wait_s.
@@ -739,6 +790,13 @@ def _ride_leg(
                 actual_board_time = scheduled_ts
                 wait_s = max(0.0, (scheduled_ts - when) - min_wait_s)
                 wait_s_source = "scheduled"
+        # Computed AFTER actual_board_time is final (not before, like the CAT
+        # branch's own real board time below either) -- the mid-ride hold walk
+        # needs to start its progressive clock from when the bus really
+        # departs board_stop, not the rider's raw walk-arrival estimate.
+        ride_s, ride_s_source, holds = _estimate_ride_seconds(
+            line, board_idx, alight_idx, actual_board_time, hop_time_fn, uts_hold_fn,
+        )
         if route_service is None:
             return None
         window = route_service.effective_window(line.id)
@@ -770,6 +828,8 @@ def _ride_leg(
             actual_board_time = scheduled_ts
             wait_s = max(0.0, (scheduled_ts - when) - min_wait_s)
             wait_s_source = "scheduled"
+        # No uts_hold_fn here -- CAT has no block-schedule/hold concept at all.
+        ride_s, ride_s_source, holds = _estimate_ride_seconds(line, board_idx, alight_idx, actual_board_time, hop_time_fn)
 
     path = _path_stops(line, board_idx, alight_idx)
     coordinates = _ride_leg_shape(line, board_stop, alight_stop) or [(s.lat, s.lon) for s in path]
@@ -787,6 +847,7 @@ def _ride_leg(
         ride_s_source=ride_s_source,
         service_ends_ts=service_ends_ts,
         last_ride_warning=last_ride_warning,
+        holds=holds,
     )
     return leg, actual_board_time + ride_s
 
@@ -802,6 +863,7 @@ def find_trips(
     hop_time_fn: Optional[HopTimeFn] = None,
     cat_schedule_fn: Optional[CatScheduleFn] = None,
     uts_schedule_fn: Optional[UtsScheduleFn] = None,
+    uts_hold_fn: Optional[UtsHoldFn] = None,
 ) -> List[Itinerary]:
     """Rank up to `max_results` walk -> ride[-> walk -> ride] -> walk itineraries.
 
@@ -820,7 +882,9 @@ def find_trips(
     wait is available -- see cat_gtfs.py and _ride_leg's CAT branch. `uts_schedule_fn`
     plays the same role for a UTS leg (see uts_blocks.py and _ride_leg's UTS branch) --
     `route_service` alone only knows whether a route is running at all, not a per-stop
-    time.
+    time. `uts_hold_fn`, if given, additionally detects a scheduled MID-RIDE hold on a
+    UTS leg (see _estimate_ride_seconds) -- riders otherwise mistake a bus correctly
+    waiting for its scheduled departure for a driver taking an unscheduled break.
     """
     origin_candidates: Dict[str, List[int]] = {}
     dest_candidates: Dict[str, List[int]] = {}
@@ -869,7 +933,7 @@ def find_trips(
         board_time = when + walk_to.duration_s
         result = _ride_leg(
             line, board_idx, alight_idx, board_time, when, route_service, live_wait_lookup, hop_time_fn,
-            cat_schedule_fn, uts_schedule_fn,
+            cat_schedule_fn, uts_schedule_fn, uts_hold_fn,
         )
         if result is None:
             continue
@@ -906,6 +970,7 @@ def find_trips(
                 hop_time_fn,
                 cat_schedule_fn,
                 uts_schedule_fn,
+                uts_hold_fn,
             )
             if result_a is None:
                 continue
@@ -932,6 +997,7 @@ def find_trips(
                 hop_time_fn,
                 cat_schedule_fn,
                 uts_schedule_fn,
+                uts_hold_fn,
             )
             if result_b is None:
                 continue

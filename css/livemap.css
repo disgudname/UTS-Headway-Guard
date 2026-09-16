@@ -2933,6 +2933,115 @@ body {
 .tp-itin-tag--warn svg {
   flex: 0 0 auto;
 }
+/* Compact mid-ride timestop note in the collapsed itinerary preview (see
+   holdTagHtml) -- a real block row with its own line, not a cramped inline
+   pill next to the route badge, and names the actual stop + duration rather
+   than a bare unhelpful "scheduled hold" label. */
+.tp-hold-tag {
+  display: flex;
+  align-items: flex-start;
+  gap: 5px;
+  margin: 4px 0 0;
+  color: var(--accent);
+  font-size: var(--fs-xs);
+  font-weight: 600;
+  line-height: 1.4;
+}
+.tp-hold-tag svg {
+  flex: 0 0 auto;
+  margin-top: 2px;
+}
+.tp-hold-tag b {
+  color: var(--panel-fg);
+  font-weight: 700;
+}
+
+/* Live/Scheduled wait-source badges -- see waitSourceBadgeHtml. "Live" gets
+   the animated broadcast-dot icon (ICONS.live); "Scheduled" gets a plain
+   clock, no animation, since it isn't moving data. Green for live (matches
+   this app's --ok token, the universal "real-time" signal in transit apps)
+   kept deliberately distinct from --accent (orange), which is this app's
+   brand/selection color used everywhere else -- badging "live" in the brand
+   color would read as "selected/active UI", not "real-time data". */
+.tp-source-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin-left: 6px;
+  padding: 2px 7px 2px 6px;
+  border-radius: var(--radius-pill);
+  font-weight: 700;
+  font-size: var(--fs-micro);
+  line-height: 1.4;
+  text-transform: uppercase;
+  letter-spacing: 0.02em;
+  vertical-align: middle;
+}
+.tp-source-badge svg {
+  flex: 0 0 auto;
+}
+.tp-source-badge--live {
+  background: rgba(98, 187, 70, 0.16);
+  color: var(--ok);
+}
+.tp-source-badge--scheduled {
+  background: var(--hover-bg);
+  color: var(--panel-muted);
+}
+.tp-live-arc {
+  opacity: 0.35;
+  transform-origin: center;
+}
+.tp-source-badge--live .tp-live-arc--1 {
+  animation: tpLivePulse 1.8s infinite 0s;
+}
+.tp-source-badge--live .tp-live-arc--2 {
+  animation: tpLivePulse 1.8s infinite 0.25s;
+}
+.tp-source-badge--live .tp-live-arc--3 {
+  animation: tpLivePulse 1.8s infinite 0.5s;
+}
+@keyframes tpLivePulse {
+  0%, 100% {
+    opacity: 0.35;
+  }
+  20% {
+    opacity: 1;
+  }
+  60% {
+    opacity: 0.35;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .tp-live-arc {
+    animation: none !important;
+    opacity: 0.9;
+  }
+}
+
+/* Mid-ride scheduled hold note (see trip_planner.py's _estimate_ride_seconds) --
+   sits between the ride chip and the alight-stop row in the detail view, same
+   indent as the chip so it reads as "part of this ride", not a new step. */
+.tp-hold-note {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  margin: 4px 0 4px 4px;
+  padding: 6px 10px;
+  border-radius: var(--radius-sm);
+  background: var(--hover-bg);
+  color: var(--panel-muted);
+  font-size: var(--fs-xs);
+  line-height: 1.45;
+}
+.tp-hold-note svg {
+  flex: 0 0 auto;
+  margin-top: 2px;
+}
+.tp-hold-note b {
+  color: var(--panel-fg);
+  font-weight: 700;
+}
 
 /* Leg timeline: a dot per leg threaded by one continuous rail line drawn behind
    them (::before on the timeline container, not per-leg), the way a transit app's
