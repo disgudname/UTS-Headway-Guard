@@ -16007,29 +16007,47 @@ async def eta_uts_stop_arrivals():
         return payload
 
 
-def _current_vehicle_block_id(vehicle_id: Optional[str]) -> Optional[str]:
-    """Same lookup as the headway tracker's own vehicle_block_lookup() closure
-    (see the updater() loop) -- reimplemented at module level so
-    _compute_bus_eta_arrivals can use it too without reaching into that
-    closure. state.blocks_cache["vehicle_to_block"] refreshes every
-    BLOCK_REFRESH_S straight from TransLoc's own dispatch data, so this is
-    live, not a guess -- see uts_blocks.py's module docstring for why bus_eta
-    needs to know a vehicle's block at all."""
-    if vehicle_id is None:
+def _vehicle_block_windows() -> Dict[str, List[Tuple[str, Optional[int], Optional[int]]]]:
+    """vehicle_id (str) -> [(block_id in "[NN]" form, start_ts_ms, end_ts_ms), ...]
+    for every block TransLoc's dispatch data assigns that vehicle today.
+
+    Confirmed live (2026-09-16) that block.get("BlockId") alone is a
+    dispatch-internal NAME like "OrangeNPW_01", NOT the "[NN]" numbering
+    build_uts_blocks.py's Block Package parse uses -- an earlier version of
+    this lookup used that field directly and the schedule-hold clamp in
+    bus_eta.py silently never fired as a result (block_id never matched any
+    key in config/uts_blocks.json). Only BlockGroupId (e.g. "[05]/[03]" for an
+    interlined duty covering two routes' block ranges at different times of
+    day) carries the real numbering, and _build_block_mapping_with_times
+    already resolves which specific number is active for a given trip by
+    matching the trip's route against ROUTE_TO_BLOCKS -- built for the
+    vehicle_drivers/W2W feature, reused here since it's the same problem.
+    Reads from the already-cached block_groups (refreshed every
+    BLOCK_REFRESH_S), no extra network call."""
+    block_groups = (getattr(state, "blocks_cache", None) or {}).get("block_groups") or []
+    return _build_block_mapping_with_times(block_groups)
+
+
+def _current_block_id_for_vehicle(
+    windows: Dict[str, List[Tuple[str, Optional[int], Optional[int]]]],
+    vehicle_id: Optional[Any],
+    now_ts: float,
+) -> Optional[str]:
+    """Which of a vehicle's (possibly several, for an interlined duty) blocks is
+    active right now, per _vehicle_block_windows' time windows. Returns None
+    rather than guessing when more than one candidate exists and none of their
+    windows covers now -- a wrong block_id would silently corrupt an
+    otherwise-good ETA (see uts_blocks.scheduled_hold_epoch), so "no schedule
+    hold info for this vehicle right now" is the safe default over a guess."""
+    entries = windows.get(str(vehicle_id)) if vehicle_id is not None else None
+    if not entries:
         return None
-    blocks_cache = getattr(state, "blocks_cache", None)
-    if not blocks_cache:
-        return None
-    norm_vid = _normalize_vehicle_id_str(vehicle_id)
-    vehicle_to_block = blocks_cache.get("vehicle_to_block", {})
-    if norm_vid and vehicle_to_block:
-        block_id = vehicle_to_block.get(norm_vid)
-        if block_id:
+    if len(entries) == 1:
+        return entries[0][0]
+    now_ms = now_ts * 1000.0
+    for block_id, start_ts, end_ts in entries:
+        if start_ts is not None and end_ts is not None and start_ts <= now_ms <= end_ts:
             return block_id
-    for block_entry in blocks_cache.get("plain_language_blocks", []):
-        vid = _block_entry_vehicle_id(block_entry)
-        if vid is not None and vid == norm_vid:
-            return block_entry.get("block_id") or block_entry.get("block")
     return None
 
 
@@ -16054,6 +16072,7 @@ async def _compute_bus_eta_arrivals() -> Dict[str, Any]:
     when_ts = time.time()
     async with state.lock:
         vehicles_by_route = {rid: dict(vehs) for rid, vehs in state.vehicles_by_route.items()}
+    vehicle_block_windows = _vehicle_block_windows()
 
     # "{route_id}|{stop_id}" -> {"RouteId", "RouteStopId", "StopDescription", "Times": [...]}
     out: Dict[str, Dict[str, Any]] = {}
@@ -16081,7 +16100,7 @@ async def _compute_bus_eta_arrivals() -> Dict[str, Any]:
                     line, veh.s_pos, ema_mps, stop, hop_time_fn, when_ts,
                     vehicle_lat=veh.lat, vehicle_lon=veh.lon,
                     vehicle_dir_sign=getattr(veh, "dir_sign", 0),
-                    vehicle_block_id=_current_vehicle_block_id(vid),
+                    vehicle_block_id=_current_block_id_for_vehicle(vehicle_block_windows, vid, when_ts),
                     scheduled_timestop_fn=uts_blocks.scheduled_hold_epoch if uts_blocks.is_loaded() else None,
                 )
                 if result is None:
