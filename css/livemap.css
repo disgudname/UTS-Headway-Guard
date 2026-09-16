@@ -559,7 +559,9 @@ body {
   border: 1px solid var(--pop-hairline);
   border-radius: var(--radius-sm);
   padding: 8px 10px;
-  font: 600 var(--fs-sm)/1 inherit;
+  font-weight: 600;
+  font-size: var(--fs-sm);
+  line-height: 1;
   color: var(--pop-fg);
   background: rgba(255, 255, 255, 0.1);
   cursor: pointer;
@@ -590,7 +592,9 @@ body {
   gap: 8px;
   padding: 7px 8px 7px 14px;
   border-radius: var(--radius-pill);
-  font: 600 var(--fs-md)/1 inherit;
+  font-weight: 600;
+  font-size: var(--fs-md);
+  line-height: 1;
   color: var(--panel-fg);
   background: var(--panel-surface);
   border: 1px solid var(--panel-border);
@@ -976,7 +980,9 @@ body {
   background: var(--panel-surface);
   box-shadow: var(--panel-shadow);
   color: var(--panel-fg);
-  font: 600 var(--fs-md)/1 inherit;
+  font-weight: 600;
+  font-size: var(--fs-md);
+  line-height: 1;
   cursor: pointer;
   backdrop-filter: var(--panel-blur);
 }
@@ -1175,7 +1181,9 @@ body {
 }
 
 .lp-head-title {
-  font: 700 var(--fs-lg)/1 inherit;
+  font-weight: 700;
+  font-size: var(--fs-lg);
+  line-height: 1;
   letter-spacing: 0.3px;
 }
 
@@ -1188,7 +1196,9 @@ body {
 }
 
 .lp-title {
-  font: 700 var(--fs-md)/1 inherit;
+  font-weight: 700;
+  font-size: var(--fs-md);
+  line-height: 1;
   letter-spacing: 0.02em;
 }
 
@@ -1201,7 +1211,9 @@ body {
   display: flex;
   align-items: center;
   gap: 7px;
-  font: 700 var(--fs-sm)/1 inherit;
+  font-weight: 700;
+  font-size: var(--fs-sm);
+  line-height: 1;
   letter-spacing: 0.02em;
 }
 
@@ -1255,7 +1267,9 @@ body {
   align-items: center;
   gap: 8px;
   padding: 10px 11px;
-  font: 700 var(--fs-xs)/1.35 inherit;
+  font-weight: 700;
+  font-size: var(--fs-xs);
+  line-height: 1.35;
   letter-spacing: 0.075em;
   text-transform: uppercase;
 }
@@ -1354,7 +1368,9 @@ body {
   border-radius: var(--radius-sm);
   background: var(--btn-bg);
   color: var(--btn-fg);
-  font: 600 var(--fs-xs)/1 inherit;
+  font-weight: 600;
+  font-size: var(--fs-xs);
+  line-height: 1;
   padding: 6px 4px;
   cursor: pointer;
   transition: background-color var(--dur-fast) var(--ease), color var(--dur-fast) var(--ease);
@@ -1376,7 +1392,9 @@ body {
   border-radius: var(--radius-sm);
   background: var(--btn-bg);
   color: var(--btn-fg);
-  font: 600 var(--fs-sm)/1 inherit;
+  font-weight: 600;
+  font-size: var(--fs-sm);
+  line-height: 1;
   padding: 7px 8px;
   margin-top: 3px;
   cursor: pointer;
@@ -1425,7 +1443,9 @@ body {
   border-radius: var(--radius-sm);
   background: transparent;
   color: inherit;
-  font: 500 var(--fs-sm)/1 inherit;
+  font-weight: 500;
+  font-size: var(--fs-sm);
+  line-height: 1;
   padding: 7px 8px;
 }
 
@@ -1435,7 +1455,9 @@ body {
   border-radius: var(--radius-sm);
   background: var(--toggle-active-bg);
   color: var(--toggle-active-fg);
-  font: 700 var(--fs-sm)/1 inherit;
+  font-weight: 700;
+  font-size: var(--fs-sm);
+  line-height: 1;
   padding: 7px 11px;
   cursor: pointer;
 }
@@ -1451,13 +1473,17 @@ body {
   border-radius: var(--radius-sm);
   background: transparent;
   color: inherit;
-  font: 700 var(--fs-md)/1 inherit;
+  font-weight: 700;
+  font-size: var(--fs-md);
+  line-height: 1;
   padding: 0 9px;
   cursor: pointer;
 }
 
 .lp-auth-msg {
-  font: 600 var(--fs-xs)/1.3 inherit;
+  font-weight: 600;
+  font-size: var(--fs-xs);
+  line-height: 1.3;
   color: var(--uva-orange);
 }
 
@@ -1469,7 +1495,9 @@ body {
 }
 
 .lp-auth-who {
-  font: 700 var(--fs-sm)/1.2 inherit;
+  font-weight: 700;
+  font-size: var(--fs-sm);
+  line-height: 1.2;
   letter-spacing: 0.01em;
 }
 
@@ -1485,7 +1513,9 @@ body {
   border: 1px solid var(--btn-border);
   background: var(--btn-bg);
   color: var(--btn-fg);
-  font: 600 var(--fs-sm)/1.3 inherit;
+  font-weight: 600;
+  font-size: var(--fs-sm);
+  line-height: 1.3;
   cursor: pointer;
   transition: background-color var(--dur-fast) var(--ease),
     border-color var(--dur-fast) var(--ease), color var(--dur-fast) var(--ease);
@@ -1553,7 +1583,9 @@ body {
   border-radius: 5px;
   background: transparent;
   color: inherit;
-  font: 600 var(--fs-micro)/1 inherit;
+  font-weight: 600;
+  font-size: var(--fs-micro);
+  line-height: 1;
   letter-spacing: 0;
   padding: 4px 7px;
   cursor: pointer;
@@ -1577,7 +1609,9 @@ body {
   color: inherit;
   cursor: pointer;
   text-align: left;
-  font: 600 var(--fs-sm)/1.3 inherit;
+  font-weight: 600;
+  font-size: var(--fs-sm);
+  line-height: 1.3;
   transition: background-color var(--dur-fast) var(--ease);
 }
 
@@ -1686,7 +1720,9 @@ body {
 }
 
 .st-group-label {
-  font: 700 var(--fs-xs)/1.35 inherit;
+  font-weight: 700;
+  font-size: var(--fs-xs);
+  line-height: 1.35;
   letter-spacing: 0.075em;
   text-transform: uppercase;
   color: var(--panel-muted);
@@ -1763,7 +1799,9 @@ body {
   height: 16px;
   padding: 0 4px;
   border-radius: 8px;
-  font: 700 var(--fs-micro)/16px inherit;
+  font-weight: 700;
+  font-size: var(--fs-micro);
+  line-height: 16px;
   text-align: center;
   background: rgba(127, 127, 127, 0.22);
   color: inherit;
@@ -1991,7 +2029,9 @@ body {
   border: 0;
   background: transparent;
   color: var(--panel-fg);
-  font: 500 var(--fs-md)/1 inherit;
+  font-weight: 500;
+  font-size: var(--fs-md);
+  line-height: 1;
   outline: none;
 }
 
@@ -2187,7 +2227,9 @@ body {
   border: 2px solid var(--pop-edge);
   background: var(--pop-bg);
   color: var(--pop-fg);
-  font: 700 var(--fs-md)/1 inherit;
+  font-weight: 700;
+  font-size: var(--fs-md);
+  line-height: 1;
   cursor: pointer;
   box-shadow: var(--pop-shadow);
 }
@@ -2228,7 +2270,9 @@ body {
   /* 9px is under the type scale's 10px floor on purpose — this text lives
      inside a round chip and has to fit long stop names like
      "Massie Rd @ Faulkner Apts (Northbound)" without clipping the direction. */
-  font: 700 9px/1.12 inherit;
+  font-weight: 700;
+  font-size: 9px;
+  line-height: 1.12;
   text-shadow: 0 1px 2px rgba(0, 0, 0, 0.4);
 }
 
@@ -2248,7 +2292,9 @@ body {
   border: 2px solid var(--pop-edge);
   box-shadow: var(--pop-shadow);
   color: var(--pop-fg);
-  font: 700 var(--fs-xs)/1 inherit;
+  font-weight: 700;
+  font-size: var(--fs-xs);
+  line-height: 1;
   white-space: nowrap;
 }
 
@@ -2303,7 +2349,9 @@ body {
   padding: clamp(1rem, 5vw, 3rem);
   text-align: center;
   white-space: pre-line;
-  font: 700 clamp(1.5rem, 8vw, 4.5rem) / 1.2 inherit;
+  font-weight: 700;
+  font-size: clamp(1.5rem, 8vw, 4.5rem);
+  line-height: 1.2;
   color: #f8fafc;
   background: rgba(35, 45, 75, 0.82);
   backdrop-filter: blur(3px);
@@ -2336,7 +2384,9 @@ body {
   border: 1px solid var(--panel-border);
   box-shadow: var(--panel-shadow);
   backdrop-filter: var(--panel-blur);
-  font: 600 var(--fs-lg)/1.2 inherit;
+  font-weight: 600;
+  font-size: var(--fs-lg);
+  line-height: 1.2;
 }
 
 .livemap-route-legend[hidden] {
@@ -2481,7 +2531,9 @@ body {
  * ------------------------------------------------------------------------- */
 
 .tp-widget {
-  font: 400 var(--fs-sm)/1.35 inherit;
+  font-weight: 400;
+  font-size: var(--fs-sm);
+  line-height: 1.35;
   color: var(--panel-fg);
 }
 /* .tp-toggle/.tp-card both declare `display: flex`, which (as an author-stylesheet
@@ -2507,7 +2559,9 @@ body {
   background: var(--panel-surface);
   box-shadow: var(--panel-shadow);
   color: var(--panel-fg);
-  font: 600 var(--fs-md)/1 inherit;
+  font-weight: 600;
+  font-size: var(--fs-md);
+  line-height: 1;
   cursor: pointer;
   backdrop-filter: var(--panel-blur);
 }
@@ -2554,7 +2608,9 @@ body {
   color: #fff;
 }
 .tp-card-title {
-  font: 700 var(--fs-lg)/1 inherit;
+  font-weight: 700;
+  font-size: var(--fs-lg);
+  line-height: 1;
   flex: 1 1 auto;
 }
 .tp-back,
@@ -2566,8 +2622,6 @@ body {
   border: none;
   background: rgba(255, 255, 255, 0.14);
   color: #fff;
-  font-size: 16px;
-  line-height: 1;
   cursor: pointer;
   display: grid;
   place-items: center;
@@ -2625,7 +2679,9 @@ body {
   border: none;
   background: none;
   color: var(--panel-fg);
-  font: 500 var(--fs-sm)/1.3 inherit;
+  font-weight: 500;
+  font-size: var(--fs-sm);
+  line-height: 1.3;
   outline: none;
 }
 .tp-field-badge {
@@ -2635,7 +2691,9 @@ body {
   border-radius: 50%;
   display: grid;
   place-items: center;
-  font: 700 var(--fs-xs)/1 inherit;
+  font-weight: 700;
+  font-size: var(--fs-xs);
+  line-height: 1;
   color: #fff;
 }
 .tp-field-badge--origin {
@@ -2644,28 +2702,6 @@ body {
 .tp-field-badge--destination {
   background: var(--bad);
 }
-.tp-field-btn {
-  flex: 0 0 auto;
-  width: 24px;
-  height: 24px;
-  border-radius: 50%;
-  border: 1px solid transparent;
-  background: none;
-  color: var(--panel-muted);
-  cursor: pointer;
-  display: grid;
-  place-items: center;
-}
-.tp-field-btn:hover {
-  background: var(--hover-bg);
-  color: var(--panel-fg);
-}
-.tp-field-btn--pin.is-active {
-  background: var(--accent-soft);
-  color: var(--accent);
-  border-color: var(--accent);
-}
-
 .tp-field-results {
   position: absolute;
   top: calc(100% + 4px);
@@ -2685,32 +2721,87 @@ body {
   font-weight: 700;
   letter-spacing: 0.06em;
   text-transform: uppercase;
+  /* Its parent chain (.tp-field-results -> .tp-search-overlay-body ->
+     .tp-search-overlay) never sets a text color, so without this it inherits
+     the browser's plain black default instead of the theme-aware token --
+     invisible on the dark theme's navy overlay background (confirmed live:
+     "Recent" read as black on navy). Sibling .tp-field-item buttons don't
+     have this problem because THEY set color explicitly. */
+  color: var(--panel-fg);
   opacity: 0.5;
 }
 .tp-field-head:first-child {
   padding-top: 7px;
 }
+/* A row-based layout -- leading circular icon badge, name+meta stacked beside
+   it, a divider under every row but the last -- matching the fuller look of
+   Google Maps' own list rather than a cramped icon-over-text column. */
 .tp-field-item {
   display: flex;
-  flex-direction: column;
-  align-items: flex-start;
+  align-items: center;
+  gap: 12px;
   width: 100%;
-  padding: 7px 12px;
+  padding: 8px 12px;
   border: none;
+  border-bottom: 1px solid var(--panel-border);
   background: none;
   color: var(--panel-fg);
   text-align: left;
   cursor: pointer;
 }
+.tp-field-item:last-child {
+  border-bottom: none;
+}
 .tp-field-item:hover {
   background: var(--hover-bg);
 }
+.tp-field-item-icon {
+  flex: 0 0 auto;
+  width: 34px;
+  height: 34px;
+  border-radius: 50%;
+  background: var(--hover-bg);
+  color: var(--panel-muted);
+  display: grid;
+  place-items: center;
+}
+.tp-field-item-icon svg {
+  width: 16px;
+  height: 16px;
+}
+.tp-field-item-text {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  flex: 1 1 auto;
+}
 .tp-field-item-name {
-  font: 600 var(--fs-sm)/1.3 inherit;
+  font-weight: 600;
+  font-size: var(--fs-sm);
+  line-height: 1.3;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 .tp-field-item-meta {
-  font: 400 var(--fs-xs)/1.3 inherit;
+  font-weight: 400;
+  font-size: var(--fs-xs);
+  line-height: 1.3;
   color: var(--panel-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.tp-field-item-meta:empty {
+  display: none;
+}
+/* "Your Location" / "Choose on map" -- these are actions, not search matches,
+   so they read a size up from the rest of the list, same emphasis Google
+   Maps gives its own equivalent rows. */
+.tp-field-item--pinned .tp-field-item-name {
+  font-weight: 600;
+  font-size: var(--fs-md);
+  line-height: 1.3;
 }
 
 .tp-when {
@@ -2725,7 +2816,9 @@ body {
   border: 1px solid var(--panel-border);
   background: var(--btn-bg);
   color: var(--panel-fg);
-  font: 600 var(--fs-xs)/1 inherit;
+  font-weight: 600;
+  font-size: var(--fs-xs);
+  line-height: 1;
   cursor: pointer;
 }
 .tp-when-btn.is-active {
@@ -2741,7 +2834,9 @@ body {
   border: 1px solid var(--panel-border);
   background: var(--panel-bg);
   color: var(--panel-fg);
-  font: 500 var(--fs-xs)/1 inherit;
+  font-weight: 500;
+  font-size: var(--fs-xs);
+  line-height: 1;
 }
 
 .tp-results {
@@ -2758,7 +2853,9 @@ body {
   gap: 8px;
   padding: 16px 14px;
   color: var(--panel-muted);
-  font: 500 var(--fs-sm)/1.4 inherit;
+  font-weight: 500;
+  font-size: var(--fs-sm);
+  line-height: 1.4;
   text-align: center;
 }
 .tp-status--error {
@@ -2810,7 +2907,9 @@ body {
   margin-bottom: 6px;
 }
 .tp-itin-time {
-  font: 700 var(--fs-md)/1 inherit;
+  font-weight: 700;
+  font-size: var(--fs-md);
+  line-height: 1;
   color: var(--panel-heading);
 }
 .tp-itin-tag {
@@ -2818,7 +2917,9 @@ body {
   border-radius: var(--radius-pill);
   background: var(--hover-bg);
   color: var(--panel-muted);
-  font: 600 var(--fs-micro)/1.4 inherit;
+  font-weight: 600;
+  font-size: var(--fs-micro);
+  line-height: 1.4;
   text-transform: uppercase;
   letter-spacing: 0.02em;
 }
@@ -2887,12 +2988,16 @@ body {
   left: 3px;
 }
 .tp-leg-text {
-  font: 500 var(--fs-sm)/1.4 inherit;
+  font-weight: 500;
+  font-size: var(--fs-sm);
+  line-height: 1.4;
   color: var(--panel-fg);
 }
 .tp-leg-sub {
   color: var(--panel-muted);
-  font: 500 var(--fs-xs)/1.4 inherit;
+  font-weight: 500;
+  font-size: var(--fs-xs);
+  line-height: 1.4;
 }
 .tp-leg-sub--muted {
   font-style: italic;
@@ -2902,7 +3007,9 @@ body {
   padding: 2px 8px;
   border-radius: var(--radius-sm);
   border: 1px solid rgba(127, 127, 127, 0.35);
-  font: 700 var(--fs-xs)/1.5 inherit;
+  font-weight: 700;
+  font-size: var(--fs-xs);
+  line-height: 1.5;
   margin-right: 2px;
 }
 
@@ -2921,7 +3028,9 @@ body {
 .tp-detail-point-text {
   flex: 1 1 auto;
   min-width: 0;
-  font: 600 var(--fs-sm)/1.3 inherit;
+  font-weight: 600;
+  font-size: var(--fs-sm);
+  line-height: 1.3;
   color: var(--panel-fg);
   overflow: hidden;
   text-overflow: ellipsis;
@@ -2929,7 +3038,9 @@ body {
 }
 .tp-detail-clock {
   flex: 0 0 auto;
-  font: 600 var(--fs-xs)/1 inherit;
+  font-weight: 600;
+  font-size: var(--fs-xs);
+  line-height: 1;
   color: var(--panel-muted);
 }
 .tp-detail-step {
@@ -2954,11 +3065,15 @@ body {
   display: flex;
   align-items: center;
   gap: 6px;
-  font: 600 var(--fs-sm)/1.3 inherit;
+  font-weight: 600;
+  font-size: var(--fs-sm);
+  line-height: 1.3;
   color: var(--panel-fg);
 }
 .tp-detail-step-sub {
-  font: 500 var(--fs-xs)/1.4 inherit;
+  font-weight: 500;
+  font-size: var(--fs-xs);
+  line-height: 1.4;
   color: var(--panel-muted);
 }
 
@@ -2975,7 +3090,9 @@ body {
 }
 .tp-detail-stop-name {
   min-width: 0;
-  font: 700 var(--fs-sm)/1.3 inherit;
+  font-weight: 700;
+  font-size: var(--fs-sm);
+  line-height: 1.3;
   color: var(--panel-heading);
 }
 .tp-detail-ride-chip {
@@ -2988,7 +3105,9 @@ body {
   border-left: 3px solid transparent;
   border-radius: var(--radius-sm);
   background: var(--hover-bg);
-  font: 500 var(--fs-xs)/1.4 inherit;
+  font-weight: 500;
+  font-size: var(--fs-xs);
+  line-height: 1.4;
   color: var(--panel-muted);
 }
 .tp-detail-ride-chip-text {
@@ -3022,7 +3141,9 @@ body {
   display: grid;
   place-items: center;
   color: #fff;
-  font: 700 var(--fs-xs)/1 inherit;
+  font-weight: 700;
+  font-size: var(--fs-xs);
+  line-height: 1;
 }
 .tp-pin--origin {
   background: var(--ok);
@@ -3070,9 +3191,14 @@ body {
 }
 .tp-center-pin-badge {
   color: #fff;
-  font: 700 var(--fs-xs)/1 inherit;
+  font-weight: 700;
+  font-size: var(--fs-xs);
+  line-height: 1;
 }
 
+/* Desktop only (see _startPickingOnMap in trip-planner-panel.js) -- a small
+   floating confirm bar over the already-visible map, since the sidebar layout
+   leaves the map mostly unobstructed to begin with. */
 .tp-center-pin-bar {
   position: fixed;
   left: 50%;
@@ -3086,10 +3212,7 @@ body {
   background: var(--panel-surface);
   border: 1px solid var(--panel-border);
   box-shadow: var(--panel-shadow);
-  /* Above .tp-card (470) -- on the mobile bottom sheet this bar floats just
-     above the sheet's own top edge (see _showCenterPin's inline `bottom`),
-     which only works if it isn't drawn underneath the sheet to begin with. */
-  z-index: 480;
+  z-index: 480; /* above .tp-card (470) */
   white-space: nowrap;
 }
 .tp-center-pin-hint {
@@ -3102,16 +3225,83 @@ body {
   border: none;
   background: var(--accent);
   color: #fff;
-  font: 700 var(--fs-xs)/1 inherit;
+  font-weight: 700;
+  font-size: var(--fs-xs);
+  line-height: 1;
   cursor: pointer;
 }
 .tp-center-pin-confirm:hover {
   filter: brightness(1.08);
 }
-@media (max-width: 768px) {
-  .tp-center-pin-bar {
-    bottom: 16px;
-  }
+
+/* Mobile only -- "Choose on map" takes over almost the entire screen (thin top
+   bar + the map underneath, sheet hidden), matching Google Maps' own
+   dedicated pin-drop screen rather than a bar squeezed over a still-visible
+   sheet. z-index matches .tp-search-overlay (both need to clear the mobile
+   bottom nav bar, z-index 1100 in nav-bar.js, and this one replaces that
+   overlay one screen for one screen). */
+.tp-map-picker-bar {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  z-index: 1200;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 8px 10px 6px;
+  padding-top: calc(10px + env(safe-area-inset-top, 0px));
+  background: var(--overlay-solid-bg);
+  border-bottom: 1px solid var(--panel-border);
+}
+.tp-map-picker-back {
+  flex: 0 0 auto;
+  width: 34px;
+  height: 34px;
+  border-radius: 50%;
+  border: none;
+  background: none;
+  color: var(--panel-fg);
+  display: grid;
+  place-items: center;
+  cursor: pointer;
+}
+.tp-map-picker-back:hover {
+  background: var(--hover-bg);
+}
+.tp-map-picker-text {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+.tp-map-picker-title {
+  font-weight: 600;
+  font-size: var(--fs-md);
+  line-height: 1.3;
+  color: var(--panel-fg);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.tp-map-picker-sub {
+  font-size: var(--fs-xs);
+  color: var(--panel-muted);
+}
+.tp-map-picker-ok {
+  flex: 0 0 auto;
+  padding: 8px 16px;
+  border-radius: 999px;
+  border: none;
+  background: var(--accent);
+  color: #fff;
+  font-weight: 700;
+  font-size: var(--fs-sm);
+  line-height: 1;
+  cursor: pointer;
+}
+.tp-map-picker-ok:hover {
+  filter: brightness(1.08);
 }
 
 /* Mobile: a bottom sheet instead of a left-docked sidebar -- there's no spare full-
@@ -3273,7 +3463,9 @@ body {
   background: none;
 }
 .tp-field--overlay input {
-  font: 500 17px/1.3 inherit; /* bumped from --fs-sm (12px) -- too small at arm's length */
+  font-weight: 500;
+  font-size: 17px;
+  line-height: 1.3; /* bumped from --fs-sm (12px) -- too small at arm's length */
 }
 /* The relocated results list fills the overlay body edge-to-edge instead of being
    a small floating dropdown -- and every size here is bumped up from the inline
@@ -3293,11 +3485,29 @@ body {
   font-size: 12px;
 }
 .tp-field-results--overlay .tp-field-item {
-  padding: 12px 16px;
+  gap: 16px;
+  padding: 14px 16px;
+}
+.tp-field-results--overlay .tp-field-item-icon {
+  width: 40px;
+  height: 40px;
+}
+.tp-field-results--overlay .tp-field-item-icon svg {
+  width: 18px;
+  height: 18px;
 }
 .tp-field-results--overlay .tp-field-item-name {
-  font: 600 16px/1.3 inherit;
+  font-weight: 600;
+  font-size: 16px;
+  line-height: 1.3;
 }
 .tp-field-results--overlay .tp-field-item-meta {
-  font: 400 13px/1.3 inherit;
+  font-weight: 400;
+  font-size: 13px;
+  line-height: 1.3;
+}
+.tp-field-results--overlay .tp-field-item--pinned .tp-field-item-name {
+  font-weight: 600;
+  font-size: 18px;
+  line-height: 1.3;
 }

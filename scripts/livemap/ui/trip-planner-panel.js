@@ -38,6 +38,8 @@ const ICONS = {
     '<svg viewBox="0 0 16 16" width="11" height="11" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round" stroke-linecap="round"><path d="M8 1.6 14.8 14H1.2L8 1.6Z"/><path d="M8 6.2v3.4"/><circle cx="8" cy="11.6" r="0.15" fill="currentColor" stroke="none"/></svg>',
   back:
     '<svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M10 3 5 8l5 5"/></svg>',
+  close:
+    '<svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M4 4l8 8M12 4l-8 8"/></svg>',
   recent:
     '<svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="8" cy="8.5" r="5.5"/><path d="M8 5.5V8.5L10.2 10"/></svg>',
 };
@@ -97,21 +99,17 @@ export class TripPlannerPanel {
       <div class="tp-card-head">
         <button type="button" class="tp-back" aria-label="Back to trip options" hidden>${ICONS.back}</button>
         <span class="tp-card-title">Plan a trip</span>
-        <button type="button" class="tp-close" aria-label="Close">&times;</button>
+        <button type="button" class="tp-close" aria-label="Close">${ICONS.close}</button>
       </div>
       <div class="tp-fields">
         <div class="tp-field" data-field="origin">
           <span class="tp-field-badge tp-field-badge--origin">A</span>
           <input type="text" placeholder="Origin — building, stop, or address" autocomplete="off" spellcheck="false" />
-          <button type="button" class="tp-field-btn tp-field-btn--locate" title="Use my location" aria-label="Use my location">${ICONS.locate}</button>
-          <button type="button" class="tp-field-btn tp-field-btn--pin" title="Drag the map to set" aria-label="Drag the map to set">${ICONS.pin}</button>
           <div class="tp-field-results" hidden></div>
         </div>
         <div class="tp-field" data-field="destination">
           <span class="tp-field-badge tp-field-badge--destination">B</span>
           <input type="text" placeholder="Destination — building, stop, or address" autocomplete="off" spellcheck="false" />
-          <button type="button" class="tp-field-btn tp-field-btn--locate" title="Use my location" aria-label="Use my location" hidden>${ICONS.locate}</button>
-          <button type="button" class="tp-field-btn tp-field-btn--pin" title="Drag the map to set" aria-label="Drag the map to set">${ICONS.pin}</button>
           <div class="tp-field-results" hidden></div>
         </div>
         <button type="button" class="tp-swap" title="Swap origin and destination" aria-label="Swap origin and destination">${ICONS.swap}</button>
@@ -174,8 +172,6 @@ export class TripPlannerPanel {
         wrap,
         input: wrap.querySelector('input'),
         results: wrap.querySelector('.tp-field-results'),
-        locateBtn: wrap.querySelector('.tp-field-btn--locate'),
-        pinBtn: wrap.querySelector('.tp-field-btn--pin'),
         items: [],
         reqSeq: 0,
       };
@@ -535,8 +531,6 @@ export class TripPlannerPanel {
     document.addEventListener('click', (e) => {
       if (!f.wrap.contains(e.target)) this._closeFieldResults(field);
     });
-    f.locateBtn?.addEventListener('click', () => this._useMyLocation(field));
-    f.pinBtn.addEventListener('click', () => this._togglePicking(field));
   }
 
   /** Phone-width bottom sheet only -- see mount()'s comment on the overlay. Desktop's
@@ -652,14 +646,16 @@ export class TripPlannerPanel {
   }
 
   /** Shown when a field is focused with nothing typed: a pinned "Your Location"
-   *  row (origin only -- destination has no equivalent "use my location" button
-   *  either, see the field markup in mount()) followed by locally-cached recent
-   *  picks, most-recent-first. Google Maps shows the same shape for an empty
-   *  origin/destination field. */
+   *  row (origin only -- there's no "current location" equivalent for a
+   *  destination), a "Choose on map" row (both fields), then locally-cached
+   *  recent picks, most-recent-first. Google Maps shows this same shape for an
+   *  empty origin/destination field -- these two rows are what replaced the
+   *  field's old standalone locate/pin buttons. */
   _showEmptyStateResults(field) {
     const f = this._fields[field];
     const items = [];
     if (field === 'origin') items.push({ kind: 'location', name: 'Your Location' });
+    items.push({ kind: 'map', name: 'Choose on map' });
     for (const p of loadRecentPoints()) items.push({ kind: 'recent', name: p.label, lat: p.lat, lng: p.lng });
     f.items = items;
     this._renderFieldResults(field);
@@ -688,18 +684,24 @@ export class TripPlannerPanel {
     let html = '';
     let prevKind = null;
     f.items.forEach((it, i) => {
-      // "Your Location" is a single pinned row, not a group -- no header, same
-      // as Google Maps.
-      if (it.kind !== prevKind && it.kind !== 'location') {
+      // "Your Location" and "Choose on map" are single pinned rows, not a
+      // group -- no header, same as Google Maps.
+      if (it.kind !== prevKind && it.kind !== 'location' && it.kind !== 'map') {
         html += `<div class="tp-field-head">${KIND_HEADS[it.kind] || 'Buildings'}</div>`;
       }
       prevKind = it.kind;
-      const icon = it.kind === 'location' ? ICONS.locate : it.kind === 'recent' ? ICONS.recent : '';
+      // Every row gets a leading icon now, same "full" rhythm as Google Maps'
+      // own list (a bare icon-less row for stops/buildings read sparse next
+      // to Your Location/Choose on map/Recent, which all have one).
+      const icon = it.kind === 'location' ? ICONS.locate : it.kind === 'recent' ? ICONS.recent : ICONS.pin;
+      const pinned = it.kind === 'location' || it.kind === 'map';
       html += `
-      <button type="button" class="tp-field-item" data-i="${i}">
-        ${icon ? `<span class="tp-field-item-icon">${icon}</span>` : ''}
-        <span class="tp-field-item-name"></span>
-        <span class="tp-field-item-meta"></span>
+      <button type="button" class="tp-field-item${pinned ? ' tp-field-item--pinned' : ''}" data-i="${i}">
+        <span class="tp-field-item-icon">${icon}</span>
+        <span class="tp-field-item-text">
+          <span class="tp-field-item-name"></span>
+          <span class="tp-field-item-meta"></span>
+        </span>
       </button>`;
     });
     f.results.innerHTML = html;
@@ -720,6 +722,10 @@ export class TripPlannerPanel {
   _pickResult(field, it) {
     if (it.kind === 'location') {
       this._useMyLocation(field);
+      return;
+    }
+    if (it.kind === 'map') {
+      this._startPickingOnMap(field);
       return;
     }
     if (it.kind === 'stop' || it.kind === 'recent') {
@@ -759,22 +765,17 @@ export class TripPlannerPanel {
     );
   }
 
-  /** Drag-to-adjust: a pin fixed at the map's screen centre while the rider
-   *  pans the map underneath it (the classic Uber/Maps "set pickup" pattern) --
-   *  more precise than a raw click, especially on mobile where a fingertip
-   *  covers far more than the point being tapped. Toggling the same field's
-   *  pin button again cancels; the overlay's own "Set location" button
-   *  confirms. */
-  _togglePicking(field) {
-    // The drag-to-adjust pin lives on the map, which the full-screen search overlay
-    // covers entirely -- close it first so the pin (and the map underneath it) is
-    // actually visible instead of silently starting off-screen.
-    if (this._overlayField === field) this._closeOverlay();
-    if (this._pickMode === field) {
-      this._stopPicking(true); // cancel: leave the point as it was
-      return;
-    }
-    this._startAdjusting(field);
+  /** "Choose on map" (in a field's empty-state dropdown): pin fixed at the
+   *  map's screen centre while the rider pans the map underneath it (the
+   *  classic Uber/Maps "set pickup" pattern) -- more precise than a raw click,
+   *  especially on mobile where a fingertip covers far more than the point
+   *  being tapped. Desktop's sidebar already leaves the map mostly visible, so
+   *  it gets a lightweight pin + floating confirm bar over it; mobile takes
+   *  over almost the entire screen the way Google Maps' own "choose on map"
+   *  does, since there's no spare screen space next to a bottom sheet. */
+  _startPickingOnMap(field) {
+    if (this._isMobileLayout()) this._enterMapPicker(field);
+    else this._startAdjusting(field);
   }
 
   _startAdjusting(field) {
@@ -782,13 +783,35 @@ export class TripPlannerPanel {
     const map = getMap();
     if (!map) return;
     this._pickMode = field;
-    for (const f of Object.keys(this._fields)) {
-      this._fields[f].pinBtn.classList.toggle('is-active', f === field);
-    }
     TripPlanner.setMarkerVisible(field, false);
     this._showCenterPin(field);
-    // Start the pin exactly where the field's current point is (if it has
-    // one) so adjusting reads as "fine-tune", not "start over from nowhere".
+    this._showConfirmBar(field);
+    this._recenterOnExisting(field, map);
+  }
+
+  _enterMapPicker(field) {
+    // The full-screen field search overlay covers the map entirely -- close it
+    // first so the map (and the pin about to go on it) is actually visible.
+    this._closeOverlay();
+    this._stopPicking(true); // in case the OTHER field was mid-adjust
+    const map = getMap();
+    if (!map) return;
+    this._pickMode = field;
+    this._mapPickerActive = true;
+    TripPlanner.setMarkerVisible(field, false);
+    this._showCenterPin(field);
+    this._showMapPickerBar(field);
+    // Hide the sheet entirely rather than just collapsing it -- "almost
+    // entirely map", matching Google Maps' own dedicated pin-drop screen,
+    // with the confirm action living in this top bar instead of a bar
+    // floating over a still-visible sheet.
+    this._cardEl.hidden = true;
+    this._recenterOnExisting(field, map);
+  }
+
+  /** Start the pin exactly where the field's current point is (if it has one)
+   *  so adjusting reads as "fine-tune", not "start over from nowhere". */
+  _recenterOnExisting(field, map) {
     const existing = field === 'origin' ? TripPlanner.getOrigin() : TripPlanner.getDestination();
     if (existing) map.easeTo({ center: [existing.lng, existing.lat], duration: 300 });
     map.getCanvas()?.classList.add('tp-picking-cursor');
@@ -803,26 +826,42 @@ export class TripPlannerPanel {
     pinEl.innerHTML = `<span class="tp-center-pin-badge">${field === 'origin' ? 'A' : 'B'}</span>`;
     container.appendChild(pinEl);
     this._centerPinEl = pinEl;
+  }
 
+  /** Desktop only (see _startPickingOnMap) -- a small floating bar over the
+   *  already-visible map, since there's no dedicated full-screen mode there. */
+  _showConfirmBar(field) {
     const bar = document.createElement('div');
     bar.className = 'tp-center-pin-bar';
     bar.innerHTML = `
       <span class="tp-center-pin-hint">Drag the map to move the pin</span>
       <button type="button" class="tp-center-pin-confirm">Set ${field === 'origin' ? 'origin' : 'destination'}</button>`;
     bar.querySelector('.tp-center-pin-confirm').addEventListener('click', () => this._confirmAdjusting());
-    // A fixed viewport-bottom offset sits UNDER the mobile bottom sheet --
-    // confirmed live, the confirm button was unreachable, covered by the
-    // sheet at every one of its peek/half/full detents. Float the bar just
-    // above the sheet's own current top edge instead, so it stays clear no
-    // matter which detent (or mid-drag height) the sheet is resting at.
-    // Appended to document.body (not the map container) for the same reason
-    // .tp-card itself is: `position: fixed` needs an untransformed ancestor.
-    if (this._isMobileLayout() && !this._cardEl.hidden) {
-      const cardTop = this._cardEl.getBoundingClientRect().top;
-      bar.style.bottom = `${Math.max(16, window.innerHeight - cardTop + 12)}px`;
-    }
     document.body.appendChild(bar);
     this._centerPinBar = bar;
+  }
+
+  /** Mobile only -- a thin top bar (back / title+hint / OK) replacing the
+   *  sheet while it's hidden, same shape as Google Maps' own "choose on map"
+   *  screen. Back cancels and reopens the field's full-screen search list
+   *  (mirrors Maps); OK confirms, same as the desktop bar's button. */
+  _showMapPickerBar(field) {
+    const bar = document.createElement('div');
+    bar.className = 'tp-map-picker-bar';
+    bar.innerHTML = `
+      <button type="button" class="tp-map-picker-back" aria-label="Back">${ICONS.back}</button>
+      <span class="tp-map-picker-text">
+        <span class="tp-map-picker-title">Choose ${field === 'origin' ? 'origin' : 'destination'} location</span>
+        <span class="tp-map-picker-sub">Pan &amp; zoom map under pin</span>
+      </span>
+      <button type="button" class="tp-map-picker-ok">OK</button>`;
+    bar.querySelector('.tp-map-picker-back').addEventListener('click', () => {
+      this._stopPicking(true);
+      this._maybeOpenOverlay(field);
+    });
+    bar.querySelector('.tp-map-picker-ok').addEventListener('click', () => this._confirmAdjusting());
+    document.body.appendChild(bar);
+    this._mapPickerBar = bar;
   }
 
   _confirmAdjusting() {
@@ -837,13 +876,18 @@ export class TripPlannerPanel {
     if (!this._pickMode) return;
     const field = this._pickMode;
     this._pickMode = null;
-    for (const f of Object.values(this._fields)) f.pinBtn.classList.remove('is-active');
     const map = getMap();
     map?.getCanvas()?.classList.remove('tp-picking-cursor');
     this._centerPinEl?.remove();
     this._centerPinEl = null;
     this._centerPinBar?.remove();
     this._centerPinBar = null;
+    this._mapPickerBar?.remove();
+    this._mapPickerBar = null;
+    if (this._mapPickerActive) {
+      this._cardEl.hidden = false;
+      this._mapPickerActive = false;
+    }
     if (restoreMarker) TripPlanner.setMarkerVisible(field, true);
   }
 
