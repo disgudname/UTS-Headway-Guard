@@ -478,3 +478,72 @@ def test_schedule_hold_inactive_without_a_block_id():
     )
     assert result is not None and baseline is not None
     assert abs(result.seconds - baseline.seconds) < 0.01
+
+
+def test_schedule_hold_applies_when_arc_length_has_ticked_past_the_held_stop():
+    # Regression, confirmed live (2026-09-16): a bus dwelling at a mapped
+    # timestop whose arc-length position has already ticked past that stop
+    # (dwelling_at_prev -- see that block's own comment) got NO hold applied
+    # at all. The main hop-walk starts at next_stop and never looks back at
+    # prev_stop, which is where the vehicle is actually still sitting -- a
+    # real bus holding at Madison Ave @ Preston Ave with ~2 minutes left on
+    # its scheduled departure showed a 62s ETA for the very next stop, tagged
+    # "historical" (this exact branch's source label), instead of reflecting
+    # the hold at all.
+    line = _line([0, 300, 900, 1200])
+    hop_time_fn = _flat_hop_time_fn(60.0)
+    # Vehicle sitting exactly on stop 0's real coordinates (lat=0, lon=0 --
+    # see _line's coordinate convention), but arc-length has already ticked to
+    # 50m -- past stop 0 (arc_pos=0), nowhere near stop 1 (arc_pos=300) --
+    # triggering dwelling_at_prev, not dwelling_at_next.
+    vehicle_s_pos = 50.0
+    vehicle_lat, vehicle_lon = 0.0, 0.0
+
+    baseline = eta.estimate_stop_eta_s(
+        line, vehicle_s_pos, 5.0, line.stops[1], hop_time_fn, when=0.0,
+        vehicle_lat=vehicle_lat, vehicle_lon=vehicle_lon,
+    )
+    assert baseline is not None
+    assert baseline.source == "historical"
+    assert abs(baseline.seconds - 60.0) < 0.01  # plain historical hop time, no hold
+
+    # Block "B1" isn't due to leave stop 0 until t=500 -- far later than the
+    # 60s historical hop time alone would suggest.
+    result = eta.estimate_stop_eta_s(
+        line, vehicle_s_pos, 5.0, line.stops[1], hop_time_fn, when=0.0,
+        vehicle_lat=vehicle_lat, vehicle_lon=vehicle_lon,
+        vehicle_block_id="B1", scheduled_timestop_fn=_hold_fn(line.stops[0].id, 500.0),
+    )
+    assert result is not None
+    assert abs(result.seconds - 560.0) < 0.01  # 500s hold + 60s ride, not just 60s
+
+    # The hold must also cascade into a target FURTHER downstream, since
+    # current_leg_s seeds the main loop's total_s.
+    result_further = eta.estimate_stop_eta_s(
+        line, vehicle_s_pos, 5.0, line.stops[2], hop_time_fn, when=0.0,
+        vehicle_lat=vehicle_lat, vehicle_lon=vehicle_lon,
+        vehicle_block_id="B1", scheduled_timestop_fn=_hold_fn(line.stops[0].id, 500.0),
+    )
+    assert result_further is not None
+    assert result_further.seconds > result.seconds
+
+
+def test_schedule_hold_dwelling_at_prev_never_makes_a_late_bus_look_earlier():
+    line = _line([0, 300, 900, 1200])
+    hop_time_fn = _flat_hop_time_fn(60.0)
+    vehicle_s_pos = 50.0
+    vehicle_lat, vehicle_lon = 0.0, 0.0
+    baseline = eta.estimate_stop_eta_s(
+        line, vehicle_s_pos, 5.0, line.stops[1], hop_time_fn, when=0.0,
+        vehicle_lat=vehicle_lat, vehicle_lon=vehicle_lon,
+    )
+    # "Schedule" says stop 0 was due at t=-500 -- long past relative to
+    # when=0.0 -- simulating a bus already running behind. max(0, ...) must
+    # keep this a no-op, never pull the estimate into negative territory.
+    result = eta.estimate_stop_eta_s(
+        line, vehicle_s_pos, 5.0, line.stops[1], hop_time_fn, when=0.0,
+        vehicle_lat=vehicle_lat, vehicle_lon=vehicle_lon,
+        vehicle_block_id="B1", scheduled_timestop_fn=_hold_fn(line.stops[0].id, -500.0),
+    )
+    assert result is not None and baseline is not None
+    assert abs(result.seconds - baseline.seconds) < 0.01

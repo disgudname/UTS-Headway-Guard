@@ -426,6 +426,25 @@ def estimate_stop_eta_s(
     if dwelling_at_prev:
         prev_to_next_s = hop_time_fn(line.id, prev_stop.id, next_stop.id, when) if hop_time_fn else None
         current_leg_s = prev_to_next_s if prev_to_next_s and prev_to_next_s > 0 else dist_to_next / TYPICAL_BUS_SPEED_MPS
+        # Scheduled timestop hold, dwelling_at_prev counterpart: the main
+        # hop-walk below starts at next_stop and checks each stop it departs
+        # from in turn (see the in-loop comment) -- but when dwelling_at_prev,
+        # the vehicle is still physically sitting at PREV_stop, which the walk
+        # below never looks at (it starts one stop ahead). Without this, a
+        # bus dwelling at a mapped timestop whose arc-length has already
+        # ticked past it gets NO hold applied at all -- confirmed live
+        # (2026-09-16): a bus holding at a timestop with ~2 minutes left
+        # showed a 62s ETA for the very next stop, tagged "historical" (the
+        # unmistakable signature of this exact branch). The vehicle hasn't
+        # actually departed prev_stop yet, so the ride can't have started
+        # either -- add whatever's left of the hold in front of the ride time
+        # rather than max()-ing against it (there's no prior "arrival time at
+        # prev_stop" to reconcile against here, unlike the loop below -- it's
+        # effectively 0, the vehicle is already there).
+        if scheduled_timestop_fn is not None and vehicle_block_id:
+            hold_epoch = scheduled_timestop_fn(line.id, prev_stop.id, vehicle_block_id, when)
+            if hold_epoch is not None:
+                current_leg_s = max(0.0, hold_epoch - when) + current_leg_s
     else:
         current_leg_s = dist_to_next / projection_mps
 
