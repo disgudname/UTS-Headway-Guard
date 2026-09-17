@@ -1,14 +1,14 @@
 /* vandispatch2.css
  * ---------------------------------------------------------------------------
- * Chrome for the MapLibre GL preview of Van Dispatch (/vandispatch2).
+ * Chrome for the MapLibre GL rebuild of Van Dispatch, served at /vandispatch
+ * (file/route names still say "vandispatch2" -- the placeholder name from
+ * when this ran alongside the old Leaflet page -- not yet renamed).
  *
- * This is a deliberately faithful, self-contained port of the <style> block in
- * html/vandispatch.html (the live Leaflet page): same tokens, same variable
- * names, same layout, same cards. The only additions are the handful of rules
- * MapLibre needs that Leaflet did not (map container fill, control skin,
- * loading overlay, coord-copy popup) plus the small "MapLibre preview" tag.
- * Keeping it identical is intentional so swapping /vandispatch over later is a
- * low-risk change.
+ * This was a deliberately faithful, self-contained port of the <style> block
+ * in the old html/vandispatch.html (the former Leaflet page, since removed):
+ * same tokens, same variable names, same layout, same cards. The only
+ * additions were the handful of rules MapLibre needs that Leaflet did not
+ * (map container fill, control skin, loading overlay, coord-copy popup).
  *
  * Palette follows the UVA visual identity (brand.virginia.edu): UVA Blue
  * #232D4B, UVA Orange #E57200 as primaries; orange is the interactive accent
@@ -111,16 +111,6 @@ header h1 {
   font-weight: 700;
   color: var(--header-title);
   letter-spacing: 0.02em;
-}
-header .preview-tag {
-  font-size: 0.62rem;
-  font-weight: 700;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-  color: #fff2e2;
-  background: rgba(229, 114, 0, 0.9);
-  padding: 0.15rem 0.5rem;
-  border-radius: 999px;
 }
 header .subtitle {
   font-size: 0.8rem;
@@ -610,10 +600,10 @@ header .subtitle {
 }
 
 /* =====================================================================
- * Map overlays + popups — ported verbatim from html/vandispatch.html's
- * <style> block, adapted from Leaflet's popup DOM (.leaflet-popup-content-
- * wrapper / -tip) to MapLibre's (.maplibregl-popup-content / -tip). The van
- * dispatcher needs these to look exactly like the live page.
+ * Map overlays + popups — ported verbatim from the old html/vandispatch.html's
+ * <style> block (since removed), adapted from Leaflet's popup DOM
+ * (.leaflet-popup-content-wrapper / -tip) to MapLibre's
+ * (.maplibregl-popup-content / -tip).
  * =================================================================== */
 
 /* Custom maplibregl.Marker elements carry no chrome of their own. */

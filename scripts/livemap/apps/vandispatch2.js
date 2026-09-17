@@ -1,9 +1,9 @@
 // livemap/apps/vandispatch2.js
 // -----------------------------------------------------------------------------
-// Entry point for the MapLibre GL preview of Van Dispatch (served at
-// /vandispatch2). This is a placeholder name — the page it will eventually
-// replace is the live Leaflet /vandispatch, so the two run side by side until
-// the swap.
+// Entry point for the MapLibre GL rebuild of Van Dispatch, served at
+// /vandispatch itself (file/route names still say "vandispatch2" — the
+// placeholder name from when this ran alongside the old Leaflet /vandispatch,
+// since removed — not yet renamed).
 //
 // It reuses the shared livemap core for the map, basemap (UVA GES vector +
 // day/night + Esri satellite), theme, coord-copy and the vehicle layer (van
@@ -11,8 +11,8 @@
 // Map — the Active Trips board, the Duty Roster, the van <-> card selection,
 // and the map overlays (numbered pickup/drop-off markers + popups, the Spare
 // service-area outline, PulsePoint pins + halo, the route polyline) — is
-// vandispatch2's own code under apps/vandispatch2/, matching the Leaflet
-// /vandispatch, NOT livemap's micro-trips / safety treatment.
+// vandispatch2's own code under apps/vandispatch2/, matching the old Leaflet
+// page's behavior, NOT livemap's micro-trips / safety treatment.
 // -----------------------------------------------------------------------------
 
 import { createMap } from '../core/map.js';
