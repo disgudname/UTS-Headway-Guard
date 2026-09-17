@@ -13063,26 +13063,33 @@ def _trim_geocode_result(item: Dict[str, Any]) -> Optional[Dict[str, Any]]:
         return None
 
     addr = item.get("address") or {}
-    name = (item.get("name") or "").strip()
-    if not name:
+    house = addr.get("house_number")
+    road = addr.get("road")
+    street = f"{house} {road}" if house and road else road
+
+    poi_name = (item.get("name") or "").strip()
+    if poi_name:
+        name = poi_name
+    elif street:
         # Address points (no POI name, e.g. a plain house) come back with an empty
         # `name` -- build one from house number + road, same as how a rider would say
         # the address out loud, rather than falling back to Nominatim's full
         # display_name (which reads like "1308, Chesapeake Street, Woolen Mills,
         # Charlottesville, 22902, United States" -- comma-first from the house number).
-        house = addr.get("house_number")
-        road = addr.get("road")
-        if house and road:
-            name = f"{house} {road}"
-        elif road:
-            name = road
-        else:
-            name = (item.get("display_name") or "").split(",")[0].strip()
+        name = street
+    else:
+        name = (item.get("display_name") or "").split(",")[0].strip()
     if not name:
         return None
 
     locality = addr.get("city") or addr.get("town") or addr.get("village") or addr.get("county")
-    address = ", ".join(p for p in (locality, addr.get("state")) if p)
+    # A POI's own name doesn't disambiguate multiple locations of the same business
+    # (e.g. several "Christian's Pizza" branches) -- lead the address line with the
+    # street in that case. Skip it when `name` above already IS the street (the
+    # synthesized-address branch), or the row would repeat itself.
+    include_street = poi_name and street and street != name  # skip when it'd just repeat name (e.g. a road whose own name is its road tag)
+    address_parts = [street, locality, addr.get("state")] if include_street else [locality, addr.get("state")]
+    address = ", ".join(p for p in address_parts if p)
 
     bbox = None
     raw_bbox = item.get("boundingbox")
