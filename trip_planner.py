@@ -284,28 +284,46 @@ class RouteService:
     windows: Dict[str, List[Tuple[float, float]]] = field(default_factory=dict)
     chain_next: Dict[str, str] = field(default_factory=dict)
 
-    def effective_window(self, route_id: str) -> Optional[Tuple[float, float]]:
-        """This route's own window, extended forward through any interline chain (e.g.
-        Gold Line 67's effective end becomes Gold Line 57's end, since it's the same
-        physical bus continuing under a relabeled RouteID)."""
+    def effective_window(self, route_id: str, ts: float) -> Optional[Tuple[float, float]]:
+        """The specific service window covering `ts` for this route, extended forward
+        through any interline chain (e.g. Gold Line 67's effective end becomes Gold
+        Line 57's end, since it's the same physical bus continuing under a relabeled
+        RouteID).
+
+        A route_id can have more than one DISJOINT window on the same day -- e.g.
+        Night Pilot's schedule reports the post-midnight tail of LAST night's shift
+        (~12am-2am today) as a separate phase from TONIGHT's own ~10pm start, both
+        under RouteID 59. Collapsing every phase into one (earliest start, latest end)
+        envelope -- the previous behavior -- made the route look "in service" across
+        the entire afternoon gap between them: confirmed live, Night Pilot was
+        offered as a bookable option at 1:14pm despite actually running 2200-0230.
+        So this only ever returns a window whose (possibly chain-extended) range
+        actually contains `ts`, never a span across every window this route_id
+        happens to have today -- each of route_id's own raw windows is
+        chain-extended and tested independently, so a `ts` past one window's own
+        end but still inside its chain-extended range (the Gold Line 67/57 case)
+        still matches, while a `ts` that falls in the GAP between two of this
+        route_id's own unrelated windows (the Night Pilot case) matches none."""
         windows = self.windows.get(route_id)
         if not windows:
             return None
-        start = min(w[0] for w in windows)
-        end = max(w[1] for w in windows)
-        seen = {route_id}
-        current = route_id
-        while current in self.chain_next:
-            nxt = self.chain_next[current]
-            if nxt in seen:
-                break
-            nxt_windows = self.windows.get(nxt)
-            if not nxt_windows:
-                break
-            end = max(end, max(w[1] for w in nxt_windows))
-            seen.add(nxt)
-            current = nxt
-        return start, end
+        for start, end in windows:
+            extended_end = end
+            seen = {route_id}
+            current = route_id
+            while current in self.chain_next:
+                nxt = self.chain_next[current]
+                if nxt in seen:
+                    break
+                nxt_windows = self.windows.get(nxt)
+                if not nxt_windows:
+                    break
+                extended_end = max(extended_end, max(w[1] for w in nxt_windows))
+                seen.add(nxt)
+                current = nxt
+            if start <= ts <= extended_end:
+                return start, extended_end
+        return None
 
 
 def build_route_service(
@@ -799,7 +817,7 @@ def _ride_leg(
         )
         if route_service is None:
             return None
-        window = route_service.effective_window(line.id)
+        window = route_service.effective_window(line.id, actual_board_time)
         if window is None:
             return None  # not scheduled today at all (e.g. a night-only variant at noon)
         start_ts, end_ts = window

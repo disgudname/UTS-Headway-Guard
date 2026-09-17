@@ -82,7 +82,7 @@ def test_build_route_service_detects_interline_chain():
     service = tp.build_route_service([_gold_block_group()], REFERENCE_DATE)
     assert service.chain_next.get("67") == "57"
     # effective_window extends 67's end through 57's end, since it's the same vehicle.
-    start, end = service.effective_window("67")
+    start, end = service.effective_window("67", _ts(12))
     assert start == _ts(5)
     assert end == _ts(22)
 
@@ -126,6 +126,21 @@ def test_build_route_service_midnight_rollover():
     start, end = service.windows["59"][0]
     assert end > start
     assert (end - start) == 3600.0
+
+
+def test_effective_window_does_not_collapse_disjoint_daily_windows():
+    # Night Pilot (RouteID 59) reports the post-midnight tail of LAST night's shift
+    # (~12am-2am today) as a separate phase from TONIGHT's own ~10pm-midnight start.
+    # A naive (earliest start, latest end) envelope across both would make the route
+    # look "in service" through the entire afternoon gap between them -- confirmed
+    # live: Night Pilot offered as a bookable option at 1:14pm despite actually
+    # running 2200-0230.
+    service = tp.RouteService(
+        windows={"59": [(_ts(0), _ts(2)), (_ts(21, 59), _ts(23, 59))]}
+    )
+    assert service.effective_window("59", _ts(13, 14)) is None
+    assert service.effective_window("59", _ts(1)) == (_ts(0), _ts(2))
+    assert service.effective_window("59", _ts(22, 30)) == (_ts(21, 59), _ts(23, 59))
 
 
 # --- _ride_leg: service-window gating + interline rescue ---------------------------
