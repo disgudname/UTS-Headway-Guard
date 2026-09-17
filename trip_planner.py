@@ -1118,6 +1118,24 @@ def _best_direct_pair(
     return None if best is None else (best[0], best[1])
 
 
+def _rides_past_destination(line: Line, board_idx: int, alight_idx: int, destination: Tuple[float, float]) -> bool:
+    """True if `line`'s own path from board_idx to alight_idx already comes within
+    walking distance of `destination` at some INTERMEDIATE stop -- i.e. continuing
+    past that stop to alight_idx means riding right by your own destination just to
+    reach a transfer point. Confirmed live: a transfer candidate rode Silver Line one
+    stop past the stop nearest the destination, then transferred to Gold Line and
+    walked back near where it had already passed -- strictly worse than simply
+    getting off at that intermediate stop, which a direct-ride candidate on the same
+    line already finds independently (see _best_direct_pair), so skipping this
+    transfer candidate here never loses a real option, only a redundant, dominated
+    one. Excludes board_idx itself (the boarding stop isn't "passed past") and
+    alight_idx (a transfer AT the closest stop, not past it, is fine)."""
+    for stop in _path_stops(line, board_idx, alight_idx)[1:-1]:
+        if haversine_m(stop.lat, stop.lon, destination[0], destination[1]) <= WALK_SNAP_RADIUS_M:
+            return True
+    return False
+
+
 def _best_transfer(
     line_a: Line,
     a_origin_idxs: List[int],
@@ -1154,6 +1172,8 @@ def _best_transfer(
             for board_a in a_origin_idxs:
                 hops_a = _hop_distance(line_a, board_a, a_idx)
                 if hops_a is None or hops_a == 0:
+                    continue
+                if _rides_past_destination(line_a, board_a, a_idx, destination):
                     continue
                 board_a_stop = line_a.stops[board_a]
                 walk_to = _walk_seconds(origin, (board_a_stop.lat, board_a_stop.lon))

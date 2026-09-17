@@ -865,6 +865,36 @@ def test_best_transfer_returns_its_own_optimized_alight_stop():
     assert ride_legs[0].alight_stop.id == "real-dest"
 
 
+def test_best_transfer_rejects_a_ride_that_passes_the_destination():
+    # Regression for a real complaint reported live: Silver Line already stops right
+    # at the destination ("Massie Rd @ JPJ South Lot") one stop before "Emmet St @
+    # Goodwin Bridge," where a transfer candidate rode PAST it to reach Gold Line,
+    # then walked back near where it had already passed. Riding past your own
+    # destination just to double back via a second line is never rational --
+    # _best_direct_pair already finds the direct Silver ride on its own (confirmed by
+    # find_trips separately), so filtering this transfer candidate here loses nothing
+    # real, only a dominated, nonsensical option.
+    line_a = tp.Line(
+        id="silver", name="Silver", color="#fff", source="uts", loop=False,
+        stops=[
+            tp.Stop(id="silver-board", name="silver-board", lat=0.0002, lon=0.0, source="uts"),
+            tp.Stop(id="silver-dest", name="silver-dest", lat=0.01, lon=0.0, source="uts"),
+            tp.Stop(id="silver-goodwin", name="silver-goodwin", lat=0.02, lon=0.0, source="uts"),
+        ],
+    )
+    line_b = tp.Line(
+        id="gold", name="Gold", color="#fff", source="uts", loop=False,
+        stops=[
+            tp.Stop(id="gold-goodwin", name="gold-goodwin", lat=0.02, lon=0.00005, source="uts"),
+            tp.Stop(id="gold-near-dest", name="gold-near-dest", lat=0.0101, lon=0.0003, source="uts"),
+        ],
+    )
+    origin = (0.0, 0.0)
+    destination = (0.01, 0.0)  # exactly "silver-dest"
+
+    assert tp._best_transfer(line_a, [0], line_b, [1], origin, destination) is None
+
+
 def test_live_wait_follows_the_interline_chain_when_the_boarding_line_has_none():
     # Regression for a real bug reported live ("wait unknown" showing up constantly):
     # TransLoc's live vehicle feed reports under whichever RouteID is CURRENTLY
