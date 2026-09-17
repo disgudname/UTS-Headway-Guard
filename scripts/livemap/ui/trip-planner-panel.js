@@ -577,17 +577,10 @@ export class TripPlannerPanel {
         f.input.blur();
         return;
       }
-      // Move f.wrap/f.results into the overlay FIRST, then populate results --
-      // not the other way around. Confirmed live: on a real phone, opening a
-      // field the very first time could leave "Your Location"/"Choose on map"
-      // simply not visible until switching apps and back forced a repaint;
-      // switching apps away and back is a textbook trigger for a stale-paint
-      // bug on an element that was made visible and then immediately
-      // reparented in the same tick (populating an empty, not-yet-visible
-      // f.results before the move means there's nothing rendered-then-moved
-      // for the browser to get wrong).
+      // _maybeOpenOverlay does the move AND the empty-state populate itself now
+      // (see its own comment) -- still reported missing live even after moving
+      // the DOM before populating, so the populate call moved again, further in.
       this._maybeOpenOverlay(field);
-      if (!f.input.value.trim()) this._showEmptyStateResults(field);
     });
     f.input.addEventListener('keydown', (e) => {
       if (e.key !== 'Escape') return;
@@ -636,6 +629,19 @@ export class TripPlannerPanel {
     // freshly-unhidden element has no previous frame to transition from.
     this._overlayEl.style.transition = 'none';
     this._overlayEl.style.transform = 'translateX(100%)';
+    // Populate HERE -- while the overlay is parked off-screen with its transition
+    // disabled, not after kicking off the slide-in below. Moving the DOM before
+    // populating (the previous fix) wasn't enough: it was still reported missing
+    // live on a field's first mobile open, keyboard up, nothing switched apps to
+    // force a repaint. Root cause looks like a real WebView/Chrome-mobile compositor
+    // bug, not a plain paint-order issue -- mutating a descendant's content while
+    // its ancestor has an in-flight CSS transform *transition* can fail to composite
+    // until something external forces a fresh frame (an app switch is a textbook
+    // trigger for that). Painting the field's final content while fully off-screen
+    // and untransitioning, THEN animating that already-rendered layer into view via
+    // transform alone, sidesteps the bug class entirely instead of adding another
+    // forced-reflow band-aid on top of the one already in _renderFieldResults.
+    if (!f.input.value.trim()) this._showEmptyStateResults(field);
     void this._overlayEl.offsetHeight;
     this._overlayEl.style.transition = '';
     this._overlayEl.style.transform = 'translateX(0)';
