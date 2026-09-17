@@ -653,6 +653,29 @@ def test_build_itinerary_penalizes_transfers_in_rank_cost_only():
     assert one_transfer.total_duration_s == direct.total_duration_s + 100.0 + 250.0
 
 
+def test_build_itinerary_penalizes_short_connecting_ride_legs():
+    # Regression for a real complaint ("very silly"): walk -> wait 8min -> ride Orange
+    # Line ONE STOP -> wait 6min for a scheduled Silver Line connection. The one-stop
+    # hop's raw ride_s was short enough that a rider would rather have just walked it,
+    # but nothing in rank_cost reflected that -- a trivially short ride was worth just
+    # as much per second as a real one. The penalty only applies to a CONNECTING leg
+    # (part of a multi-ride itinerary); a short ride that's the itinerary's only leg
+    # is already the simplest option available and must be untouched.
+    walk = tp.WalkLeg(duration_s=100.0)
+    short_ride = tp.RideLeg(wait_s=50.0, ride_s=90.0)  # well under SHORT_RIDE_MIN_S
+    long_ride = tp.RideLeg(wait_s=50.0, ride_s=200.0)  # at/above SHORT_RIDE_MIN_S
+
+    direct_short = tp._build_itinerary([walk, short_ride, walk])  # 1 ride leg -> no penalty
+    assert direct_short.rank_cost == 2 * tp.WALK_RANK_WEIGHT * 100.0 + 140.0
+
+    connecting = tp._build_itinerary([walk, short_ride, walk, long_ride, walk])
+    expected_short_ride_penalty = tp.SHORT_RIDE_RANK_PENALTY_S * (1 - 90.0 / tp.SHORT_RIDE_MIN_S)
+    base = 3 * tp.WALK_RANK_WEIGHT * 100.0 + 140.0 + 250.0 + tp.TRANSFER_RANK_PENALTY_S
+    assert connecting.rank_cost == base + expected_short_ride_penalty
+    # Never affects the real duration shown to the rider.
+    assert connecting.total_duration_s == 300.0 + 140.0 + 250.0
+
+
 # --- find_trips: end-to-end direct itinerary ---------------------------------------
 
 

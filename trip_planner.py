@@ -83,6 +83,21 @@ WALK_RANK_WEIGHT = 1.4
 # principle as WALK_RANK_WEIGHT above). User-specified: 3 minutes.
 TRANSFER_RANK_PENALTY_S = 180.0
 
+# A ride leg that only covers a trivially short hop reads as pointless hassle to a
+# rider -- walking to a stop, waiting, boarding, then immediately getting off again --
+# even when the raw clock-time math says it saves a couple minutes overall. Confirmed
+# live: a rider was offered walk -> wait 8min -> ride Orange Line ONE STOP -> wait
+# 6min for a scheduled Silver Line connection, purely because riding that one stop
+# reliably made a specific scheduled Silver departure that walking the same distance
+# would have arrived too late to catch. Only applies to a CONNECTING leg (part of a
+# multi-ride itinerary, i.e. one leading to/from a transfer) -- a short ride that's an
+# itinerary's ONLY leg is already the best simple option available and shouldn't be
+# penalized just for being short. Scales linearly from 0 at SHORT_RIDE_MIN_S down to
+# the full penalty at a 0-second ride, rather than a hard cutoff, so a leg just under
+# the threshold isn't penalized as harshly as a truly trivial one-stop hop.
+SHORT_RIDE_MIN_S = 180.0  # below this, a ride leg reads as "filler," not a real ride
+SHORT_RIDE_RANK_PENALTY_S = 240.0
+
 # --- service windows / interlining -----------------------------------------------
 
 NON_PASSENGER_RE = re.compile(r"charter|training|\btest\b", re.IGNORECASE)
@@ -1165,19 +1180,24 @@ def _build_itinerary(legs: List[object]) -> Itinerary:
     total = 0.0
     rank_cost = 0.0
     is_estimate = False
-    ride_leg_count = 0
+    # Counted up front (not incrementally during the loop below) -- the short-ride
+    # penalty needs to know whether a given RideLeg is a CONNECTING leg (part of a
+    # multi-ride itinerary) before it's reached, not just how many ride legs came
+    # before it.
+    ride_leg_count = sum(1 for leg in legs if isinstance(leg, RideLeg))
     for leg in legs:
         if isinstance(leg, WalkLeg):
             total += leg.duration_s
             rank_cost += WALK_RANK_WEIGHT * leg.duration_s
             is_estimate = is_estimate or leg.source == "straight_line"
         elif isinstance(leg, RideLeg):
-            ride_leg_count += 1
             if leg.wait_s is None or leg.ride_s is None:
                 is_estimate = True
             ride_time = (leg.wait_s or 0.0) + (leg.ride_s or 0.0)
             total += ride_time
             rank_cost += ride_time
+            if ride_leg_count > 1 and leg.ride_s is not None and leg.ride_s < SHORT_RIDE_MIN_S:
+                rank_cost += SHORT_RIDE_RANK_PENALTY_S * (1 - leg.ride_s / SHORT_RIDE_MIN_S)
     # Number of ride legs minus one -- a walk-only (0 ride legs) or direct (1 ride leg)
     # itinerary has 0 transfers; connecting two lines (2 ride legs) has 1, etc.
     transfers = max(0, ride_leg_count - 1)
