@@ -1981,9 +1981,10 @@ OFFLINE_HTML = _load_html("offline.html")
 INCIDENTS_HTML = _load_html("incidents.html")
 VDOT_CAMS_HTML = _load_html("vdot-cams.html")
 OVERLAP_DEMO_HTML = _load_html("overlap-demo.html")
-VANDISPATCH_HTML = _load_html("vandispatch.html")
-# MapLibre GL preview of Van Dispatch (placeholder name; runs beside the live
-# Leaflet /vandispatch until the swap). Reuses the shared livemap core.
+# MapLibre GL rebuild of Van Dispatch, now served at /vandispatch itself (the
+# earlier Leaflet page it replaced is gone -- see git history for vandispatch.html).
+# Reuses the shared livemap core. File/route names still say "vandispatch2" for now,
+# not yet renamed.
 VANDISPATCH2_HTML = _load_html("vandispatch2.html")
 PRESENCE_HTML = _load_html("presence.html")
 VAN_COLORS_HTML = _load_html("van-colors.html")
@@ -18468,16 +18469,16 @@ async def api_spare_list_webhooks(request: Request):
 @app.get("/vandispatch")
 async def vandispatch_page(request: Request):
     if _has_dispatcher_access(request):
-        return HTMLResponse(VANDISPATCH_HTML)
+        return HTMLResponse(VANDISPATCH2_HTML)
     return _login_redirect(request)
 
 
 @app.get("/vandispatch2")
-async def vandispatch2_page(request: Request):
-    # MapLibre GL preview; same dispatcher gate as /vandispatch.
-    if _has_dispatcher_access(request):
-        return HTMLResponse(VANDISPATCH2_HTML)
-    return _login_redirect(request)
+async def vandispatch2_page_legacy_redirect(request: Request):
+    # /vandispatch2 was the MapLibre preview's own URL while it ran alongside the
+    # old Leaflet /vandispatch; now that it's replaced /vandispatch outright, keep
+    # this URL working for existing bookmarks/kiosk configs.
+    return RedirectResponse(url="/vandispatch", status_code=307)
 
 
 @app.get("/van-colors")
