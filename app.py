@@ -138,6 +138,14 @@ ORS_DIRECTIONS_URL = os.getenv(
 ).strip()
 ORS_HTTP_TIMEOUT_S = float(os.getenv("ORS_HTTP_TIMEOUT_S", "10"))
 
+# Self-hosted Nominatim geocoder (see GEOCODING_SEARCH.md) -- same home server + Tailscale
+# tunnel as WALK_ROUTER_URL/WALK_ROUTER_PROXY_URL in trip_planner.py. Unset in dev/most
+# deployments, in which case /v1/search/geocode degrades to an empty result rather than
+# erroring the whole search box.
+GEOCODE_URL = os.getenv("GEOCODE_URL", "").strip() or None
+GEOCODE_PROXY_URL = os.getenv("GEOCODE_PROXY_URL", "").strip() or None
+GEOCODE_HTTP_TIMEOUT_S = float(os.getenv("GEOCODE_HTTP_TIMEOUT_S", "3"))
+
 TOMTOM_KEY = os.getenv("TOMTOM_KEY", "").strip()
 TOMTOM_REFRESH_S = int(os.getenv("TOMTOM_REFRESH_S", "120"))  # seed cycle interval, seconds
 TOMTOM_SEED_ZOOM_MIN = 13
@@ -13029,6 +13037,98 @@ async def _warm_facility_layer() -> None:
             print(f"[facility] startup warm failed (will lazy-load on first search): {e}")
 
     asyncio.create_task(_warm())
+
+
+# ---------------------------
+# REST: off-Grounds place/address search (backs the livemap search box + trip planner)
+# ---------------------------
+#
+# Buildings (/v1/uva/facility_search, above) and UTS bus stops (client-side) are the only
+# two things the search box/trip planner could resolve before this -- both on-Grounds or
+# UTS-specific by construction. This proxies a self-hosted Nominatim instance on the home
+# server (see GEOCODING_SEARCH.md and ROUTING_ENGINE.md -- same box, same Tailscale tunnel
+# Valhalla's WALK_ROUTER_URL already uses) so a typed address or off-Grounds place name
+# (an apartment complex, a restaurant, ...) can resolve to a pin too. Trimmed down to the
+# same {name, address, bbox} row shape facility_search already returns, plus a lat/lon
+# point (Nominatim has no polygon footprint for most rows, so there's no `geometry` field
+# here) -- lets the frontend reuse its existing building-result rendering/pick logic with
+# one added `kind`.
+
+def _trim_geocode_result(item: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+    """One Nominatim /search hit -> the shape the frontend consumes."""
+    try:
+        lat = float(item.get("lat"))
+        lon = float(item.get("lon"))
+    except (TypeError, ValueError):
+        return None
+
+    addr = item.get("address") or {}
+    name = (item.get("name") or "").strip()
+    if not name:
+        # Address points (no POI name, e.g. a plain house) come back with an empty
+        # `name` -- build one from house number + road, same as how a rider would say
+        # the address out loud, rather than falling back to Nominatim's full
+        # display_name (which reads like "1308, Chesapeake Street, Woolen Mills,
+        # Charlottesville, 22902, United States" -- comma-first from the house number).
+        house = addr.get("house_number")
+        road = addr.get("road")
+        if house and road:
+            name = f"{house} {road}"
+        elif road:
+            name = road
+        else:
+            name = (item.get("display_name") or "").split(",")[0].strip()
+    if not name:
+        return None
+
+    locality = addr.get("city") or addr.get("town") or addr.get("village") or addr.get("county")
+    address = ", ".join(p for p in (locality, addr.get("state")) if p)
+
+    bbox = None
+    raw_bbox = item.get("boundingbox")
+    if isinstance(raw_bbox, list) and len(raw_bbox) == 4:
+        try:
+            # Nominatim: [south, north, west, east] (strings) -> facility_search's own
+            # [minLon, minLat, maxLon, maxLat] convention, so the frontend's existing
+            # bbox-centroid/fitBounds code (built for building rows) works unchanged.
+            south, north, west, east = (float(v) for v in raw_bbox)
+            bbox = [west, south, east, north]
+        except (TypeError, ValueError):
+            bbox = None
+
+    return {"name": name, "address": address, "lat": lat, "lon": lon, "bbox": bbox}
+
+
+@app.get("/v1/search/geocode")
+async def search_geocode(q: str = Query(..., min_length=2, max_length=80)):
+    """Off-Grounds place/address type-ahead, proxying the self-hosted Nominatim instance.
+
+    Graceful-degrade philosophy matches trip_planner.estimate_walk_leg()'s router call:
+    on any failure (GEOCODE_URL unset, timeout, non-200, bad JSON) this returns an empty
+    result rather than erroring the whole search box -- a missing "Places" section is far
+    better than a broken search box.
+    """
+    cleaned = q.strip()
+    if len(cleaned) < 2 or not GEOCODE_URL:
+        return {"results": []}
+
+    params = {"q": cleaned, "format": "jsonv2", "addressdetails": "1", "limit": "8"}
+    try:
+        async with httpx.AsyncClient(proxy=GEOCODE_PROXY_URL) as client:
+            resp = await client.get(GEOCODE_URL, params=params, timeout=GEOCODE_HTTP_TIMEOUT_S)
+        record_api_call("GET", str(resp.request.url), resp.status_code)
+        resp.raise_for_status()
+        data = resp.json()
+    except Exception as e:
+        print(f"[geocode] upstream failed, degrading to empty results: {e}")
+        return {"results": []}
+
+    results = []
+    for item in data if isinstance(data, list) else []:
+        row = _trim_geocode_result(item)
+        if row:
+            results.append(row)
+    return {"results": results[:8]}
 
 
 # ---------------------------

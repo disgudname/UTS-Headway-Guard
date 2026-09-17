@@ -1,8 +1,64 @@
 # Off-Grounds place search — home-server handoff notes
 
-Not started. This is the pickup point for the next home-server session, same pattern as
-`ROUTING_ENGINE.md` (read that file too — it documents the box, the OSM extract, and the
-Tailscale tunnel this work reuses).
+**Nominatim is up and wired into the app; only the Fly-side deploy step is left.** Same
+pattern as `ROUTING_ENGINE.md` (read that file too — it documents the box, the OSM extract,
+and the Tailscale tunnel this work reuses).
+
+## Current state (as of this writing)
+
+- **Nominatim is running on the home server**, in the same VirtualBox VM as Valhalla
+  (`valhalla-server`), not a new VM. `mediagis/nominatim:5.1` in Docker, `--restart
+  unless-stopped`, container port 8080 mapped to host/VM port 8003. Postgres data lives in
+  a named Docker volume (`nominatim-data`), not a bind mount.
+- **Imported from the existing extract**, no re-download: `/home/valhalla/valhalla_data/
+  charlottesville.osm.pbf` (7.3MB), the same Charlottesville/Albemarle bbox Valhalla's
+  tiles were built from. User confirmed reusing that bbox as-is rather than padding it for
+  places further out (e.g. Zion Crossroads/Ruckersville) — can revisit later if a real gap
+  shows up.
+- **RAM was not actually a problem.** The VM's existing 3GB allocation (2GB free at the
+  time) was plenty for this tiny extract — the import finished in under 4 minutes without
+  ever needing to stop the Valhalla container. The image's default Postgres tuning
+  (`shared_buffers=2GB`, `maintenance_work_mem=10GB`, ...) is sized for real servers and
+  was overridden down via env vars on `docker run` (`POSTGRES_SHARED_BUFFERS=512MB`, etc.)
+  — reuse those same overrides if this ever gets re-imported with a larger bbox, but
+  re-check headroom first since they were only validated against a 7MB extract.
+- **Connectivity verified**: VirtualBox NAT port-forward added the same way as Valhalla's
+  8002 (`VBoxManage controlvm valhalla-server natpf1 "nominatim,tcp,,8003,,8003"`, bound to
+  all host interfaces). Confirmed reachable at `http://100.119.243.68:8003/search?q=...
+  &format=jsonv2` over Tailscale from the host.
+- **Data completeness spot-checked, not exhaustively verified**: well-known named places
+  resolve fine ("Downtown Mall", "The Standard at Charlottesville"). Two other real
+  Charlottesville student apartment complexes, "Grounds at Fifth" and "Lark at Ivy", return
+  nothing — the surrounding streets geocode fine, so it's an OSM tagging gap, not a bbox or
+  import problem. Per this doc's own philosophy (see below), the fix for a specific missing
+  complex is adding it to OSM upstream, not working around it here. Also confirmed:
+  Nominatim does **not** do fuzzy street-suffix correction — "Chesapeake Ave" (assumed suffix)
+  returned nothing where "Chesapeake Street" (OSM's actual tag) resolved the exact address
+  correctly. Real quality gap vs. a paid geocoder like Google Places, worth knowing going in;
+  not something to fix now.
+- **Backend endpoint done**: `GET /v1/search/geocode?q=` in `app.py` (next to
+  `/v1/uva/facility_search`), `GEOCODE_URL`/`GEOCODE_PROXY_URL`/`GEOCODE_HTTP_TIMEOUT_S` env
+  vars declared next to the `ORS_*` config block. Trims a Nominatim `jsonv2` hit down to
+  `{name, address, lat, lon, bbox}` — `bbox` reordered from Nominatim's `[south, north,
+  west, east]` to `facility_search`'s own `[minLon, minLat, maxLon, maxLat]` convention so
+  the frontend's existing bbox-handling code works unchanged. Degrades to `{"results": []}`
+  on any failure (unset env var, timeout, non-200, bad JSON) — never a 500, same philosophy
+  as `estimate_walk_leg()`'s router fallback. Tested end-to-end against the live Nominatim
+  instance (real FastAPI app, not just the trim logic in isolation) — see the git commit
+  this line ships in for exact behavior.
+- **Frontend done**: `scripts/livemap/ui/search.js` and `ui/trip-planner-panel.js` both now
+  fetch `/v1/uva/facility_search` and `/v1/search/geocode` in parallel (`Promise.all`, each
+  degrading to an empty list independently) and render a third "Places" section alongside
+  "Buildings"/"Bus stops". A place pick already carries a direct lat/lon from Nominatim (no
+  bbox-centroid derivation needed, unlike a building's ArcGIS-polygon-only row) — in
+  `trip-planner-panel.js` it reuses the same point-apply path as a stop/recent pick; in
+  `search.js` it gets its own `_pickPlace()` (camera fitBounds/flyTo + "Navigate here", same
+  shape as `_pickBuilding()` but no polygon to highlight).
+- **Not yet done: the Fly side.** `GEOCODE_URL`/`GEOCODE_PROXY_URL` secrets are not set on
+  Fly, and none of this has been deployed. `GEOCODE_PROXY_URL` should just reuse
+  `WALK_ROUTER_PROXY_URL`'s existing value (`http://localhost:1055`) — no new Dockerfile/
+  start.sh changes needed, the outbound Tailscale proxy already runs. `GEOCODE_URL` should
+  be `http://100.119.243.68:8003/search`.
 
 ## Why
 
@@ -72,31 +128,27 @@ already established:
 
 ## Backend seam (app.py) — mirrors `estimate_walk_leg()`'s pattern
 
-A new endpoint, e.g. `GET /v1/search/geocode?q=`, that:
-1. Calls `GEOCODE_URL` (through `GEOCODE_PROXY_URL` if set) with the query.
-2. Trims Nominatim's response down to a shape the frontend can merge alongside
-   `/v1/uva/facility_search`'s existing row shape — same field names where they overlap
-   (name, lat/lon, maybe a bbox) so `search.js`/`trip-planner-panel.js` don't need two
-   separate result-rendering code paths.
-3. On any failure (unset env var, timeout, non-200) returns an empty result rather than
-   erroring the whole search box — same graceful-degrade philosophy as the walk router
-   falling back to a straight line.
+~~A new endpoint, e.g. `GET /v1/search/geocode?q=`, that:~~ Done — see "Current state" above
+for exactly what shipped. Kept as a separate endpoint from `/v1/uva/facility_search` rather
+than blending results into one, per the reasoning below (their refresh/cache lifetimes are
+too different to share a cache layer): UVA buildings are a 12h in-memory TTL; Nominatim is
+just proxied live, no caching.
 
 ## Frontend
 
-`scripts/livemap/ui/search.js` and `scripts/livemap/ui/trip-planner-panel.js` already group
+~~`scripts/livemap/ui/search.js` and `scripts/livemap/ui/trip-planner-panel.js` already group
 results into labeled sections ("Buildings", "Bus stops"). Add a third section (something
 like "Places") sourced from the new endpoint, debounced the same way the existing building
-search is.
+search is.~~ Done — see "Current state" above.
 
-## Open decisions for the home-server session
+## Remaining: Fly deploy
 
-1. Nominatim vs. confirm-and-proceed on RAM headroom — check actual free RAM/disk on the box
-   first; this may just work, or may need the import run with Valhalla stopped.
-2. Bbox: reuse Valhalla's Charlottesville/Albemarle extract as-is, or pad it? (confirm with
-   user — see above)
-3. Whether to fold "Places" results into the same `/v1/uva/facility_search` endpoint (one
-   endpoint, blended results) or keep it a separate `/v1/search/geocode` endpoint the
-   frontend calls in parallel — leaning separate endpoint since the two data sources have
-   very different refresh/cache lifetimes (UVA buildings: 12h TTL in-memory; Nominatim: just
-   proxy live).
+1. Set Fly secrets: `GEOCODE_URL=http://100.119.243.68:8003/search` (the home server's
+   Nominatim endpoint) and `GEOCODE_PROXY_URL` (reuse `WALK_ROUTER_PROXY_URL`'s value,
+   `http://localhost:1055` — same outbound Tailscale proxy, no new infra).
+2. `flyctl deploy`, then confirm the Fly machine can actually reach Nominatim over the
+   tunnel (same `tailscale status` / process-environment checks `ROUTING_ENGINE.md`
+   documents for `WALK_ROUTER_URL` — including the "secret set doesn't always mean the
+   running process has it yet" gotcha noted there).
+3. Live-check `/v1/search/geocode?q=` against production, then a real search-box/trip-planner
+   query in the browser.

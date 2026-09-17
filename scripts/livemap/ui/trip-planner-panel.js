@@ -4,10 +4,12 @@
 // top-centre and the Panels columns at the left/right edges) that expands into
 // an origin/destination picker + ranked itinerary results.
 //
-// Three ways to set a point, all feeding core/trip-planner.js's setOrigin /
+// Four ways to set a point, all feeding core/trip-planner.js's setOrigin /
 // setDestination:
 //   * type a building name (autocomplete via /v1/uva/facility_search, same
 //     lookup ui/search.js already uses)
+//   * type an off-Grounds address/place name (autocomplete via /v1/search/geocode,
+//     same self-hosted Nominatim lookup ui/search.js already uses)
 //   * "Use my location" (browser geolocation) -- origin field only
 //   * "Click map" mode -- toggles a one-shot map click listener
 // -----------------------------------------------------------------------------
@@ -689,25 +691,38 @@ export class TripPlannerPanel {
     const seq = ++f.reqSeq;
     // Stops resolve instantly off the same live client-side index the search
     // box and stops.js use (core/data/transloc.js's getStops()) -- show them
-    // right away, then fold buildings in once that fetch lands, same
-    // two-phase pattern as ui/search.js.
+    // right away, then fold buildings + places in once those fetches land, same
+    // two-phase pattern as ui/search.js (and, like there, the two upstreams are
+    // fetched in parallel so one being slow/down doesn't hold up the other).
     const stopItems = matchFieldStops(q);
     f.items = stopItems;
     this._renderFieldResults(field);
     try {
-      const r = await fetch(`${API_BASE}/v1/uva/facility_search?q=${encodeURIComponent(q)}`, {
-        cache: 'no-store',
-      });
+      const [buildingData, placeData] = await Promise.all([
+        fetch(`${API_BASE}/v1/uva/facility_search?q=${encodeURIComponent(q)}`, { cache: 'no-store' })
+          .then((r) => (r.ok ? r.json() : { results: [] }))
+          .catch(() => ({ results: [] })),
+        fetch(`${API_BASE}/v1/search/geocode?q=${encodeURIComponent(q)}`, { cache: 'no-store' })
+          .then((r) => (r.ok ? r.json() : { results: [] }))
+          .catch(() => ({ results: [] })),
+      ]);
       if (seq !== f.reqSeq) return;
-      const data = r.ok ? await r.json() : { results: [] };
-      const buildings = (Array.isArray(data.results) ? data.results : []).map((b) => ({
+      const buildings = (Array.isArray(buildingData.results) ? buildingData.results : []).map((b) => ({
         kind: 'building',
         name: b.name,
         number: b.number,
         address: b.address,
         bbox: b.bbox,
       }));
-      f.items = [...stopItems, ...buildings];
+      const places = (Array.isArray(placeData.results) ? placeData.results : []).map((p) => ({
+        kind: 'place',
+        name: p.name,
+        address: p.address,
+        lat: p.lat,
+        lng: p.lon,
+        bbox: p.bbox,
+      }));
+      f.items = [...stopItems, ...buildings, ...places];
       this._renderFieldResults(field);
     } catch {
       if (seq === f.reqSeq) {
@@ -752,7 +767,7 @@ export class TripPlannerPanel {
     // query) -- see _renderStatus('idle')'s classList.remove for where this gets
     // cleared back out once the widget is closed/reset.
     this._card.classList.add('is-expanded');
-    const KIND_HEADS = { stop: 'Bus stops', building: 'Buildings', recent: 'Recent' };
+    const KIND_HEADS = { stop: 'Bus stops', building: 'Buildings', place: 'Places', recent: 'Recent' };
     let html = '';
     let prevKind = null;
     f.items.forEach((it, i) => {
@@ -781,7 +796,9 @@ export class TripPlannerPanel {
       const it = f.items[Number(btn.dataset.i)];
       btn.querySelector('.tp-field-item-name').textContent = it.name;
       btn.querySelector('.tp-field-item-meta').textContent =
-        it.kind === 'building' ? [it.number && `#${it.number}`, it.address].filter(Boolean).join(' · ') : it.meta || '';
+        it.kind === 'building' || it.kind === 'place'
+          ? [it.number && `#${it.number}`, it.address].filter(Boolean).join(' · ')
+          : it.meta || '';
       btn.addEventListener('click', () => this._pickResult(field, it));
     });
     f.results.hidden = false;
@@ -805,7 +822,9 @@ export class TripPlannerPanel {
       this._startPickingOnMap(field);
       return;
     }
-    if (it.kind === 'stop' || it.kind === 'recent') {
+    if (it.kind === 'stop' || it.kind === 'recent' || it.kind === 'place') {
+      // Places already carry a lat/lng point from Nominatim (no bbox-centroid
+      // derivation needed, unlike a building's ArcGIS polygon-only row).
       this._applyPoint(field, { lat: it.lat, lng: it.lng, label: it.name });
       return;
     }

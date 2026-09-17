@@ -12,10 +12,14 @@
 //   * Buildings — UVA building footprints via `/v1/uva/facility_search` (a proxy
 //     of UVA Facilities' public search, the same service the Visitor Map uses).
 //     Picking one flies to it and highlights the footprint.
+//   * Places — off-Grounds addresses/points of interest via `/v1/search/geocode`
+//     (a proxy of a self-hosted Nominatim instance -- see GEOCODING_SEARCH.md).
+//     Picking one flies to it; no footprint to highlight, just a point/bbox.
 //
-// Vehicles and stops resolve instantly (client-side indexes); buildings need a
-// network round trip and fold in once that lands. Results are grouped under
-// "Vehicles" / "Bus stops" / "Buildings" headers when more than one is present.
+// Vehicles and stops resolve instantly (client-side indexes); buildings and places
+// need a network round trip (fetched together) and fold in once that lands. Results
+// are grouped under "Vehicles" / "Bus stops" / "Buildings" / "Places" headers when
+// more than one is present.
 // -----------------------------------------------------------------------------
 
 import { API_BASE } from '../core/config.js';
@@ -30,7 +34,7 @@ const MIN_CHARS = 2;
 const DEBOUNCE_MS = 220;
 const MAX_VEHICLES = 8;
 const MAX_STOPS = 8;
-const GROUP_LABELS = { vehicle: 'Vehicles', stop: 'Bus stops', building: 'Buildings' };
+const GROUP_LABELS = { vehicle: 'Vehicles', stop: 'Bus stops', building: 'Buildings', place: 'Places' };
 
 export class SearchBox {
   /** @param {HTMLElement} [parent] where to append the box (default document.body).
@@ -122,12 +126,21 @@ export class SearchBox {
 
     this._el.classList.add('is-loading');
     try {
-      const r = await fetch(`${API_BASE}/v1/uva/facility_search?q=${encodeURIComponent(q)}`, {
-        cache: 'no-store',
-      });
+      // Buildings and places are two independent upstreams (UVA Facilities vs.
+      // Nominatim) -- fetch both in parallel and fold in together once both land,
+      // rather than making a place result wait behind a slower building fetch or
+      // vice versa. Each degrades to an empty list on its own failure so one
+      // upstream being down doesn't blank out the other's results.
+      const [buildingData, placeData] = await Promise.all([
+        fetch(`${API_BASE}/v1/uva/facility_search?q=${encodeURIComponent(q)}`, { cache: 'no-store' })
+          .then((r) => (r.ok ? r.json() : { results: [] }))
+          .catch(() => ({ results: [] })),
+        fetch(`${API_BASE}/v1/search/geocode?q=${encodeURIComponent(q)}`, { cache: 'no-store' })
+          .then((r) => (r.ok ? r.json() : { results: [] }))
+          .catch(() => ({ results: [] })),
+      ]);
       if (seq !== this._reqSeq) return; // superseded by a newer keystroke
-      const data = r.ok ? await r.json() : { results: [] };
-      const buildings = (Array.isArray(data.results) ? data.results : []).map((b) => ({
+      const buildings = (Array.isArray(buildingData.results) ? buildingData.results : []).map((b) => ({
         kind: 'building',
         name: b.name,
         number: b.number,
@@ -135,8 +148,16 @@ export class SearchBox {
         geometry: b.geometry,
         bbox: b.bbox,
       }));
+      const places = (Array.isArray(placeData.results) ? placeData.results : []).map((p) => ({
+        kind: 'place',
+        name: p.name,
+        address: p.address,
+        lat: p.lat,
+        lng: p.lon,
+        bbox: p.bbox,
+      }));
       this._loading = false;
-      this._render([...vehicles, ...stops, ...buildings]);
+      this._render([...vehicles, ...stops, ...buildings, ...places]);
     } catch {
       if (seq === this._reqSeq) {
         this._loading = false;
@@ -247,6 +268,7 @@ export class SearchBox {
     }
     if (it.kind === 'vehicle') this._pickVehicle(it);
     else if (it.kind === 'stop') this._pickStop(it);
+    else if (it.kind === 'place') this._pickPlace(it);
     else this._pickBuilding(it);
   }
 
@@ -292,6 +314,31 @@ export class SearchBox {
         lng: (b.bbox[0] + b.bbox[2]) / 2,
         label: b.name,
       };
+      this._mapControls.setNavigateHere(() => this._tripPlannerPanel.openForDestination(point));
+    } else {
+      this._mapControls?.setNavigateHere(null);
+    }
+  }
+
+  _pickPlace(p) {
+    clearBuildingHighlight(); // no footprint of its own -- just clears any building's
+    const map = getMap();
+    if (map && p.bbox && p.bbox.length >= 4) {
+      map.fitBounds(
+        [
+          [p.bbox[0], p.bbox[1]],
+          [p.bbox[2], p.bbox[3]],
+        ],
+        { padding: 90, maxZoom: 18, duration: 850 },
+      );
+    } else if (map) {
+      const zoom = Math.max(map.getZoom(), 16);
+      map.flyTo({ center: [p.lng, p.lat], zoom, duration: 850 });
+    }
+    // Same "Navigate here" affordance as a building pick, but the point is already
+    // a lat/lng -- no bbox-centroid derivation needed.
+    if (this._mapControls && this._tripPlannerPanel) {
+      const point = { lat: p.lat, lng: p.lng, label: p.name };
       this._mapControls.setNavigateHere(() => this._tripPlannerPanel.openForDestination(point));
     } else {
       this._mapControls?.setNavigateHere(null);
