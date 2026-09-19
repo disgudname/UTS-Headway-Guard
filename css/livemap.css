@@ -706,6 +706,15 @@ body {
   align-items: flex-end;
   gap: 1px;
 }
+.ls-src {
+  font-size: 0.7em;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  opacity: 0.6;
+  margin-right: 6px;
+}
+
 .ls-eta--ours {
   font-size: var(--fs-xs);
   font-weight: 600;

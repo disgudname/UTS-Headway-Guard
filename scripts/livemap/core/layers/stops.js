@@ -438,8 +438,8 @@ function popupHTML(stop) {
         <span class="ls-sw" style="background:${escapeAttr(r.color)}"></span>
         <span class="ls-route">${escapeHTML(r.name)}</span>
         <span class="ls-eta-col">
-          <span class="ls-eta${r.has ? '' : ' is-none'}">${escapeHTML(r.etas)}</span>
-          ${r.oursLabel ? `<span class="ls-eta ls-eta--ours" title="Our own estimate">${escapeHTML(r.oursLabel)}</span>` : ''}
+          <span class="ls-eta${r.has ? '' : ' is-none'}"><span class="ls-src" title="TransLoc's estimate">TL</span>${escapeHTML(r.etas)}</span>
+          ${r.oursLabel ? `<span class="ls-eta ls-eta--ours" title="Our own estimate"><span class="ls-src">Us</span>${escapeHTML(r.oursLabel)}</span>` : ''}
         </span>
       </div>`,
         )

@@ -218,6 +218,30 @@ def _nearest_polyline_point(lat: float, lon: float, shape: List[Tuple[float, flo
     return best_seg, best_frac
 
 
+def _held_at_other_stop(
+    line,
+    target_stop,
+    vehicle_lat: float,
+    vehicle_lon: float,
+    vehicle_block_id: Optional[str],
+    scheduled_timestop_fn,
+    when: float,
+) -> bool:
+    """True if the vehicle is sitting on a stop other than target_stop that its
+    block is still scheduled to hold at (departure epoch later than `when`)."""
+    if scheduled_timestop_fn is None or not vehicle_block_id:
+        return False
+    for s in line.stops:
+        if s.id == target_stop.id or s.lat is None or s.lon is None:
+            continue
+        if haversine_m(vehicle_lat, vehicle_lon, s.lat, s.lon) > DWELL_DETECTION_RADIUS_M:
+            continue
+        hold_epoch = scheduled_timestop_fn(line.id, s.id, vehicle_block_id, when)
+        if hold_epoch is not None and hold_epoch > when:
+            return True
+    return False
+
+
 def _forward_sweep_passes_near(
     line: Line, vehicle_lat: float, vehicle_lon: float, target_lat: float, target_lon: float,
 ) -> bool:
@@ -357,8 +381,18 @@ def estimate_stop_eta_s(
             # Essentially standing on the stop's own coordinates -- skip the
             # sanity check below entirely, it'd just be measuring GPS noise.
             return BusEtaEstimate(seconds=0.0, source="live")
-        if dist_m <= ARRIVING_RADIUS_M and _forward_sweep_passes_near(
-            line, vehicle_lat, vehicle_lon, target_stop.lat, target_stop.lon
+        # Not applied while the vehicle is sitting on a DIFFERENT stop that it's
+        # scheduled to hold at: a bus parked at a timestop with the next stop
+        # within ARRIVING_RADIUS_M (confirmed live 2026-09-19: Orange Loop at
+        # Shannon Library, Monroe Hall 150m ahead) is "near" the target but
+        # nowhere near arriving -- it hasn't been released yet. Fall through so
+        # the hold clamps below apply.
+        if (
+            dist_m <= ARRIVING_RADIUS_M
+            and not _held_at_other_stop(
+                line, target_stop, vehicle_lat, vehicle_lon, vehicle_block_id, scheduled_timestop_fn, when
+            )
+            and _forward_sweep_passes_near(line, vehicle_lat, vehicle_lon, target_stop.lat, target_stop.lon)
         ):
             return BusEtaEstimate(seconds=0.0, source="live")
 

@@ -435,6 +435,25 @@ def test_schedule_hold_pushes_out_downstream_stops():
     assert result.seconds > baseline.seconds
 
 
+def test_schedule_hold_beats_arriving_radius_shortcut_for_next_stop():
+    # Confirmed live 2026-09-19 (Orange Loop): bus parked on a timestop with the
+    # next stop ~150m ahead. The "within ARRIVING_RADIUS_M" shortcut used to
+    # report 0s/"live" for that next stop, ignoring the scheduled hold entirely.
+    line = _line([0, 100, 900])
+    s0, s1 = line.stops[0], line.stops[1]
+    hold = _hold_fn(s0.id, 300.0)
+    kwargs = dict(
+        vehicle_lat=s0.lat, vehicle_lon=s0.lon,
+        vehicle_block_id="B1", scheduled_timestop_fn=hold,
+    )
+    held = eta.estimate_stop_eta_s(line, 0.0, 0.0, s1, _flat_hop_time_fn(60.0), when=0.0, **kwargs)
+    assert held is not None and held.seconds >= 300.0
+    # Hold already expired: shortcut behaves as before.
+    kwargs["scheduled_timestop_fn"] = _hold_fn(s0.id, -10.0)
+    released = eta.estimate_stop_eta_s(line, 0.0, 0.0, s1, _flat_hop_time_fn(60.0), when=0.0, **kwargs)
+    assert released is not None and released.seconds < 300.0
+
+
 def test_schedule_hold_does_not_affect_arrival_at_the_held_stop_itself():
     # Asking for the ETA to s1 itself -- the stop about to hold -- should stay
     # an honest physical arrival estimate, not the hold's departure time. The
