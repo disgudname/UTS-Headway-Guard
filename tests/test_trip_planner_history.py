@@ -281,3 +281,33 @@ def test_lookup_same_group_fallback_uses_the_median_of_the_other_days():
     model = tph.HopTimeModel(keys)
     wednesday_9am = datetime(2026, 9, 9, 9, 30, tzinfo=NY_TZ).timestamp()
     assert model.lookup("57", "A", "B", wednesday_9am) == 200.0
+
+
+def _sat(hour):
+    return datetime(2026, 9, 19, hour, 30, tzinfo=NY_TZ).timestamp()  # a Saturday
+
+
+def test_lookup_widens_to_neighbouring_hours_within_the_same_day_group():
+    # Nothing at Saturday 6pm or Sunday 6pm, but Saturday 5pm has a bucket.
+    model = tph.HopTimeModel({tph._bucket_key("57", "A", "B", 5, 17): {"seconds": 300.0, "samples": 4}})
+    assert model.lookup("57", "A", "B", _sat(18)) == 300.0
+
+
+def test_same_hour_other_day_beats_neighbouring_hours():
+    model = tph.HopTimeModel({
+        tph._bucket_key("57", "A", "B", 6, 18): {"seconds": 250.0, "samples": 4},
+        tph._bucket_key("57", "A", "B", 5, 17): {"seconds": 999.0, "samples": 9},
+    })
+    assert model.lookup("57", "A", "B", _sat(18)) == 250.0
+
+
+def test_lookup_widening_stops_at_two_hours():
+    model = tph.HopTimeModel({tph._bucket_key("57", "A", "B", 5, 15): {"seconds": 300.0, "samples": 4}})
+    assert model.lookup("57", "A", "B", _sat(18)) is None
+    assert model.lookup("57", "A", "B", _sat(17)) == 300.0  # 2 hours away
+
+
+def test_neighbouring_hours_never_cross_midnight():
+    model = tph.HopTimeModel({tph._bucket_key("57", "A", "B", 5, 23): {"seconds": 300.0, "samples": 4}})
+    early = datetime(2026, 9, 19, 0, 30, tzinfo=NY_TZ).timestamp()
+    assert model.lookup("57", "A", "B", early) is None

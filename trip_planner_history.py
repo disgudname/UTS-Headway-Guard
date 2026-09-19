@@ -218,23 +218,35 @@ class HopTimeModel:
                 return float(bucket["seconds"])
             except (KeyError, TypeError, ValueError):
                 pass
-        # No bucket for this exact weekday: a hop that's had too few samples on, say,
-        # Saturdays at 6pm usually has plenty on the other weekend day at the same hour
-        # (service and traffic are alike), so use those before giving up. Only days in
-        # the same group (Mon-Fri, or Sat-Sun) are ever mixed.
+        # No bucket for this exact weekday and hour. These routes run about once an hour
+        # in the evening/weekend, so 3 samples for one specific weekday+hour is often out
+        # of reach even with 60 days of data (checked 2026-09-19: only ~25% of hops on the
+        # weekend routes had a bucket for a Saturday 6pm). Widen in steps, staying inside
+        # the same day group (Mon-Fri, or Sat-Sun) and pooling by median:
+        #   1. the other day(s) of the group, same hour
+        #   2. the whole group, hour +/- 1
+        #   3. the whole group, hour +/- 2
         group = _WEEKEND if local_dt.weekday() in _WEEKEND else _WEEKDAYS
-        same_group = [
-            float(b["seconds"])
-            for wd in group
-            if wd != local_dt.weekday()
-            for b in [self._buckets.get(_bucket_key(route_id, from_stop_id, to_stop_id, wd, local_dt.hour))]
-            if b and isinstance(b.get("seconds"), (int, float))
-        ]
-        if same_group:
-            return statistics.median(same_group)
+        hour = local_dt.hour
+        others = tuple(wd for wd in group if wd != local_dt.weekday())
+        for weekdays, hours in ((others, (hour,)), (group, (hour - 1, hour + 1)), (group, (hour - 2, hour + 2))):
+            pooled = self._median_over(route_id, from_stop_id, to_stop_id, weekdays, hours)
+            if pooled is not None:
+                return pooled
         if self._fallback is not None:
             return self._fallback.lookup(route_id, from_stop_id, to_stop_id, when)
         return None
+
+    def _median_over(self, route_id: str, from_stop_id: str, to_stop_id: str, weekdays, hours) -> Optional[float]:
+        values = [
+            float(bucket["seconds"])
+            for wd in weekdays
+            for hr in hours
+            if 0 <= hr <= 23
+            for bucket in [self._buckets.get(_bucket_key(route_id, from_stop_id, to_stop_id, wd, hr))]
+            if bucket and isinstance(bucket.get("seconds"), (int, float))
+        ]
+        return statistics.median(values) if values else None
 
     @classmethod
     def from_cache(cls, cache: Dict[str, Any], fallback: Optional["HopTimeModel"] = None) -> "HopTimeModel":
