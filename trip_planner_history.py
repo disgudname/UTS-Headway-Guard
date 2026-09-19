@@ -226,10 +226,22 @@ class HopTimeModel:
         #   1. the other day(s) of the group, same hour
         #   2. the whole group, hour +/- 1
         #   3. the whole group, hour +/- 2
+        # then (see below) the other day group in the same three steps.
         group = _WEEKEND if local_dt.weekday() in _WEEKEND else _WEEKDAYS
         hour = local_dt.hour
         others = tuple(wd for wd in group if wd != local_dt.weekday())
-        for weekdays, hours in ((others, (hour,)), (group, (hour - 1, hour + 1)), (group, (hour - 2, hour + 2))):
+        other_group = _WEEKDAYS if group is _WEEKEND else _WEEKEND
+        #   4-6. the OTHER day group, same hour then +/-1, +/-2 -- last resort before the
+        #        distance/speed guess. Safe for the routes that need it: the evening/weekend
+        #        route ids (54/55/57...) run the same pattern on weekday evenings as on
+        #        weekends, and where both exist their hop times match (Saturday 6pm vs
+        #        weekday 6pm, same route+hop: median ratio 1.00 over 89 hops, 2026-09-19);
+        #        daytime weekday service uses different route ids, so it never leaks in.
+        #        This took Green/Orange from 5-6 of 20 hops covered on a Saturday evening to 20.
+        for weekdays, hours in (
+            (others, (hour,)), (group, (hour - 1, hour + 1)), (group, (hour - 2, hour + 2)),
+            (other_group, (hour,)), (other_group, (hour - 1, hour + 1)), (other_group, (hour - 2, hour + 2)),
+        ):
             pooled = self._median_over(route_id, from_stop_id, to_stop_id, weekdays, hours)
             if pooled is not None:
                 return pooled

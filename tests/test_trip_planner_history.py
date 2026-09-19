@@ -261,9 +261,23 @@ def test_lookup_falls_back_to_the_other_weekend_day_at_the_same_hour():
     assert model.lookup("57", "A", "B", saturday_6pm) == 240.0
 
 
-def test_lookup_never_mixes_weekday_and_weekend_buckets():
+def test_other_day_group_is_only_a_last_resort():
+    # Same route + hop on a weekday evening backs a Saturday evening only when nothing
+    # in the weekend group is within +/-2h -- and a weekend bucket always wins.
     monday_6pm = tph._bucket_key("57", "A", "B", 0, 18)
-    model = tph.HopTimeModel({monday_6pm: {"seconds": 240.0, "samples": 5}})
+    sunday_3pm = tph._bucket_key("57", "A", "B", 6, 15)  # 3 hours away: out of reach
+    model = tph.HopTimeModel({monday_6pm: {"seconds": 240.0, "samples": 5}, sunday_3pm: {"seconds": 999.0, "samples": 5}})
+    saturday_6pm = datetime(2026, 9, 19, 18, 30, tzinfo=NY_TZ).timestamp()
+    assert model.lookup("57", "A", "B", saturday_6pm) == 240.0
+    weekend_near = tph._bucket_key("57", "A", "B", 6, 17)
+    model = tph.HopTimeModel({monday_6pm: {"seconds": 240.0, "samples": 5}, weekend_near: {"seconds": 300.0, "samples": 5}})
+    assert model.lookup("57", "A", "B", saturday_6pm) == 300.0
+
+
+def test_other_day_group_fallback_is_bounded_to_two_hours_and_the_same_route():
+    monday_1pm = tph._bucket_key("57", "A", "B", 0, 13)
+    other_route = tph._bucket_key("99", "A", "B", 0, 18)
+    model = tph.HopTimeModel({monday_1pm: {"seconds": 240.0, "samples": 5}, other_route: {"seconds": 240.0, "samples": 5}})
     saturday_6pm = datetime(2026, 9, 19, 18, 30, tzinfo=NY_TZ).timestamp()
     assert model.lookup("57", "A", "B", saturday_6pm) is None
 

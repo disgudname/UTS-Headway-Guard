@@ -170,6 +170,21 @@ FORWARD_SWEEP_M = 400.0
 # the live-speed pace correction was reading "dwelling" as "running behind."
 DWELL_DETECTION_RADIUS_M = 40.0
 
+# Buses leave a scheduled timestop a little AFTER its scheduled time, not exactly on it:
+# measured from real GPS tracks (2026-09-19, Gold/Green/Orange at Chapel and Shannon
+# Library), the 11 clean visits left 0 to 1.9 minutes after the scheduled minute (median
+# ~1.1). The hold clamp treats the schedule as the moment the bus is released, so
+# without this every ETA past a timestop came in ~a minute early. 45s is deliberately
+# under the measured median -- the measurement itself is only good to ~15s.
+SCHEDULED_DEPARTURE_LAG_S = 45.0
+
+# History hops that START at a timestop include the layover (arrival-to-arrival, and
+# buses routinely sit there minutes): Green's Chapel hop is 267s and Orange's Shannon
+# Library hop 362s in history, for ~60-100 seconds of real driving. When the hold
+# clamp already accounts for the wait, that layover must not be counted a second time;
+# cap such a hop at driving it at typical speed plus a little boarding/pull-out time.
+POST_HOLD_HOP_ALLOWANCE_S = 30.0
+
 # Plausibility bounds on the speed any single historical hop-time bucket is
 # allowed to imply (hop_distance_m / hop_seconds) -- see the inline comment
 # where this is applied for why: a 3-sample bucket (MIN_SAMPLES in
@@ -486,6 +501,15 @@ def estimate_stop_eta_s(
     if dwelling_at_prev:
         prev_to_next_s = hop_time_fn(line.id, prev_stop.id, next_stop.id, when) if hop_time_fn else None
         current_leg_s = prev_to_next_s if prev_to_next_s and prev_to_next_s > 0 else dist_to_next / TYPICAL_BUS_SPEED_MPS
+        hold_epoch = (
+            scheduled_timestop_fn(line.id, prev_stop.id, vehicle_block_id, when)
+            if scheduled_timestop_fn is not None and vehicle_block_id else None
+        )
+        if hold_epoch is not None:
+            # The hop history for a hop leaving a timestop already contains the layover
+            # being added below -- drive it at typical speed instead (see
+            # POST_HOLD_HOP_ALLOWANCE_S).
+            current_leg_s = min(current_leg_s, dist_to_next / TYPICAL_BUS_SPEED_MPS + POST_HOLD_HOP_ALLOWANCE_S)
         # Scheduled timestop hold, dwelling_at_prev counterpart: the main
         # hop-walk below starts at next_stop and checks each stop it departs
         # from in turn (see the in-loop comment) -- but when dwelling_at_prev,
@@ -501,10 +525,8 @@ def estimate_stop_eta_s(
         # rather than max()-ing against it (there's no prior "arrival time at
         # prev_stop" to reconcile against here, unlike the loop below -- it's
         # effectively 0, the vehicle is already there).
-        if scheduled_timestop_fn is not None and vehicle_block_id:
-            hold_epoch = scheduled_timestop_fn(line.id, prev_stop.id, vehicle_block_id, when)
-            if hold_epoch is not None:
-                current_leg_s = max(0.0, hold_epoch - when) + current_leg_s
+        if hold_epoch is not None:
+            current_leg_s = max(0.0, hold_epoch + SCHEDULED_DEPARTURE_LAG_S - when) + current_leg_s
     else:
         current_leg_s = dist_to_next / projection_mps
 
@@ -566,6 +588,7 @@ def estimate_stop_eta_s(
             return None  # target unreachable in one lap -- shouldn't happen on a loop, but never spin forever
         nxt_idx = (idx + 1) % len(stops)
         a, b = stops[idx], stops[nxt_idx]
+        held_here = False
 
         # Scheduled timestop hold: total_s right now represents the estimated
         # time to REACH `a` (every hop added so far, including current_leg_s
@@ -580,7 +603,8 @@ def estimate_stop_eta_s(
         if scheduled_timestop_fn is not None and vehicle_block_id:
             hold_epoch = scheduled_timestop_fn(line.id, a.id, vehicle_block_id, when + total_s)
             if hold_epoch is not None:
-                total_s = max(total_s, hold_epoch - when)
+                total_s = max(total_s, hold_epoch + SCHEDULED_DEPARTURE_LAG_S - when)
+                held_here = True
 
         hop_number += 1
         hop_dist = (
@@ -631,6 +655,8 @@ def estimate_stop_eta_s(
                 hop_s = hop_dist / MIN_HOP_SPEED_MPS
             elif implied_mps > MAX_HOP_SPEED_MPS:
                 hop_s = hop_dist / MAX_HOP_SPEED_MPS
+            if held_here:
+                hop_s = min(hop_s, hop_dist / TYPICAL_BUS_SPEED_MPS + POST_HOLD_HOP_ALLOWANCE_S)
         decay = PACE_DECAY ** hop_number
         effective_ratio = 1.0 + (pace_ratio - 1.0) * decay
         effective_ratio = max(0.1, effective_ratio)  # guard divide-by-near-zero below

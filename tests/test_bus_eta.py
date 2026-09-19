@@ -465,8 +465,10 @@ def test_schedule_hold_pushes_out_downstream_stops():
         vehicle_block_id="B1", scheduled_timestop_fn=_hold_fn(line.stops[1].id, 500.0),
     )
     assert result is not None
-    # Held until 500s at s1, then two more 60s hops to reach s3.
-    assert 615.0 < result.seconds < 625.0
+    # Held until 500s (+ the bus's usual departure lag) at s1, then two more 60s hops
+    # to reach s3.
+    expected = 500.0 + eta.SCHEDULED_DEPARTURE_LAG_S + 120.0
+    assert expected - 5.0 < result.seconds < expected + 5.0
     assert result.seconds > baseline.seconds
 
 
@@ -569,7 +571,8 @@ def test_schedule_hold_applies_when_arc_length_has_ticked_past_the_held_stop():
         vehicle_block_id="B1", scheduled_timestop_fn=_hold_fn(line.stops[0].id, 500.0),
     )
     assert result is not None
-    assert abs(result.seconds - 560.0) < 0.01  # 500s hold + 60s ride, not just 60s
+    # 500s hold + departure lag + 60s ride, not just 60s
+    assert abs(result.seconds - (500.0 + eta.SCHEDULED_DEPARTURE_LAG_S + 60.0)) < 0.01
 
     # The hold must also cascade into a target FURTHER downstream, since
     # current_leg_s seeds the main loop's total_s.
@@ -601,3 +604,30 @@ def test_schedule_hold_dwelling_at_prev_never_makes_a_late_bus_look_earlier():
     )
     assert result is not None and baseline is not None
     assert abs(result.seconds - baseline.seconds) < 0.01
+
+
+def test_buses_are_assumed_to_leave_a_timestop_a_little_after_its_scheduled_time():
+    line = _line([0, 300, 900, 1200])
+    hop_time_fn = _flat_hop_time_fn(60.0)
+    hold = eta.estimate_stop_eta_s(
+        line, 0.0, 5.0, line.stops[2], hop_time_fn, when=0.0,
+        vehicle_block_id="B1", scheduled_timestop_fn=_hold_fn(line.stops[1].id, 500.0),
+    )
+    assert abs(hold.seconds - (500.0 + eta.SCHEDULED_DEPARTURE_LAG_S + 60.0)) < 0.5
+
+
+def test_hop_history_leaving_a_held_timestop_is_not_double_counted():
+    # History hops that START at a timestop include the layover (Green's Chapel hop is
+    # 267s in history for ~60s of driving). The hold clamp already waits for the
+    # scheduled departure, so that hop must be driven at typical speed instead.
+    line = _line([0, 300, 900, 1200])
+    inflated = _flat_hop_time_fn(400.0)  # 600m hop "taking" 400s, layover included
+    result = eta.estimate_stop_eta_s(
+        line, 0.0, 5.0, line.stops[2], inflated, when=0.0,
+        vehicle_block_id="B1", scheduled_timestop_fn=_hold_fn(line.stops[1].id, 500.0),
+    )
+    drive = 600.0 / eta.TYPICAL_BUS_SPEED_MPS + eta.POST_HOLD_HOP_ALLOWANCE_S
+    assert abs(result.seconds - (500.0 + eta.SCHEDULED_DEPARTURE_LAG_S + drive)) < 0.5
+    # ...but a hop that doesn't start at a held timestop keeps its history time.
+    plain = eta.estimate_stop_eta_s(line, 0.0, 5.0, line.stops[2], inflated, when=0.0)
+    assert plain.seconds > 400.0
