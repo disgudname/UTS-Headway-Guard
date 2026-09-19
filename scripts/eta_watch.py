@@ -3,7 +3,7 @@ scripts/eta_compare.py can score both against what the buses actually did.
 
     python scripts/eta_watch.py [minutes=30] [poll_seconds=15] [out=data-local/eta_watch/<timestamp>.jsonl]
 
-One JSON line per poll: {"t": epoch, "ours": [[route, stop, veh, seconds], ...],
+One JSON line per poll: {"t": epoch, "ours": [[route, stop, veh, seconds, source], ...],
 "tl": [[route, stop, veh, seconds], ...], "veh": [[veh, route, lat, lon, mps], ...]}.
 """
 import json
@@ -27,7 +27,7 @@ def poll():
     try:
         for e in fetch("/v1/eta/uts_stop_arrivals")["arrivals"]:
             for x in e["Times"]:
-                ours.append([str(e["RouteId"]), str(e["RouteStopId"]), str(x["VehicleId"]), x["Seconds"]])
+                ours.append([str(e["RouteId"]), str(e["RouteStopId"]), str(x["VehicleId"]), x["Seconds"], x.get("Source")])
     except Exception as exc:
         print("ours failed:", exc)
     try:

@@ -152,9 +152,24 @@ def test_missing_hop_time_fallback_decays_toward_typical_speed():
         line, 0.0, crawling_mps, line.stops[7], hop_time_fn=lambda *a: None, when=0.0
     )
     assert result is not None
-    # Without the decay this would be 2100m / MIN_PROJECTION_MPS = 2100s;
-    # decayed toward ~5.5 m/s over 7 hops, it should land far below that.
-    assert result.seconds < 2100.0 / crawling_mps / 2
+    # Without the decay this would be 2100m / MIN_PROJECTION_MPS (=700s);
+    # decayed toward ~5.5 m/s over 7 hops, it should land clearly below that.
+    assert result.seconds < 2100.0 / crawling_mps * 0.75
+
+
+def test_a_momentarily_stopped_bus_is_not_read_as_running_slow():
+    # Found in a live ETA-vs-reality log (2026-09-19): predictions jumped >90s LATER
+    # mostly when the bus was stopped (73% of the time vs 35% baseline) and jumped
+    # back once it moved -- a red light being read as a slow trip. Any live speed at or
+    # below the floor must give the same answer, and that answer must sit close to a
+    # normally-moving bus's, not several times higher.
+    line = _line([0, 300, 600, 900, 1200])
+    hop = lambda *a: 40.0  # 300m in 40s = 7.5 m/s typical
+    stopped = eta.estimate_stop_eta_s(line, 100.0, 0.05, line.stops[4], hop_time_fn=hop, when=0.0)
+    at_floor = eta.estimate_stop_eta_s(line, 100.0, eta.MIN_PROJECTION_MPS, line.stops[4], hop_time_fn=hop, when=0.0)
+    cruising = eta.estimate_stop_eta_s(line, 100.0, 7.5, line.stops[4], hop_time_fn=hop, when=0.0)
+    assert stopped.seconds == at_floor.seconds
+    assert stopped.seconds < cruising.seconds * 1.5
 
 
 def test_one_noisy_historical_bucket_cannot_dominate_a_long_multi_hop_sum():

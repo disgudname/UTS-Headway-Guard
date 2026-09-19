@@ -62,14 +62,24 @@ PACE_DECAY = 0.6
 
 # Clamp on the live/historical speed ratio itself -- guards against a momentarily
 # stopped bus (near-zero speed) or a GPS glitch producing an absurd multiplier that
-# would otherwise blow up every downstream segment's estimate.
-PACE_RATIO_MIN = 0.35
+# would otherwise blow up every downstream segment's estimate. The lower bound was
+# 0.35 until a live 30-minute ETA-vs-reality log (2026-09-19) showed why that was
+# too eager: whenever a prediction jumped >90s LATER, the bus was stopped at that
+# poll 73% of the time (vs 35% of polls in general) -- a red light or a brief stop
+# was being read as "this bus is running slow" and inflating every nearby stop's ETA
+# until it moved again.
+PACE_RATIO_MIN = 0.5
 PACE_RATIO_MAX = 3.0
 
 # Floor under the vehicle's live speed when projecting its CURRENT (partial)
-# segment -- a bus stopped at a light isn't "never arriving," it's just slow;
-# without a floor, along_mps == 0 would make that leg's ETA infinite.
-MIN_PROJECTION_MPS = 1.0
+# segment, and when comparing its pace to history -- a bus stopped at a light isn't
+# "never arriving," it's just slow; without a floor, along_mps == 0 would make that
+# leg's ETA infinite. ~3 m/s (~7 mph), not the near-nothing it used to be (1.0):
+# a bus stopped RIGHT NOW is nearly always at a light, a crosswalk or a stop and will
+# be moving at a normal pace again within a minute, so its instantaneous speed is
+# a poor predictor of the next few hundred metres. See PACE_RATIO_MIN for the
+# live data that showed a 1.0 floor over-reacting to momentary stops.
+MIN_PROJECTION_MPS = 3.0
 
 # A stop within this many real-world (straight-line) metres of the vehicle's
 # CURRENT position is treated as "arriving now" regardless of what arc-length
@@ -533,7 +543,7 @@ def estimate_stop_eta_s(
         historical_expected_mps = current_seg_dist / historical_current_seg_s
         if historical_expected_mps > 0:
             clamped_expected_mps = max(MIN_HOP_SPEED_MPS, min(MAX_HOP_SPEED_MPS, historical_expected_mps))
-            clamped_vehicle_mps = max(MIN_HOP_SPEED_MPS, min(MAX_HOP_SPEED_MPS, vehicle_ema_mps))
+            clamped_vehicle_mps = max(MIN_PROJECTION_MPS, min(MAX_HOP_SPEED_MPS, vehicle_ema_mps))
             pace_ratio = clamped_vehicle_mps / clamped_expected_mps
     pace_ratio = max(PACE_RATIO_MIN, min(PACE_RATIO_MAX, pace_ratio))
 
