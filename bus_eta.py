@@ -114,6 +114,19 @@ MIN_PROJECTION_MPS = 1.0
 #      actually get close" cleanly can.
 ARRIVING_RADIUS_M = 150.0
 
+# The "arriving now" overrides (both the ARRIVING_RADIUS_M one and the
+# ARRIVING_RADIUS_EXEMPT_M one) additionally require the stop to be arc-length
+# close to the vehicle: within this many metres ahead, or -- since arc-length can
+# land on the wrong pass of a self-near road and read a stop just behind as "almost
+# a full lap ahead" (the original confirmed-live Gold Line bug, ~178m off) -- within
+# this many metres short of a full lap. Anything in between is a DIFFERENT part of
+# the route that just happens to be physically close, which the real-world radius
+# and forward sweep can't tell apart on their own. Confirmed live 2026-09-19 (Gold
+# Line, Massie Rd): a bus driving OUT along Massie Rd passes within metres of
+# "Massie Rd @ JPJ South Lot", a stop on the RETURN pass ~3.5km of route ahead, and
+# was reported as "Due" for it -- the road is the same physical road, both ways.
+ARRIVING_ARC_WINDOW_M = 600.0
+
 # Below this real-world distance, skip the forward-sweep sanity check entirely
 # -- the vehicle is essentially standing on the stop's own coordinates.
 ARRIVING_RADIUS_EXEMPT_M = 40.0
@@ -377,7 +390,9 @@ def estimate_stop_eta_s(
 
     if vehicle_lat is not None and vehicle_lon is not None:
         dist_m = haversine_m(vehicle_lat, vehicle_lon, target_stop.lat, target_stop.lon)
-        if dist_m <= ARRIVING_RADIUS_EXEMPT_M:
+        arc_ahead_m = _forward_distance(vehicle_s_pos, target_stop.arc_pos, route_length_m)
+        arc_plausible = arc_ahead_m <= ARRIVING_ARC_WINDOW_M or arc_ahead_m >= route_length_m - ARRIVING_ARC_WINDOW_M
+        if dist_m <= ARRIVING_RADIUS_EXEMPT_M and arc_plausible:
             # Essentially standing on the stop's own coordinates -- skip the
             # sanity check below entirely, it'd just be measuring GPS noise.
             return BusEtaEstimate(seconds=0.0, source="live")
@@ -389,6 +404,7 @@ def estimate_stop_eta_s(
         # the hold clamps below apply.
         if (
             dist_m <= ARRIVING_RADIUS_M
+            and arc_plausible
             and not _held_at_other_stop(
                 line, target_stop, vehicle_lat, vehicle_lon, vehicle_block_id, scheduled_timestop_fn, when
             )

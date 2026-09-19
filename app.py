@@ -1736,20 +1736,57 @@ out center;
 # ---------------------------
 # Core maths (abridged but functional)
 # ---------------------------
+# Extra "distance" charged to a route segment that runs against the vehicle's heading,
+# in project_vehicle_to_route. Sized to beat GPS jitter, not to be a hard rule: two
+# passes of a road the route retraces (or a divided road's two carriageways, ~15 m
+# apart) are within a GPS error or two of each other, so a vehicle's nearest-point
+# match can flip between them poll to poll purely on noise -- confirmed live
+# 2026-09-19 (Gold Line, Emmet St / Massie Rd: single-poll ETA jumps to a full lap
+# away, and a false "arriving now" for a stop on the opposite pass). A segment
+# running the opposite way to the bus loses to one running the same way unless it's
+# clearly (more than this many metres) closer.
+HEADING_MISMATCH_PENALTY_M = 30.0
+
+# Heading alone is weak evidence on a curve (it's measured from a poll or two of GPS
+# movement, so a bus rounding a bend can read ~60-90 deg off both passes). The
+# stronger clue is continuity: a bus can't move more than a few hundred metres of
+# route between polls, so a candidate that would put it thousands of metres from
+# where it was last poll (the other pass of the same road) is almost certainly the
+# wrong one. Deliberately smaller than HEADING_MISMATCH_PENALTY_M so a clearly
+# opposite heading can still pull a vehicle off a wrong pass it got stuck on.
+# Confirmed live 2026-09-19: replaying a Gold Line bus's real positions, heading
+# alone still flipped it to the outbound pass for a poll at Emmet St.
+CONTINUITY_JUMP_M = 500.0
+CONTINUITY_PENALTY_M = 25.0
+
+
+def _heading_mismatch_penalty_m(diff_deg: float) -> float:
+    """0 for a segment within 60 deg of the vehicle's heading, the full penalty at 120+
+    deg, linear in between (corners and turns are ~90 deg, so they only get half)."""
+    if diff_deg <= 60.0:
+        return 0.0
+    if diff_deg >= 120.0:
+        return HEADING_MISMATCH_PENALTY_M
+    return HEADING_MISMATCH_PENALTY_M * (diff_deg - 60.0) / 60.0
+
+
 def project_vehicle_to_route(v: Vehicle, route: Route, prev_idx: Optional[int] = None,
-                             heading: Optional[float] = None) -> Tuple[float, int]:
+                             heading: Optional[float] = None, prev_s: Optional[float] = None) -> Tuple[float, int]:
     """Project vehicle to the nearest point on the polyline (by segment),
     returning cumulative arc-length ``s`` (meters) and the segment index.
 
-    When multiple segments are nearly equidistant, prefer the one aligned with
-    ``heading`` or closest to ``prev_idx`` to stabilise projections on
-    overlapping bidirectional segments.
+    "Nearest" is distance plus a penalty for a segment that runs against
+    ``heading`` (see HEADING_MISMATCH_PENALTY_M) and one for a candidate that would
+    put the vehicle implausibly far from ``prev_s``, its arc-length position last
+    poll (see CONTINUITY_PENALTY_M), so on overlapping bidirectional stretches the
+    pass the vehicle is actually travelling wins instead of GPS noise picking one.
+    With no heading, near-equal candidates go to the one closest to ``prev_idx``.
     """
     pts = route.poly; cum = route.cum
-    best_d2 = 1e30
+    route_len = cum[-1] if cum else 0.0
+    best_cost = 1e30
     best_s = 0.0
     best_i = 0
-    best_heading: Optional[float] = None
     for i in range(len(pts) - 1):
         a_lat, a_lon = pts[i]
         b_lat, b_lon = pts[i+1]
@@ -1763,33 +1800,26 @@ def project_vehicle_to_route(v: Vehicle, route: Route, prev_idx: Optional[int] =
         t = 0.0 if vv <= 0 else max(0.0, min(1.0, (wx*vx + wy*vy) / vv))
         projx = ax + t*vx; projy = ay + t*vy
         dx = px - projx; dy = py - projy
-        d2 = dx*dx + dy*dy
+        cost = math.sqrt(dx*dx + dy*dy)
+        if heading is not None:
+            cost += _heading_mismatch_penalty_m(
+                heading_diff(heading, bearing_between((a_lat, a_lon), (b_lat, b_lon)))
+            )
         seg_len = haversine((a_lat, a_lon), (b_lat, b_lon))
         s = cum[i] + t * seg_len
-        seg_heading = bearing_between((a_lat, a_lon), (b_lat, b_lon))
-        # Only a clearly-closer segment wins outright; anything within the tie band
-        # goes to the heading/prev_idx tie-break below. This used to be
-        # `best_d2 - 1e-6`, which let float noise (~3e-5 m^2) between two passes of a
-        # road the route retraces vertex-for-vertex decide the winner, so the
-        # heading tie-break never ran -- confirmed live 2026-09-19 (Gold Line vehicle
-        # heading 306 at Massie Rd @ JPJ West Entrance got snapped to the return
-        # pass, dir_sign flipped to -1, and every ETA for it was dropped).
-        if d2 < best_d2 - 4.0:
-            best_d2 = d2; best_s = s; best_i = i; best_heading = seg_heading
-        elif abs(d2 - best_d2) <= 4.0:  # within ~2 m
-            prefer = False
-            if heading is not None and best_heading is not None:
-                if heading_diff(heading, seg_heading) + 1e-3 < heading_diff(heading, best_heading):
-                    prefer = True
-            elif prev_idx is not None:
-                nseg = len(pts) - 1
-                # Treat the polyline as circular when comparing segment indices
-                diff_new = abs(i - prev_idx)
-                diff_best = abs(best_i - prev_idx)
-                if min(diff_new, nseg - diff_new) < min(diff_best, nseg - diff_best):
-                    prefer = True
-            if prefer:
-                best_d2 = d2; best_s = s; best_i = i; best_heading = seg_heading
+        if prev_s is not None and route_len > 0:
+            jump = abs(s - prev_s)
+            if min(jump, route_len - jump) > CONTINUITY_JUMP_M:
+                cost += CONTINUITY_PENALTY_M
+        take = cost < best_cost - 0.5
+        if not take and abs(cost - best_cost) <= 0.5 and heading is None and prev_idx is not None:
+            nseg = len(pts) - 1
+            # Treat the polyline as circular when comparing segment indices
+            diff_new = abs(i - prev_idx)
+            diff_best = abs(best_i - prev_idx)
+            take = min(diff_new, nseg - diff_new) < min(diff_best, nseg - diff_best)
+        if take:
+            best_cost = cost; best_s = s; best_i = i
     return best_s, best_i
 
 # ---------------------------
@@ -6050,7 +6080,14 @@ async def startup():
                             veh = Vehicle(id=vid, name=name, lat=lat, lon=lon, ts_ms=tsms,
                                           ground_mps=mps, age_s=age_s, heading=heading)
                             prev_idx = prev.seg_idx if prev else None
-                            s_pos, seg_idx = project_vehicle_to_route(veh, state.routes[rid], prev_idx, heading)
+                            # A stationary vehicle's heading is just whatever it last had
+                            # while moving (and can be 180 deg off once it pulls out
+                            # again), so don't let it pick a pass -- continuity with the
+                            # previous poll's position decides instead.
+                            match_heading = heading if (prev is None or mps > DIR_SIGN_STATIONARY_MPS) else None
+                            s_pos, seg_idx = project_vehicle_to_route(
+                                veh, state.routes[rid], prev_idx, match_heading, prev.s_pos if prev else None,
+                            )
                             prev_sign = prev.dir_sign if prev else state.last_dir_sign.get(vid, 0)
                             ema = prev.ema_mps if prev else (mps if mps > 0 else 6.0)
                             L = state.routes[rid].length_m

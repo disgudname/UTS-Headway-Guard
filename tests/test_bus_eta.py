@@ -217,21 +217,41 @@ def test_arriving_radius_overrides_arc_length_on_a_self_overlapping_route():
     # next to is almost a full loop away. Confirmed live: a vehicle ~129m from a
     # stop by real coordinates had an arc_pos placing it ~178m PAST that same
     # stop, giving an 8000+ second estimate for something already arriving.
-    line = _line([0, 6000], n=101, step_m=100.0)  # 10km loop, target 60% of it away by arc-length
+    line = _line([0, 6000], n=101, step_m=100.0)  # 10km loop
     target = line.stops[1]
     # Vehicle is geographically RIGHT NEXT TO the target stop (50m away, just
-    # short of it -- i.e. still approaching) despite its arc-length position
-    # (s_pos=0) being nowhere near the stop's arc_pos (6000m, well over half
-    # the route away).
+    # short of it -- i.e. still approaching), but its arc-length position landed
+    # ~178m PAST the stop's arc_pos (the real confirmed-live case), so arc-length
+    # math alone reads the stop as almost a full lap (9822m) ahead.
     vehicle_lat, vehicle_lon = target.lat, target.lon - (50.0 / 111_320.0)
     assert haversine_m(vehicle_lat, vehicle_lon, target.lat, target.lon) < eta.ARRIVING_RADIUS_M
     result = eta.estimate_stop_eta_s(
-        line, 0.0, 5.0, target, hop_time_fn=lambda *a: None, when=0.0,
+        line, 6178.0, 5.0, target, hop_time_fn=lambda *a: None, when=0.0,
         vehicle_lat=vehicle_lat, vehicle_lon=vehicle_lon,
     )
     assert result is not None
     assert result.seconds == 0.0
     assert result.source == "live"
+
+
+def test_arriving_radius_does_not_fire_for_a_stop_on_the_other_pass_of_the_same_road():
+    # Regression for a real bug found live on Gold Line (Massie Rd): the route
+    # drives OUT along Massie Rd and comes BACK the same road, so a bus on the
+    # outbound pass is physically within metres of stops that belong to the
+    # return pass, ~3.5km of route ahead -- and was reported "Due" for them.
+    # Arc-length says that stop is thousands of metres away, and that has to win
+    # over "it's right there on the map".
+    line = _line([0, 6000], n=101, step_m=100.0)
+    target = line.stops[1]
+    for offset_m in (20.0, 100.0):  # inside the exempt radius, and inside the outer radius
+        vehicle_lat, vehicle_lon = target.lat, target.lon - (offset_m / 111_320.0)
+        result = eta.estimate_stop_eta_s(
+            line, 2500.0, 5.0, target, hop_time_fn=lambda *a: 60.0, when=0.0,
+            vehicle_lat=vehicle_lat, vehicle_lon=vehicle_lon,
+        )
+        assert result is not None
+        assert result.seconds > 100.0, offset_m
+        assert result.source != "live" or result.seconds > 100.0
 
 
 def test_arriving_radius_does_not_misfire_on_an_already_passed_nearby_stop():
