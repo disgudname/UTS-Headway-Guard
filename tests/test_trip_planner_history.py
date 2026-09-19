@@ -215,3 +215,69 @@ def test_is_cache_stale_true_after_next_days_threshold():
     next_day_after_threshold = refreshed + timedelta(days=1, hours=1)
     cache = {"refreshed_at": refreshed.isoformat()}
     assert tph.is_cache_stale(cache, now=next_day_after_threshold) is True
+
+
+def _event_for_vehicle(dt, route_id, stop_id, vehicle_id, block=None):
+    ev = _event(dt, route_id, stop_id, block)
+    ev.vehicle_id = vehicle_id
+    return ev
+
+
+def test_runs_fall_back_to_vehicle_when_block_is_missing():
+    # `block` is empty on almost every recent day in production; consecutive arrivals of
+    # the same vehicle on the same route must still make hop samples.
+    events = []
+    for i, gap in enumerate([300, 310, 320]):
+        start = _wed_5pm(i)
+        events.append(_event_for_vehicle(start, "57", "A", "12"))
+        events.append(_event_for_vehicle(start + timedelta(seconds=gap), "57", "B", "12"))
+    samples = tph.build_hop_time_samples(FakeStorage(events), now=_wed_5pm(0) + timedelta(hours=1))
+    assert sorted(samples[tph._bucket_key("57", "A", "B", 2, 17)]) == [300.0, 310.0, 320.0]
+
+
+def test_different_vehicles_without_blocks_are_not_treated_as_one_run():
+    start = _wed_5pm(0)
+    events = [
+        _event_for_vehicle(start, "57", "A", "12"),
+        _event_for_vehicle(start + timedelta(seconds=100), "57", "B", "44"),
+    ]
+    samples = tph.build_hop_time_samples(FakeStorage(events), now=start + timedelta(hours=1))
+    assert not samples
+
+
+def test_events_with_neither_block_nor_vehicle_are_skipped():
+    start = _wed_5pm(0)
+    events = [
+        _event_for_vehicle(start, "57", "A", None),
+        _event_for_vehicle(start + timedelta(seconds=100), "57", "B", None),
+    ]
+    assert not tph.build_hop_time_samples(FakeStorage(events), now=start + timedelta(hours=1))
+
+
+def test_lookup_falls_back_to_the_other_weekend_day_at_the_same_hour():
+    sunday_6pm = tph._bucket_key("57", "A", "B", 6, 18)
+    model = tph.HopTimeModel({sunday_6pm: {"seconds": 240.0, "samples": 5}})
+    saturday_6pm = datetime(2026, 9, 19, 18, 30, tzinfo=NY_TZ).timestamp()  # a Saturday
+    assert model.lookup("57", "A", "B", saturday_6pm) == 240.0
+
+
+def test_lookup_never_mixes_weekday_and_weekend_buckets():
+    monday_6pm = tph._bucket_key("57", "A", "B", 0, 18)
+    model = tph.HopTimeModel({monday_6pm: {"seconds": 240.0, "samples": 5}})
+    saturday_6pm = datetime(2026, 9, 19, 18, 30, tzinfo=NY_TZ).timestamp()
+    assert model.lookup("57", "A", "B", saturday_6pm) is None
+
+
+def test_exact_weekday_bucket_beats_the_same_group_fallback():
+    exact = tph._bucket_key("57", "A", "B", 5, 18)
+    other = tph._bucket_key("57", "A", "B", 6, 18)
+    model = tph.HopTimeModel({exact: {"seconds": 200.0, "samples": 4}, other: {"seconds": 400.0, "samples": 9}})
+    saturday_6pm = datetime(2026, 9, 19, 18, 30, tzinfo=NY_TZ).timestamp()
+    assert model.lookup("57", "A", "B", saturday_6pm) == 200.0
+
+
+def test_lookup_same_group_fallback_uses_the_median_of_the_other_days():
+    keys = {tph._bucket_key("57", "A", "B", wd, 9): {"seconds": sec, "samples": 4} for wd, sec in ((0, 100.0), (1, 200.0), (3, 900.0))}
+    model = tph.HopTimeModel(keys)
+    wednesday_9am = datetime(2026, 9, 9, 9, 30, tzinfo=NY_TZ).timestamp()
+    assert model.lookup("57", "A", "B", wednesday_9am) == 200.0

@@ -79,6 +79,10 @@ def is_cache_stale(cache: Dict[str, Any], now: Optional[datetime] = None) -> boo
     return False
 
 
+_WEEKDAYS = (0, 1, 2, 3, 4)
+_WEEKEND = (5, 6)
+
+
 def _bucket_key(route_id: str, from_stop_id: str, to_stop_id: str, weekday: int, hour: int) -> str:
     return f"{route_id}|{from_stop_id}|{to_stop_id}|{weekday}|{hour}"
 
@@ -131,12 +135,22 @@ def build_hop_time_samples(
         day_events = storage.query_events(max(day_cursor, start), min(day_end, now))
         day_cursor += timedelta(days=1)
 
-        runs: Dict[Tuple[str, str], List] = defaultdict(list)  # (block, local_date) -> [events]
+        runs: Dict[Tuple[str, str], List] = defaultdict(list)  # (block or vehicle, local_date) -> [events]
         for ev in day_events:
-            if ev.event_type != "arrival" or not ev.block or not ev.stop_id or not ev.route_id:
+            if ev.event_type != "arrival" or not ev.stop_id or not ev.route_id:
+                continue
+            # A run is one vehicle's consecutive arrivals. Prefer the schedule block, but
+            # fall back to the vehicle itself: `block` comes from a schedule-assignment
+            # feed and is empty on almost every recent day (checked 2026-09-19: 0 of
+            # ~10,800 arrivals on most days), which had left the live 60-day table with
+            # ~320 buckets, none for the routes currently in service -- so ETAs for
+            # nearly every stop fell back to a distance/speed guess. Same vehicle + same
+            # route + same local day is the same physical run for our purposes.
+            run_id = ev.block or (f"vehicle:{ev.vehicle_id}" if ev.vehicle_id else None)
+            if not run_id:
                 continue
             local_date = ev.timestamp.astimezone(NY_TZ).date().isoformat()
-            runs[(ev.block, local_date)].append(ev)
+            runs[(run_id, local_date)].append(ev)
 
         for run_events in runs.values():
             run_events.sort(key=lambda e: e.timestamp)
@@ -204,6 +218,20 @@ class HopTimeModel:
                 return float(bucket["seconds"])
             except (KeyError, TypeError, ValueError):
                 pass
+        # No bucket for this exact weekday: a hop that's had too few samples on, say,
+        # Saturdays at 6pm usually has plenty on the other weekend day at the same hour
+        # (service and traffic are alike), so use those before giving up. Only days in
+        # the same group (Mon-Fri, or Sat-Sun) are ever mixed.
+        group = _WEEKEND if local_dt.weekday() in _WEEKEND else _WEEKDAYS
+        same_group = [
+            float(b["seconds"])
+            for wd in group
+            if wd != local_dt.weekday()
+            for b in [self._buckets.get(_bucket_key(route_id, from_stop_id, to_stop_id, wd, local_dt.hour))]
+            if b and isinstance(b.get("seconds"), (int, float))
+        ]
+        if same_group:
+            return statistics.median(same_group)
         if self._fallback is not None:
             return self._fallback.lookup(route_id, from_stop_id, to_stop_id, when)
         return None
