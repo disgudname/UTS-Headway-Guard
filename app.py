@@ -1767,7 +1767,14 @@ def project_vehicle_to_route(v: Vehicle, route: Route, prev_idx: Optional[int] =
         seg_len = haversine((a_lat, a_lon), (b_lat, b_lon))
         s = cum[i] + t * seg_len
         seg_heading = bearing_between((a_lat, a_lon), (b_lat, b_lon))
-        if d2 < best_d2 - 1e-6:
+        # Only a clearly-closer segment wins outright; anything within the tie band
+        # goes to the heading/prev_idx tie-break below. This used to be
+        # `best_d2 - 1e-6`, which let float noise (~3e-5 m^2) between two passes of a
+        # road the route retraces vertex-for-vertex decide the winner, so the
+        # heading tie-break never ran -- confirmed live 2026-09-19 (Gold Line vehicle
+        # heading 306 at Massie Rd @ JPJ West Entrance got snapped to the return
+        # pass, dir_sign flipped to -1, and every ETA for it was dropped).
+        if d2 < best_d2 - 4.0:
             best_d2 = d2; best_s = s; best_i = i; best_heading = seg_heading
         elif abs(d2 - best_d2) <= 4.0:  # within ~2 m
             prefer = False
