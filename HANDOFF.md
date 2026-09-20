@@ -27,6 +27,19 @@ Machine tags: `[dev]` = Windows dev machine · `[home]` = home server (Windows b
 
 ## 1. Message board (newest first)
 
+### 2026-09-19 · [dev] · REQUEST (user): after each scheduled ETA check, Claude analyzes it and pushes the result via ntfy
+- **What the user wants:** after every scheduled health-check run, **Claude is prompted to analyze the results
+  and send the user a push notification through a plain web-push service (ntfy)** — not through Claude's own
+  `PushNotification` tool, which was tested and doesn't reach the phone from unattended runs (see §7).
+- **Status: not built.** Spec, constraints, and open questions are in §7 ("Requested next: Claude review + ntfy
+  push"). `[home]` owns the scheduler, so it's the natural place to build it. The user has NOT yet installed the
+  ntfy phone app or picked a channel name — that needs them.
+- **Do not put the ntfy channel name in git.** On the free hosted service the channel name is effectively the
+  password (anyone who knows it can read or send). Keep it in a git-ignored local file or a Windows environment
+  variable on the machine that sends.
+- **Cost:** $0 for this use (hosted free tier, or free to self-host); paid tiers exist but aren't needed.
+  Not yet confirmed: what running `claude -p` after every run costs in usage (~12 runs/day) — see §7.
+
 ### 2026-09-19 · [home] · ETA health checks are now automated (on the home server)
 - Built `scripts/eta_health_check.py` and registered Windows Task Scheduler jobs on the home server
   (`ETA-Health-*`; full time list in §7, expanded the same day to cover early AM, evenings and overnight). Each runs 30 min, read-only.
@@ -272,10 +285,45 @@ share is a scorer artifact until proven otherwise; (3) early misses are the less
   `pythonw.exe` from the repo root, only if the machine is awake/online (missed runs start when available).
   Manage: `Get-ScheduledTask ETA-Health-*` / `Unregister-ScheduledTask -TaskName ETA-Health-Sunday -Confirm:$false`.
   A `git pull` on the home server updates the script the tasks run.
-- Not built: pings/notifications and any Claude review of the results. Ask the user before adding either.
+- Not built: pings/notifications and any Claude review of the results — **now requested by the user, see "Requested next" below.**
 - **Tested 2026-09-19 [home]: headless `claude -p` cannot ping the phone.** Run from Task Scheduler (nobody at the
   terminal), with and without `--remote-control`, `PushNotification` returned "Not sent - this terminal is active",
   and the user's phone received nothing. (`claude.exe` lives in the user's `.local\bin`; a headless run does
   follow CLAUDE.md's startup routine. A local scheduled `claude -p` review that writes to HANDOFF.md is feasible.)
   User said to drop pings for now; the only push route left would be a plain web push service (e.g. ntfy) called
   from the script.
+
+### Requested next: Claude review + ntfy push after each run (2026-09-19, not built)
+**The user's ask, in their words:** Claude should be prompted after each run to analyze the results and send the push
+notification through this service (ntfy).
+
+**Intended flow (per scheduled run):**
+1. `eta_health_check.py` finishes and appends its summary line to `data-local/eta_watch/health_results.jsonl`.
+2. A follow-up step starts a headless Claude session (`claude -p ...`, which the `[home]` test showed does follow
+   CLAUDE.md's startup routine) with a prompt like: read the newest line(s) of the results file, compare against the
+   thresholds and the run-6 baseline in this section, decide whether anything is off (one delayed bus vs. a real
+   problem; scorer artifacts; `inconclusive` is not a breach), and write a short plain-language verdict.
+3. That verdict is sent to the user's phone through **ntfy**, by a plain HTTP request (`curl`/`Invoke-RestMethod`
+   POST to the channel URL). Claude's own `PushNotification` tool is NOT used — it returned "Not sent" from unattended
+   runs and nothing reached the phone.
+4. Per the board rules, a run that breaches a threshold or covers a new kind of hour/day also gets a message-board entry.
+
+**Constraints / facts (checked 2026-09-19):**
+- ntfy hosted service (ntfy.sh): free, no sign-up; paid tiers (~$5/$10/$20 per month per a third-party listing) add higher
+  limits and reserved private names — not needed here. The server is open source and free to self-host, but reliable
+  instant delivery to a phone from a self-hosted server is fiddlier (hosted ntfy.sh uses Firebase for Android push).
+  The exact free-tier daily message cap wasn't found; irrelevant at our volume (≤ ~12 messages/day).
+- **The channel name is the password** on the free tier: use a long random string (20+ chars), keep it out of git,
+  and treat the messages as non-secret (short ETA summaries only — never keys, cookies, or internal URLs).
+- The user must install the ntfy app on their phone and subscribe to the channel before anything can be received.
+
+**Open questions — confirm with the user before building:**
+- **Frequency:** the user said "after each run," which is up to ~12 messages a day. Confirm they want a message for
+  every run (a one-line "all clear" is fine) rather than only breaches / first-of-a-kind runs, which was the earlier proposal.
+- **Cost of running Claude ~12×/day:** unknown; check with the user (and consider a cheaper model or a very short
+  prompt) before enabling. If it's a problem, fall back to the script sending the ntfy message itself, with Claude
+  reviewing only breaches.
+- **Where it runs:** `[home]` (owns Task Scheduler and is always on) is the assumption. Headless runs need `claude.exe`
+  reachable from the scheduled task (it lives in the user's `.localin`, per the earlier test).
+
+**Deploys:** none involved. Nothing here touches the Fly app; adding it is a scheduler/script change on `[home]`.
