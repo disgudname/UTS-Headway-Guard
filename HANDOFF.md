@@ -27,6 +27,20 @@ Machine tags: `[dev]` = Windows dev machine · `[home]` = home server (Windows b
 
 ## 1. Message board (newest first)
 
+### 2026-09-20 · [home] · Offline ETA replay tool + a redesign that did NOT beat the current one (nothing deployed)
+- **Tool:** `scripts/eta_replay.py <headway_dir> <cutoff> <logs...>` replays eta_watch bus positions through the real `bus_eta` engine under different histories and scores them with
+  `eta_compare`. The full headway archive (258 daily CSVs, 2025-12-11 on, ~360 MB, arrival+departure events with dwell) can be pulled from the Fly machine (tar it in /tmp, `flyctl ssh sftp get`);
+  a local copy is in `data-local/headway_archive/` (untracked). Replay of the CURRENT design + block schedule reproduces the live app (54 s / 6.4% late vs 52 s / 6.2%), so it is trustworthy.
+- **Biggest lever = the block schedule:** current history WITHOUT schedule holds scores 76 s typical, 64% within 2 min, ~55 s early lean; WITH holds 54 s / 78% / -12 s. (TransLoc 85 s / 61%.)
+- **Thin-history root cause found:** before 2026-09-14 (`9c2ec69`) headway_tracker stored a BORROWED stop_id from another route on shared stops, so most older events sit under IDs that don't match the
+  route (Green weekend: 5 of 20 hops had a bucket). Events still carry `stop_name`; `trip_planner_history.stop_id_resolver()` re-keys by (route, name) -> 18 of 20. Live daily refresh does NOT do this yet
+  (only the offline deep-cache script does), but the deep-cache fallback hides most of the gap, so the visible gain is small.
+- **Tried: driving-only hops (departure(A)->arrival(B)) + separate dwell** (`build_drive_and_dwell_samples`, `DwellModel`, `bus_eta.estimate_stop_eta_s(dwell_fn=...)`, default OFF). With the schedule it ties the
+  current design (55 s, 80% within 2 min, 5.9% late) ONLY when dwell uses the 25th percentile; with median dwell it runs late too often (18% >2 min late, mostly Gold). Better on Orange, worse on Green.
+  Not deployed, not wired into app.py. Sunday data only, four buses; the offline schedule stand-in picks the nearest scheduled block (real app tracks blocks live).
+- **Next most valuable thing:** make sure every live bus is matched to its block (Gold runs two buses) rather than changing the history; and re-run the replay on weekday logs once they exist.
+- Also: the cap on hops leaving a timestop must stay day-independent (see the layover-cap entry below); this redesign would remove the need for it but did not win.
+
 ### 2026-09-20 · [home] · DON'T make the layover cap day/time-aware (tried, broke Orange, reverted)
 - See the timestop-audit entry, item 4. `uts_blocks.is_timestop_active` was removed again. Keep `is_timestop_fn` = any mapped stop for the route.
 - Lesson: check §4's bug list before touching layover logic; a change that looks like a pure cleanup reopened a leak the user had already paid for once.

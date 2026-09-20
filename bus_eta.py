@@ -221,6 +221,11 @@ MAX_HOP_SPEED_MPS = 18.0
 # m/s for buses actually underway).
 TYPICAL_BUS_SPEED_MPS = 5.5
 
+# Normal (non-layover) time a bus sits at a stop, ~ the median dwell across every UTS stop
+# that isn't a layover (18 s over 9 months of headway events, 2026-09-20). Used where a
+# scheduled hold governs departure instead of the stop's own measured dwell (dwell_fn mode).
+TYPICAL_DWELL_S = 20.0
+
 
 @dataclass
 class BusEtaEstimate:
@@ -370,6 +375,7 @@ def estimate_stop_eta_s(
     vehicle_block_id: Optional[str] = None,
     scheduled_timestop_fn: Optional[ScheduledTimestopFn] = None,
     is_timestop_fn: Optional[Callable[[str, str], bool]] = None,
+    dwell_fn: Optional[Callable[[str, str, float], float]] = None,
 ) -> Optional[BusEtaEstimate]:
     """Seconds until this vehicle reaches target_stop, or None if the line/target
     don't carry the shape+arc_pos data this needs (e.g. CAT, or a UTS route whose
@@ -394,6 +400,15 @@ def estimate_stop_eta_s(
     applied to a vehicle actually moving the other way relative to the captured
     shape. The ARRIVING_RADIUS_M proximity check above is unaffected by this (it's
     driven by real GPS distance, not arc-length direction) and still applies first.
+
+    dwell_fn (optional): (route_id, stop_id, epoch) -> typical seconds a bus sits at
+    that stop. When given, hop_time_fn is expected to return DRIVING-ONLY hop times
+    (leave A -> arrive B, see trip_planner_history.build_drive_time_samples) and the
+    walk adds a dwell at every stop it passes through, instead of relying on layover
+    time being baked into hop history and capped afterwards (is_timestop_fn's cap is
+    skipped in this mode). A scheduled hold still applies on top: the bus leaves at
+    the LATER of "arrival + normal dwell" and "scheduled departure + lag", so an early
+    bus waits for the schedule and a late one just leaves after a normal dwell.
 
     vehicle_block_id/scheduled_timestop_fn (both optional, UTS-only) let a bus
     intentionally holding at a scheduled "timestop" push out every downstream
@@ -515,7 +530,13 @@ def estimate_stop_eta_s(
             scheduled_timestop_fn(line.id, prev_stop.id, vehicle_block_id, when)
             if scheduled_timestop_fn is not None and vehicle_block_id else None
         )
-        if hold_epoch is not None or (is_timestop_fn and is_timestop_fn(line.id, prev_stop.id)):
+        if dwell_fn is not None:
+            # Driving-only history: the bus is still sitting at prev_stop, so it still
+            # owes (the rest of) its dwell before the hop can start. The elapsed part
+            # isn't known here, so charge the typical (or, at a scheduled hold, the
+            # normal) dwell in full.
+            current_leg_s += TYPICAL_DWELL_S if hold_epoch is not None else dwell_fn(line.id, prev_stop.id, when)
+        elif hold_epoch is not None or (is_timestop_fn and is_timestop_fn(line.id, prev_stop.id)):
             # The hop history for a hop leaving a timestop already contains the layover
             # being added below -- drive it at typical speed instead (see
             # POST_HOLD_HOP_ALLOWANCE_S).
@@ -598,7 +619,7 @@ def estimate_stop_eta_s(
             return None  # target unreachable in one lap -- shouldn't happen on a loop, but never spin forever
         nxt_idx = (idx + 1) % len(stops)
         a, b = stops[idx], stops[nxt_idx]
-        held_here = bool(is_timestop_fn and is_timestop_fn(line.id, a.id))
+        held_here = bool(is_timestop_fn and is_timestop_fn(line.id, a.id)) and dwell_fn is None
 
         # Scheduled timestop hold: total_s right now represents the estimated
         # time to REACH `a` (every hop added so far, including current_leg_s
@@ -610,11 +631,20 @@ def estimate_stop_eta_s(
         # (only stops the walk passes THROUGH, i.e. departs from) -- a rider
         # asking "when does it reach this stop" wants its honest physical
         # arrival, not a hold that hasn't started yet.
+        scheduled_hold = False
         if scheduled_timestop_fn is not None and vehicle_block_id:
             hold_epoch = scheduled_timestop_fn(line.id, a.id, vehicle_block_id, when + total_s)
             if hold_epoch is not None:
-                total_s = max(total_s, hold_epoch + SCHEDULED_DEPARTURE_LAG_S - when)
+                scheduled_hold = True
+                if dwell_fn is not None:
+                    # Leaves at the later of (arrival + normal dwell) and (scheduled
+                    # departure + lag): early waits for the schedule, late just goes.
+                    total_s = max(total_s + TYPICAL_DWELL_S, hold_epoch + SCHEDULED_DEPARTURE_LAG_S - when)
+                else:
+                    total_s = max(total_s, hold_epoch + SCHEDULED_DEPARTURE_LAG_S - when)
                 held_here = True
+        if dwell_fn is not None and not scheduled_hold:
+            total_s += dwell_fn(line.id, a.id, when + total_s)
 
         hop_number += 1
         hop_dist = (

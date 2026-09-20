@@ -169,6 +169,136 @@ def build_hop_time_samples(
     return samples
 
 
+# ---------------------------------------------------------------------------
+# Driving-only hops + separate dwell (see bus_eta.estimate_stop_eta_s's dwell_fn).
+#
+# build_hop_time_samples() above measures arrival(A) -> arrival(B), so any layover at A is
+# baked into that hop; bus_eta then has to cap it after the fact for every mapped
+# timestop, which can't know that a stop is a layover on weekdays but not on weekends
+# (history is pooled across day groups) and reopened a weekday-layover leak when made
+# day-aware. Here a hop is departure(A) -> arrival(B) (driving only) and the time the
+# bus sits at each stop is recorded separately from the departure event's own
+# dwell_seconds, so layover length simply shows up in the dwell data of the day group
+# it actually happens in.
+
+DWELL_KEY = "DWELL"
+DEFAULT_DWELL_S = 20.0  # median dwell of non-layover stops, 9 months of headway events (2026-09-20)
+MAX_PLAUSIBLE_DWELL_S = 3600.0
+
+
+def stop_id_resolver(route_stop_names: Dict[Tuple[str, str], str]) -> Callable[[Any], str]:
+    """Re-key an event to its route's OWN RouteStopID by stop name. Before 2026-09-14
+    headway_tracker stamped one route's stop ID onto every route sharing that physical
+    stop (commit 9c2ec69), so most older events sit under IDs that don't match the route's
+    live stop sequence and never line up with the ETA engine's hop lookups. The events
+    still carry the right stop_name, so `route_stop_names` ((route_id, stop_name) ->
+    RouteStopID, built from the live route stop lists, unique names only) recovers them.
+    Unknown route/name keeps the recorded ID."""
+    def resolve(ev) -> str:
+        return route_stop_names.get((str(ev.route_id), (ev.stop_name or "").strip()), ev.stop_id)
+    return resolve
+
+
+def build_drive_and_dwell_samples(
+    storage,
+    now: Optional[datetime] = None,
+    lookback_days: Optional[int] = None,
+    resolve_stop_id: Optional[Callable[[Any], str]] = None,
+) -> Tuple[Dict[str, List[float]], Dict[str, List[float]]]:
+    """(drive_samples, dwell_samples), same bucket keys as build_hop_time_samples.
+    Dwell buckets use to_stop_id == DWELL_KEY and are keyed by the departure's weekday/hour."""
+    now = now or datetime.now(NY_TZ)
+    lookback_days = LOOKBACK_DAYS if lookback_days is None else lookback_days
+    resolve_stop_id = resolve_stop_id or (lambda ev: ev.stop_id)
+    start = now - timedelta(days=lookback_days)
+    drive: Dict[str, List[float]] = defaultdict(list)
+    dwell: Dict[str, List[float]] = defaultdict(list)
+
+    day_cursor = start.astimezone(NY_TZ).replace(hour=0, minute=0, second=0, microsecond=0)
+    end_local = now.astimezone(NY_TZ)
+    while day_cursor <= end_local:
+        day_end = day_cursor + timedelta(days=1, microseconds=-1)
+        day_events = storage.query_events(max(day_cursor, start), min(day_end, now))
+        day_cursor += timedelta(days=1)
+
+        runs: Dict[Tuple[str, str], List] = defaultdict(list)
+        for ev in day_events:
+            if ev.event_type not in ("arrival", "departure") or not ev.stop_id or not ev.route_id:
+                continue
+            run_id = ev.block or (f"vehicle:{ev.vehicle_id}" if ev.vehicle_id else None)
+            if not run_id:
+                continue
+            runs[(run_id, ev.timestamp.astimezone(NY_TZ).date().isoformat())].append(ev)
+
+        for run_events in runs.values():
+            run_events.sort(key=lambda e: e.timestamp)
+            for a, b in zip(run_events, run_events[1:]):
+                if a.event_type != "departure":
+                    continue
+                local_dt = a.timestamp.astimezone(NY_TZ)
+                a_stop = resolve_stop_id(a)
+                if a.dwell_seconds is not None and 0 <= a.dwell_seconds <= MAX_PLAUSIBLE_DWELL_S:
+                    dwell[_bucket_key(a.route_id, a_stop, DWELL_KEY, local_dt.weekday(), local_dt.hour)].append(a.dwell_seconds)
+                b_stop = resolve_stop_id(b)
+                if b.event_type != "arrival" or a.route_id != b.route_id or a_stop == b_stop:
+                    continue
+                duration = (b.timestamp - a.timestamp).total_seconds()
+                if duration <= 0 or duration > MAX_PLAUSIBLE_HOP_S:
+                    continue
+                drive[_bucket_key(a.route_id, a_stop, b_stop, local_dt.weekday(), local_dt.hour)].append(duration)
+    return drive, dwell
+
+
+class DwellModel:
+    """Typical seconds a bus sits at (route, stop) around `when`. Unlike HopTimeModel this
+    NEVER pools across day groups: a stop that is a 7-minute layover on weekdays but a
+    normal 20 s stop on weekends must not lend its weekday dwell to a weekend ETA. Widens
+    only within the same day group (other days, then hour +/-1, +/-2), then falls back to
+    DEFAULT_DWELL_S -- "no evidence of a layover here at this time" means a normal stop."""
+
+    def __init__(self, buckets: Dict[str, Dict[str, Any]], default_s: float = DEFAULT_DWELL_S):
+        self._buckets = buckets
+        self._default = default_s
+
+    def _vals(self, route_id: str, stop_id: str, weekdays, hours) -> List[float]:
+        out = []
+        for wd in weekdays:
+            for hr in hours:
+                if 0 <= hr <= 23:
+                    bucket = self._buckets.get(_bucket_key(route_id, stop_id, DWELL_KEY, wd, hr))
+                    if bucket and isinstance(bucket.get("seconds"), (int, float)):
+                        out.append(float(bucket["seconds"]))
+        return out
+
+    def lookup(self, route_id: str, stop_id: str, when: float) -> float:
+        local_dt = datetime.fromtimestamp(when, tz=NY_TZ)
+        group = _WEEKEND if local_dt.weekday() in _WEEKEND else _WEEKDAYS
+        hour = local_dt.hour
+        others = tuple(wd for wd in group if wd != local_dt.weekday())
+        for weekdays, hours in (
+            ((local_dt.weekday(),), (hour,)), (others, (hour,)),
+            (group, (hour - 1, hour + 1)), (group, (hour - 2, hour + 2)),
+        ):
+            vals = self._vals(route_id, stop_id, weekdays, hours)
+            if vals:
+                return statistics.median(vals)
+        return self._default
+
+    @classmethod
+    def from_samples(cls, samples: Dict[str, List[float]], quantile: float = 0.5) -> "DwellModel":
+        """quantile < 0.5 leans toward SHORT dwells: with no schedule to say whether a bus is
+        early (waits) or late (leaves promptly), a lower value errs early, the cheaper miss."""
+        def pick(values: List[float]) -> float:
+            ordered = sorted(values)
+            return ordered[min(len(ordered) - 1, int(quantile * len(ordered)))]
+
+        return cls({
+            key: {"seconds": pick(v), "samples": len(v)}
+            for key, v in samples.items() if len(v) >= MIN_SAMPLES
+        })
+
+
+
 def refresh_hop_time_cache(storage, now: Optional[datetime] = None) -> Dict[str, Any]:
     now = now or datetime.now(NY_TZ)
     samples = build_hop_time_samples(storage, now=now)
