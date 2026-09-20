@@ -16364,6 +16364,10 @@ async def _compute_bus_eta_arrivals() -> Dict[str, Any]:
                     vehicle_dir_sign=getattr(veh, "dir_sign", 0),
                     vehicle_block_id=_current_block_id_for_vehicle(vehicle_block_windows, vid, when_ts),
                     scheduled_timestop_fn=uts_blocks.scheduled_hold_epoch if uts_blocks.is_loaded() else None,
+                    is_timestop_fn=(
+                        (lambda r, s: uts_blocks.timestop_code_for_stop(r, s) is not None)
+                        if uts_blocks.is_loaded() else None
+                    ),
                 )
                 if result is None:
                     continue

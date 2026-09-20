@@ -178,11 +178,20 @@ DWELL_DETECTION_RADIUS_M = 40.0
 # under the measured median -- the measurement itself is only good to ~15s.
 SCHEDULED_DEPARTURE_LAG_S = 45.0
 
+# (route_id, stop_id) -> is this a mapped timestop? Independent of whether a hold is
+# scheduled right now -- see POST_HOLD_HOP_ALLOWANCE_S.
+#
 # History hops that START at a timestop include the layover (arrival-to-arrival, and
 # buses routinely sit there minutes): Green's Chapel hop is 267s and Orange's Shannon
 # Library hop 362s in history, for ~60-100 seconds of real driving. When the hold
 # clamp already accounts for the wait, that layover must not be counted a second time;
 # cap such a hop at driving it at typical speed plus a little boarding/pull-out time.
+# The cap applies at EVERY mapped timestop, not just when a hold is scheduled right now:
+# history pools other days and hours (weekday-evening hops back weekend estimates), and a
+# stop that holds on weekdays but not on a Saturday would otherwise smuggle its weekday
+# layover into a Saturday ETA -- confirmed live 2026-09-19: Orange's Pinn Hall hop is 550s
+# in weekday-evening history (a layover) and was being added to every Orange estimate past
+# it on a Saturday, where Pinn Hall has no hold: 36% of Orange predictions >2 min late.
 POST_HOLD_HOP_ALLOWANCE_S = 30.0
 
 # Plausibility bounds on the speed any single historical hop-time bucket is
@@ -360,6 +369,7 @@ def estimate_stop_eta_s(
     vehicle_dir_sign: int = 0,
     vehicle_block_id: Optional[str] = None,
     scheduled_timestop_fn: Optional[ScheduledTimestopFn] = None,
+    is_timestop_fn: Optional[Callable[[str, str], bool]] = None,
 ) -> Optional[BusEtaEstimate]:
     """Seconds until this vehicle reaches target_stop, or None if the line/target
     don't carry the shape+arc_pos data this needs (e.g. CAT, or a UTS route whose
@@ -505,7 +515,7 @@ def estimate_stop_eta_s(
             scheduled_timestop_fn(line.id, prev_stop.id, vehicle_block_id, when)
             if scheduled_timestop_fn is not None and vehicle_block_id else None
         )
-        if hold_epoch is not None:
+        if hold_epoch is not None or (is_timestop_fn and is_timestop_fn(line.id, prev_stop.id)):
             # The hop history for a hop leaving a timestop already contains the layover
             # being added below -- drive it at typical speed instead (see
             # POST_HOLD_HOP_ALLOWANCE_S).
@@ -588,7 +598,7 @@ def estimate_stop_eta_s(
             return None  # target unreachable in one lap -- shouldn't happen on a loop, but never spin forever
         nxt_idx = (idx + 1) % len(stops)
         a, b = stops[idx], stops[nxt_idx]
-        held_here = False
+        held_here = bool(is_timestop_fn and is_timestop_fn(line.id, a.id))
 
         # Scheduled timestop hold: total_s right now represents the estimated
         # time to REACH `a` (every hop added so far, including current_leg_s

@@ -631,3 +631,25 @@ def test_hop_history_leaving_a_held_timestop_is_not_double_counted():
     # ...but a hop that doesn't start at a held timestop keeps its history time.
     plain = eta.estimate_stop_eta_s(line, 0.0, 5.0, line.stops[2], inflated, when=0.0)
     assert plain.seconds > 400.0
+
+
+def test_hop_leaving_a_mapped_timestop_never_carries_layover_even_with_no_hold_scheduled():
+    # Regression found live 2026-09-19 (Orange, Saturday): history is pooled across day
+    # types, so a stop that holds on weekdays (Pinn Hall: a 550s hop in weekday-evening
+    # history) but NOT on a Saturday smuggled its weekday layover into every ETA past it.
+    # Being a mapped timestop is enough to strip the layover from the outgoing hop; no
+    # hold has to be scheduled at that moment.
+    line = _line([0, 300, 900, 1200])
+    inflated = _flat_hop_time_fn(400.0)  # 600m hop "taking" 400s
+    is_timestop = lambda route_id, stop_id: stop_id == line.stops[1].id
+    # Vehicle at 100m: its next stop is the timestop (200m away = 40s live), then the
+    # timestop -> s2 hop is the one that must be capped.
+    with_map = eta.estimate_stop_eta_s(
+        line, 100.0, 5.0, line.stops[2], inflated, when=0.0, is_timestop_fn=is_timestop,
+    )
+    without = eta.estimate_stop_eta_s(line, 100.0, 5.0, line.stops[2], inflated, when=0.0)
+    drive = 600.0 / eta.TYPICAL_BUS_SPEED_MPS + eta.POST_HOLD_HOP_ALLOWANCE_S
+    # (the capped hop is still scaled by the vehicle's pace factor like any other hop, so
+    # it can only get shorter than the cap, never longer)
+    assert 40.0 < with_map.seconds <= 40.0 + drive + 0.5
+    assert without.seconds > with_map.seconds + 100.0
