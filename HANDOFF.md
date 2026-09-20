@@ -272,5 +272,10 @@ share is a scorer artifact until proven otherwise; (3) early misses are the less
   `pythonw.exe` from the repo root, only if the machine is awake/online (missed runs start when available).
   Manage: `Get-ScheduledTask ETA-Health-*` / `Unregister-ScheduledTask -TaskName ETA-Health-Sunday -Confirm:$false`.
   A `git pull` on the home server updates the script the tasks run.
-- Not built: pings/notifications, and the scheduled Claude routine (unknown phone-delivery reliability and cost).
-  Ask the user before adding either.
+- Not built: pings/notifications and any Claude review of the results. Ask the user before adding either.
+- **Tested 2026-09-19 [home]: headless `claude -p` cannot ping the phone.** Run from Task Scheduler (nobody at the
+  terminal), with and without `--remote-control`, `PushNotification` returned "Not sent - this terminal is active",
+  and the user's phone received nothing. (`claude.exe` lives in the user's `.local\bin`; a headless run does
+  follow CLAUDE.md's startup routine. A local scheduled `claude -p` review that writes to HANDOFF.md is feasible.)
+  User said to drop pings for now; the only push route left would be a plain web push service (e.g. ntfy) called
+  from the script.
