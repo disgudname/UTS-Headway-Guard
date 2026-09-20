@@ -27,6 +27,15 @@ Machine tags: `[dev]` = Windows dev machine · `[home]` = home server (Windows b
 
 ## 1. Message board (newest first)
 
+### 2026-09-20 · [home] · DECISION (user): stop changing the ETA engine for now; keep logging
+- The user wants the engine left as is ("not changing a whole buncha stuff"). Live and staying: stale-Due fix, `BlockId` on the ETA feed, 30 s timestop lag. Rolled back: day-aware layover cap.
+- **Parked, NOT built/deployed (revisit only with more data, or if Gold keeps slipping):** driving-only hops + dwell history (tied the current design; opt-in code + `scripts/eta_replay.py` are in the repo),
+  an "event night" hop factor for JPJ (effect is real but modest, mostly weekday 7 PM events: Gold loops overrun 40/45-min targets by ~6 min on such nights, worst ~+14 min), persistent-pace carry-over for long predictions,
+  and a nightly script that rebuilds the JPJ event list (arena site has no public feed; its event pages + sitemap work, 43 upcoming events saved in `data-local/jpj_upcoming_from_site.json`, untracked).
+- Gold facts for later: real loop ~41 min by GPS (weekend blocks 40 min; weekday 40 with ~1 in 5 at 45). Headway-event Chapel arrivals occur twice per loop in current data, so use Massie Rd @ JPJ (West Entrance)
+  arrivals to time loops. The Gold loop's shape/length in headway data changed on ~2026-05-04 (do not pool baselines across it).
+- Continuous 30-min logging sessions continue until the user says stop; `data-local/` is committed only on request.
+
 ### 2026-09-20 · [home] · DEPLOYED: BlockId on the ETA feed + timestop lag 45->30 s; schedule holds verified working; Gold slowdown expected tonight
 - **Deployed `ec3e979`:** every row in `/v1/eta/uts_stop_arrivals` now has `BlockId` (or null); `eta_watch` logs it as the 6th element of each `ours` row. Timestop departure lag `SCHEDULED_DEPARTURE_LAG_S`
   is now 30 s (was 45): ~20k headway-event departures at timestops the schedule really governs, median ~27 s (12-48 s per route/stop). Dispatch assigns blocks properly (user confirmed); all 4 live buses
