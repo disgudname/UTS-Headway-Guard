@@ -27,6 +27,10 @@ Machine tags: `[dev]` = Windows dev machine · `[home]` = home server (Windows b
 
 ## 1. Message board (newest first)
 
+### 2026-09-20 · [home] · DON'T make the layover cap day/time-aware (tried, broke Orange, reverted)
+- See the timestop-audit entry, item 4. `uts_blocks.is_timestop_active` was removed again. Keep `is_timestop_fn` = any mapped stop for the route.
+- Lesson: check §4's bug list before touching layover logic; a change that looks like a pure cleanup reopened a leak the user had already paid for once.
+
 ### 2026-09-20 · [home] · Continuous Sunday logging (12 sessions), stale-"Due" fix deployed, CORRECTION on late misses, timestop audit
 - **What ran:** back-to-back 30-min `eta_watch` sessions 10:29-15:51 (logs in `data-local/eta_watch/continuous/`, NOT committed except on the
   user's request). **Only FOUR buses were ever scored** (16 Green/54, 13 Orange/55, 12+44 Gold/57); GPS bus 17 (route 11) sat parked and had no predictions.
@@ -45,7 +49,7 @@ Machine tags: `[dev]` = Windows dev machine · `[home]` = home server (Windows b
   3. **CORRECTED (same day, user was right): every timestop pair is already mapped.** The "scheduled-but-unmapped" list I first wrote here was an artifact: block `route_ids`
      are route FAMILIES (e.g. block [05] = 53/55/70), so a route inherits codes for stops it never visits. Checked against TransLoc's live stop lists (`/v1/transloc/routes`, which
      includes the weekday route IDs 53/67/68/58): all 24 (route, code) pairs where the route really has that stop are mapped to the right RouteStopID. Nothing to add.
-  4. Fix written 2026-09-20 [home] (see next line): the cap now uses `uts_blocks.is_timestop_active()` (schedule day-group + time of day). NOT deployed until the user says cpd.
+  4. **TRIED AND REVERTED (2026-09-20 [home]): making the cap schedule/day-aware was WRONG.** Deployed as `540f01f`; Session 13 showed Orange (route 55) median +232 s, 72% >2 min late (vs -12 s / 7% before), worst after MP and PIN. Reason: the 'any mapped stop' cap is ALSO what stops weekday layover time, pooled into weekend history, from leaking into weekend ETAs (§4 bug 4). It must stay day-independent. Reverted (`4c9fbf4`) and redeployed. Do not re-attempt without first changing how history is pooled across day groups.
 
 ### 2026-09-20 · [dev] · Thin weekend history is now a NOTE, not a PROBLEM (needs `git pull` on [home])
 - I ran a manual 30-min check on the dev box (Sun 09:49–10:19): median error -2 s vs TransLoc -79 s, 0.5% >2 min late
