@@ -29,6 +29,12 @@ MAX_ROUTE_MEDIAN_ABS_S = 90
 MAX_ROUTE_LATE_BIAS_S = 60
 FULL_LAP_OFF_S = 1200
 FULL_LAP_TL_OK_S = 120
+# A "Due" (<= DUE_S) shown while the bus is 0..JUST_PASSED_M metres PAST the stop is the display lagging a few
+# seconds behind a bus that just went by, not a full-lap failure -- but the scorer sees the bus's next crossing a lap
+# away and calls it one. Seen 2026-09-20 01:30 (Night Pilot, 6 "flips": all "Due" with the bus 24-216 m past the stop,
+# 3-40 s after it passed). These are counted separately (flips_just_passed) and never raise a breach.
+DUE_S = 30
+JUST_PASSED_M = 300
 MIN_HISTORICAL_PCT = 30.0   # below this the hop-time table has probably emptied again
 MIN_ROUTE_ROWS = 20         # don't judge a route on a handful of predictions
 MIN_ROWS = 50               # too little data to judge anything
@@ -92,8 +98,15 @@ def analyze(rows, names):
         for rid, e in by_route.items()
     }
 
-    flips = [r for r in both if abs(r["ours"]) > FULL_LAP_OFF_S and abs(r["tl"]) < FULL_LAP_TL_OK_S]
+    candidates = [r for r in both if abs(r["ours"]) > FULL_LAP_OFF_S and abs(r["tl"]) < FULL_LAP_TL_OK_S]
+
+    def just_passed(r):
+        past = r.get("past_m")
+        return r.get("ours_s") is not None and r["ours_s"] <= DUE_S and past is not None and 0 < past <= JUST_PASSED_M
+
+    flips = [r for r in candidates if not just_passed(r)]
     out["full_lap_flips"] = len(flips)
+    out["flips_just_passed"] = len(candidates) - len(flips)
 
     problems = []
     if len(rows) < MIN_ROWS:

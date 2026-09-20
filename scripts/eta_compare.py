@@ -117,12 +117,30 @@ def unwrapped_track(track, poly, cum):
     return out
 
 
-def find_crossings(tracks, stops, lines, wanted):
+def build_unwrapped(tracks, lines):
+    """{(veh, route): [(t, unwrapped arc position m), ...]} for every tracked vehicle."""
+    return {
+        (veh, route): unwrapped_track(track, *lines[route])
+        for (veh, route), track in tracks.items() if route in lines
+    }
+
+
+def position_at(u, t):
+    """Unwrapped arc position at time t (linear between samples, clamped to the ends)."""
+    if not u:
+        return None
+    if t <= u[0][0]:
+        return u[0][1]
+    for (t0, x0), (t1, x1) in zip(u, u[1:]):
+        if t0 <= t <= t1:
+            return x0 if t1 == t0 else x0 + (x1 - x0) * (t - t0) / (t1 - t0)
+    return u[-1][1]
+
+
+def find_crossings(tracks, stops, lines, wanted, unwrapped=None):
     """{(route, stop, veh): [epoch the bus's route position crossed the stop's, ...]}."""
-    unwrapped = {}
-    for (veh, route), track in tracks.items():
-        if route in lines:
-            unwrapped[(veh, route)] = unwrapped_track(track, *lines[route])
+    if unwrapped is None:
+        unwrapped = build_unwrapped(tracks, lines)
     out = {}
     for (route, stop, veh) in wanted:
         u = unwrapped.get((veh, route))
@@ -162,7 +180,8 @@ def score_rows(polls, stops, lines):
         for veh, route, lat, lon, _mps in p["veh"]:
             tracks.setdefault((veh, route), []).append((p["t"], lat, lon))
     wanted = {(x[0], x[1], x[2]) for p in polls for x in p["ours"] + p["tl"]}
-    crossings = find_crossings(tracks, stops, lines, wanted)
+    unwrapped = build_unwrapped(tracks, lines)
+    crossings = find_crossings(tracks, stops, lines, wanted, unwrapped)
     rows = []
     for p in polls:
         t = p["t"]
@@ -173,8 +192,17 @@ def score_rows(polls, stops, lines):
             actual = next((a for a in crossings.get(key, []) if a >= t - 1.0), None)
             if actual is None or actual - t > 3600:
                 continue
+            # How far the bus's route position is BEYOND the stop right now (metres; positive = it has
+            # already passed the stop, within half a lap). A "Due" reading a few seconds after the bus
+            # went by looks like a full-lap error to the scorer, because the next crossing is a lap away.
+            route, stop, veh = key
+            pos = position_at(unwrapped.get((veh, route)), t)
+            past_m = None
+            if pos is not None and (route, stop) in stops:
+                length = lines[route][1][-1]
+                past_m = ((pos - stops[(route, stop)][3] + length / 2.0) % length) - length / 2.0
             rows.append({
-                "t": t, "key": key, "remaining": max(0.0, actual - t),
+                "t": t, "key": key, "remaining": max(0.0, actual - t), "past_m": past_m,
                 "ours": (t + ours[key] - actual) if key in ours else None,
                 "tl": (t + tl[key] - actual) if key in tl else None,
                 "ours_s": ours.get(key), "tl_s": tl.get(key), "source": src.get(key),

@@ -27,6 +27,17 @@ Machine tags: `[dev]` = Windows dev machine · `[home]` = home server (Windows b
 
 ## 1. Message board (newest first)
 
+### 2026-09-20 · [dev] · Health check no longer cries wolf on "Due" a few seconds after a bus passes (needs `git pull` on [home])
+- The 01:30 Night Pilot run flagged "6 full-lap flips." **None were real.** Bus 16 was passing five stops in three minutes
+  (up to 27 m/s); each flagged row was our "Due" shown 3-40 s after the bus went by (24-216 m past the stop), which the
+  scorer compared against the bus's next crossing a lap (~24 min) away. (Note: an earlier claim that the bus "skipped"
+  Valley Rd / Brandon Ave was wrong — it passed them at 6 m and 5 m; that came from a once-a-minute table at 27 m/s.)
+- Fix: `eta_compare.score_rows` now records `past_m` (how far past the stop the bus is at that moment); the health check
+  exempts a "Due" (<= 30 s) with the bus 0-300 m past the stop and reports it as `flips_just_passed` (informational, never a
+  breach). Real flips still trip: run 1 from before the engine fixes still shows 23; tests in `tests/test_eta_health_check.py`.
+- **`[home]`: `git pull`** so the scheduled tasks pick it up. The 07:30 Sunday breaches (late %, Orange bias, low
+  history share) were NOT affected by this and are still real signals.
+
 ### 2026-09-19 · [home] · Claude review + ntfy push is BUILT (needs the phone app to receive)
 - `scripts/eta_health_notify.py` (called at the end of `eta_health_check.py`; failures never change its exit code) runs
   headless `claude -p` on the newest result line, gets a 1-3 line verdict (ALL CLEAR / PROBLEM / NOTE), and POSTs it to
@@ -268,7 +279,8 @@ Baseline from the last Saturday run (run 6): overall median error 0 s, median |e
 - misses >2 min **late** above ~3% of predictions overall (late is the costly direction — see §2);
 - any single route with median |error| above ~90 s, or a median **late** bias above ~+60 s;
 - a **full-lap flip**: one estimate ~20+ min off while TransLoc is within ~2 min for the same bus/stop, or a
-  non-zero "only TransLoc" coverage count (TransLoc predicted a visit we didn't);
+  non-zero "only TransLoc" coverage count (TransLoc predicted a visit we didn't). A "Due" shown within ~300 m / a few
+  seconds AFTER the bus passed a stop is display lag, not a flip — the health check exempts it (`flips_just_passed`);
 - the share of estimates using real history (`historical`) collapsing — that would mean the hop-time table has
   emptied again (check the nightly 03:00 rebuild and whether `block`/vehicle grouping still yields buckets).
 
