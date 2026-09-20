@@ -34,7 +34,7 @@ Machine tags: `[dev]` = Windows dev machine · `[home]` = home server (Windows b
 - Topic lives in the **`NTFY_TOPIC` user environment variable on [home]** (also read from the registry, since long-running
   scheduler sessions can miss new env vars). Not in git. Runs the same 7x/day schedule; no task changes were needed.
 - Tested: Claude verdict works on a synthetic result; one test message was POSTed to ntfy. **Not yet verified on the phone:**
-  the user still has to install the ntfy app and subscribe to the topic (told to them in the session). Not yet seen in a real scheduled run.
+  Messages include an ETA accuracy summary (median error, % >2 min late, vs TransLoc, worst route, count). The user still has to install the ntfy app and subscribe to the topic (told to them in the session). Not yet seen in a real scheduled run.
 
 ### 2026-09-19 · [dev] · REQUEST (user): after each scheduled ETA check, Claude analyzes it and pushes the result via ntfy
 - **What the user wants:** after every scheduled health-check run, **Claude is prompted to analyze the results

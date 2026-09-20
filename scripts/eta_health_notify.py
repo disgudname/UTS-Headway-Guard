@@ -25,9 +25,13 @@ thresholds and baseline, then judge this result:
 
 {result}
 
-Reply with ONLY the notification text: 1-3 short plain-language lines for a phone screen, no markdown.
-Start with "ALL CLEAR:" if fine, "PROBLEM:" if a real breach (not one delayed bus or a scorer
-artifact), or "NOTE:" if inconclusive/odd (e.g. error, too little data, Purple off-hours)."""
+Reply with ONLY the notification text, plain language, no markdown, max 4 short lines:
+line 1 starts with "ALL CLEAR:", "PROBLEM:" (a real breach, not one delayed bus or a scorer artifact) or
+"NOTE:" (inconclusive/odd, e.g. error, too little data, Purple off-hours), plus a few-word verdict.
+Then an ACCURACY SUMMARY answering "how accurate are our ETAs?": typical error in seconds/minutes
+(median absolute), how often we were more than 2 min late, how that compares to TransLoc's own ETAs
+(tl_* fields) when present, the worst route if any, and the number of predictions scored. If there was
+no data, say so instead."""
 
 
 def review(last):
