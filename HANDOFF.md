@@ -42,9 +42,10 @@ Machine tags: `[dev]` = Windows dev machine · `[home]` = home server (Windows b
   2. Scheduled holds are already correct (weekend Green has only CHP entries). BUT the layover **hop cap** (`is_timestop_fn` = "any mapped stop for the route") ignores day/time,
      so it caps the hop leaving Green's JPA/MP on weekends, Orange's MP/PIN, Gold's MCQ, etc., where buses do not layover. Observed Sunday dwell (>=45 s at a stop): real layovers only at
      Green CHP (median 3 min), Orange LIB (4.6 min), Gold CHP (4.3 min) and LIB (2 min); Gold BAR/HER ~45-75 s (normal). Effect of the extra cap: slightly EARLY ETAs, not late.
-  3. Scheduled-but-unmapped (holds inactive, layover leaks into history): route 55 weekday CSW/JPA, 53 weekday LIB (evening), 67 CHP/LIB/CSW, 68 CHP/JPA, 57 weekday CSW, 54 weekday HER.
-  4. Suggested fix (not done): make the cap day/time-aware (only where a block schedule has that code in that day-group/time window) and map the missing pairs once a live bus confirms them.
-  Only weekend data exists so far; check weekday morning/evening dwell from the scheduled runs before changing anything.
+  3. **CORRECTED (same day, user was right): every timestop pair is already mapped.** The "scheduled-but-unmapped" list I first wrote here was an artifact: block `route_ids`
+     are route FAMILIES (e.g. block [05] = 53/55/70), so a route inherits codes for stops it never visits. Checked against TransLoc's live stop lists (`/v1/transloc/routes`, which
+     includes the weekday route IDs 53/67/68/58): all 24 (route, code) pairs where the route really has that stop are mapped to the right RouteStopID. Nothing to add.
+  4. Fix written 2026-09-20 [home] (see next line): the cap now uses `uts_blocks.is_timestop_active()` (schedule day-group + time of day). NOT deployed until the user says cpd.
 
 ### 2026-09-20 · [dev] · Thin weekend history is now a NOTE, not a PROBLEM (needs `git pull` on [home])
 - I ran a manual 30-min check on the dev box (Sun 09:49–10:19): median error -2 s vs TransLoc -79 s, 0.5% >2 min late
