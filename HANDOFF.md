@@ -27,7 +27,15 @@ Machine tags: `[dev]` = Windows dev machine · `[home]` = home server (Windows b
 
 ## 1. Message board (newest first)
 
-### 2026-09-19 · [dev] · ETA work is done and deployed; home-server work is next
+### 2026-09-19 · [dev] · CORRECTION: geocoding IS deployed and live
+- The entry below (and §5) said the geocoding Fly step was still open. **That was stale.** Verified today:
+  `GEOCODE_URL` and `GEOCODE_PROXY_URL` are set on Fly (status Deployed), and
+  `https://uts-headway-guard.fly.dev/v1/search/geocode?q=rugby road` returns real results, so prod reaches
+  Nominatim over the tunnel. Nothing left to do for geocoding. `GEOCODING_SEARCH.md` updated to match.
+- **Lesson:** the docs describe state at write time. Re-verify (`flyctl secrets list`, hit the live endpoint)
+  before telling the user something is unfinished.
+
+### 2026-09-19 · [dev] · ETA work is done and deployed; home-server work is next  *(geocoding item 2 below is superseded — see correction above)*
 - **State:** everything from the ETA-accuracy session is committed, pushed, and deployed (last code commit
   `efec93e`). Details in §4. Nothing is half-finished on `[dev]`.
 - **For `[home]` — suggested first steps:**
@@ -69,6 +77,8 @@ Machine tags: `[dev]` = Windows dev machine · `[home]` = home server (Windows b
   weigh late misses more. Don't "fix" a small early lean by pushing estimates later.
 - **Don't chase perfection.** The user's own framing: it's a chaotic system. We agreed to stop tuning the
   ETA engine unless something is *clearly broken* (late misses common, one route badly late, a full-lap glitch).
+- **HANDOFF.md edits never need permission.** The user said (2026-09-19) to just update this file whenever it's
+  useful — don't ask first. Still commit and push right after (see "How to use this doc").
 - Commit style: present-tense imperative subject, technical body. Commits made by Claude end with the
   `Co-Authored-By` / `Claude-Session` trailer lines the harness provides. Single branch (`main`).
 - `PushNotification` only delivers when the terminal is *not* the active window; the user has the mobile
@@ -169,6 +179,7 @@ The existing docs are current and detailed — **read them first, and re-verify 
 - Gotchas already paid for: `tailscaled` state must live on `/data/tailscale` (ephemeral rootfs loses the
   login on restart); a freshly-set Fly secret sometimes needs `flyctl secrets deploy` before the running
   process sees it (diff `/proc/<pid>/environ`).
+- **Update 2026-09-19:** the geocoding Fly side is done and live (see §1 correction); the "Not yet done" bullet above is stale.
 - Reminder: deploy only on "cpd".
 
 ## 6. Useful recipes

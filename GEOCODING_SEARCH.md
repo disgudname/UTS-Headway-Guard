@@ -1,6 +1,6 @@
 # Off-Grounds place search — home-server handoff notes
 
-**Nominatim is up and wired into the app; only the Fly-side deploy step is left.** Same
+**DONE (verified 2026-09-19): Nominatim is up, wired into the app, Fly secrets are set, and it is live in production** (`/v1/search/geocode?q=rugby road` returns real results). The "not yet done"/"Remaining: Fly deploy" text below is historical. Same
 pattern as `ROUTING_ENGINE.md` (read that file too — it documents the box, the OSM extract,
 and the Tailscale tunnel this work reuses).
 
@@ -54,7 +54,7 @@ and the Tailscale tunnel this work reuses).
   `trip-planner-panel.js` it reuses the same point-apply path as a stop/recent pick; in
   `search.js` it gets its own `_pickPlace()` (camera fitBounds/flyTo + "Navigate here", same
   shape as `_pickBuilding()` but no polygon to highlight).
-- **Not yet done: the Fly side.** `GEOCODE_URL`/`GEOCODE_PROXY_URL` secrets are not set on
+- **(Historical — since done.) The Fly side:** `GEOCODE_URL`/`GEOCODE_PROXY_URL` secrets are not set on
   Fly, and none of this has been deployed. `GEOCODE_PROXY_URL` should just reuse
   `WALK_ROUTER_PROXY_URL`'s existing value (`http://localhost:1055`) — no new Dockerfile/
   start.sh changes needed, the outbound Tailscale proxy already runs. `GEOCODE_URL` should
@@ -141,7 +141,7 @@ results into labeled sections ("Buildings", "Bus stops"). Add a third section (s
 like "Places") sourced from the new endpoint, debounced the same way the existing building
 search is.~~ Done — see "Current state" above.
 
-## Remaining: Fly deploy
+## Fly deploy (COMPLETED — kept for reference)
 
 1. Set Fly secrets: `GEOCODE_URL=http://100.119.243.68:8003/search` (the home server's
    Nominatim endpoint) and `GEOCODE_PROXY_URL` (reuse `WALK_ROUTER_PROXY_URL`'s value,
