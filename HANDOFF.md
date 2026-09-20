@@ -266,6 +266,11 @@ Green bus 16 sat still ~3 min and our ETA froze while it dwelled, then snapped b
 - A **dwelling bus with no scheduled hold has a frozen ETA** (leans late while it sits, corrects when it moves).
 - A late bus is assumed to leave the timestop after a 30 s allowance; observed dwell was 30–60 s. Slightly early.
 - **Regular health checks:** procedure and thresholds are in §7; automating them is discussed but not built.
+- **Routes change shape a lot by day of week and time of day (user, 2026-09-20).** Each variant is its own TransLoc RouteID (e.g. Green: 54 = post-6PM/weekends loop, 68 =
+  pre-6PM detour service, 52/66/80/71 = other/older variants; Gold 57 vs 67/56/78; Orange 53 vs 55), each with its own stop IDs, stop order and polyline. Consequences to keep in mind:
+  hop-time history is keyed per route, so every new variant starts with NO history (the reason weekend 54/55 history is thin); timestop mappings are per route ID (correct, since a
+  route only has the stops it visits); block `route_ids` are route FAMILIES, not one variant; and an accuracy number is only meaningful for the variant that was running. Log which
+  RouteIDs are active in each run before comparing across days/hours. Never assume weekend results carry over to a weekday variant.
 - Timestops are a hand-confirmed list (`config/uts_timestops.json`: only (route, code) pairs seen with a live
   bus). An unlisted stop where buses layover would still leak layover into history; add it to that file.
 
