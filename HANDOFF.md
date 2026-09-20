@@ -15,7 +15,7 @@ per-machine and does NOT travel, so anything the other machine needs to know goe
 - **§1 Message board is append-only, newest first.** Add an entry; don't rewrite someone else's. When an
   item is resolved, add a follow-up line under it (`↳ [home] done 2026-09-21, see commit abc123`) rather than
   deleting history. Prune only entries that are both resolved and older than ~a month.
-- **§2–§6 are reference.** Edit those in place when the facts change, and put the date on what you changed.
+- **§2–§7 are reference.** Edit those in place when the facts change, and put the date on what you changed.
   If a reference fact turns out to be stale, fix it here — don't just work around it.
 - **Never put secrets here** (API keys, auth keys, passwords, cookies). Name where they live instead.
 - **What belongs where:** decisions, state that isn't obvious from the code, warnings, and "I need X from the
@@ -26,6 +26,14 @@ Machine tags: `[dev]` = Windows dev machine · `[home]` = home server (Windows b
 ---
 
 ## 1. Message board (newest first)
+
+### 2026-09-19 · [dev] · NEW: regular ETA health checks (procedure in §7, automation not built)
+- Added §7: how to run a check, when, what counts as "clearly broken," and where to record results. **Nothing is
+  automated yet** — until the user asks, a check happens only when a session runs one by hand.
+- Only Saturday evenings have been measured. The most valuable next data is a **weekday morning, midday and
+  rush hour**, and a run while **Purple** is in service (Purple has never appeared in a test).
+- Post a board entry only when a check breaches a threshold or covers a new kind of hour/day (see §7) — not for
+  every routine pass.
 
 ### 2026-09-19 · [dev] · CORRECTION: geocoding IS deployed and live
 - The entry below (and §5) said the geocoding Fly step was still open. **That was stale.** Verified today:
@@ -154,9 +162,7 @@ Green bus 16 sat still ~3 min and our ETA froze while it dwelled, then snapped b
   Weekday mornings / midday / rush hour are unmeasured. Worth a run before trusting those hours.
 - A **dwelling bus with no scheduled hold has a frozen ETA** (leans late while it sits, corrects when it moves).
 - A late bus is assumed to leave the timestop after a 30 s allowance; observed dwell was 30–60 s. Slightly early.
-- Idea discussed, not built: **scheduled testing** — Task Scheduler runs `eta_watch`+`eta_compare` several
-  times a day and appends a summary line; a scheduled Claude routine reads the week's results and pings.
-  Spread runs across weekday/weekend, morning/midday/evening, and include a Purple run.
+- **Regular health checks:** procedure and thresholds are in §7; automating them is discussed but not built.
 - Timestops are a hand-confirmed list (`config/uts_timestops.json`: only (route, code) pairs seen with a live
   bus). An unlisted stop where buses layover would still leak layover into history; add it to that file.
 
@@ -202,3 +208,51 @@ repo root; always use a relative path. Poll `/v1/health`, then tear down by the 
 **Useful public endpoints for ETA work (no auth):** `/v1/eta/uts_stop_arrivals`, `/v1/transloc/stop_arrivals`,
 `/v1/testmap/transloc/vehicles`, `/v1/routes/{id}/vehicles_raw` (s_pos, ema_mps, dir_sign), `/v1/trip-planner/uts-graph`
 (per-line polyline + ordered stops with `arc_pos`). Block assignments are dispatcher-gated; inspect them via the probe.
+
+## 7. Regular ETA health checks
+
+**Purpose:** catch regressions and drift in ETA accuracy over time — *not* to tune. The engine is tuned; the user
+chose to stop (see §2). **Status: manual only.** Automation (below) is an idea the user hasn't asked to build yet.
+
+### Run one check (~35 min, read-only against production)
+Any machine with Python 3 and internet, from the repo root:
+```
+python scripts/eta_watch.py 30 15 data-local/eta_watch/<yyyymmdd-hhmm>.jsonl
+python scripts/eta_compare.py data-local/eta_watch/<same-file>.jsonl
+```
+It only makes public GET requests (about 120 polls × 3 endpoints), so it's light on the one-CPU app. Logs live in
+`data-local/` and are **not committed**. Details of what the scorer does: §4.
+
+### When to run them
+Vary the conditions — six Saturday-evening runs already exist, so more of the same adds little. Aim for:
+weekday morning (~8–10), weekday midday, weekday rush/evening, Sunday, and **at least one with Purple in
+service** (no Purple accuracy data exists at all). Several per week is plenty; a check after any change to
+`bus_eta.py`, `trip_planner_history.py`, or the vehicle-tracking code in `app.py` is worth more than a scheduled one.
+
+### What counts as "clearly broken" (starting thresholds — adjust once weekday data exists)
+Baseline from the last Saturday run (run 6): overall median error 0 s, median |error| 46 s, misses >2 min **late**
+1.2% (TransLoc: 1.2%, median −136 s). Investigate if any of these show up:
+- misses >2 min **late** above ~3% of predictions overall (late is the costly direction — see §2);
+- any single route with median |error| above ~90 s, or a median **late** bias above ~+60 s;
+- a **full-lap flip**: one estimate ~20+ min off while TransLoc is within ~2 min for the same bus/stop, or a
+  non-zero "only TransLoc" coverage count (TransLoc predicted a visit we didn't);
+- the share of estimates using real history (`historical`) collapsing — that would mean the hop-time table has
+  emptied again (check the nightly 03:00 rebuild and whether `block`/vehicle grouping still yields buckets).
+
+**Before calling something a bug:** (1) check whether it's ONE bus — a delayed or parked bus hurts both engines
+(look at the worst misses by bus, and whether TransLoc missed the same rows); (2) any cluster **both** engines
+share is a scorer artifact until proven otherwise; (3) early misses are the lesser problem.
+
+### Recording results
+- Routine pass with nothing unusual: no board entry needed.
+- Post a short `[machine]` entry on the message board (numbers + one line of interpretation) when a threshold is
+  breached, or when the check covers a new kind of hour/day (first weekday morning, first Purple run, …).
+- Real fixes go in code with a commit message that says what was measured, as before.
+
+### Automation (idea only — ask the user before building)
+- A script on an always-on machine (the home server is the natural host; Windows Task Scheduler or cron) runs the
+  two commands several times a day at varied hours and appends one summary line per run to a local results file.
+- Optionally a scheduled Claude routine reads that file once a day and pings the user — only on a threshold
+  breach or a first-of-its-kind run, not every pass.
+- Unknowns: whether a routine's notification reliably reaches the user's phone, and what scheduled cloud runs
+  cost. The plain scheduled script (no AI) avoids both for the mechanical part.
