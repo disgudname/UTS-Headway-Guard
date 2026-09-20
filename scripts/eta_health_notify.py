@@ -25,6 +25,9 @@ thresholds and baseline, then judge this result:
 
 {result}
 
+A "notes" field is informational only (e.g. thin weekend history that should improve on its own): mention it in
+one short clause if present, but it is NOT a PROBLEM and must not change an ALL CLEAR into one.
+
 Reply with ONLY the notification text, plain language, no markdown, max 4 short lines:
 line 1 starts with "ALL CLEAR:", "PROBLEM:" (a real breach, not one delayed bus or a scorer artifact) or
 "NOTE:" (inconclusive/odd, e.g. error, too little data, Purple off-hours), plus a few-word verdict.

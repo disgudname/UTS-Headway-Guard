@@ -27,6 +27,18 @@ Machine tags: `[dev]` = Windows dev machine · `[home]` = home server (Windows b
 
 ## 1. Message board (newest first)
 
+### 2026-09-20 · [dev] · Thin weekend history is now a NOTE, not a PROBLEM (needs `git pull` on [home])
+- I ran a manual 30-min check on the dev box (Sun 09:49–10:19): median error -2 s vs TransLoc -79 s, 0.5% >2 min late
+  (TL 1.1%), Orange/Green/Gold all within limits — the ONLY flag was "14.2% of estimates use real history". Same thin-history
+  cause as the 07:30 run (weekend route ids are new this semester), so every weekend daytime run would have sent a PROBLEM push
+  that isn't actionable.
+- Change (`scripts/eta_health_check.py`): history share < 30% is now an informational `notes` entry in the result line (no
+  breach, exit code unaffected); a real collapse (< 5%, the original block-field bug measured ~1%) is still a breach. The
+  notify prompt tells Claude a `notes` field is informational and must not turn an ALL CLEAR into a PROBLEM.
+  Tests: `tests/test_eta_health_check.py`. Revisit the 30% NOTE line once weekend `historical_pct` climbs (weekday-evening/night
+  runs are already 50–90%).
+- The dev-box log isn't committed (`data-local/` only on the user's request).
+
 ### 2026-09-20 · [home] · `data-local/` is committed ONLY when the user asks
 - The user had the ETA watch logs (`data-local/eta_watch/`, incl. `health_results.jsonl`) committed once (`25e4bbf`) and said
   this should keep happening **at their request, not automatically**. Don't add `data-local/` to routine commits; stage files by
@@ -308,8 +320,9 @@ Baseline from the last Saturday run (run 6): overall median error 0 s, median |e
 - a **full-lap flip**: one estimate ~20+ min off while TransLoc is within ~2 min for the same bus/stop, or a
   non-zero "only TransLoc" coverage count (TransLoc predicted a visit we didn't). A "Due" shown within ~300 m / a few
   seconds AFTER the bus passed a stop is display lag, not a flip — the health check exempts it (`flips_just_passed`);
-- the share of estimates using real history (`historical`) collapsing — that would mean the hop-time table has
-  emptied again (check the nightly 03:00 rebuild and whether `block`/vehicle grouping still yields buckets).
+- the share of estimates using real history (`historical`) **collapsing below ~5%** — that means the hop-time table has
+  emptied again (check the nightly 03:00 rebuild and whether `block`/vehicle grouping still yields buckets). A share of
+  5–30% is only a `notes` entry (thin weekend history is expected for now).
 
 **Before calling something a bug:** (1) check whether it's ONE bus — a delayed or parked bus hurts both engines
 (look at the worst misses by bus, and whether TransLoc missed the same rows); (2) any cluster **both** engines

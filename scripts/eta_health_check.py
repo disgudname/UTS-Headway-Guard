@@ -35,7 +35,13 @@ FULL_LAP_TL_OK_S = 120
 # 3-40 s after it passed). These are counted separately (flips_just_passed) and never raise a breach.
 DUE_S = 30
 JUST_PASSED_M = 300
-MIN_HISTORICAL_PCT = 30.0   # below this the hop-time table has probably emptied again
+# Share of estimates that used real history for EVERY hop. Two tiers, because they mean different things:
+#   below BREACH -> the hop-time table has probably emptied again (the original bug measured ~1%): a real breach.
+#   below NOTE   -> thin history, informational only. Weekend routes 54/55/57 are new this semester, so weekend
+#                   daytime runs sit at ~10-15% (07:30 Sun 11.8%, 09:49 Sun 14.2%) while weekday-evening/night runs
+#                   are 50-90%. It should rise on its own as weekend days accumulate -- revisit when it does.
+MIN_HISTORICAL_PCT_BREACH = 5.0
+MIN_HISTORICAL_PCT_NOTE = 30.0
 MIN_ROUTE_ROWS = 20         # don't judge a route on a handful of predictions
 MIN_ROWS = 50               # too little data to judge anything
 
@@ -126,8 +132,13 @@ def analyze(rows, names):
         problems.append(f"{len(flips)} full-lap flip(s): our ETA >20 min off while TransLoc was within 2 min")
     if out["only_transloc"]:
         problems.append(f"{out['only_transloc']} visit(s) TransLoc predicted that we didn't")
-    if "historical_pct" in out and out["historical_pct"] < MIN_HISTORICAL_PCT:
-        problems.append(f"only {out['historical_pct']}% of estimates use real history (hop-time table may be empty)")
+    if "historical_pct" in out:
+        pct = out["historical_pct"]
+        if pct < MIN_HISTORICAL_PCT_BREACH:
+            problems.append(f"only {pct}% of estimates use real history (hop-time table has probably emptied)")
+        elif pct < MIN_HISTORICAL_PCT_NOTE:
+            out["notes"] = [f"thin history: only {pct}% of estimates use real history for every hop (expected on weekend "
+                            "daytime while the weekend routes' history builds up; not a problem by itself)"]
     return out, problems
 
 

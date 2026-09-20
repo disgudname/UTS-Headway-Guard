@@ -14,11 +14,13 @@ def _row(ours, tl, ours_s, past_m, n=0):
     }
 
 
-def _filler(n=60):
+def _filler(n=60, historical_pct=100.0):
     """Ordinary well-predicted rows so the run isn't 'too little data'."""
+    n_hist = round(n * historical_pct / 100.0)
     return [{
         "t": 1000.0 + i, "key": ("59", f"{700 + i}", "16"), "remaining": 300.0, "past_m": -500.0,
-        "ours": 10.0, "tl": 20.0, "ours_s": 300.0, "tl_s": 320.0, "source": "historical",
+        "ours": 10.0, "tl": 20.0, "ours_s": 300.0, "tl_s": 320.0,
+        "source": "historical" if i < n_hist else "projected",
     } for i in range(n)]
 
 
@@ -53,3 +55,22 @@ def test_only_a_due_reading_gets_the_exemption():
     rows = _filler() + [_row(2500.0, 30.0, 1200.0, 100.0)]
     out, _ = h.analyze(rows, {})
     assert out["full_lap_flips"] == 1
+
+
+def test_thin_history_is_a_note_not_a_breach():
+    # Weekend daytime runs sit at ~10-15% (07:30 Sun 11.8%, 09:49 Sun 14.2%) while the weekend routes' history builds.
+    out, problems = h.analyze(_filler(100, historical_pct=12.0), {})
+    assert not problems
+    assert any("thin history" in n for n in out["notes"])
+
+
+def test_a_collapsed_history_share_is_still_a_breach():
+    # The original bug (history grouped by an empty field) measured ~1%.
+    out, problems = h.analyze(_filler(100, historical_pct=1.0), {})
+    assert any("emptied" in p for p in problems)
+    assert "notes" not in out
+
+
+def test_healthy_history_share_has_neither():
+    out, problems = h.analyze(_filler(100, historical_pct=60.0), {})
+    assert not problems and "notes" not in out
