@@ -16349,6 +16349,9 @@ async def _compute_bus_eta_arrivals() -> Dict[str, Any]:
         if line is None or not line.shape_cum or len(line.stops) < 2:
             continue
         for vid, veh in vehs.items():
+            # Which schedule block the bus is running (None if dispatch hasn't assigned one or it's
+            # ambiguous right now). Published per arrival so its use for scheduled holds is auditable.
+            block_id = _current_block_id_for_vehicle(vehicle_block_windows, vid, when_ts)
             # A reading sitting AT the smoothing ceiling isn't a real observed speed
             # -- it means a glitchy raw reading (a GPS jump, a bad arc-length
             # projection) pegged the EMA and it hasn't decayed back down yet.
@@ -16367,7 +16370,7 @@ async def _compute_bus_eta_arrivals() -> Dict[str, Any]:
                     line, veh.s_pos, ema_mps, stop, hop_time_fn, when_ts,
                     vehicle_lat=veh.lat, vehicle_lon=veh.lon,
                     vehicle_dir_sign=getattr(veh, "dir_sign", 0),
-                    vehicle_block_id=_current_block_id_for_vehicle(vehicle_block_windows, vid, when_ts),
+                    vehicle_block_id=block_id,
                     scheduled_timestop_fn=uts_blocks.scheduled_hold_epoch if uts_blocks.is_loaded() else None,
                     is_timestop_fn=(
                         (lambda r, s: uts_blocks.timestop_code_for_stop(r, s) is not None)
@@ -16388,6 +16391,7 @@ async def _compute_bus_eta_arrivals() -> Dict[str, Any]:
                     "VehicleId": str(vid),
                     "Seconds": round(seconds, 1),
                     "Source": result.source,
+                    "BlockId": block_id,
                 })
 
     for stale in [k for k in _bus_eta_history if k not in seen_keys]:

@@ -174,9 +174,11 @@ DWELL_DETECTION_RADIUS_M = 40.0
 # measured from real GPS tracks (2026-09-19, Gold/Green/Orange at Chapel and Shannon
 # Library), the 11 clean visits left 0 to 1.9 minutes after the scheduled minute (median
 # ~1.1). The hold clamp treats the schedule as the moment the bus is released, so
-# without this every ETA past a timestop came in ~a minute early. 45s is deliberately
-# under the measured median -- the measurement itself is only good to ~15s.
-SCHEDULED_DEPARTURE_LAG_S = 45.0
+# without this every ETA past a timestop came in ~a minute early. 45s was deliberately
+# under that median. Re-measured 2026-09-20 from ~20,000 headway-event departures at
+# timestops the schedule really governs (fall semester): median 12-48 s after the
+# scheduled time per route/stop, ~27 s overall, so 30 s. Early is the cheaper miss.
+SCHEDULED_DEPARTURE_LAG_S = 30.0
 
 # (route_id, stop_id) -> is this a mapped timestop? Independent of whether a hold is
 # scheduled right now -- see POST_HOLD_HOP_ALLOWANCE_S.
