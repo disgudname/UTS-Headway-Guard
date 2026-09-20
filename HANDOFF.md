@@ -31,14 +31,15 @@ Machine tags: `[dev]` = Windows dev machine · `[home]` = home server (Windows b
 - **What the user wants:** after every scheduled health-check run, **Claude is prompted to analyze the results
   and send the user a push notification through a plain web-push service (ntfy)** — not through Claude's own
   `PushNotification` tool, which was tested and doesn't reach the phone from unattended runs (see §7).
-- **Status: not built.** Spec, constraints, and open questions are in §7 ("Requested next: Claude review + ntfy
-  push"). `[home]` owns the scheduler, so it's the natural place to build it. The user has NOT yet installed the
-  ntfy phone app or picked a channel name — that needs them.
+- **Status: approved by the user, not built yet.** Decisions (user, 2026-09-19): **a push after EVERY run** (7 a day —
+  a short "all clear" is wanted, not just breaches), **Claude usage cost is not a concern**, and it **runs on `[home]`**.
+  Spec and details are in §7 ("Requested next: Claude review + ntfy push"). `[home]`: you're clear to build it.
+  The user still has to install the ntfy phone app and choose/receive the channel name — ask them for that.
 - **Do not put the ntfy channel name in git.** On the free hosted service the channel name is effectively the
   password (anyone who knows it can read or send). Keep it in a git-ignored local file or a Windows environment
   variable on the machine that sends.
-- **Cost:** $0 for this use (hosted free tier, or free to self-host); paid tiers exist but aren't needed.
-  Not yet confirmed: what running `claude -p` after every run costs in usage (~12 runs/day) — see §7.
+- **Cost:** $0 for ntfy (hosted free tier, or free to self-host); paid tiers exist but aren't needed. The user said Claude
+  usage from running `claude -p` after each run is fine.
 
 ### 2026-09-19 · [home] · ETA health checks are now automated (on the home server)
 - Built `scripts/eta_health_check.py` and registered Windows Task Scheduler jobs on the home server
@@ -312,18 +313,20 @@ notification through this service (ntfy).
 - ntfy hosted service (ntfy.sh): free, no sign-up; paid tiers (~$5/$10/$20 per month per a third-party listing) add higher
   limits and reserved private names — not needed here. The server is open source and free to self-host, but reliable
   instant delivery to a phone from a self-hosted server is fiddlier (hosted ntfy.sh uses Firebase for Android push).
-  The exact free-tier daily message cap wasn't found; irrelevant at our volume (≤ ~12 messages/day).
+  The exact free-tier daily message cap wasn't found; irrelevant at our volume (7 messages/day).
 - **The channel name is the password** on the free tier: use a long random string (20+ chars), keep it out of git,
   and treat the messages as non-secret (short ETA summaries only — never keys, cookies, or internal URLs).
 - The user must install the ntfy app on their phone and subscribe to the channel before anything can be received.
 
-**Open questions — confirm with the user before building:**
-- **Frequency:** the user said "after each run," which is up to ~12 messages a day. Confirm they want a message for
-  every run (a one-line "all clear" is fine) rather than only breaches / first-of-a-kind runs, which was the earlier proposal.
-- **Cost of running Claude ~12×/day:** unknown; check with the user (and consider a cheaper model or a very short
-  prompt) before enabling. If it's a problem, fall back to the script sending the ntfy message itself, with Claude
-  reviewing only breaches.
-- **Where it runs:** `[home]` (owns Task Scheduler and is always on) is the assumption. Headless runs need `claude.exe`
-  reachable from the scheduled task (it lives in the user's `.localin`, per the earlier test).
+**Decisions (user, 2026-09-19) — these settle the earlier open questions:**
+- **Frequency: a push after every run.** The schedule above is 7 runs/day (Mon–Fri 04:30, 08:30, 12:30, 17:00, 19:30
+  plus 00:00 and 01:30; Sat+Sun 07:30, 12:00, 14:00, 17:00, 20:00 plus 00:00 and 01:30), so 7 messages a day. A one-line
+  "all clear" is fine and wanted; make a breach message stand out (e.g. higher ntfy priority or a clear "PROBLEM" prefix).
+- **Claude usage cost: not a concern.** No need to optimize the prompt for cost, but keep it focused so runs finish quickly.
+- **Where it runs: `[home]`** (owns Task Scheduler, always on). Headless runs need `claude.exe` reachable from the scheduled
+  task (it lives in the user's `.localin`, per the earlier test).
+
+**Still needed from the user:** install the ntfy app on their phone and subscribe to a channel. Generate the long random
+channel name on `[home]`, store it locally (git-ignored file or Windows env var), and hand it to the user to type into the app.
 
 **Deploys:** none involved. Nothing here touches the Fly app; adding it is a scheduler/script change on `[home]`.
