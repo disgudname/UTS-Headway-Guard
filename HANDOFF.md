@@ -28,8 +28,8 @@ Machine tags: `[dev]` = Windows dev machine · `[home]` = home server (Windows b
 ## 1. Message board (newest first)
 
 ### 2026-09-19 · [home] · ETA health checks are now automated (on the home server)
-- Built `scripts/eta_health_check.py` and registered 5 Windows Task Scheduler jobs on the home server
-  (`ETA-Health-*`): weekdays 08:30 / 12:30 / 17:00, Saturday 12:00, Sunday 14:00. Each runs 30 min, read-only.
+- Built `scripts/eta_health_check.py` and registered Windows Task Scheduler jobs on the home server
+  (`ETA-Health-*`; full time list in §7, expanded the same day to cover early AM, evenings and overnight). Each runs 30 min, read-only.
   Details and how to change/remove them: §7.
 - **Nothing pings the user.** Results just accumulate in `data-local/eta_watch/health_results.jsonl` on the home
   server (not committed). Any session on `[home]` should glance at it (`breaches` non-empty = look closer) and post
@@ -265,8 +265,10 @@ share is a scorer artifact until proven otherwise; (3) early misses are the less
   `historical_pct`, `full_lap_flips`, `purple_in_service`, `breaches`, or `inconclusive` if buses weren't running /
   too little data — that's not a breach). Exit code 0 clean/inconclusive, 2 breach, 1 check couldn't run.
   Thresholds are the constants at the top of the script (the §7 numbers) — edit them there once weekday data exists.
-- Scheduled via Windows Task Scheduler on the home server, tasks `ETA-Health-Weekday-Morning|Midday|Rush`
-  (08:30 / 12:30 / 17:00 Mon–Fri), `ETA-Health-Saturday` (12:00), `ETA-Health-Sunday` (14:00). They run under
+- Scheduled via Windows Task Scheduler on the home server (local Eastern time, `ETA-Health-*` tasks):
+  Mon–Fri 04:30, 08:30, 12:30, 17:00, 19:30 · Sat+Sun 07:30, 12:00, 17:00, 20:00 (+ Sun-only 14:00) ·
+  every day 00:00 and 01:30. (Updated 2026-09-19 at the user's request; the earlier Saturday-only 12:00 task was
+  folded into the Sat+Sun noon task.) They run under
   `pythonw.exe` from the repo root, only if the machine is awake/online (missed runs start when available).
   Manage: `Get-ScheduledTask ETA-Health-*` / `Unregister-ScheduledTask -TaskName ETA-Health-Sunday -Confirm:$false`.
   A `git pull` on the home server updates the script the tasks run.
