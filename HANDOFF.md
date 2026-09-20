@@ -27,6 +27,26 @@ Machine tags: `[dev]` = Windows dev machine · `[home]` = home server (Windows b
 
 ## 1. Message board (newest first)
 
+### 2026-09-20 · [dev] · Sunday 07:30 breaches investigated: mostly two buses' first loop (both engines late), plus thin weekend history
+- **Late 11.1% / Orange +65 s:** all from Green bus 16 and Orange bus 34 (each route's only bus), concentrated in the
+  ~10 min after they pulled out of the lot (~07:31) and ran their first loop; ours +111 s vs TransLoc +114 s in that window
+  (TL >2 min late on 76% of the same rows). Errors are ~0 from ~07:45 on. Gold had 0.0% >2 min late. Neither bus stopped
+  ≥30 s during the loop. Cause not pinned: on hops that DO have history the buses ran roughly normal (0.94–1.43× expected,
+  4–16 hops each), so it isn't simply "buses were faster"; the late predictions came from the distance/speed fallback
+  (85% of that run's estimates). Treat "first ~10 min of service each morning" as a known-hard window for both engines;
+  one sample — wait for more weekend/weekday mornings (the scheduled runs will supply them) before tuning anything.
+- **Only 11.8% history:** real. At Sunday 07:45, no usable history for 15/20 Green hops, 14/20 Orange, 7/30 Gold — and
+  Green/Orange have ANY weekend history for only 5/20 and 6/20 adjacent hops at ANY hour (Gold 24/30). Not an ID problem in
+  current data (yesterday's Green/Orange/Gold events were 100% recorded under stop IDs on today's route); ~450 older weekend
+  buckets per route are filed under stop IDs no longer on the route and never match. Likely cause (unverified): the weekend
+  route IDs 54/55 only started this semester, so only ~3 Saturdays/Sundays feed the "≥3 samples per hop-hour" rule.
+  Saturday evening looked better only because weekday-evening data can be pooled; weekday MORNING service uses different
+  route ids (53/66/67/68), so nothing pools in at 07:30. Expect it to improve on its own as weekend days accumulate — check
+  `historical_pct` on weekend-morning runs over the next few weeks before touching `MIN_SAMPLES`.
+- **Units gotcha:** the `veh` speed field in `eta_watch` logs (labelled `mps`) is TransLoc's `GroundSpeed` in **mph**, not m/s.
+  (Some earlier speed numbers quoted in this session as m/s were really mph; conclusions from positions were unaffected.)
+- No code change for this. Not deployed anything.
+
 ### 2026-09-20 · [dev] · Health check no longer cries wolf on "Due" a few seconds after a bus passes (needs `git pull` on [home])
 - The 01:30 Night Pilot run flagged "6 full-lap flips." **None were real.** Bus 16 was passing five stops in three minutes
   (up to 27 m/s); each flagged row was our "Due" shown 3-40 s after the bus went by (24-216 m past the stop), which the
