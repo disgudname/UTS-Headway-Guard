@@ -27,6 +27,25 @@ Machine tags: `[dev]` = Windows dev machine · `[home]` = home server (Windows b
 
 ## 1. Message board (newest first)
 
+### 2026-09-20 · [home] · Continuous Sunday logging (12 sessions), stale-"Due" fix deployed, CORRECTION on late misses, timestop audit
+- **What ran:** back-to-back 30-min `eta_watch` sessions 10:29-15:51 (logs in `data-local/eta_watch/continuous/`, NOT committed except on the
+  user's request). **Only FOUR buses were ever scored** (16 Green/54, 13 Orange/55, 12+44 Gold/57); GPS bus 17 (route 11) sat parked and had no predictions.
+- **Deployed (`359e145`): stale "Due" fix.** The median-of-3 smoother kept publishing ~0 for 1-2 polls after a bus passed a stop (81% of 640 passes,
+  usually 15-30 s). Now an "arriving" (<=20 s) previous reading bypasses the median. After deploy: 20-32% of passes, ~10% still >=30 s and ~4% >=45 s
+  (a second cause remains, probably the arriving-now override). Tests: `tests/test_bus_eta_smoothing.py`.
+- **CORRECTION (earlier summaries/pitch talk said "no late misses" - WRONG):** over 12 sessions, **4.1% of our predictions were >2 min late (TransLoc 3.4%)**,
+  0% >5 min late. That is slightly over the ~3% line in §7. Median error still leans early overall (-3..-55 s) except Session 11 (+37 s).
+- **Session 11 lateness (Sun 15:21):** one bus (16, Green): +79 s median, 29% >2 min late; other three buses fine. Error ramps up steadily with horizon (+23 s at ~6 min out
+  to +170 s at ~15 min), no step at any timestop; bus ran ~10% faster than usual and TransLoc showed the same ramp (its early lean just masked it). Session 12 partial: gone.
+- **Timestop audit (config/uts_timestops.json vs config/uts_blocks.json) - needs a decision:**
+  1. The timestop config is per ROUTE only; the schedule is per day-group AND time of day (e.g. Green weekday: MP/HER 07:30-17:45, CHP/JPA 18:00-22:00; Green weekend: CHP only).
+  2. Scheduled holds are already correct (weekend Green has only CHP entries). BUT the layover **hop cap** (`is_timestop_fn` = "any mapped stop for the route") ignores day/time,
+     so it caps the hop leaving Green's JPA/MP on weekends, Orange's MP/PIN, Gold's MCQ, etc., where buses do not layover. Observed Sunday dwell (>=45 s at a stop): real layovers only at
+     Green CHP (median 3 min), Orange LIB (4.6 min), Gold CHP (4.3 min) and LIB (2 min); Gold BAR/HER ~45-75 s (normal). Effect of the extra cap: slightly EARLY ETAs, not late.
+  3. Scheduled-but-unmapped (holds inactive, layover leaks into history): route 55 weekday CSW/JPA, 53 weekday LIB (evening), 67 CHP/LIB/CSW, 68 CHP/JPA, 57 weekday CSW, 54 weekday HER.
+  4. Suggested fix (not done): make the cap day/time-aware (only where a block schedule has that code in that day-group/time window) and map the missing pairs once a live bus confirms them.
+  Only weekend data exists so far; check weekday morning/evening dwell from the scheduled runs before changing anything.
+
 ### 2026-09-20 · [dev] · Thin weekend history is now a NOTE, not a PROBLEM (needs `git pull` on [home])
 - I ran a manual 30-min check on the dev box (Sun 09:49–10:19): median error -2 s vs TransLoc -79 s, 0.5% >2 min late
   (TL 1.1%), Orange/Green/Gold all within limits — the ONLY flag was "14.2% of estimates use real history". Same thin-history
