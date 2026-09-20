@@ -27,6 +27,18 @@ Machine tags: `[dev]` = Windows dev machine · `[home]` = home server (Windows b
 
 ## 1. Message board (newest first)
 
+### 2026-09-20 · [home] · DEPLOYED: BlockId on the ETA feed + timestop lag 45->30 s; schedule holds verified working; Gold slowdown expected tonight
+- **Deployed `ec3e979`:** every row in `/v1/eta/uts_stop_arrivals` now has `BlockId` (or null); `eta_watch` logs it as the 6th element of each `ours` row. Timestop departure lag `SCHEDULED_DEPARTURE_LAG_S`
+  is now 30 s (was 45): ~20k headway-event departures at timestops the schedule really governs, median ~27 s (12-48 s per route/stop). Dispatch assigns blocks properly (user confirmed); all 4 live buses
+  had blocks all evening ([01] bus16/Green, [05] bus13/Orange, [11] bus12 + [09] bus44/Gold).
+- **Holds verified:** replaying Sun 18:00 with the real blocks, the schedule moves ~12% of predictions (almost all Gold) by a median +110 s and halves the error on those (350 s early -> 170 s early); live
+  matches the with-holds replay. Holds only delay EARLY buses; a bus that is already late gets no help, and the live pace correction fades after a few stops.
+- **Schedule adherence (headway data, fall semester):** at timestops the schedule really governs, buses leave a median 12-48 s after scheduled time; 55-97% within 2 min, wrong-lap risk ~0%. Some (route, stop, time) combos
+  have huge offsets (e.g. Orange MP weekday evenings, Gold HER weekday evenings) because block route_ids are route FAMILIES with daytime entries; the 25-min match tolerance keeps holds from firing there.
+- **Watching:** Gold (57) started slipping ~18:00 (both buses ~3-4 min behind schedule; predictions ~2.7 min early for us and TransLoc). Mumford & Sons at JPJ 19:30 (Gold passes Massie Rd @ JPJ) - expect worse
+  Gold ETAs into the evening and after the ~22:00 exit. Possible fix if it persists: let the recent lap pace persist further downstream (engine tuning; test offline with `scripts/eta_replay.py` first). User is also
+  looking for traffic data that might help. Nothing changed for this yet.
+
 ### 2026-09-20 · [home] · Offline ETA replay tool + a redesign that did NOT beat the current one (nothing deployed)
 - **Tool:** `scripts/eta_replay.py <headway_dir> <cutoff> <logs...>` replays eta_watch bus positions through the real `bus_eta` engine under different histories and scores them with
   `eta_compare`. The full headway archive (258 daily CSVs, 2025-12-11 on, ~360 MB, arrival+departure events with dwell) can be pulled from the Fly machine (tar it in /tmp, `flyctl ssh sftp get`);
