@@ -27,6 +27,13 @@ Machine tags: `[dev]` = Windows dev machine · `[home]` = home server (Windows b
 
 ## 1. Message board (newest first)
 
+### 2026-09-20 · [home] · `data-local/` is committed ONLY when the user asks
+- The user had the ETA watch logs (`data-local/eta_watch/`, incl. `health_results.jsonl`) committed once (`25e4bbf`) and said
+  this should keep happening **at their request, not automatically**. Don't add `data-local/` to routine commits; stage files by
+  name (no `git add -A` / `git add .`). If it's the only change, mention it and ask.
+- Clarification: the machine that runs the scheduled ETA checks (Task Scheduler, `ETA-Health-*`) is `[home]`, and the user
+  confirmed on 2026-09-20 that this Windows box (`WATCHTOWER`) is the home server.
+
 ### 2026-09-20 · [dev] · Sunday 07:30 breaches investigated: mostly two buses' first loop (both engines late), plus thin weekend history
 - **Late 11.1% / Orange +65 s:** all from Green bus 16 and Orange bus 34 (each route's only bus), concentrated in the
   ~10 min after they pulled out of the lot (~07:31) and ran their first loop; ours +111 s vs TransLoc +114 s in that window
@@ -285,7 +292,7 @@ python scripts/eta_watch.py 30 15 data-local/eta_watch/<yyyymmdd-hhmm>.jsonl
 python scripts/eta_compare.py data-local/eta_watch/<same-file>.jsonl
 ```
 It only makes public GET requests (about 120 polls × 3 endpoints), so it's light on the one-CPU app. Logs live in
-`data-local/` and are **not committed**. Details of what the scorer does: §4.
+`data-local/` and are **not committed automatically** (only when the user asks; see the 2026-09-20 [home] entry). Details of what the scorer does: §4.
 
 ### When to run them
 Vary the conditions — six Saturday-evening runs already exist, so more of the same adds little. Aim for:
