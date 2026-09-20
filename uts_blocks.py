@@ -221,5 +221,35 @@ def hold_for_ride(
     return scheduled_hold_epoch(route_id, stop_id, block_id, reference_ts), block_id
 
 
+def is_timestop_active(route_id: str, stop_id: str, reference_ts: float) -> bool:
+    """Is (route_id, stop_id) a timestop where drivers are ACTUALLY scheduled to
+    layover around reference_ts? The config/uts_timestops.json mapping is per
+    route only, but the Block Packages differ by day group and time of day (e.g.
+    Green weekday: MP/HER 07:30-17:45, CHP/JPA 18:00-22:00; Green weekend: CHP
+    only). So a mapped stop counts only if some block serving this route has a
+    scheduled visit to its code within MATCH_TOLERANCE_S of reference_ts. Where
+    the route has no schedule data at all for that day (e.g. Night Pilot), there is
+    nothing to contradict the mapping, so it stays a timestop (the old behavior)."""
+    code = timestop_code_for_stop(route_id, stop_id)
+    if code is None:
+        return False
+    local_dt = datetime.fromtimestamp(reference_ts, tz=NY_TZ)
+    have_schedule = False
+    for day_offset in (0, -1):
+        d = (local_dt + timedelta(days=day_offset)).date()
+        midnight_ts = datetime.combine(d, dtime.min, tzinfo=NY_TZ).timestamp()
+        for block in _blocks.values():
+            if not _block_serves_route(block, route_id):
+                continue
+            for group in _weekday_groups_matching(block, d.weekday()):
+                stops = group.get("stops", [])
+                if day_offset == 0 and stops:
+                    have_schedule = True
+                for time_s, entry_code in stops:
+                    if entry_code == code and abs(midnight_ts + time_s - reference_ts) <= MATCH_TOLERANCE_S:
+                        return True
+    return not have_schedule
+
+
 def is_loaded() -> bool:
     return bool(_blocks)
