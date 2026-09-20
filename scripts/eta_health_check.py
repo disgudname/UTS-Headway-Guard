@@ -157,5 +157,17 @@ def main():
     return 2 if problems else 0
 
 
+def notify():
+    """Hand the fresh result to the Claude-review + ntfy step; never let it affect the exit code."""
+    try:
+        import subprocess
+        subprocess.run([sys.executable, str(Path(__file__).resolve().parent / "eta_health_notify.py")],
+                       timeout=420)
+    except Exception as exc:
+        print("notify step failed:", exc)
+
+
 if __name__ == "__main__":
-    sys.exit(main())
+    code = main()
+    notify()
+    sys.exit(code)

@@ -27,6 +27,15 @@ Machine tags: `[dev]` = Windows dev machine · `[home]` = home server (Windows b
 
 ## 1. Message board (newest first)
 
+### 2026-09-19 · [home] · Claude review + ntfy push is BUILT (needs the phone app to receive)
+- `scripts/eta_health_notify.py` (called at the end of `eta_health_check.py`; failures never change its exit code) runs
+  headless `claude -p` on the newest result line, gets a 1-3 line verdict (ALL CLEAR / PROBLEM / NOTE), and POSTs it to
+  `https://ntfy.sh/<topic>`. PROBLEM goes out at high priority. If Claude is unavailable it falls back to a plain summary.
+- Topic lives in the **`NTFY_TOPIC` user environment variable on [home]** (also read from the registry, since long-running
+  scheduler sessions can miss new env vars). Not in git. Runs the same 7x/day schedule; no task changes were needed.
+- Tested: Claude verdict works on a synthetic result; one test message was POSTed to ntfy. **Not yet verified on the phone:**
+  the user still has to install the ntfy app and subscribe to the topic (told to them in the session). Not yet seen in a real scheduled run.
+
 ### 2026-09-19 · [dev] · REQUEST (user): after each scheduled ETA check, Claude analyzes it and pushes the result via ntfy
 - **What the user wants:** after every scheduled health-check run, **Claude is prompted to analyze the results
   and send the user a push notification through a plain web-push service (ntfy)** — not through Claude's own
@@ -286,7 +295,7 @@ share is a scorer artifact until proven otherwise; (3) early misses are the less
   `pythonw.exe` from the repo root, only if the machine is awake/online (missed runs start when available).
   Manage: `Get-ScheduledTask ETA-Health-*` / `Unregister-ScheduledTask -TaskName ETA-Health-Sunday -Confirm:$false`.
   A `git pull` on the home server updates the script the tasks run.
-- Not built: pings/notifications and any Claude review of the results — **now requested by the user, see "Requested next" below.**
+- Claude review + ntfy push: **built 2026-09-19 [home]** (`scripts/eta_health_notify.py`, see board); "Requested next" below is the original spec.
 - **Tested 2026-09-19 [home]: headless `claude -p` cannot ping the phone.** Run from Task Scheduler (nobody at the
   terminal), with and without `--remote-control`, `PushNotification` returned "Not sent - this terminal is active",
   and the user's phone received nothing. (`claude.exe` lives in the user's `.local\bin`; a headless run does
