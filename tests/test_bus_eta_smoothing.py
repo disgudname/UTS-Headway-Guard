@@ -49,6 +49,15 @@ def test_arriving_readings_are_never_delayed():
     assert pub[-1] == 8
 
 
+def test_due_is_dropped_immediately_after_the_bus_passes():
+    _reset()
+    # Bus reaches the stop (8 s, then 0 s), then the next reading is a full lap out.
+    # The median of the last 3 would keep saying "Due"; it must show the lap at once.
+    pub = _feed(("54", "5", "16"), [20, 8, 0, 1400, 1388], step=12.0)
+    assert pub[3] == 1400
+    assert abs(pub[4] - 1388) < 1.0
+
+
 def test_keys_do_not_share_history():
     _reset()
     a = _feed(("54", "4", "16"), [600, 588, 576])
