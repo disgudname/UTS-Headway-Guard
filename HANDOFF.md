@@ -27,6 +27,16 @@ Machine tags: `[dev]` = Windows dev machine · `[home]` = home server (Windows b
 
 ## 1. Message board (newest first)
 
+### 2026-09-19 · [home] · ETA health checks are now automated (on the home server)
+- Built `scripts/eta_health_check.py` and registered 5 Windows Task Scheduler jobs on the home server
+  (`ETA-Health-*`): weekdays 08:30 / 12:30 / 17:00, Saturday 12:00, Sunday 14:00. Each runs 30 min, read-only.
+  Details and how to change/remove them: §7.
+- **Nothing pings the user.** Results just accumulate in `data-local/eta_watch/health_results.jsonl` on the home
+  server (not committed). Any session on `[home]` should glance at it (`breaches` non-empty = look closer) and post
+  a board entry per §7. The optional "scheduled Claude routine" was NOT built (cost/notification unknowns).
+- The scheduled runs will finally give weekday data; Purple only shows up if it happens to be running then
+  (`purple_in_service` is recorded per run).
+
 ### 2026-09-19 · [dev] · NEW: regular ETA health checks (procedure in §7, automation not built)
 - Added §7: how to run a check, when, what counts as "clearly broken," and where to record results. **Nothing is
   automated yet** — until the user asks, a check happens only when a session runs one by hand.
@@ -212,7 +222,7 @@ repo root; always use a relative path. Poll `/v1/health`, then tear down by the 
 ## 7. Regular ETA health checks
 
 **Purpose:** catch regressions and drift in ETA accuracy over time — *not* to tune. The engine is tuned; the user
-chose to stop (see §2). **Status: manual only.** Automation (below) is an idea the user hasn't asked to build yet.
+chose to stop (see §2). **Status: automated on the home server (below); you can still run one by hand.**
 
 ### Run one check (~35 min, read-only against production)
 Any machine with Python 3 and internet, from the repo root:
@@ -249,10 +259,16 @@ share is a scorer artifact until proven otherwise; (3) early misses are the less
   breached, or when the check covers a new kind of hour/day (first weekday morning, first Purple run, …).
 - Real fixes go in code with a commit message that says what was measured, as before.
 
-### Automation (idea only — ask the user before building)
-- A script on an always-on machine (the home server is the natural host; Windows Task Scheduler or cron) runs the
-  two commands several times a day at varied hours and appends one summary line per run to a local results file.
-- Optionally a scheduled Claude routine reads that file once a day and pings the user — only on a threshold
-  breach or a first-of-its-kind run, not every pass.
-- Unknowns: whether a routine's notification reliably reaches the user's phone, and what scheduled cloud runs
-  cost. The plain scheduled script (no AI) avoids both for the mechanical part.
+### Automation (BUILT 2026-09-19, on the home server)
+- `scripts/eta_health_check.py [minutes=30] [poll_s=15]` = watch + score + one summary line appended to
+  `data-local/eta_watch/health_results.jsonl` (fields: headline errors vs TransLoc, per-route numbers,
+  `historical_pct`, `full_lap_flips`, `purple_in_service`, `breaches`, or `inconclusive` if buses weren't running /
+  too little data — that's not a breach). Exit code 0 clean/inconclusive, 2 breach, 1 check couldn't run.
+  Thresholds are the constants at the top of the script (the §7 numbers) — edit them there once weekday data exists.
+- Scheduled via Windows Task Scheduler on the home server, tasks `ETA-Health-Weekday-Morning|Midday|Rush`
+  (08:30 / 12:30 / 17:00 Mon–Fri), `ETA-Health-Saturday` (12:00), `ETA-Health-Sunday` (14:00). They run under
+  `pythonw.exe` from the repo root, only if the machine is awake/online (missed runs start when available).
+  Manage: `Get-ScheduledTask ETA-Health-*` / `Unregister-ScheduledTask -TaskName ETA-Health-Sunday -Confirm:$false`.
+  A `git pull` on the home server updates the script the tasks run.
+- Not built: pings/notifications, and the scheduled Claude routine (unknown phone-delivery reliability and cost).
+  Ask the user before adding either.
