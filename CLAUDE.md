@@ -589,6 +589,14 @@ Tests use standard Python `unittest` or `pytest`:
 4. **Layman explanations** - Explain concepts in simple terms to user
 5. **Technical PR descriptions** - Keep GitHub PR descriptions technical
 
+**Cross-machine handoff (`HANDOFF.md`):**
+Claude sessions run on more than one machine (a dev machine and the home server that runs
+Valhalla/Nominatim), and each machine's auto-memory is local. `HANDOFF.md` at the repo root is the
+shared, living channel between them. **At the start of a session: `git pull`, then read it.
+Before finishing: add a dated, machine-tagged entry to its message board (and fix any reference
+section that changed), then commit and push it.** Never put secrets in it. Its "How to use this
+doc" section has the conventions.
+
 **Codex authorship:**
 All code in this repo was originally written by OpenAI's Codex (see README disclaimer).
 

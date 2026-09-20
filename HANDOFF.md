@@ -1,16 +1,52 @@
-# Handoff — end of the ETA-accuracy session (2026-09-19), next stop: the home server
+# HANDOFF — living doc shared between the dev machine and the home server
 
-Written so a fresh session on another machine (the home server that runs Valhalla) can pick up
-without this conversation. **Everything described here is committed and pushed to `main` (last
-commit `efec93e`) and deployed to Fly.** Read this, then `CLAUDE.md`/`AGENTS.md`, then
-`ROUTING_ENGINE.md` and `GEOCODING_SEARCH.md` for the home-server work.
+This is how Claude sessions on different machines talk to each other. Claude's auto-memory is
+per-machine and does NOT travel, so anything the other machine needs to know goes **here**, in git.
 
-Claude's auto-memory lives in a per-machine folder and will NOT exist on the home server, so the
-rules and facts that matter are copied below.
+## How to use this doc
+
+- **Read it at the start of a session. Update it before you finish**, then commit and push.
+  (`CLAUDE.md` tells every session to do this.)
+- **Pull before you edit, push right after.** Two machines editing one file is how conflicts happen.
+  Keep edits small and push them straight away.
+- **Machine tags.** Sign every message-board entry with `[dev]` (the Windows dev machine where the ETA work
+  happened, `C:\Users\Pat Cox\...`) or `[home]` (the home server that runs Valhalla/Nominatim). If a new
+  machine joins, add a tag for it in the list below.
+- **§1 Message board is append-only, newest first.** Add an entry; don't rewrite someone else's. When an
+  item is resolved, add a follow-up line under it (`↳ [home] done 2026-09-21, see commit abc123`) rather than
+  deleting history. Prune only entries that are both resolved and older than ~a month.
+- **§2–§6 are reference.** Edit those in place when the facts change, and put the date on what you changed.
+  If a reference fact turns out to be stale, fix it here — don't just work around it.
+- **Never put secrets here** (API keys, auth keys, passwords, cookies). Name where they live instead.
+- **What belongs where:** decisions, state that isn't obvious from the code, warnings, and "I need X from the
+  other machine" go here. Things the code or `git log` already say do not.
+
+Machine tags: `[dev]` = Windows dev machine · `[home]` = home server (Windows box + VirtualBox VM `valhalla-server`).
 
 ---
 
-## 1. Rules for working with this user (learned the hard way)
+## 1. Message board (newest first)
+
+### 2026-09-19 · [dev] · ETA work is done and deployed; home-server work is next
+- **State:** everything from the ETA-accuracy session is committed, pushed, and deployed (last code commit
+  `efec93e`). Details in §4. Nothing is half-finished on `[dev]`.
+- **For `[home]` — suggested first steps:**
+  1. Read `ROUTING_ENGINE.md` and `GEOCODING_SEARCH.md` (§5 summarizes them) and **re-verify the box**: is the VM
+     up, are Valhalla (:8002) and Nominatim (:8003) answering, is Tailscale connected? Those docs describe
+     state as of when they were written.
+  2. The geocoding feature is **built but not deployed** (endpoint `/v1/search/geocode` + livemap "Places"
+     search). The remaining step is Fly-side: set `GEOCODE_URL` / `GEOCODE_PROXY_URL` secrets and deploy —
+     **deploy only when the user says "cpd"** (see §2).
+  3. Then per the user's priorities: Tracklayer frontend (`/routeplanner`) and/or moving
+     `/api/routes/leg` + `/api/ondemand/routes` off paid OpenRouteService.
+- **Open question for the user (not blocking):** auth on `/routeplanner` — likely dispatcher-gated.
+- **If you touch the ETA engine from `[home]`:** don't. It's tuned and the user chose to stop; read §4 first.
+  Small exception: if the health-check scripts show something clearly broken (late misses common, a route badly
+  late, a full-lap glitch), flag it here for `[dev]`.
+
+---
+
+## 2. Standing rules for working with this user (learned the hard way)
 
 - **Plain language.** Explain like the user isn't a coder. When they say "dumb it down," go much
   simpler than feels necessary. Lead with the answer, then the reasons. (`AGENTS.md` also says the
@@ -38,7 +74,7 @@ rules and facts that matter are copied below.
 - `PushNotification` only delivers when the terminal is *not* the active window; the user has the mobile
   app. If it says "not sent," say the update in the terminal instead.
 
-## 2. Repo state
+## 3. Repo state (snapshot — update when it changes)
 
 - Clean apart from untracked `data-local/` (the six ETA test logs, `run1`–`run6.jsonl` — raw data, left
   out on purpose) and `uva_style.json` (untracked before this session; not ours).
@@ -48,7 +84,7 @@ rules and facts that matter are copied below.
   (`test_cache_concurrency`, `test_ondemand_filters`, …) and `tests/test_vehicle_drivers.py` fails to import.
   Compare against that baseline rather than expecting green.
 
-## 3. What this session did: bus ETA accuracy
+## 4. Reference: bus ETA accuracy work (2026-09-19)
 
 The ETA engine (`bus_eta.py`, exposed at `GET /v1/eta/uts_stop_arrivals`, shown beside TransLoc's own ETA
 in `/livemap` popups, and feeding the trip planner's wait times) was measured against reality for the first
@@ -75,7 +111,7 @@ UTS routes are all loops. Key files: `bus_eta.py`, `trip_planner_history.py`, `u
    every recent day, so the live table had ~320 buckets, none for current routes, and ~91% of ETAs were the
    distance/speed guess. Now groups by (block **or** vehicle, day). Lookup widens: exact weekday+hour → other
    day(s) of the same group (Mon–Fri / Sat–Sun) → hour ±1 → ±2 → the other day group (same route) → deep cache.
-   Table went 320 → 24,851 buckets. **The live table was rebuilt by hand on the machine** (see §5); it also
+   Table went 320 → 24,851 buckets. **The live table was rebuilt by hand on the machine** (see §6); it also
    self-refreshes nightly at 03:00 ET with the fixed code.
 4. **Timestop layovers.** Buses leave a scheduled timestop ~1 min *after* the scheduled time (median ~1.1 min,
    n=11) → `SCHEDULED_DEPARTURE_LAG_S = 45`. History hops that *start* at a timestop include the layover
@@ -114,7 +150,7 @@ Green bus 16 sat still ~3 min and our ETA froze while it dwelled, then snapped b
 - Timestops are a hand-confirmed list (`config/uts_timestops.json`: only (route, code) pairs seen with a live
   bus). An unlisted stop where buses layover would still leak layover into history; add it to that file.
 
-## 4. Next: the home server (Valhalla / Nominatim)
+## 5. Reference: the home server (Valhalla / Nominatim)
 
 The existing docs are current and detailed — **read them first, and re-verify anything stateful**:
 
@@ -135,7 +171,7 @@ The existing docs are current and detailed — **read them first, and re-verify 
   process sees it (diff `/proc/<pid>/environ`).
 - Reminder: deploy only on "cpd".
 
-## 5. Useful recipes
+## 6. Useful recipes
 
 **Inspect live prod state (run Python on the Fly machine with the app's real env).** From PowerShell:
 ```powershell
