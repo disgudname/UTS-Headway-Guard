@@ -58,6 +58,15 @@ _TIMESTOPS_PATH = _CONFIG_DIR / "uts_timestops.json"
 # estimate's own precision.
 MATCH_TOLERANCE_S = 25 * 60.0
 
+# How far AHEAD of a scheduled visit a bus may plausibly be running and still be matched to
+# that (upcoming) visit -- i.e. "early, so it waits for the schedule". Buses measured at
+# timestops arrive ~2-6 min early (headway data, fall 2026); a bus that would have to be
+# ~20 min early for the next visit is far more likely LATE for the previous one. With the
+# plain "nearest visit" rule, a bus ~21 min behind a 40-minute block (Gold, concert night
+# 2026-09-20 20:01) matched the NEXT visit and was held ~19 min for it -- ETAs 20 min late.
+# Picking the previous visit instead gives no hold (the bus is already past it).
+EARLY_MATCH_LIMIT_S = 10 * 60.0
+
 _blocks: Dict[str, Dict] = {}
 _timestops: Dict[str, Dict[str, str]] = {}  # code -> {route_id: stop_id}
 _stop_id_to_code: Dict[Tuple[str, str], str] = {}  # (route_id, stop_id) -> code
@@ -120,8 +129,8 @@ def scheduled_hold_epoch(
         return None
 
     local_dt = datetime.fromtimestamp(reference_ts, tz=NY_TZ)
-    best_epoch: Optional[float] = None
-    best_diff: Optional[float] = None
+    prev_epoch: Optional[float] = None   # latest visit at/before reference_ts (bus is late for it)
+    next_epoch: Optional[float] = None   # earliest visit after reference_ts (bus is early for it)
     # A schedule entry just after local midnight could belong to the previous
     # evening's weekday-group rolling past midnight (see build_uts_blocks.py's
     # rollover handling) just as easily as to today's own group -- check both,
@@ -134,11 +143,21 @@ def scheduled_hold_epoch(
                 if entry_code != code:
                     continue
                 epoch = midnight_ts + time_s
-                diff = abs(epoch - reference_ts)
-                if diff <= MATCH_TOLERANCE_S and (best_diff is None or diff < best_diff):
-                    best_diff = diff
-                    best_epoch = epoch
-    return best_epoch
+                if abs(epoch - reference_ts) > MATCH_TOLERANCE_S:
+                    continue
+                if epoch <= reference_ts:
+                    if prev_epoch is None or epoch > prev_epoch:
+                        prev_epoch = epoch
+                elif next_epoch is None or epoch < next_epoch:
+                    next_epoch = epoch
+    if next_epoch is not None and next_epoch - reference_ts <= EARLY_MATCH_LIMIT_S:
+        # Plausibly early for the upcoming visit -- unless the previous visit is much closer.
+        if prev_epoch is None or (next_epoch - reference_ts) <= (reference_ts - prev_epoch):
+            return next_epoch
+        return prev_epoch
+    if prev_epoch is not None:
+        return prev_epoch   # too far ahead of the next visit to be early for it: late for this one
+    return next_epoch       # no earlier visit to blame (first of the day): keep the old behavior
 
 
 def next_scheduled_arrival_epoch(route_id: str, stop_id: str, after_ts: float) -> Optional[float]:

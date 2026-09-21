@@ -240,3 +240,24 @@ def test_is_loaded_reflects_whether_block_data_is_present(monkeypatch):
     assert uts_blocks.is_loaded() is False
     _patch_data(monkeypatch, SAMPLE_BLOCKS, SAMPLE_TIMESTOPS)
     assert uts_blocks.is_loaded() is True
+
+
+def test_scheduled_hold_epoch_bus_very_late_matches_previous_visit_not_next(monkeypatch):
+    _patch_data(monkeypatch, SAMPLE_BLOCKS, SAMPLE_TIMESTOPS)
+    # Laps at 8:00 / 8:20 / 8:40. A bus reaching the stop at 8:12 is 12 min late for 8:00 and
+    # 8 min early for 8:20 -> still matches 8:20 (plausibly early, waits).
+    assert uts_blocks.scheduled_hold_epoch("99", "stop-1", "[01]", _epoch(2026, 9, 14, 8, 12)) == _epoch(2026, 9, 14, 8, 20)
+    # At 8:05 it would have to be 15 min early for 8:20 (limit is 10): it's 5 min late for 8:00
+    # instead, so the returned visit is in the past and no hold applies.
+    assert uts_blocks.scheduled_hold_epoch("99", "stop-1", "[01]", _epoch(2026, 9, 14, 8, 5)) == _epoch(2026, 9, 14, 8, 0)
+    # The live failure: a bus 21 min behind a 40-min block, ~19 min "before" the next visit.
+    blocks = {"[01]": {"weekday_groups": [{"weekdays": [0, 1, 2, 3, 4], "stops": [[7 * 3600 + 40 * 60, "AAA"], [8 * 3600 + 20 * 60, "AAA"]]}]}}
+    _patch_data(monkeypatch, blocks, SAMPLE_TIMESTOPS)
+    assert uts_blocks.scheduled_hold_epoch("99", "stop-1", "[01]", _epoch(2026, 9, 14, 8, 1)) == _epoch(2026, 9, 14, 7, 40)
+
+
+def test_scheduled_hold_epoch_first_visit_of_day_still_holds_an_early_bus(monkeypatch):
+    blocks = {"[01]": {"weekday_groups": [{"weekdays": [0, 1, 2, 3, 4], "stops": [[8 * 3600, "AAA"]]}]}}
+    _patch_data(monkeypatch, blocks, SAMPLE_TIMESTOPS)
+    # 20 min before the day's first visit there is no earlier visit to be late for.
+    assert uts_blocks.scheduled_hold_epoch("99", "stop-1", "[01]", _epoch(2026, 9, 14, 7, 42)) == _epoch(2026, 9, 14, 8, 0)
