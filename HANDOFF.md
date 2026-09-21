@@ -27,6 +27,15 @@ Machine tags: `[dev]` = Windows dev machine · `[home]` = home server (Windows b
 
 ## 1. Message board (newest first)
 
+### 2026-09-20 · [home] · DEPLOYED `57aea89`: scheduled-hold wrong-lap fix (a bus ~20 min late was held for the NEXT visit)
+- **Bug (seen live 20:01, Gold bus 44 at Shannon Library, block [09], concert night):** `uts_blocks.scheduled_hold_epoch` picked the NEAREST scheduled visit within 25 min. Bus arrived 21 min after the 19:40
+  visit / 19 min before 20:20, matched 20:20, and was held ~19 min -> ETAs for the rest of its loop ~20 min LATE (TransLoc within 3 min). Only bites when a bus is >~half a headway (20 min on Gold) behind schedule.
+- **Fix:** an upcoming visit only matches if the bus is <= `EARLY_MATCH_LIMIT_S` (10 min) early for it (measured typical 2-6 min early); otherwise match the previous visit (no hold). First visit of the day keeps the
+  old behavior. Replay of 6 sessions with real blocks: >10-min-late predictions 50 -> 0, other metrics unchanged. Tests in `tests/test_uts_blocks.py`.
+- **Known, expected after every deploy:** the first poll after a restart has no previous position/smoothing history, so a bus on a two-way road (Emmet St) can snap to the wrong pass for one poll (seen 20:40:01, bus 12,
+  ~22 min late for one 15 s poll, corrected next poll). Not the hold logic; don't chase it.
+- **Context:** during the Mumford & Sons show both Gold buses ran 10-19 min behind schedule from ~19:00; bus 12 peaked +14 min, so it was ~6 min from tripping the same bug.
+
 ### 2026-09-20 · [home] · DECISION (user): stop changing the ETA engine for now; keep logging
 - The user wants the engine left as is ("not changing a whole buncha stuff"). Live and staying: stale-Due fix, `BlockId` on the ETA feed, 30 s timestop lag. Rolled back: day-aware layover cap.
 - **Parked, NOT built/deployed (revisit only with more data, or if Gold keeps slipping):** driving-only hops + dwell history (tied the current design; opt-in code + `scripts/eta_replay.py` are in the repo),
