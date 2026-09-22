@@ -1,0 +1,38 @@
+1 log(s), 29.8 min total, 5297 scoreable predictions
+
+=== Overall (only predictions both engines made, so it's apples to apples) ===
+  ours   n=5297  median err     -6s   median |err|    46s   mean |err|    55s   within 1min  63%  2min  91%  5min 100%
+  TL     n=5297  median err    +12s   median |err|    43s   mean |err|    76s   within 1min  64%  2min  89%  5min  95%
+  ours closer than TransLoc in 48% of 5297 pairs (41 ties)
+
+=== By how far away the bus really was when the prediction was made ===
+<2 min
+  ours   n=785   median err     -1s   median |err|    15s   mean |err|    20s   within 1min  95%  2min 100%  5min 100%
+  TL     n=785   median err     +1s   median |err|    12s   mean |err|    32s   within 1min  96%  2min  98%  5min  98%
+2-5 min
+  ours   n=1014  median err     -2s   median |err|    34s   mean |err|    39s   within 1min  78%  2min  98%  5min 100%
+  TL     n=1014  median err     +3s   median |err|    29s   mean |err|    50s   within 1min  83%  2min  96%  5min  98%
+5-10 min
+  ours   n=1409  median err     -8s   median |err|    57s   mean |err|    61s   within 1min  53%  2min  91%  5min 100%
+  TL     n=1409  median err    +19s   median |err|    48s   mean |err|    73s   within 1min  63%  2min  92%  5min  96%
+10-20 min
+  ours   n=1704  median err    -13s   median |err|    65s   mean |err|    73s   within 1min  46%  2min  82%  5min 100%
+  TL     n=1704  median err    +30s   median |err|    69s   mean |err|   100s   within 1min  43%  2min  81%  5min  95%
+20+ min
+  ours   n=385   median err    -20s   median |err|    47s   mean |err|    62s   within 1min  69%  2min  95%  5min  99%
+  TL     n=385   median err    +54s   median |err|    70s   mean |err|   137s   within 1min  39%  2min  79%  5min  88%
+
+=== Coverage (predictions for a real, later-observed visit) ===
+  both gave one: 5297   only TransLoc: 0   only ours: 0
+
+=== Our 10 worst misses ===
+  Arlington Blvd @ Barracks Road Shopping Center (route 57, bus 44) real 1650s away: ours -1650s, TL +141s
+  Arlington Blvd @ Millmont St (route 57, bus 44) real 1545s away: ours -1545s, TL +154s
+  McCormick Rd @ UVA Chapel (route 54, bus 16) real 1005s away: ours +279s, TL +183s
+  McCormick Rd @ UVA Chapel (route 54, bus 16) real 990s away: ours +276s, TL +163s
+  McCormick Rd @ Garrett Hall (route 54, bus 16) real 960s away: ours +264s, TL +169s
+  McCormick Rd @ Garrett Hall (route 54, bus 16) real 945s away: ours +261s, TL +149s
+  McCormick Rd @ Chemistry Building (route 54, bus 16) real 886s away: ours +243s, TL +150s
+  Alderman Rd @ AFC (route 54, bus 16) real 795s away: ours +242s, TL +156s
+  McCormick Rd @ Chemistry Building (route 54, bus 16) real 871s away: ours +240s, TL +130s
+  Alderman Rd @ AFC (route 54, bus 16) real 780s away: ours +239s, TL +136s

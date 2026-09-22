@@ -1,0 +1,38 @@
+1 log(s), 29.8 min total, 6246 scoreable predictions
+
+=== Overall (only predictions both engines made, so it's apples to apples) ===
+  ours   n=6243  median err    +37s   median |err|    53s   mean |err|    61s   within 1min  59%  2min  88%  5min 100%
+  TL     n=6243  median err    -62s   median |err|    81s   mean |err|   132s   within 1min  41%  2min  67%  5min  86%
+  ours closer than TransLoc in 63% of 6243 pairs (43 ties)
+
+=== By how far away the bus really was when the prediction was made ===
+<2 min
+  ours   n=758   median err     -0s   median |err|    15s   mean |err|    24s   within 1min  92%  2min 100%  5min 100%
+  TL     n=758   median err     -2s   median |err|    11s   mean |err|    32s   within 1min  96%  2min  98%  5min  98%
+2-5 min
+  ours   n=1000  median err    +23s   median |err|    44s   mean |err|    47s   within 1min  68%  2min  95%  5min 100%
+  TL     n=1000  median err    -17s   median |err|    30s   mean |err|    47s   within 1min  78%  2min  96%  5min  99%
+5-10 min
+  ours   n=1519  median err    +40s   median |err|    58s   mean |err|    65s   within 1min  53%  2min  89%  5min 100%
+  TL     n=1519  median err    -51s   median |err|    66s   mean |err|    96s   within 1min  45%  2min  78%  5min  94%
+10-20 min
+  ours   n=2181  median err    +54s   median |err|    63s   mean |err|    74s   within 1min  46%  2min  82%  5min 100%
+  TL     n=2181  median err   -111s   median |err|   122s   mean |err|   178s   within 1min  15%  2min  49%  5min  82%
+20+ min
+  ours   n=785   median err    +53s   median |err|    54s   mean |err|    68s   within 1min  63%  2min  82%  5min 100%
+  TL     n=785   median err   -287s   median |err|   287s   mean |err|   279s   within 1min   2%  2min  26%  5min  56%
+
+=== Coverage (predictions for a real, later-observed visit) ===
+  both gave one: 6243   only TransLoc: 3   only ours: 0
+
+=== Our 10 worst misses ===
+  McCormick Rd @ Garrett Hall (route 54, bus 16) real 990s away: ours +307s, TL +136s
+  McCormick Rd @ Garrett Hall (route 54, bus 16) real 1005s away: ours +307s, TL +136s
+  McCormick Rd @ Chemistry Building (route 54, bus 16) real 915s away: ours +286s, TL +118s
+  McCormick Rd @ Chemistry Building (route 54, bus 16) real 930s away: ours +286s, TL +118s
+  McCormick Rd @ Garrett Hall (route 54, bus 16) real 585s away: ours +285s, TL +79s
+  McCormick Rd @ Garrett Hall (route 54, bus 16) real 600s away: ours +285s, TL +111s
+  McCormick Rd @ Garrett Hall (route 54, bus 16) real 615s away: ours +270s, TL +126s
+  McCormick Rd @ Chemistry Building (route 54, bus 16) real 510s away: ours +264s, TL +61s
+  McCormick Rd @ Chemistry Building (route 54, bus 16) real 525s away: ours +264s, TL +93s
+  McCormick Rd @ Garrett Hall (route 54, bus 16) real 630s away: ours +254s, TL +111s

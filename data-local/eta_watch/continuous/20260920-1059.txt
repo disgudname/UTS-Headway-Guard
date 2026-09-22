@@ -1,0 +1,38 @@
+1 log(s), 29.8 min total, 5065 scoreable predictions
+
+=== Overall (only predictions both engines made, so it's apples to apples) ===
+  ours   n=5065  median err    -24s   median |err|    31s   mean |err|    55s   within 1min  74%  2min  89%  5min 100%
+  TL     n=5065  median err    -70s   median |err|    79s   mean |err|   132s   within 1min  42%  2min  62%  5min  88%
+  ours closer than TransLoc in 70% of 5065 pairs (52 ties)
+
+=== By how far away the bus really was when the prediction was made ===
+<2 min
+  ours   n=707   median err     -8s   median |err|    16s   mean |err|    23s   within 1min  93%  2min 100%  5min 100%
+  TL     n=707   median err     -7s   median |err|    15s   mean |err|    46s   within 1min  95%  2min  97%  5min  97%
+2-5 min
+  ours   n=970   median err    -11s   median |err|    28s   mean |err|    35s   within 1min  83%  2min  98%  5min 100%
+  TL     n=970   median err    -31s   median |err|    41s   mean |err|    61s   within 1min  69%  2min  93%  5min  98%
+5-10 min
+  ours   n=1305  median err    -23s   median |err|    32s   mean |err|    48s   within 1min  75%  2min  91%  5min 100%
+  TL     n=1305  median err    -78s   median |err|    83s   mean |err|   100s   within 1min  35%  2min  71%  5min  96%
+10-20 min
+  ours   n=1587  median err    -35s   median |err|    40s   mean |err|    71s   within 1min  64%  2min  78%  5min 100%
+  TL     n=1587  median err   -173s   median |err|   186s   mean |err|   180s   within 1min  20%  2min  36%  5min  83%
+20+ min
+  ours   n=496   median err    -39s   median |err|    44s   mean |err|   111s   within 1min  58%  2min  81%  5min  97%
+  TL     n=496   median err   -320s   median |err|   320s   mean |err|   324s   within 1min   1%  2min  10%  5min  45%
+
+=== Coverage (predictions for a real, later-observed visit) ===
+  both gave one: 5065   only TransLoc: 0   only ours: 0
+
+=== Our 10 worst misses ===
+  McCormick Rd @ Shannon Library (route 55, bus 13) real 1635s away: ours -1635s, TL -1635s
+  McCormick Rd @ Shannon Library (route 55, bus 13) real 1620s away: ours -1620s, TL -1620s
+  McCormick Rd @ Shannon Library (route 55, bus 13) real 1605s away: ours -1605s, TL -1605s
+  McCormick Rd @ Shannon Library (route 55, bus 13) real 1590s away: ours -1590s, TL -1590s
+  McCormick Rd @ UVA Chapel (route 54, bus 16) real 1575s away: ours -1575s, TL -1575s
+  McCormick Rd @ Shannon Library (route 55, bus 13) real 1575s away: ours -1575s, TL -1575s
+  McCormick Rd @ UVA Chapel (route 54, bus 16) real 1560s away: ours -1560s, TL -1560s
+  McCormick Rd @ Shannon Library (route 55, bus 13) real 1560s away: ours -1560s, TL -1560s
+  McCormick Rd @ UVA Chapel (route 54, bus 16) real 1545s away: ours -1545s, TL -1545s
+  McCormick Rd @ Shannon Library (route 55, bus 13) real 1545s away: ours -1545s, TL -390s

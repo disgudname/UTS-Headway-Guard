@@ -1,0 +1,38 @@
+1 log(s), 29.8 min total, 1066 scoreable predictions
+
+=== Overall (only predictions both engines made, so it's apples to apples) ===
+  ours   n=1066  median err     -2s   median |err|    24s   mean |err|    35s   within 1min  88%  2min  99%  5min 100%
+  TL     n=1066  median err   +123s   median |err|   164s   mean |err|   195s   within 1min  26%  2min  40%  5min  74%
+  ours closer than TransLoc in 85% of 1066 pairs (13 ties)
+
+=== By how far away the bus really was when the prediction was made ===
+<2 min
+  ours   n=163   median err     -0s   median |err|    20s   mean |err|    24s   within 1min  92%  2min 100%  5min 100%
+  TL     n=163   median err     +2s   median |err|    15s   mean |err|    55s   within 1min  83%  2min  89%  5min  95%
+2-5 min
+  ours   n=221   median err    +11s   median |err|    25s   mean |err|    31s   within 1min  89%  2min  98%  5min 100%
+  TL     n=221   median err    +57s   median |err|   100s   mean |err|   151s   within 1min  37%  2min  57%  5min  77%
+5-10 min
+  ours   n=294   median err     +7s   median |err|    25s   mean |err|    31s   within 1min  86%  2min 100%  5min 100%
+  TL     n=294   median err   +296s   median |err|   296s   mean |err|   267s   within 1min   5%  2min  23%  5min  51%
+10-20 min
+  ours   n=359   median err     -8s   median |err|    24s   mean |err|    31s   within 1min  89%  2min 100%  5min 100%
+  TL     n=359   median err   +209s   median |err|   209s   mean |err|   215s   within 1min  11%  2min  25%  5min  80%
+20+ min
+  ours   n=29    median err    -51s   median |err|    51s   mean |err|   206s   within 1min  62%  2min  86%  5min  86%
+  TL     n=29    median err   +259s   median |err|   264s   mean |err|   329s   within 1min   0%  2min   0%  5min  83%
+
+=== Coverage (predictions for a real, later-observed visit) ===
+  both gave one: 1066   only TransLoc: 0   only ours: 0
+
+=== Our 10 worst misses ===
+  Maury Ave (Southbound) (route 59, bus 13) real 1260s away: ours -1260s, TL -1260s
+  Hereford Dr @ Runk Dining Hall (route 59, bus 13) real 1240s away: ours -1240s, TL +304s
+  Hereford Dr @ Johnson House (Southbound) (route 59, bus 13) real 1233s away: ours -1233s, TL +288s
+  McCormick Rd @ McCormick Rd Dorms (route 59, bus 13) real 1215s away: ours -1215s, TL -1215s
+  McCormick Rd @ McCormick Rd Dorms (route 59, bus 13) real 1200s away: ours -1200s, TL +343s
+  McCormick Rd @ Shannon Library (route 59, bus 13) real 165s away: ours +137s, TL +65s
+  McCormick Rd @ Shannon Library (route 59, bus 13) real 180s away: ours +137s, TL +83s
+  McCormick Rd @ Shannon Library (route 59, bus 13) real 150s away: ours +125s, TL +72s
+  McCormick Rd @ Shannon Library (route 59, bus 13) real 195s away: ours +122s, TL +76s
+  Jefferson Park Ave @ Brandon Ave (route 59, bus 13) real 195s away: ours +111s, TL +34s

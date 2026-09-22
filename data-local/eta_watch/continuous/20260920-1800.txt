@@ -1,0 +1,38 @@
+1 log(s), 29.8 min total, 4394 scoreable predictions
+
+=== Overall (only predictions both engines made, so it's apples to apples) ===
+  ours   n=4394  median err    -53s   median |err|   106s   mean |err|   136s   within 1min  36%  2min  53%  5min  87%
+  TL     n=4394  median err    -76s   median |err|   118s   mean |err|   162s   within 1min  34%  2min  51%  5min  81%
+  ours closer than TransLoc in 52% of 4394 pairs (33 ties)
+
+=== By how far away the bus really was when the prediction was made ===
+<2 min
+  ours   n=664   median err     -1s   median |err|    17s   mean |err|    25s   within 1min  91%  2min  99%  5min 100%
+  TL     n=664   median err     -3s   median |err|    10s   mean |err|    38s   within 1min  95%  2min  97%  5min  97%
+2-5 min
+  ours   n=855   median err     -9s   median |err|    48s   mean |err|    60s   within 1min  60%  2min  88%  5min 100%
+  TL     n=855   median err    -23s   median |err|    36s   mean |err|    61s   within 1min  68%  2min  91%  5min  98%
+5-10 min
+  ours   n=1137  median err    -69s   median |err|   114s   mean |err|   126s   within 1min  23%  2min  52%  5min  96%
+  TL     n=1137  median err    -82s   median |err|   110s   mean |err|   123s   within 1min  24%  2min  57%  5min  93%
+10-20 min
+  ours   n=1378  median err   -162s   median |err|   190s   mean |err|   207s   within 1min  12%  2min  23%  5min  76%
+  TL     n=1378  median err   -187s   median |err|   208s   mean |err|   251s   within 1min   0%  2min  10%  5min  69%
+20+ min
+  ours   n=360   median err   -334s   median |err|   334s   mean |err|   280s   within 1min   5%  2min   6%  5min  46%
+  TL     n=360   median err   -398s   median |err|   398s   mean |err|   416s   within 1min   2%  2min   7%  5min  16%
+
+=== Coverage (predictions for a real, later-observed visit) ===
+  both gave one: 4394   only TransLoc: 0   only ours: 0
+
+=== Our 10 worst misses ===
+  McCormick Rd @ Shannon Library (route 55, bus 13) real 1425s away: ours -1425s, TL -268s
+  McCormick Rd @ UVA Chapel (route 54, bus 16) real 1215s away: ours -1215s, TL -1211s
+  McCormick Rd @ UVA Chapel (route 54, bus 16) real 1200s away: ours -1200s, TL -1200s
+  McCormick Rd @ Chemistry Building (route 57, bus 12) real 1349s away: ours -501s, TL -589s
+  McCormick Rd @ Garrett Hall (route 57, bus 12) real 1441s away: ours -499s, TL -571s
+  McCormick Rd @ UVA Chapel (route 57, bus 12) real 1485s away: ours -498s, TL -570s
+  McCormick Rd @ Chemistry Building (route 57, bus 12) real 1334s away: ours -468s, TL -577s
+  McCormick Rd @ Garrett Hall (route 57, bus 12) real 1426s away: ours -467s, TL -559s
+  McCormick Rd @ UVA Chapel (route 57, bus 12) real 1470s away: ours -465s, TL -558s
+  McCormick Rd @ Chemistry Building (route 57, bus 12) real 1259s away: ours -456s, TL -589s

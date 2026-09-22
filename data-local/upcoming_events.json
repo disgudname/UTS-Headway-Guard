@@ -1,0 +1,497 @@
+[
+ {
+  "date": "2026-09-20",
+  "start": "19:30",
+  "venue": "John Paul Jones Arena",
+  "kind": "concert",
+  "name": "Mumford & Sons (Marcus King Band)",
+  "source": "jpj site",
+  "time_known": true
+ },
+ {
+  "date": "2026-09-25",
+  "start": "16:00",
+  "venue": "campus",
+  "kind": "field hockey",
+  "name": "vs Syracuse",
+  "source": "app athletics feed",
+  "time_known": true
+ },
+ {
+  "date": "2026-09-25",
+  "start": "19:00",
+  "venue": "campus",
+  "kind": "women's soccer",
+  "name": "vs North Carolina",
+  "source": "app athletics feed",
+  "time_known": true
+ },
+ {
+  "date": "2026-09-26",
+  "start": null,
+  "venue": "campus",
+  "kind": "football",
+  "name": "vs Delaware",
+  "source": "app athletics feed",
+  "time_known": false
+ },
+ {
+  "date": "2026-10-02",
+  "start": "17:00",
+  "venue": "campus",
+  "kind": "field hockey",
+  "name": "vs Stanford",
+  "source": "app athletics feed",
+  "time_known": true
+ },
+ {
+  "date": "2026-10-02",
+  "start": "20:00",
+  "venue": "campus",
+  "kind": "men's soccer",
+  "name": "vs Virginia Tech",
+  "source": "app athletics feed",
+  "time_known": true
+ },
+ {
+  "date": "2026-10-03",
+  "start": "19:00",
+  "venue": "campus",
+  "kind": "women's soccer",
+  "name": "vs Syracuse",
+  "source": "app athletics feed",
+  "time_known": true
+ },
+ {
+  "date": "2026-10-04",
+  "start": "12:00",
+  "venue": "campus",
+  "kind": "field hockey",
+  "name": "vs California",
+  "source": "app athletics feed",
+  "time_known": true
+ },
+ {
+  "date": "2026-10-06",
+  "start": "18:00",
+  "venue": "campus",
+  "kind": "men's soccer",
+  "name": "vs Queens",
+  "source": "app athletics feed",
+  "time_known": true
+ },
+ {
+  "date": "2026-10-08",
+  "start": "19:30",
+  "venue": "John Paul Jones Arena",
+  "kind": "concert",
+  "name": "\"Weird Al\" Yankovic",
+  "source": "jpj site",
+  "time_known": true
+ },
+ {
+  "date": "2026-10-09",
+  "start": "18:00",
+  "venue": "campus",
+  "kind": "men's soccer",
+  "name": "vs California",
+  "source": "app athletics feed",
+  "time_known": true
+ },
+ {
+  "date": "2026-10-09",
+  "start": "19:00",
+  "venue": "campus",
+  "kind": "women's volleyball",
+  "name": "vs Duke",
+  "source": "app athletics feed",
+  "time_known": true
+ },
+ {
+  "date": "2026-10-10",
+  "start": null,
+  "venue": "campus",
+  "kind": "football",
+  "name": "vs Syracuse",
+  "source": "app athletics feed",
+  "time_known": false
+ },
+ {
+  "date": "2026-10-11",
+  "start": "13:00",
+  "venue": "campus",
+  "kind": "women's volleyball",
+  "name": "vs North Carolina",
+  "source": "app athletics feed",
+  "time_known": true
+ },
+ {
+  "date": "2026-10-13",
+  "start": "18:00",
+  "venue": "campus",
+  "kind": "men's soccer",
+  "name": "vs Gardner-Webb",
+  "source": "app athletics feed",
+  "time_known": true
+ },
+ {
+  "date": "2026-10-14",
+  "start": "18:00",
+  "venue": "campus",
+  "kind": "women's volleyball",
+  "name": "vs Virginia Tech",
+  "source": "app athletics feed",
+  "time_known": true
+ },
+ {
+  "date": "2026-10-17",
+  "start": "20:00",
+  "venue": "John Paul Jones Arena",
+  "kind": "comedy",
+  "name": "Gabriel Iglesias",
+  "source": "jpj site",
+  "time_known": true
+ },
+ {
+  "date": "2026-10-19",
+  "start": "17:00",
+  "venue": "campus",
+  "kind": "field hockey",
+  "name": "vs Monmouth",
+  "source": "app athletics feed",
+  "time_known": true
+ },
+ {
+  "date": "2026-10-22",
+  "start": "19:00",
+  "venue": "campus",
+  "kind": "women's soccer",
+  "name": "vs Clemson",
+  "source": "app athletics feed",
+  "time_known": true
+ },
+ {
+  "date": "2026-10-23",
+  "start": "15:00",
+  "venue": "campus",
+  "kind": "field hockey",
+  "name": "vs Louisville",
+  "source": "app athletics feed",
+  "time_known": true
+ },
+ {
+  "date": "2026-10-23",
+  "start": "19:00",
+  "venue": "campus",
+  "kind": "football",
+  "name": "vs Duke",
+  "source": "app athletics feed",
+  "time_known": true
+ },
+ {
+  "date": "2026-10-24",
+  "start": null,
+  "venue": "campus",
+  "kind": "baseball",
+  "name": "vs James Madison",
+  "source": "app athletics feed",
+  "time_known": false
+ },
+ {
+  "date": "2026-10-29",
+  "start": "18:00",
+  "venue": "campus",
+  "kind": "women's soccer",
+  "name": "vs Louisville",
+  "source": "app athletics feed",
+  "time_known": true
+ },
+ {
+  "date": "2026-10-30",
+  "start": "18:00",
+  "venue": "campus",
+  "kind": "men's soccer",
+  "name": "vs Pittsburgh",
+  "source": "app athletics feed",
+  "time_known": true
+ },
+ {
+  "date": "2026-10-30",
+  "start": "19:00",
+  "venue": "campus",
+  "kind": "women's volleyball",
+  "name": "vs Miami",
+  "source": "app athletics feed",
+  "time_known": true
+ },
+ {
+  "date": "2026-11-01",
+  "start": "15:00",
+  "venue": "campus",
+  "kind": "women's volleyball",
+  "name": "vs Florida State",
+  "source": "app athletics feed",
+  "time_known": true
+ },
+ {
+  "date": "2026-11-02",
+  "start": null,
+  "venue": "John Paul Jones Arena",
+  "kind": "womens basketball",
+  "name": "vs Maryland Eastern Shore",
+  "source": "wikipedia (times TBA)",
+  "time_known": false
+ },
+ {
+  "date": "2026-11-06",
+  "start": "19:00",
+  "venue": "campus",
+  "kind": "women's volleyball",
+  "name": "vs Louisville",
+  "source": "app athletics feed",
+  "time_known": true
+ },
+ {
+  "date": "2026-11-08",
+  "start": null,
+  "venue": "John Paul Jones Arena",
+  "kind": "womens basketball",
+  "name": "vs William & Mary",
+  "source": "wikipedia (times TBA)",
+  "time_known": false
+ },
+ {
+  "date": "2026-11-08",
+  "start": "13:00",
+  "venue": "campus",
+  "kind": "women's volleyball",
+  "name": "vs Notre Dame",
+  "source": "app athletics feed",
+  "time_known": true
+ },
+ {
+  "date": "2026-11-11",
+  "start": null,
+  "venue": "John Paul Jones Arena",
+  "kind": "womens basketball",
+  "name": "vs Drexel",
+  "source": "wikipedia (times TBA)",
+  "time_known": false
+ },
+ {
+  "date": "2026-11-14",
+  "start": null,
+  "venue": "campus",
+  "kind": "football",
+  "name": "vs Cal",
+  "source": "app athletics feed",
+  "time_known": false
+ },
+ {
+  "date": "2026-11-16",
+  "start": "19:00",
+  "venue": "John Paul Jones Arena",
+  "kind": "concert",
+  "name": "Disney Descendants/ZOMBIES/Camp Rock: Worlds Collide",
+  "source": "jpj site",
+  "time_known": true
+ },
+ {
+  "date": "2026-11-18",
+  "start": "19:00",
+  "venue": "John Paul Jones Arena",
+  "kind": "concert",
+  "name": "Goose",
+  "source": "jpj site",
+  "time_known": true
+ },
+ {
+  "date": "2026-11-19",
+  "start": null,
+  "venue": "John Paul Jones Arena",
+  "kind": "womens basketball",
+  "name": "vs James Madison",
+  "source": "wikipedia (times TBA)",
+  "time_known": false
+ },
+ {
+  "date": "2026-11-20",
+  "start": "19:00",
+  "venue": "campus",
+  "kind": "women's volleyball",
+  "name": "vs Pittsburgh",
+  "source": "app athletics feed",
+  "time_known": true
+ },
+ {
+  "date": "2026-11-21",
+  "start": null,
+  "venue": "campus",
+  "kind": "football",
+  "name": "vs North Carolina",
+  "source": "app athletics feed",
+  "time_known": false
+ },
+ {
+  "date": "2026-11-22",
+  "start": "13:00",
+  "venue": "campus",
+  "kind": "women's volleyball",
+  "name": "vs SMU",
+  "source": "app athletics feed",
+  "time_known": true
+ },
+ {
+  "date": "2026-11-25",
+  "start": "14:00",
+  "venue": "campus",
+  "kind": "women's volleyball",
+  "name": "vs Boston College",
+  "source": "app athletics feed",
+  "time_known": true
+ },
+ {
+  "date": "2026-11-28",
+  "start": "19:00",
+  "venue": "John Paul Jones Arena",
+  "kind": "concert",
+  "name": "Pentatonix: Christmas in the City",
+  "source": "jpj site",
+  "time_known": true
+ },
+ {
+  "date": "2026-12-02",
+  "start": null,
+  "venue": "John Paul Jones Arena",
+  "kind": "mens basketball",
+  "name": "vs Kentucky",
+  "source": "app athletics feed",
+  "time_known": false
+ },
+ {
+  "date": "2026-12-06",
+  "start": null,
+  "venue": "John Paul Jones Arena",
+  "kind": "womens basketball",
+  "name": "vs Boston College",
+  "source": "wikipedia (times TBA)",
+  "time_known": false
+ },
+ {
+  "date": "2026-12-09",
+  "start": null,
+  "venue": "John Paul Jones Arena",
+  "kind": "womens basketball",
+  "name": "vs American",
+  "source": "wikipedia (times TBA)",
+  "time_known": false
+ },
+ {
+  "date": "2026-12-13",
+  "start": null,
+  "venue": "John Paul Jones Arena",
+  "kind": "womens basketball",
+  "name": "vs Navy",
+  "source": "wikipedia (times TBA)",
+  "time_known": false
+ },
+ {
+  "date": "2026-12-16",
+  "start": "19:30",
+  "venue": "John Paul Jones Arena",
+  "kind": "concert",
+  "name": "Trans-Siberian Orchestra",
+  "source": "jpj site",
+  "time_known": true
+ },
+ {
+  "date": "2026-12-22",
+  "start": null,
+  "venue": "John Paul Jones Arena",
+  "kind": "womens basketball",
+  "name": "vs Stony Brook",
+  "source": "wikipedia (times TBA)",
+  "time_known": false
+ },
+ {
+  "date": "2026-12-28",
+  "start": null,
+  "venue": "John Paul Jones Arena",
+  "kind": "womens basketball",
+  "name": "vs Norfolk State",
+  "source": "wikipedia (times TBA)",
+  "time_known": false
+ },
+ {
+  "date": "2026-12-31",
+  "start": null,
+  "venue": "John Paul Jones Arena",
+  "kind": "womens basketball",
+  "name": "vs Duke",
+  "source": "wikipedia (times TBA)",
+  "time_known": false
+ },
+ {
+  "date": "2027-01-03",
+  "start": null,
+  "venue": "John Paul Jones Arena",
+  "kind": "womens basketball",
+  "name": "vs Georgia Tech",
+  "source": "wikipedia (times TBA)",
+  "time_known": false
+ },
+ {
+  "date": "2027-01-10",
+  "start": null,
+  "venue": "John Paul Jones Arena",
+  "kind": "womens basketball",
+  "name": "vs Virginia Tech",
+  "source": "wikipedia (times TBA)",
+  "time_known": false
+ },
+ {
+  "date": "2027-01-21",
+  "start": null,
+  "venue": "John Paul Jones Arena",
+  "kind": "womens basketball",
+  "name": "vs Wake Forest",
+  "source": "wikipedia (times TBA)",
+  "time_known": false
+ },
+ {
+  "date": "2027-01-28",
+  "start": null,
+  "venue": "John Paul Jones Arena",
+  "kind": "womens basketball",
+  "name": "vs California",
+  "source": "wikipedia (times TBA)",
+  "time_known": false
+ },
+ {
+  "date": "2027-02-07",
+  "start": null,
+  "venue": "John Paul Jones Arena",
+  "kind": "womens basketball",
+  "name": "vs Louisville",
+  "source": "wikipedia (times TBA)",
+  "time_known": false
+ },
+ {
+  "date": "2027-02-18",
+  "start": null,
+  "venue": "John Paul Jones Arena",
+  "kind": "womens basketball",
+  "name": "vs Florida State",
+  "source": "wikipedia (times TBA)",
+  "time_known": false
+ },
+ {
+  "date": "2027-02-21",
+  "start": null,
+  "venue": "John Paul Jones Arena",
+  "kind": "womens basketball",
+  "name": "vs Stanford",
+  "source": "wikipedia (times TBA)",
+  "time_known": false
+ }
+]

@@ -1,0 +1,38 @@
+1 log(s), 29.8 min total, 5583 scoreable predictions
+
+=== Overall (only predictions both engines made, so it's apples to apples) ===
+  ours   n=5577  median err     -6s   median |err|    61s   mean |err|    84s   within 1min  50%  2min  77%  5min  99%
+  TL     n=5577  median err    -58s   median |err|    76s   mean |err|   112s   within 1min  42%  2min  70%  5min  92%
+  ours closer than TransLoc in 52% of 5577 pairs (34 ties)
+
+=== By how far away the bus really was when the prediction was made ===
+<2 min
+  ours   n=745   median err     -0s   median |err|    16s   mean |err|    22s   within 1min  94%  2min 100%  5min 100%
+  TL     n=745   median err     -4s   median |err|    12s   mean |err|    26s   within 1min  97%  2min  99%  5min  99%
+2-5 min
+  ours   n=983   median err     +4s   median |err|    36s   mean |err|    46s   within 1min  69%  2min  97%  5min 100%
+  TL     n=983   median err    -24s   median |err|    35s   mean |err|    48s   within 1min  78%  2min  96%  5min  99%
+5-10 min
+  ours   n=1417  median err     -8s   median |err|    75s   mean |err|    78s   within 1min  41%  2min  80%  5min 100%
+  TL     n=1417  median err    -61s   median |err|    73s   mean |err|    91s   within 1min  37%  2min  84%  5min  96%
+10-20 min
+  ours   n=1947  median err    -23s   median |err|   103s   mean |err|   117s   within 1min  28%  2min  60%  5min  99%
+  TL     n=1947  median err   -110s   median |err|   123s   mean |err|   146s   within 1min  14%  2min  48%  5min  91%
+20+ min
+  ours   n=485   median err     -9s   median |err|    50s   mean |err|   139s   within 1min  55%  2min  62%  5min  90%
+  TL     n=485   median err   -261s   median |err|   261s   mean |err|   296s   within 1min  12%  2min  21%  5min  58%
+
+=== Coverage (predictions for a real, later-observed visit) ===
+  both gave one: 5577   only TransLoc: 6   only ours: 0
+
+=== Our 10 worst misses ===
+  Jefferson Park Ave @ Cabell Hall (route 54, bus 16) real 1380s away: ours -1380s, TL -1379s
+  Jefferson Park Ave @ Cabell Hall (route 54, bus 16) real 1365s away: ours -1365s, TL -1364s
+  Jefferson Park Ave @ Montebello Circle (route 54, bus 16) real 1341s away: ours -1341s, TL +15s
+  Jefferson Park Ave @ Maury Ave (route 54, bus 16) real 1320s away: ours -1320s, TL +43s
+  Jefferson Park Ave @ Maury Ave (route 54, bus 16) real 1305s away: ours -1305s, TL +58s
+  Jefferson Park Ave @ Maury Ave (route 54, bus 16) real 1290s away: ours -1290s, TL +73s
+  Jefferson Park Ave @ Maury Ave (route 54, bus 16) real 1275s away: ours -1275s, TL +88s
+  Massie Rd @ JPJ South Lot (route 57, bus 12) real 1665s away: ours -334s, TL -316s
+  Massie Rd @ JPJ South Lot (route 57, bus 12) real 1200s away: ours -334s, TL -235s
+  Massie Rd @ JPJ South Lot (route 57, bus 12) real 1125s away: ours -334s, TL -269s

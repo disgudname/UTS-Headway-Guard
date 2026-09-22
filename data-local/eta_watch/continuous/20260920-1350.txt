@@ -1,0 +1,38 @@
+1 log(s), 29.8 min total, 5552 scoreable predictions
+
+=== Overall (only predictions both engines made, so it's apples to apples) ===
+  ours   n=5514  median err     -2s   median |err|    40s   mean |err|    51s   within 1min  68%  2min  91%  5min 100%
+  TL     n=5514  median err    -80s   median |err|    84s   mean |err|   136s   within 1min  43%  2min  59%  5min  84%
+  ours closer than TransLoc in 68% of 5514 pairs (43 ties)
+
+=== By how far away the bus really was when the prediction was made ===
+<2 min
+  ours   n=690   median err     -5s   median |err|    15s   mean |err|    20s   within 1min  95%  2min 100%  5min 100%
+  TL     n=690   median err     -5s   median |err|    11s   mean |err|    30s   within 1min  96%  2min  98%  5min  98%
+2-5 min
+  ours   n=912   median err     -1s   median |err|    31s   mean |err|    37s   within 1min  81%  2min  98%  5min 100%
+  TL     n=912   median err    -24s   median |err|    30s   mean |err|    48s   within 1min  79%  2min  95%  5min  99%
+5-10 min
+  ours   n=1379  median err     +3s   median |err|    42s   mean |err|    51s   within 1min  68%  2min  94%  5min 100%
+  TL     n=1379  median err    -65s   median |err|    69s   mean |err|   100s   within 1min  45%  2min  70%  5min  94%
+10-20 min
+  ours   n=1959  median err     -1s   median |err|    52s   mean |err|    62s   within 1min  57%  2min  88%  5min 100%
+  TL     n=1959  median err   -152s   median |err|   153s   mean |err|   182s   within 1min  19%  2min  38%  5min  80%
+20+ min
+  ours   n=574   median err    -13s   median |err|    45s   mean |err|    75s   within 1min  54%  2min  76%  5min  99%
+  TL     n=574   median err   -343s   median |err|   343s   mean |err|   334s   within 1min   0%  2min   1%  5min  33%
+
+=== Coverage (predictions for a real, later-observed visit) ===
+  both gave one: 5514   only TransLoc: 38   only ours: 0
+
+=== Our 10 worst misses ===
+  Rugby Rd @ Lambeth Ln (Southbound) (route 55, bus 13) real 1665s away: ours -1665s, TL -502s
+  Grady Ave @ Preston Pl (route 55, bus 13) real 1626s away: ours -1626s, TL -1625s
+  Grady Ave @ Preston Pl (route 55, bus 13) real 1611s away: ours -1611s, TL -1611s
+  Jefferson Park Ave @ Shamrock Rd (Southbound) (route 54, bus 16) real 945s away: ours -261s, TL -120s
+  Jefferson Park Ave @ Shamrock Rd (Southbound) (route 54, bus 16) real 930s away: ours -261s, TL -124s
+  McCormick Rd @ Monroe Hall (route 57, bus 12) real 646s away: ours -246s, TL -217s
+  McCormick Rd @ Shannon Library (route 57, bus 12) real 570s away: ours -244s, TL -181s
+  Alderman Rd @ Gooch/Dillard (Northbound) (route 54, bus 16) real 1065s away: ours -243s, TL -94s
+  Alderman Rd @ Gooch/Dillard (Northbound) (route 54, bus 16) real 1050s away: ours -243s, TL -98s
+  Maury Ave @ Clark Ct (route 54, bus 16) real 1020s away: ours -243s, TL -97s

@@ -1,0 +1,38 @@
+1 log(s), 29.8 min total, 5109 scoreable predictions
+
+=== Overall (only predictions both engines made, so it's apples to apples) ===
+  ours   n=4984  median err    -42s   median |err|    67s   mean |err|   101s   within 1min  47%  2min  66%  5min  98%
+  TL     n=4984  median err    -50s   median |err|    83s   mean |err|   122s   within 1min  40%  2min  63%  5min  94%
+  ours closer than TransLoc in 51% of 4984 pairs (37 ties)
+
+=== By how far away the bus really was when the prediction was made ===
+<2 min
+  ours   n=707   median err     -5s   median |err|    15s   mean |err|    26s   within 1min  93%  2min  99%  5min 100%
+  TL     n=707   median err     -4s   median |err|    12s   mean |err|    40s   within 1min  94%  2min  97%  5min  97%
+2-5 min
+  ours   n=943   median err    -18s   median |err|    39s   mean |err|    51s   within 1min  72%  2min  95%  5min 100%
+  TL     n=943   median err    -19s   median |err|    37s   mean |err|    61s   within 1min  72%  2min  93%  5min  97%
+5-10 min
+  ours   n=1284  median err    -41s   median |err|    71s   mean |err|    84s   within 1min  44%  2min  76%  5min 100%
+  TL     n=1284  median err    -46s   median |err|    72s   mean |err|    99s   within 1min  41%  2min  78%  5min  96%
+10-20 min
+  ours   n=1593  median err   -133s   median |err|   152s   mean |err|   146s   within 1min  23%  2min  39%  5min  98%
+  TL     n=1593  median err   -147s   median |err|   151s   mean |err|   169s   within 1min   9%  2min  36%  5min  91%
+20+ min
+  ours   n=457   median err   -222s   median |err|   222s   mean |err|   204s   within 1min  18%  2min  21%  5min  89%
+  TL     n=457   median err   -218s   median |err|   224s   mean |err|   269s   within 1min   0%  2min   0%  5min  86%
+
+=== Coverage (predictions for a real, later-observed visit) ===
+  both gave one: 4984   only TransLoc: 125   only ours: 0
+
+=== Our 10 worst misses ===
+  McCormick Rd @ Monroe Hall (route 55, bus 13) real 1770s away: ours -1770s, TL -606s
+  Massie Rd @ JPJ (West Entrance) (route 57, bus 12) real 30s away: ours +1395s, TL +7s
+  Massie Rd @ Faulkner Apts (Northbound) (route 57, bus 12) real 105s away: ours +1365s, TL -3s
+  Massie Rd @ North Grounds Rec (Northbound) (route 57, bus 12) real 153s away: ours +1362s, TL +6s
+  Massie Rd @ Copeley Apts (route 57, bus 12) real 195s away: ours +1345s, TL +4s
+  Arlington Blvd @ Millmont St (route 57, bus 12) real 255s away: ours +1330s, TL +5s
+  Arlington Blvd @ Jeffersonian Apts (route 57, bus 12) real 513s away: ours +1252s, TL -103s
+  Massie Rd @ North Grounds Rec (Southbound) (route 57, bus 12) real 586s away: ours +1252s, TL -93s
+  Arlington Blvd @ Barracks Road Shopping Center (route 57, bus 12) real 435s away: ours +1250s, TL -83s
+  Massie Rd @ Law School (route 57, bus 12) real 555s away: ours +1250s, TL -99s

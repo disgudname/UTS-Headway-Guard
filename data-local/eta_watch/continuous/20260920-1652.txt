@@ -1,0 +1,38 @@
+1 log(s), 29.8 min total, 5478 scoreable predictions
+
+=== Overall (only predictions both engines made, so it's apples to apples) ===
+  ours   n=5368  median err     +2s   median |err|    61s   mean |err|    93s   within 1min  49%  2min  69%  5min  95%
+  TL     n=5368  median err    -99s   median |err|   104s   mean |err|   146s   within 1min  41%  2min  53%  5min  87%
+  ours closer than TransLoc in 58% of 5368 pairs (38 ties)
+
+=== By how far away the bus really was when the prediction was made ===
+<2 min
+  ours   n=653   median err     -0s   median |err|    17s   mean |err|    24s   within 1min  91%  2min 100%  5min 100%
+  TL     n=653   median err     -3s   median |err|    11s   mean |err|    28s   within 1min  97%  2min  98%  5min  98%
+2-5 min
+  ours   n=874   median err     +1s   median |err|    39s   mean |err|    51s   within 1min  64%  2min  92%  5min 100%
+  TL     n=874   median err    -17s   median |err|    30s   mean |err|    51s   within 1min  73%  2min  93%  5min  99%
+5-10 min
+  ours   n=1356  median err     -0s   median |err|    63s   mean |err|    85s   within 1min  48%  2min  69%  5min 100%
+  TL     n=1356  median err    -89s   median |err|    93s   mean |err|   113s   within 1min  42%  2min  61%  5min  94%
+10-20 min
+  ours   n=1855  median err     +2s   median |err|    96s   mean |err|   122s   within 1min  35%  2min  55%  5min  97%
+  TL     n=1855  median err   -197s   median |err|   199s   mean |err|   188s   within 1min  18%  2min  30%  5min  86%
+20+ min
+  ours   n=630   median err    +61s   median |err|   142s   mean |err|   158s   within 1min  29%  2min  49%  5min  70%
+  TL     n=630   median err   -348s   median |err|   348s   mean |err|   352s   within 1min   0%  2min   1%  5min  44%
+
+=== Coverage (predictions for a real, later-observed visit) ===
+  both gave one: 5368   only TransLoc: 110   only ours: 0
+
+=== Our 10 worst misses ===
+  Grady Ave @ 10 ½ St (route 55, bus 13) real 1629s away: ours +407s, TL -634s
+  Preston Ave @ Washington Park (route 55, bus 13) real 1597s away: ours +403s, TL -637s
+  Madison Ave @ Grady Ave (route 55, bus 13) real 1522s away: ours +382s, TL -638s
+  Madison Ave @ Preston Ave (route 55, bus 13) real 1555s away: ours +379s, TL -635s
+  14th Street @ John St (route 55, bus 13) real 1459s away: ours +377s, TL -630s
+  14th Street @ Wertland St (Northbound) (route 55, bus 13) real 1410s away: ours +362s, TL -621s
+  Grady Ave @ Preston Pl (route 55, bus 13) real 1745s away: ours +359s, TL -684s
+  Grady Ave @ 14th St (route 55, bus 13) real 1710s away: ours +357s, TL -690s
+  Grady Ave @ 10 ½ St (route 55, bus 13) real 1284s away: ours +355s, TL -301s
+  Grady Ave @ 10 ½ St (route 55, bus 13) real 1434s away: ours +355s, TL -451s

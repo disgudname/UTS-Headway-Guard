@@ -1,0 +1,38 @@
+1 log(s), 29.8 min total, 4856 scoreable predictions
+
+=== Overall (only predictions both engines made, so it's apples to apples) ===
+  ours   n=4856  median err    -62s   median |err|    77s   mean |err|   117s   within 1min  42%  2min  68%  5min  94%
+  TL     n=4856  median err    -69s   median |err|    82s   mean |err|   130s   within 1min  41%  2min  63%  5min  90%
+  ours closer than TransLoc in 57% of 4856 pairs (55 ties)
+
+=== By how far away the bus really was when the prediction was made ===
+<2 min
+  ours   n=688   median err     -0s   median |err|    15s   mean |err|    29s   within 1min  91%  2min  99%  5min 100%
+  TL     n=688   median err     -3s   median |err|    13s   mean |err|    33s   within 1min  94%  2min  98%  5min  98%
+2-5 min
+  ours   n=903   median err    -16s   median |err|    40s   mean |err|    59s   within 1min  63%  2min  89%  5min 100%
+  TL     n=903   median err    -31s   median |err|    47s   mean |err|    66s   within 1min  60%  2min  90%  5min  99%
+5-10 min
+  ours   n=1237  median err    -62s   median |err|    78s   mean |err|   107s   within 1min  40%  2min  66%  5min  98%
+  TL     n=1237  median err    -92s   median |err|   102s   mean |err|   121s   within 1min  28%  2min  60%  5min  95%
+10-20 min
+  ours   n=1620  median err   -106s   median |err|   111s   mean |err|   147s   within 1min  21%  2min  56%  5min  92%
+  TL     n=1620  median err   -139s   median |err|   151s   mean |err|   174s   within 1min  24%  2min  44%  5min  87%
+20+ min
+  ours   n=408   median err   -190s   median |err|   209s   mean |err|   303s   within 1min   5%  2min  27%  5min  69%
+  TL     n=408   median err   -198s   median |err|   198s   mean |err|   288s   within 1min   9%  2min  21%  5min  58%
+
+=== Coverage (predictions for a real, later-observed visit) ===
+  both gave one: 4856   only TransLoc: 0   only ours: 0
+
+=== Our 10 worst misses ===
+  Emmet St @ Goodwin Bridge (Northbound) (route 57, bus 44) real 1125s away: ours +1352s, TL -176s
+  Emmet St @ Goodwin Bridge (Northbound) (route 57, bus 44) real 1140s away: ours +1352s, TL -160s
+  Emmet St @ Goodwin Bridge (Northbound) (route 57, bus 44) real 1155s away: ours +1352s, TL -173s
+  Emmet St @ Goodwin Bridge (Southbound) (route 57, bus 44) real 1125s away: ours +1348s, TL +513s
+  Emmet St @ Goodwin Bridge (Southbound) (route 57, bus 44) real 1140s away: ours +1348s, TL +529s
+  Emmet St @ Goodwin Bridge (Southbound) (route 57, bus 44) real 1155s away: ours +1348s, TL +516s
+  University Ave @ Newcomb Rd (Westbound) (route 57, bus 44) real 1035s away: ours +1348s, TL -192s
+  University Ave @ Newcomb Rd (Westbound) (route 57, bus 44) real 1050s away: ours +1348s, TL -176s
+  University Ave @ Newcomb Rd (Westbound) (route 57, bus 44) real 1065s away: ours +1348s, TL -189s
+  Emmet St @ Emmet / Ivy Garage (Northbound) (route 57, bus 44) real 1095s away: ours +1333s, TL -171s

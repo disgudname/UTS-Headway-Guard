@@ -1,0 +1,38 @@
+1 log(s), 29.8 min total, 4146 scoreable predictions
+
+=== Overall (only predictions both engines made, so it's apples to apples) ===
+  ours   n=4146  median err    -15s   median |err|    45s   mean |err|    63s   within 1min  60%  2min  86%  5min 100%
+  TL     n=4146  median err    -26s   median |err|    74s   mean |err|   114s   within 1min  43%  2min  70%  5min  89%
+  ours closer than TransLoc in 60% of 4146 pairs (24 ties)
+
+=== By how far away the bus really was when the prediction was made ===
+<2 min
+  ours   n=625   median err     -1s   median |err|    17s   mean |err|    23s   within 1min  94%  2min 100%  5min 100%
+  TL     n=625   median err     -2s   median |err|    12s   mean |err|    34s   within 1min  96%  2min  98%  5min  98%
+2-5 min
+  ours   n=798   median err     -2s   median |err|    40s   mean |err|    48s   within 1min  69%  2min  95%  5min 100%
+  TL     n=798   median err    -18s   median |err|    33s   mean |err|    51s   within 1min  72%  2min  96%  5min  98%
+5-10 min
+  ours   n=1078  median err    -21s   median |err|    62s   mean |err|    73s   within 1min  48%  2min  82%  5min 100%
+  TL     n=1078  median err    -61s   median |err|    89s   mean |err|   101s   within 1min  30%  2min  72%  5min  97%
+10-20 min
+  ours   n=1309  median err    -28s   median |err|    59s   mean |err|    71s   within 1min  51%  2min  81%  5min 100%
+  TL     n=1309  median err    -77s   median |err|   125s   mean |err|   157s   within 1min  17%  2min  47%  5min  83%
+20+ min
+  ours   n=336   median err    -43s   median |err|    74s   mean |err|   106s   within 1min  46%  2min  68%  5min  98%
+  TL     n=336   median err   -375s   median |err|   375s   mean |err|   281s   within 1min  24%  2min  35%  5min  44%
+
+=== Coverage (predictions for a real, later-observed visit) ===
+  both gave one: 4146   only TransLoc: 0   only ours: 0
+
+=== Our 10 worst misses ===
+  McCormick Rd @ UVA Chapel (route 54, bus 16) real 1455s away: ours -1455s, TL -1451s
+  McCormick Rd @ UVA Chapel (route 54, bus 16) real 1440s away: ours -1440s, TL -76s
+  McCormick Rd @ UVA Chapel (route 54, bus 16) real 1425s away: ours -1425s, TL -74s
+  McCormick Rd @ Shannon Library (route 55, bus 13) real 1395s away: ours -1395s, TL -1394s
+  McCormick Rd @ Shannon Library (route 55, bus 13) real 1380s away: ours -1380s, TL -1380s
+  McCormick Rd @ Shannon Library (route 55, bus 13) real 1365s away: ours -1365s, TL -202s
+  McCormick Rd @ Shannon Library (route 55, bus 13) real 1350s away: ours -1350s, TL -195s
+  14th Street @ John St (route 55, bus 13) real 415s away: ours -249s, TL -134s
+  14th Street @ John St (route 55, bus 13) real 400s away: ours -249s, TL -127s
+  Emmet St @ Emmet / Ivy Garage (Southbound) (route 57, bus 12) real 600s away: ours +247s, TL +167s

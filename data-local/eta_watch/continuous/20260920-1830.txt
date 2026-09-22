@@ -1,0 +1,38 @@
+1 log(s), 29.8 min total, 4674 scoreable predictions
+
+=== Overall (only predictions both engines made, so it's apples to apples) ===
+  ours   n=4674  median err    -59s   median |err|    99s   mean |err|   151s   within 1min  35%  2min  55%  5min  85%
+  TL     n=4674  median err    -94s   median |err|   101s   mean |err|   171s   within 1min  37%  2min  54%  5min  77%
+  ours closer than TransLoc in 53% of 4674 pairs (65 ties)
+
+=== By how far away the bus really was when the prediction was made ===
+<2 min
+  ours   n=641   median err     -3s   median |err|    15s   mean |err|    25s   within 1min  89%  2min 100%  5min 100%
+  TL     n=641   median err     -7s   median |err|    13s   mean |err|    53s   within 1min  93%  2min  97%  5min  97%
+2-5 min
+  ours   n=862   median err    -23s   median |err|    53s   mean |err|    66s   within 1min  55%  2min  84%  5min 100%
+  TL     n=862   median err    -32s   median |err|    45s   mean |err|    61s   within 1min  62%  2min  91%  5min  99%
+5-10 min
+  ours   n=1168  median err    -61s   median |err|   105s   mean |err|   128s   within 1min  27%  2min  55%  5min  96%
+  TL     n=1168  median err    -96s   median |err|    99s   mean |err|   120s   within 1min  33%  2min  60%  5min  94%
+10-20 min
+  ours   n=1564  median err   -219s   median |err|   221s   mean |err|   225s   within 1min  16%  2min  32%  5min  69%
+  TL     n=1564  median err   -228s   median |err|   239s   mean |err|   253s   within 1min  14%  2min  26%  5min  59%
+20+ min
+  ours   n=439   median err   -279s   median |err|   279s   mean |err|   296s   within 1min   4%  2min  18%  5min  57%
+  TL     n=439   median err   -446s   median |err|   446s   mean |err|   408s   within 1min   4%  2min   6%  5min  29%
+
+=== Coverage (predictions for a real, later-observed visit) ===
+  both gave one: 4674   only TransLoc: 0   only ours: 0
+
+=== Our 10 worst misses ===
+  McCormick Rd @ UVA Chapel (route 54, bus 16) real 1395s away: ours -1395s, TL -1395s
+  Arlington Blvd @ Barracks Road Shopping Center (route 57, bus 44) real 1425s away: ours -621s, TL -656s
+  Arlington Blvd @ Barracks Road Shopping Center (route 57, bus 44) real 1410s away: ours -621s, TL -677s
+  Arlington Blvd @ Barracks Road Shopping Center (route 57, bus 44) real 1395s away: ours -621s, TL -671s
+  Arlington Blvd @ Barracks Road Shopping Center (route 57, bus 44) real 1290s away: ours -614s, TL -656s
+  Arlington Blvd @ Barracks Road Shopping Center (route 57, bus 44) real 1275s away: ours -614s, TL -660s
+  Arlington Blvd @ Barracks Road Shopping Center (route 57, bus 44) real 1440s away: ours -612s, TL -653s
+  Arlington Blvd @ Barracks Road Shopping Center (route 57, bus 44) real 1545s away: ours -612s, TL -602s
+  Arlington Blvd @ Barracks Road Shopping Center (route 57, bus 44) real 1530s away: ours -612s, TL -610s
+  Arlington Blvd @ Barracks Road Shopping Center (route 57, bus 44) real 1590s away: ours -612s, TL -598s

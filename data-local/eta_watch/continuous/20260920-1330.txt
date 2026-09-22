@@ -1,0 +1,35 @@
+1 log(s), 19.3 min total, 2535 scoreable predictions
+
+=== Overall (only predictions both engines made, so it's apples to apples) ===
+  ours   n=2535  median err    -20s   median |err|    42s   mean |err|    71s   within 1min  60%  2min  81%  5min  98%
+  TL     n=2535  median err    -34s   median |err|    50s   mean |err|    88s   within 1min  56%  2min  76%  5min  97%
+  ours closer than TransLoc in 51% of 2535 pairs (28 ties)
+
+=== By how far away the bus really was when the prediction was made ===
+<2 min
+  ours   n=488   median err     -4s   median |err|    15s   mean |err|    22s   within 1min  91%  2min 100%  5min 100%
+  TL     n=488   median err     -5s   median |err|    12s   mean |err|    33s   within 1min  97%  2min  98%  5min  98%
+2-5 min
+  ours   n=630   median err     -7s   median |err|    38s   mean |err|    52s   within 1min  67%  2min  92%  5min 100%
+  TL     n=630   median err    -27s   median |err|    36s   mean |err|    54s   within 1min  70%  2min  96%  5min  98%
+5-10 min
+  ours   n=769   median err    -37s   median |err|    65s   mean |err|    87s   within 1min  47%  2min  73%  5min  99%
+  TL     n=769   median err    -59s   median |err|    65s   mean |err|    93s   within 1min  46%  2min  72%  5min  97%
+10-20 min
+  ours   n=648   median err    -71s   median |err|    80s   mean |err|   107s   within 1min  43%  2min  66%  5min  95%
+  TL     n=648   median err   -136s   median |err|   154s   mean |err|   158s   within 1min  23%  2min  44%  5min  94%
+
+=== Coverage (predictions for a real, later-observed visit) ===
+  both gave one: 2535   only TransLoc: 0   only ours: 0
+
+=== Our 10 worst misses ===
+  Massie Rd @ JPJ (West Entrance) (route 57, bus 12) real 673s away: ours -336s, TL -259s
+  Massie Rd @ JPJ (West Entrance) (route 57, bus 12) real 748s away: ours -336s, TL -256s
+  Massie Rd @ JPJ (West Entrance) (route 57, bus 12) real 733s away: ours -336s, TL -241s
+  Massie Rd @ JPJ (West Entrance) (route 57, bus 12) real 688s away: ours -336s, TL -242s
+  Massie Rd @ JPJ (West Entrance) (route 57, bus 12) real 583s away: ours -336s, TL -272s
+  Massie Rd @ JPJ (West Entrance) (route 57, bus 12) real 568s away: ours -336s, TL -269s
+  Massie Rd @ JPJ (West Entrance) (route 57, bus 12) real 658s away: ours -334s, TL -248s
+  Massie Rd @ JPJ (West Entrance) (route 57, bus 12) real 808s away: ours -334s, TL -245s
+  Massie Rd @ JPJ (West Entrance) (route 57, bus 12) real 913s away: ours -334s, TL -236s
+  Massie Rd @ JPJ (West Entrance) (route 57, bus 12) real 928s away: ours -334s, TL -251s
