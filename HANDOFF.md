@@ -27,6 +27,14 @@ Machine tags: `[dev]` = Windows dev machine · `[home]` = home server (Windows b
 
 ## 1. Message board (newest first)
 
+### 2026-09-23 · [home] · ETA health checks, first 3 weekdays (Sep 20-23, 27 runs): engine healthy, nothing to fix; scorer noise identified (nothing changed)
+- **Accuracy:** daytime median |error| 62-81 s (TransLoc's own predictions run ~150-230 s early). Late >2 min is 1-5% on weekdays (Sunday daytime 8-11%).
+- **Rush-hour early bias is real:** 17:00 runs (Mon/Tue/Wed) median |err| 77/121/103 s, predicting too soon. Error grows with horizon (<2 min out: 20-60 s; 10+ min out: 2-5 min), i.e. buses run slower than history hop times, compounding per stop. Worst on route 73 (Purple, Scott Stadium variant): Purple has no block package, so held buses read too soon (already a known limit). History is already keyed weekday+hour, so this is thin/stale history, not a missing feature. Watch whether it shrinks as weekday history builds; only touch the engine if it persists (see the 09-20 DECISION).
+- **"Visits TransLoc predicted that we didn't" is mostly scorer noise:** (a) first 1-2 polls of a run have no prediction from us yet (warmup; 45 of Wed 17:00's 66); (b) single-poll (15 s) flickers where one bus's whole ETA set drops to 0-2 entries as it pulls off a stop/layover, then returns unchanged. Suggested scorer fix (NOT done): skip the first 2 polls and ignore single-poll gaps in `eta_health_check.analyze`.
+- **4 full-lap flips in ~350k predictions**, all single-poll glitches (bus at/just before the stop, we briefly say ~28 min); same class as the 09-20 "22 min late for one poll" note. Don't chase.
+- **Mon 09-21 00:00 run scored 0: dispatcher error, not the engine.** Night Pilot bus 13 was moved to route 0 (not in service) 15 s into the run and the other route-2 bus sat parked; TransLoc had no predictions either. Ignore that "inconclusive". The script can't tell dispatch-caused emptiness from real end of service. 04:30 runs are always empty (no service).
+- Nothing committed from `data-local/` (per standing rule).
+
 ### 2026-09-20 · [home] · DEPLOYED `57aea89`: scheduled-hold wrong-lap fix (a bus ~20 min late was held for the NEXT visit)
 - **Bug (seen live 20:01, Gold bus 44 at Shannon Library, block [09], concert night):** `uts_blocks.scheduled_hold_epoch` picked the NEAREST scheduled visit within 25 min. Bus arrived 21 min after the 19:40
   visit / 19 min before 20:20, matched 20:20, and was held ~19 min -> ETAs for the rest of its loop ~20 min LATE (TransLoc within 3 min). Only bites when a bus is >~half a headway (20 min on Gold) behind schedule.
