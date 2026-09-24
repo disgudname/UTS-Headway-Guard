@@ -1874,6 +1874,28 @@ async def init_ondemand_client() -> None:
         app.state.ondemand_client = None
 
 
+# Event-loop stall watchdog. The app runs on one CPU, so any long synchronous work
+# freezes every request at once (kiosk check-ins, SSE). This sleeps a short, fixed
+# time and measures how late it wakes up; a big overshoot means the loop was blocked
+# that long. Search the logs for "[loop-lag]" to line stalls up against kiosk flaps.
+LOOP_LAG_TICK_S = 0.1
+LOOP_LAG_WARN_S = 0.5
+
+
+async def _loop_lag_watchdog() -> None:
+    while True:
+        started = time.monotonic()
+        await asyncio.sleep(LOOP_LAG_TICK_S)
+        lag = time.monotonic() - started - LOOP_LAG_TICK_S
+        if lag >= LOOP_LAG_WARN_S:
+            print(f"[loop-lag] event loop blocked for {lag:.2f}s")
+
+
+@app.on_event("startup")
+async def start_loop_lag_watchdog() -> None:
+    asyncio.create_task(_loop_lag_watchdog())
+
+
 @app.on_event("startup")
 async def init_transloc_client() -> None:
     app.state.transloc_client = httpx.AsyncClient(
