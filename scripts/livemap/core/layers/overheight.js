@@ -10,17 +10,19 @@
 // When no over-height bus is in range any more, gestures come back and the map
 // returns to where it was.
 //
-// Gated like testmap: only with `?dispatcher=true` (the bus dispatch console's
-// map iframe) or an adminKiosk wall display — NOT for every signed-in
-// dispatcher, since it takes over the camera. Bridge location, radius and the
-// bus list come from GET /v1/config (BRIDGE_LAT/LON/RADIUS, OVERHEIGHT_BUSES),
-// falling back to the same defaults testmap ships.
+// Safety-critical, so it fires for EVERY authenticated (dispatcher-cookie) user,
+// plus `?dispatcher=true` (the bus dispatch console's map iframe) and adminKiosk
+// wall displays (testmap's original gates). `?adminMode=false` does not veto it.
+// The public never sees it. Bridge location, radius and the bus list come from
+// GET /v1/config (BRIDGE_LAT/LON/RADIUS, OVERHEIGHT_BUSES), falling back to the
+// same defaults testmap ships.
 // -----------------------------------------------------------------------------
 
 import { API_BASE } from '../config.js';
 import { getMap, onStyleReady } from '../map.js';
 import { paramBool } from '../util.js';
 import { getOperatorMode } from '../modes.js';
+import { isAuthed, startSession } from '../data/session.js';
 import { onVehicles } from '../data/transloc.js';
 import { listVehicles, getVehicleLngLat, stopFollow } from './vehicles.js';
 import { OVERHEIGHT_SOURCE_ID } from './overheight-style.js';
@@ -47,14 +49,12 @@ let rafId = 0;
 let saved = null; // { center, zoom, handlers:{name:bool} }
 
 export const overheightAllowed = () =>
-  paramBool('dispatcher') || getOperatorMode() === 'adminKiosk';
+  isAuthed() || paramBool('dispatcher') || getOperatorMode() === 'adminKiosk';
+
+let configRequested = false;
 
 export function installOverheightAlert() {
-  if (!overheightAllowed()) return;
-  loadConfig().then((c) => {
-    config = c;
-    evaluate();
-  });
+  startSession(); // idempotent; makes sure the auth probe is running
   // Registered after installVehicleLayer's own listener, so by the time this
   // runs the vehicle state already reflects this report.
   onVehicles(() => evaluate());
@@ -116,7 +116,19 @@ function findCandidate() {
 
 function evaluate() {
   const map = getMap();
-  if (!map || !config) return;
+  if (!map) return;
+  if (!overheightAllowed()) {
+    if (active) release(); // signed out mid-alert
+    return;
+  }
+  if (!configRequested) {
+    configRequested = true; // first time we're allowed (auth probe may land late)
+    loadConfig().then((c) => {
+      config = c;
+      evaluate();
+    });
+  }
+  if (!config) return;
   const c = findCandidate();
   if (!c) {
     if (active) release();
