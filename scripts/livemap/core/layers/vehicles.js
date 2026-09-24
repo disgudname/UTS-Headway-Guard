@@ -27,6 +27,8 @@ import {
   onMetadata,
   getRouteColor,
   getRouteName,
+  getRouteShape,
+  onRoutes,
   setShowStaleVehicles,
 } from '../data/transloc.js';
 import { isDispatcher, onDispatcher, startSession } from '../data/session.js';
@@ -110,6 +112,8 @@ export function installVehicleLayer(opts = {}) {
     // Route picker toggled: re-run the last ingest so hidden routes' buses go
     // away (and come back) without waiting for the next feed tick.
     onRouteVisibility(() => reingest(UTS_PREFIX));
+    // Route geometry (re)loaded: off-route distances depend on it.
+    onRoutes(() => reingest(UTS_PREFIX));
     onMetadata(() => {
       // Route colours arrived/changed: regenerate images and repaint.
       regenerateImages();
@@ -560,6 +564,38 @@ function ingest(rawList, prefix, adapt) {
   scheduleFrame();
 }
 
+// Off-route badge (dispatcher-only, UTS buses): parity with /map's
+// BUS_OFF_ROUTE_DISTANCE_THRESHOLD_METERS. Distance from the bus to its own
+// route's polyline; null when we can't tell (no shape, not a UTS bus).
+const OFF_ROUTE_THRESHOLD_M = 60;
+
+function offRouteDistanceM(v) {
+  if (v.agency !== 'uts' || !isDispatcher()) return null;
+  if (!Number.isFinite(v.lat) || !Number.isFinite(v.lng)) return null;
+  const shape = getRouteShape(v.routeId);
+  const pts = shape && shape.coords;
+  if (!pts || pts.length < 2) return null;
+  // Local flat-earth metres around the bus (fine at sub-kilometre scale).
+  const kx = 111320 * Math.cos((v.lat * Math.PI) / 180);
+  const ky = 110540;
+  let best = Infinity;
+  let ax = (pts[0][0] - v.lng) * kx;
+  let ay = (pts[0][1] - v.lat) * ky;
+  for (let i = 1; i < pts.length; i++) {
+    const bx = (pts[i][0] - v.lng) * kx;
+    const by = (pts[i][1] - v.lat) * ky;
+    const dx = bx - ax;
+    const dy = by - ay;
+    const len2 = dx * dx + dy * dy;
+    const t = len2 > 0 ? clamp(-(ax * dx + ay * dy) / len2, 0, 1) : 0;
+    const d = Math.hypot(ax + t * dx, ay + t * dy);
+    if (d < best) best = d;
+    ax = bx;
+    ay = by;
+  }
+  return Number.isFinite(best) ? best : null;
+}
+
 function deriveProps(v) {
   const stopped = v.speedMph < 1.2;
   const mph = Math.max(0, Math.round(v.speedMph));
@@ -572,7 +608,10 @@ function deriveProps(v) {
   // plain-language "Training"/"Charter" that stays in the popup) falls back to
   // the speed pill on the bottom. The public never builds a composite at all.
   const subLabel = isBlockValue(block) ? block : speedLabel;
+  const offRouteM = offRouteDistanceM(v);
   return {
+    offRoute: offRouteM != null && offRouteM > OFF_ROUTE_THRESHOLD_M,
+    offRouteM,
     routeId: v.routeId, // needed by bus_eta.js's per-vehicle lookup (popupHTML)
     routeColor: v.routeColor,
     routeName: v.routeName,
@@ -674,8 +713,14 @@ function syncSource(now, animating) {
     // rasterised, so we fall back to the bare pin for a frame or two.
     let icon = null;
     let iconRotate = 0;
-    if (wantPills) {
-      icon = ensureComposite(p.routeColor, p.stopped, p.dim, s.heading, p.nameLabel, p.subLabel);
+    // An off-route dispatcher bus always gets a composite (pills optional) so
+    // its red "!" badge is baked into the same single image as the pin.
+    const offRoute = !!p.offRoute && isDispatcher();
+    if (wantPills || offRoute) {
+      icon = ensureComposite(
+        p.routeColor, p.stopped, p.dim, s.heading,
+        wantPills ? p.nameLabel : '', wantPills ? p.subLabel : '', offRoute,
+      );
     }
     if (!icon) {
       icon = pinImageId(p.routeColor, p.stopped, p.dim);
@@ -690,7 +735,8 @@ function syncSource(now, animating) {
         icon,
         iconRotate,
         // Whole-marker stacking: southernmost vehicle's image on top (Leaflet-style).
-        sortKey: Math.round((40 - s.lat) * 1e6),
+        // Off-route buses sit above every normal one (testmap: +1200 z-offset).
+        sortKey: Math.round((40 - s.lat) * 1e6) + (offRoute ? 1e8 : 0),
       },
     });
   }
@@ -839,9 +885,9 @@ function pillGapsPx(headingDeg, ink) {
   return { up: -minY + PILL_MARGIN_PX, down: maxY + PILL_MARGIN_PX };
 }
 
-function compositeId(color, stopped, dim, bucket, nameText, subText) {
+function compositeId(color, stopped, dim, bucket, nameText, subText, offRoute) {
   const t = (s) => String(s || '').replace(/[^A-Za-z0-9]+/g, '_');
-  return `livemap-vhc-${color}-${stopped ? 's' : 'm'}${dim ? 'd' : ''}-${bucket}-${t(nameText)}-${t(subText)}`;
+  return `livemap-vhc-${color}-${stopped ? 's' : 'm'}${dim ? 'd' : ''}-${bucket}-${t(nameText)}-${t(subText)}${offRoute ? '-off' : ''}`;
 }
 
 function lruAdd(id) {
@@ -863,10 +909,10 @@ function lruTouch(id) {
 /** Get (building if needed) the composite image id for this vehicle's current
  *  look. Returns null until the underlying pin has finished rasterising — the
  *  caller falls back to the bare pin for a frame. */
-function ensureComposite(color, stopped, dim, headingDeg, nameText, subText) {
+function ensureComposite(color, stopped, dim, headingDeg, nameText, subText, offRoute) {
   const step = COMPOSITE_HEADING_STEP;
   const bucket = (((Math.round((Number(headingDeg) || 0) / step) * step) % 360) + 360) % 360;
-  const id = compositeId(color, stopped, dim, bucket, nameText, subText);
+  const id = compositeId(color, stopped, dim, bucket, nameText, subText, !!offRoute);
   const map = getMap();
   if (!map) return null;
   if (map.hasImage(id)) {
@@ -879,6 +925,7 @@ function ensureComposite(color, stopped, dim, headingDeg, nameText, subText) {
     color, stopped, dim, bucket,
     nameText: String(nameText || ''),
     subText: String(subText || ''),
+    offRoute: !!offRoute,
   };
   compositeSpecs.set(id, spec);
   try {
@@ -928,7 +975,11 @@ function buildComposite(id, spec, pinCv) {
   const pinReach = Math.ceil(Math.hypot(k.half, Math.max(k.up, k.down))) + 2;
   const topExt = Math.max(pinReach, gap.up + nameH);
   const botExt = Math.max(pinReach, gap.down + subH);
-  const halfW = Math.max(pinReach, nameW / 2, subW / 2);
+  // Off-route badge: a red "!" disc to the right of the pin, level with its
+  // centre (clear of the pills above/below), baked into this same image.
+  const badgeR = 9 * DPR;
+  const badgeX = Math.round(pinReach * 0.72);
+  const halfW = Math.max(pinReach, nameW / 2, subW / 2, spec.offRoute ? badgeX + badgeR + 2 : 0);
   const W = Math.ceil(2 * halfW);
   const H = Math.ceil(2 * Math.max(topExt, botExt));
 
@@ -947,6 +998,22 @@ function buildComposite(id, spec, pinCv) {
 
   if (nameCv) c.drawImage(nameCv, Math.round(cx - nameW / 2), Math.round(cy - gap.up - nameH));
   if (subCv) c.drawImage(subCv, Math.round(cx - subW / 2), Math.round(cy + gap.down));
+
+  if (spec.offRoute) {
+    const bx = cx + badgeX;
+    c.beginPath();
+    c.arc(bx, cy, badgeR, 0, Math.PI * 2);
+    c.fillStyle = '#dc2626';
+    c.fill();
+    c.lineWidth = 2 * DPR;
+    c.strokeStyle = '#ffffff';
+    c.stroke();
+    c.fillStyle = '#ffffff';
+    c.font = `700 ${13 * DPR}px ${LBL_FONT_STACK}`;
+    c.textAlign = 'center';
+    c.textBaseline = 'middle';
+    c.fillText('!', bx, cy + 0.5 * DPR);
+  }
 
   const data = c.getImageData(0, 0, W, H);
   if (map.hasImage(id)) map.updateImage(id, data);

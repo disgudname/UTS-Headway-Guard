@@ -57,6 +57,10 @@ export function getRouteColor(routeId) {
 export function getRouteName(routeId) {
   return routeName.get(String(routeId)) || '';
 }
+/** One route's drawable shape ({ id, name, color, coords:[[lng,lat],...] }) or null. */
+export function getRouteShape(routeId) {
+  return routeShape.get(String(routeId)) || null;
+}
 /** Every route that currently has a drawable shape. */
 export function getRoutes() {
   return [...routeShape.values()];
