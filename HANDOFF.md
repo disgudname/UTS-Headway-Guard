@@ -27,7 +27,7 @@ Machine tags: `[dev]` = Windows dev machine · `[home]` = home server (Windows b
 
 ## 1. Message board (newest first)
 
-### 2026-09-24 · [home] · /livemap off-route badge for dispatchers (WRITTEN, NOT deployed, NOT visually verified)
+### 2026-09-24 · [home] · /livemap off-route badge for dispatchers (DEPLOYED 2026-09-24, NOT visually verified)
 - **Built** (`scripts/livemap/core/layers/vehicles.js`, `data/transloc.js` `getRouteShape`): UTS buses >60 m (same as /map) from their own route polyline get a red "!" disc, dispatcher-only (`isDispatcher()`, so `?adminMode=false` hides it). Distance is computed in `deriveProps` (flat-earth metres vs `getRouteShape(routeId).coords`); re-derived when route geometry loads (`onRoutes` -> reingest).
 - **Layering:** the badge is baked into the bus's ONE composite image (same trick as the number/block pills), NOT a separate layer, so it can never land above/below the wrong things. Off-route buses get a composite even with labels off (empty pills). `sortKey` gets +1e8 so an off-route bus draws above all normal buses (testmap's +1200 z-offset equivalent).
 - **Check on deploy:** load `/livemap` signed in as dispatcher, find/force an off-route bus (or `?dispatcher=1` with a mocked position), confirm badge sits right of the pin, clear of pills, at all zoom levels.
