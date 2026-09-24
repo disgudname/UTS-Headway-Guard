@@ -363,3 +363,18 @@ def test_a_landmark_code_resolves_for_a_route_where_the_code_is_not_a_timestop(m
     assert uts_blocks._stop_for_code("99", "BBB") == "stop-landmark"   # not a timestop on 99, landmark fills in
     assert uts_blocks._stop_for_code("55", "BBB") == "stop-x"          # a timestop elsewhere is untouched
     assert uts_blocks.timestop_code_for_stop("99", "stop-landmark") is None  # and it never becomes a timestop
+
+
+def test_block_mismatches_route_only_for_a_known_route_of_a_different_line(monkeypatch):
+    blocks = {
+        "[05]": {"route_ids": ["53", "55"], "weekday_groups": []},
+        "[03]": {"route_ids": ["59"], "weekday_groups": []},
+        "[00]": {"weekday_groups": []},   # no family recorded (older data): unrestricted
+    }
+    _patch_data(monkeypatch, blocks, {})
+    assert uts_blocks.block_mismatches_route("[03]", "55")        # Night Pilot block on an Orange bus
+    assert not uts_blocks.block_mismatches_route("[05]", "55")    # its own line
+    assert not uts_blocks.block_mismatches_route("[03]", "999")   # a route no family lists: never a mismatch
+    assert not uts_blocks.block_mismatches_route("[00]", "55")    # no family recorded
+    assert not uts_blocks.block_mismatches_route(None, "55")
+    assert not uts_blocks.block_mismatches_route("[77]", "55")    # unknown block

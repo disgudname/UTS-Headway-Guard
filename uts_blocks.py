@@ -361,5 +361,18 @@ def out_of_service_plan(
     return None
 
 
+def block_mismatches_route(block_id: Optional[str], route_id: str) -> bool:
+    """True if this block belongs to a DIFFERENT line than route_id: the block's route family is known, does not include
+    route_id, and route_id is itself a route some block's family lists. E.g. Night Pilot [03] (route 59) on a bus that
+    TransLoc still lists on Orange 55 for the minutes after its 22:00 handover. A route id no block family mentions
+    (a schedule variant TransLoc minted that config/uts_route_ids.json has not caught up with) is never a mismatch, so a
+    stale config can only leave a bus predicted as before, never blank one."""
+    block = _blocks.get(block_id) if block_id else None
+    family = [str(r) for r in (block.get("route_ids") or [])] if block else []
+    if not family or str(route_id) in family:
+        return False
+    return any(str(route_id) in (b.get("route_ids") or []) for b in _blocks.values())
+
+
 def is_loaded() -> bool:
     return bool(_blocks)
