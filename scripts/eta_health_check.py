@@ -44,6 +44,11 @@ MIN_HISTORICAL_PCT_BREACH = 5.0
 MIN_HISTORICAL_PCT_NOTE = 30.0
 MIN_ROUTE_ROWS = 20         # don't judge a route on a handful of predictions
 MIN_ROWS = 50               # too little data to judge anything
+# "Visits TransLoc predicted that we didn't" had two noise sources (2026-09-23, weekday runs): the first polls of a run,
+# before our own feed has anything for the buses (45 of one run's 66), and a bus whose whole prediction set drops out for
+# exactly one 15 s poll as it pulls off a stop/layover and then comes back unchanged. Neither is a rider-visible gap
+# worth a breach; both are still counted (only_transloc_ignored) so they stay visible. Gaps of 2+ polls still count.
+WARMUP_POLLS = 2
 
 
 def watch(minutes, every, log):
@@ -68,7 +73,33 @@ def route_names():
         return {}
 
 
-def analyze(rows, names):
+def transloc_only_gaps(rows, warmup_until=None):
+    """(persistent, warmup, single_poll): rows where TransLoc predicted a visit and we didn't, split into
+    the ones that are worth a breach and the two known noise kinds (see WARMUP_POLLS). A row is `warmup` if its
+    poll is at or before `warmup_until`; `single_poll` if we DID predict that same (route, stop, vehicle) at both
+    the previous and the next poll (one 15 s hole, then back)."""
+    times = sorted({r["t"] for r in rows})
+    idx = {t: i for i, t in enumerate(times)}
+    present = {}
+    for r in rows:
+        if r["ours"] is not None:
+            present.setdefault(r["key"], set()).add(idx[r["t"]])
+    persistent = warmup = single = 0
+    for r in rows:
+        if r["ours"] is not None or r["tl"] is None:
+            continue
+        i = idx[r["t"]]
+        have = present.get(r["key"], ())
+        if warmup_until is not None and r["t"] <= warmup_until:
+            warmup += 1
+        elif (i - 1) in have and (i + 1) in have:
+            single += 1
+        else:
+            persistent += 1
+    return persistent, warmup, single
+
+
+def analyze(rows, names, warmup_until=None):
     both = [r for r in rows if r["ours"] is not None and r["tl"] is not None]
     ours = [r["ours"] for r in rows if r["ours"] is not None]
     out = {"scored": len(rows), "both": len(both)}
@@ -85,7 +116,10 @@ def analyze(rows, names):
     if tl:
         out["tl_median_err_s"] = round(statistics.median(tl))
         out["tl_late_over_2min_pct"] = round(100.0 * sum(1 for e in tl if e > LATE_MISS_S) / len(tl), 1)
-    out["only_transloc"] = sum(1 for r in rows if r["ours"] is None and r["tl"] is not None)
+    persistent, warmup, single = transloc_only_gaps(rows, warmup_until)
+    out["only_transloc"] = persistent
+    if warmup or single:
+        out["only_transloc_ignored"] = {"warmup": warmup, "single_poll": single}
 
     srcs = [r["source"] for r in rows if r["ours"] is not None and r["source"]]
     if srcs:
@@ -160,7 +194,8 @@ def main():
         polls = [json.loads(l) for l in log.open(encoding="utf-8") if l.strip()]
         stops, lines = eta_compare.load_graph()
         rows = eta_compare.score_rows(polls, stops, lines)
-        stats, problems = analyze(rows, names)
+        warmup_until = polls[min(WARMUP_POLLS, len(polls)) - 1]["t"] if polls else None
+        stats, problems = analyze(rows, names, warmup_until)
     except Exception as exc:  # network down, prod down, scorer bug...
         summary.update(error=f"{type(exc).__name__}: {exc}", breaches=[])
         with RESULTS.open("a", encoding="utf-8") as f:
