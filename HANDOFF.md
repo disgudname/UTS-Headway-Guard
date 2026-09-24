@@ -27,7 +27,7 @@ Machine tags: `[dev]` = Windows dev machine · `[home]` = home server (Windows b
 
 ## 1. Message board (newest first)
 
-### 2026-09-24 · [home] · /livemap trip planner: empty-field list (Your Location / Choose on map / Recent) missing on DESKTOP (FIXED in code, committed; NOT yet verified live or deployed)
+### 2026-09-24 · [home] · /livemap trip planner: empty-field list (Your Location / Choose on map / Recent) missing on DESKTOP (FIXED `8fd8949`, verified on desktop locally in Chrome, DEPLOYED to prod 2026-09-24; phone still unverified)
 - **Root cause:** `18ccb38` moved the empty-state populate into `_maybeOpenOverlay()`, which returns early on desktop (`!_isMobileLayout()`), so the focus handler never populated on desktop. Same gap on mobile when the overlay was already open for that field.
 - **Fix** (`scripts/livemap/ui/trip-planner-panel.js`): `_maybeOpenOverlay` now returns true when it populated; the focus handler populates itself otherwise; a click on an empty, already-focused field with a hidden list reopens it. Needs `fly deploy` + a live check on desktop AND a phone.
 
