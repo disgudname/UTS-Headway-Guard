@@ -43,7 +43,7 @@ const STATUS_LABELS = {
 const humanizeStatus = (s) => STATUS_LABELS[s] || s || '—';
 
 // --- expandable itinerary ------------------------------------------
-function buildItineraryRows(source, vehicleId) {
+function buildItineraryRows(source, vehicleId, dutyId) {
   if (!vehicleId) return '';
   const rowHtml = (order, color, isPickup, name, ts, address, phone) => {
     const ph = phone ? String(phone).trim() : '';
@@ -71,7 +71,8 @@ function buildItineraryRows(source, vehicleId) {
     const lookup = computeStopOrderLookup();
     const groups = computeVehicleStopGroups()[vehicleId] || [];
     groups.forEach((g) => {
-      g.stops.forEach((s) =>
+      // A van can be shared by several drivers in a day; only show this duty's stops.
+      g.stops.filter((s) => !dutyId || s.dutyId === dutyId).forEach((s) =>
         rows.push(
           rowHtml(
             lookup[`${s.requestId}-${s.kind}`],
@@ -120,7 +121,7 @@ export function updateDutyItinerary(card, expanded) {
   const box = card.querySelector('.duty-itinerary');
   if (!box) return;
   const rows = expanded
-    ? buildItineraryRows(card.dataset.vanSource, card.dataset.vehicleId || '')
+    ? buildItineraryRows(card.dataset.vanSource, card.dataset.vehicleId || '', card.dataset.dutyId || '')
     : '';
   if (!rows) {
     box.hidden = true;
@@ -223,7 +224,7 @@ function buildDutyCard(r) {
     r.onBreakSince ? ' onBreak' : ''
   }" title="Click to show this van on the map" data-van-source="${
     r.source === 'spare' ? 'spare' : 'od'
-  }" data-vehicle-id="${escHtml(r.vehicleId || '')}" data-driver="${escHtml(r.driverNameNorm || '')}">
+  }" data-vehicle-id="${escHtml(r.vehicleId || '')}" data-duty-id="${escHtml(r.dutyId || '')}" data-driver="${escHtml(r.driverNameNorm || '')}">
     <div class="trip-header">
       <span class="rider-name">${escHtml(r.driverName)}</span>
       ${statusPill}
@@ -270,6 +271,7 @@ export function renderDuties() {
       vanColor: vehName !== '—' ? getVanColor(vehName, vObj.markerColor || '#E57200') : null,
       status: d.status || 'unknown',
       vehicleId: vid || '',
+      dutyId: d.id || '',
       dutyStr: `${fmtTime(d.startRequestedTs)} – ${fmtTime(d.endRequestedTs)}`,
       shiftStr: null,
       detail: d.identifier || '',
