@@ -192,7 +192,7 @@ def main():
         seen = watch(minutes, every, log)
         summary["purple_in_service"] = any(names.get(r, "").lower().startswith("purple") for r in seen)
         polls = [json.loads(l) for l in log.open(encoding="utf-8") if l.strip()]
-        stops, lines = eta_compare.load_graph()
+        stops, lines = eta_compare.load_graph(log)
         rows = eta_compare.score_rows(polls, stops, lines)
         warmup_until = polls[min(WARMUP_POLLS, len(polls)) - 1]["t"] if polls else None
         stats, problems = analyze(rows, names, warmup_until)

@@ -15,6 +15,7 @@ import math
 import statistics
 import sys
 import urllib.request
+from pathlib import Path
 
 BASE = "https://uts-headway-guard.fly.dev"
 OFF_ROUTE_M = 60.0      # GPS samples farther than this from the route shape are ignored (detours)
@@ -33,9 +34,20 @@ def haversine(lat1, lon1, lat2, lon2):
     return math.hypot(x, y)
 
 
-def load_graph():
-    with urllib.request.urlopen(BASE + "/v1/trip-planner/uts-graph", timeout=30) as r:
-        g = json.load(r)
+def load_graph(log=None):
+    """Stop/route geometry. TransLoc renumbers RouteStopIDs whenever the service variant changes (day vs.
+    evening, detours), so a log can only be scored against the graph from when it was recorded. With `log`,
+    the graph is saved next to it (<log>.graph.json) on first use and re-read from there afterwards; a log
+    with no saved graph falls back to today's live graph (fine for a fresh log, wrong for an old one)."""
+    saved = Path(str(log) + ".graph.json") if log else None
+    if saved is not None and saved.exists():
+        g = json.loads(saved.read_text(encoding="utf-8"))
+    else:
+        with urllib.request.urlopen(BASE + "/v1/trip-planner/uts-graph", timeout=30) as r:
+            raw = r.read()
+        g = json.loads(raw)
+        if saved is not None:
+            saved.write_bytes(raw)
     stops, lines = {}, {}
     for line in g["lines"]:
         lines[str(line["id"])] = (line["poly"], line["cum"])
@@ -212,9 +224,9 @@ def score_rows(polls, stops, lines):
 
 def main():
     paths = sys.argv[1:]
-    stops, lines = load_graph()
     rows, minutes = [], 0.0
     for path in paths:
+        stops, lines = load_graph(path)
         polls = [json.loads(line) for line in open(path, encoding="utf-8") if line.strip()]
         minutes += (polls[-1]["t"] - polls[0]["t"]) / 60
         rows += score_rows(polls, stops, lines)
