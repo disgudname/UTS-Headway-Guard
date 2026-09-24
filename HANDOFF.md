@@ -27,6 +27,11 @@ Machine tags: `[dev]` = Windows dev machine · `[home]` = home server (Windows b
 
 ## 1. Message board (newest first)
 
+### 2026-09-24 · [home] · /livemap trip planner MOBILE: list still needs an app switch to appear (defensive fix deployed, root cause NOT reproduced)
+- User confirmed desktop fixed, phone unchanged (pages are `no-store`, so the phone has the new code). Can't reproduce a WebView bug in desktop Chrome (a 400px iframe of /livemap gets the real mobile layout and works fine).
+- **Hypothesis:** the tap reparents the focused input into `.tp-search-overlay`, so the follow-up click lands outside `f.wrap` and the document click-outside handler hides the list. **Change:** ignore click-outside for 700 ms after the overlay opens, and re-assert the empty-state list 400 ms after open if missing/hidden (`trip-planner-panel.js`).
+- If the phone STILL needs the app switch: next suspects are the `translateX` overlay transition/compositor bug (try dropping the slide animation entirely on mobile) or the reparent-blur; get a remote-debug console from the phone.
+
 ### 2026-09-24 · [home] · /livemap trip planner: empty-field list (Your Location / Choose on map / Recent) missing on DESKTOP (FIXED `8fd8949`, verified on desktop locally in Chrome, DEPLOYED to prod 2026-09-24; phone still unverified)
 - **Root cause:** `18ccb38` moved the empty-state populate into `_maybeOpenOverlay()`, which returns early on desktop (`!_isMobileLayout()`), so the focus handler never populated on desktop. Same gap on mobile when the overlay was already open for that field.
 - **Fix** (`scripts/livemap/ui/trip-planner-panel.js`): `_maybeOpenOverlay` now returns true when it populated; the focus handler populates itself otherwise; a click on an empty, already-focused field with a hidden list reopens it. Needs `fly deploy` + a live check on desktop AND a phone.

@@ -605,6 +605,11 @@ export class TripPlannerPanel {
     // the likely explanation for the empty-state list reportedly flashing
     // closed and reopening on its own.
     document.addEventListener('click', (e) => {
+      // The tap that opens the mobile overlay reparents the focused input mid-gesture,
+      // so the click that follows it can target something outside f.wrap/f.results
+      // (the input is no longer where the tap started) and read as "click outside",
+      // hiding the list the instant it was shown. Ignore clicks right after opening.
+      if (this._overlayField === field && Date.now() - (this._overlayOpenedAt || 0) < 700) return;
       if (!f.wrap.contains(e.target) && !f.results.contains(e.target)) this._closeFieldResults(field);
     });
   }
@@ -655,6 +660,14 @@ export class TripPlannerPanel {
     this._overlayEl.style.transition = '';
     this._overlayEl.style.transform = 'translateX(0)';
     f.input.focus();
+    this._overlayOpenedAt = Date.now();
+    // Belt and braces: once the slide-in has settled (and any focus/keyboard churn
+    // from the reparent has passed), re-assert the list if it's missing or hidden.
+    setTimeout(() => {
+      if (this._overlayField === field && !f.input.value.trim() && (f.results.hidden || !f.results.children.length)) {
+        this._showEmptyStateResults(field);
+      }
+    }, 400);
     return true;
   }
 
