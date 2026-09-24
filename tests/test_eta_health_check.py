@@ -74,3 +74,53 @@ def test_a_collapsed_history_share_is_still_a_breach():
 def test_healthy_history_share_has_neither():
     out, problems = h.analyze(_filler(100, historical_pct=60.0), {})
     assert not problems and "notes" not in out
+
+
+# --- "visits TransLoc predicted that we didn't": warm-up and single-poll noise ---------------------------------
+
+def _track(n_polls, missing, key=("57", "830", "39"), t0=2000.0):
+    """One (route, stop, vehicle) scored at n_polls consecutive 15 s polls; `missing` = poll indexes where we
+    had no prediction but TransLoc did."""
+    return [{
+        "t": t0 + 15.0 * i, "key": key, "remaining": 300.0, "past_m": -500.0,
+        "ours": None if i in missing else 10.0, "tl": 20.0,
+        "ours_s": None if i in missing else 300.0, "tl_s": 320.0, "source": "historical",
+    } for i in range(n_polls)]
+
+
+def test_gaps_in_the_first_polls_of_a_run_are_warmup_not_a_breach():
+    rows = _filler() + _track(10, missing={0, 1})
+    warmup_until = 2000.0 + 15.0  # the first two polls
+    out, problems = h.analyze(rows, {}, warmup_until)
+    assert out["only_transloc"] == 0
+    assert out["only_transloc_ignored"] == {"warmup": 2, "single_poll": 0}
+    assert not any("TransLoc predicted" in p for p in problems)
+
+
+def test_a_single_poll_dropout_mid_run_is_ignored_but_still_counted():
+    rows = _filler() + _track(10, missing={5})
+    out, problems = h.analyze(rows, {}, None)
+    assert out["only_transloc"] == 0
+    assert out["only_transloc_ignored"] == {"warmup": 0, "single_poll": 1}
+    assert not any("TransLoc predicted" in p for p in problems)
+
+
+def test_a_gap_of_two_or_more_polls_is_still_a_breach():
+    rows = _filler() + _track(10, missing={5, 6})
+    out, problems = h.analyze(rows, {}, None)
+    assert out["only_transloc"] == 2
+    assert "only_transloc_ignored" not in out
+    assert any("2 visit(s) TransLoc predicted" in p for p in problems)
+
+
+def test_a_vehicle_we_never_predicted_is_still_a_breach():
+    rows = _filler() + _track(6, missing={0, 1, 2, 3, 4, 5})
+    out, problems = h.analyze(rows, {}, None)
+    assert out["only_transloc"] == 6
+    assert any("TransLoc predicted" in p for p in problems)
+
+
+def test_warmup_and_single_poll_gaps_are_split_independently():
+    rows = _filler() + _track(12, missing={0, 6}, key=("57", "830", "39")) + _track(12, missing={8, 9}, key=("57", "831", "39"))
+    persistent, warmup, single = h.transloc_only_gaps(rows, warmup_until=2000.0 + 15.0)
+    assert (persistent, warmup, single) == (2, 1, 1)
