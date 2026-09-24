@@ -31,7 +31,7 @@ const DEFAULTS = Object.freeze({
   lat: 38.03404931117353,
   lng: -78.4995922309842,
   radiusM: 117,
-  busIds: ['25131', '25231', '25331', '25431', '17132', '14132', '12432', '18532'],
+  busIds: ['25131', '25231', '25331', '25431'],
 });
 const MIN_FOCUS_ZOOM = 18;
 // Gesture handlers we lock. `.isEnabled()` is captured first so a handler that

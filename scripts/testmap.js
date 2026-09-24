@@ -1213,8 +1213,7 @@ TM.registerVisibilityResumeHandler(() => {
       });
       const DISPATCHER_DEFAULT_RADIUS_METERS = 117;
       const DISPATCHER_DEFAULT_OVERHEIGHT_IDS = Object.freeze([
-        '25131', '25231', '25331', '25431',
-        '17132', '14132', '12432', '18532'
+        '25131', '25231', '25331', '25431'
       ]);
       const DISPATCHER_MIN_FOCUS_ZOOM = 18;
 
