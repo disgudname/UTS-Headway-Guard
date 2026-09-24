@@ -384,6 +384,7 @@ def estimate_stop_eta_s(
     is_timestop_fn: Optional[IsTimestopFn] = None,
     dwell_fn: Optional[Callable[[str, str, float], float]] = None,
     out_of_service_fn: Optional[OutOfServiceFn] = None,
+    late_dwell_s: float = 0.0,
 ) -> Optional[BusEtaEstimate]:
     """Seconds until this vehicle reaches target_stop, or None if the line/target
     don't carry the shape+arc_pos data this needs (e.g. CAT, or a UTS route whose
@@ -681,7 +682,10 @@ def estimate_stop_eta_s(
                     # departure + lag): early waits for the schedule, late just goes.
                     total_s = max(total_s + TYPICAL_DWELL_S, hold_epoch + SCHEDULED_DEPARTURE_LAG_S - when)
                 else:
-                    total_s = max(total_s, hold_epoch + SCHEDULED_DEPARTURE_LAG_S - when)
+                    # late_dwell_s: a bus that arrives AFTER its scheduled time still sits a while before it
+                    # leaves (weekday measurement 2026-09-23: median 60-75 s, Gold BAR ~180 s), where 0 lets
+                    # it go the instant it arrives. Default 0 = the behavior before that measurement.
+                    total_s = max(total_s + late_dwell_s, hold_epoch + SCHEDULED_DEPARTURE_LAG_S - when)
                 held_here = True
         if dwell_fn is not None and not scheduled_hold:
             total_s += dwell_fn(line.id, a.id, when + total_s)
