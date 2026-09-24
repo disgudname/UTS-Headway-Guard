@@ -27,6 +27,10 @@ Machine tags: `[dev]` = Windows dev machine · `[home]` = home server (Windows b
 
 ## 1. Message board (newest first)
 
+### 2026-09-24 · [home] · /vandispatch Active Trips card showed the wrong driver for a shared van (fix in working tree, NOT committed/deployed)
+- **Symptom:** Van 13 trip card showed Nidal while the roster card said Jaquan (Nidal's shift hadn't started). **Cause (found by reading, not reproduced live):** `trip-board.js` built `vehicleId -> driver` with last-duty-wins, so a van with 2+ duties in a day showed whichever duty came last in the list. **Fix:** trip cards now look the driver up by the trip's own `dutyId`; per-van fallback prefers the in-progress / current-window duty over completed/cancelled ones. Roster (`duty-roster.js`) untouched. Not covered: the map van label, if it derives its driver separately (unchecked).
+- **Next step:** user to confirm on a shared van; then commit + deploy.
+
 ### 2026-09-24 · [home] · Evening route changes ("EVENING ROUTE CHANGE" text boxes): investigated, NOT built yet; a capture is scheduled for tonight 17:40
 - **TODO (any session that reads this on/after 2026-09-24 18:20): CHECK THE RESULTS of the 17:40 capture.** Nobody reads them automatically. Run `python scripts/eta_phantoms.py data-local/eta_watch/20260924-1740.jsonl`, apply the verdict rule under "Next step" below, and tell the user. Then replace this line with the outcome.
 - **User's idea:** like the out-of-service cut-off, use the block package's "EVENING ROUTE CHANGE" notes (text boxes on Gold/Green/Orange weekday sheets; `sheet_drawing_texts` already returns them, `parse_out_of_service_notes` skips them). Notes: Gold 09/11 "after leaving HER/BAR at 1750", Gold 10/12 "at 1800", Green 01 "after HER 1745 ... at McCormick/Alderman go straight onto McCormick", Green 02 "after MP 1745", Orange 05 "after MP 1750", Orange 07 "post-1800 route starting with the 1800 PIN departure". Post-1800 routes are different TransLoc route ids: Gold 67->57, Green 68->54, Orange 53->55.
