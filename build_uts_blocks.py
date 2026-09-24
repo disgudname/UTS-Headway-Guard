@@ -277,7 +277,8 @@ def parse_out_of_service_notes(texts: List[str]) -> Dict[str, Dict[str, Any]]:
     """{block_id: {leave_code, leave_s, until_code, last_code, then}} from a sheet's text
     boxes. leave_s is seconds after 00:00 as written (the caller adds a day if the block's
     own day already rolled past midnight -- Night Pilot's 0200). until_code/last_code are
-    None when the note doesn't name one ("MAKE FINAL LOOP"). then is "lot" or "night_pilot".
+    None when the note doesn't name one; one equal to leave_code means the next visit to that stop
+    ("MAKE FINAL LOOP" is recorded as until_code == leave_code). then is "lot" or "night_pilot".
     Text boxes that aren't the out-of-service one (e.g. "EVENING ROUTE CHANGE") are skipped."""
     out: Dict[str, Dict[str, Any]] = {}
     for text in texts:
@@ -292,10 +293,12 @@ def parse_out_of_service_notes(texts: List[str]) -> Dict[str, Dict[str, Any]]:
             last = _OOS_LAST_RE.search(seg)
             until_code = _place(until.group(1)) if until else None
             last_code = _place(last.group(1)) if last else None
-            if until_code == m.group(2):
-                until_code = None  # a full lap ("make final loop"): no cut-off
-            if last_code == m.group(2):
-                last_code = None
+            # A cut-off equal to the leave stop means the NEXT time the bus is back there, i.e. a full lap: Orange
+            # weekend [05] "make final loop" (then it becomes Night Pilot [03] from the Library) and Silver [14]
+            # "as far as MCQ" (its own leave stop). Confirmed by the user 2026-09-23. bus_eta treats a cut-off that
+            # equals the leave stop this way, so these are kept, not dropped.
+            if until_code is None and "FINAL LOOP" in seg:
+                until_code = m.group(2)
             out[f"[{int(m.group(1)):02d}]"] = {
                 "leave_code": m.group(2),
                 "leave_s": int(hhmm[:2]) * 3600 + int(hhmm[2:]) * 60,

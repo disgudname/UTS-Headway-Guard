@@ -52,9 +52,10 @@ def test_final_loop_and_split_heading_and_as_far_as_the_leave_stop():
         "AND RETURN TO LOT.",
     ]
     notes = b.parse_out_of_service_notes(text)
-    assert notes["[05]"]["until_code"] is None and notes["[05]"]["then"] == "night_pilot"  # a full lap: no cut-off
-    assert notes["[14]"]["last_code"] is None  # "as far as" the stop it leaves from is a full lap too
-    assert notes["[14]"]["until_code"] == "PIN"
+    # "final loop": the cut-off is the next time it is back at the stop it left (LIB), then it becomes Night Pilot
+    assert notes["[05]"]["until_code"] == "LIB" and notes["[05]"]["then"] == "night_pilot"
+    # "as far as" the stop it leaves from (MCQ) is a full lap too; recorded as-is, bus_eta reads cut-off == leave stop
+    assert notes["[14]"]["last_code"] == "MCQ" and notes["[14]"]["until_code"] == "PIN"
 
 
 def test_passengers_thru_names_the_last_stop():
