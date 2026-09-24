@@ -16292,6 +16292,14 @@ _BUS_ETA_SMOOTH_WINDOW = 3
 _BUS_ETA_SMOOTH_MAX_GAP_S = 60.0   # history older than this is stale (bus left service, no one polling)
 _BUS_ETA_SMOOTH_SKIP_BELOW_S = 20.0  # never delay an "arriving now" reading
 _bus_eta_history: Dict[Tuple[str, str, str], List[float]] = {}
+# (vehicle id, block id, scheduled last-departure epoch) of buses seen on their out-of-service last-run stretch (see
+# bus_eta.out_of_service_phase). Once such a bus is past its cut-off it serves nothing more and gets no ETAs.
+_oos_run_seen: set = set()
+# vehicle id -> (block id, route id, scheduled last-departure epoch) for a bus seen on its last-run stretch. If that bus
+# is then assigned a DIFFERENT block while TransLoc still lists it on the same route (Orange [05] becoming Night Pilot
+# [03] at the Library, seen live 2026-09-23 22:00: 20 Orange stops predicted for a bus that is now Night Pilot), it has
+# handed over and serves no more stops on this route.
+_oos_handover: Dict[str, Tuple[str, str, float]] = {}
 _bus_eta_history_at: float = 0.0
 
 
@@ -16363,6 +16371,24 @@ async def _compute_bus_eta_arrivals() -> Dict[str, Any]:
             ema_mps = veh.ema_mps
             if ema_mps >= MAX_SPEED_CEIL:
                 ema_mps = bus_eta.TYPICAL_BUS_SPEED_MPS
+            if block_id and uts_blocks.is_loaded() and uts_blocks.block_mismatches_route(block_id, route_id):
+                continue  # e.g. Night Pilot [03] on a bus still listed on Orange 55: not serving this route
+            handed_over = _oos_handover.get(str(vid))
+            if (
+                handed_over is not None and block_id and block_id != handed_over[0]
+                and route_id == handed_over[1] and when_ts < handed_over[2] + 6 * 3600
+            ):
+                continue  # finished its last run and took another block (e.g. Night Pilot) on this same route
+            if block_id and uts_blocks.is_loaded():
+                oos_plan = uts_blocks.out_of_service_plan(route_id, block_id, when_ts)
+                if oos_plan is not None:
+                    oos_phase = bus_eta.out_of_service_phase(line, veh.s_pos, oos_plan, when_ts)
+                    oos_key = (str(vid), block_id, oos_plan[1])
+                    if oos_phase == "run":
+                        _oos_run_seen.add(oos_key)
+                        _oos_handover[str(vid)] = (block_id, route_id, oos_plan[1])
+                    elif bus_eta.out_of_service_finished(oos_phase, oos_key in _oos_run_seen, when_ts, oos_plan[1]):
+                        continue  # past its cut-off, heading to the lot / becoming Night Pilot: serves nothing more
             for stop in line.stops:
                 if stop.arc_pos is None:
                     continue
@@ -16372,10 +16398,14 @@ async def _compute_bus_eta_arrivals() -> Dict[str, Any]:
                     vehicle_dir_sign=getattr(veh, "dir_sign", 0),
                     vehicle_block_id=block_id,
                     scheduled_timestop_fn=uts_blocks.scheduled_hold_epoch if uts_blocks.is_loaded() else None,
+                    # Deliberately day/time-INDEPENDENT (uts_blocks.is_timestop_at exists but is NOT used here).
+                    # A time-aware cap was deployed and reverted 2026-09-20 (weekend Orange far too late) and
+                    # scored worse again in a 2026-09-23 Sunday replay -- see HANDOFF.md before changing this.
                     is_timestop_fn=(
-                        (lambda r, s: uts_blocks.timestop_code_for_stop(r, s) is not None)
+                        (lambda r, s, when: uts_blocks.timestop_code_for_stop(r, s) is not None)
                         if uts_blocks.is_loaded() else None
                     ),
+                    out_of_service_fn=uts_blocks.out_of_service_plan if uts_blocks.is_loaded() else None,
                 )
                 if result is None:
                     continue
@@ -16394,6 +16424,10 @@ async def _compute_bus_eta_arrivals() -> Dict[str, Any]:
                     "BlockId": block_id,
                 })
 
+    for done_key in [k for k in _oos_run_seen if k[2] < when_ts - 6 * 3600]:
+        _oos_run_seen.discard(done_key)  # that block's last departure was hours ago
+    for done_vid in [v for v, h in _oos_handover.items() if h[2] < when_ts - 6 * 3600]:
+        del _oos_handover[done_vid]
     for stale in [k for k in _bus_eta_history if k not in seen_keys]:
         del _bus_eta_history[stale]  # bus/stop pair not predicted this round (bus gone, or no estimate)
 

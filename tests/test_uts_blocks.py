@@ -261,3 +261,120 @@ def test_scheduled_hold_epoch_first_visit_of_day_still_holds_an_early_bus(monkey
     _patch_data(monkeypatch, blocks, SAMPLE_TIMESTOPS)
     # 20 min before the day's first visit there is no earlier visit to be late for.
     assert uts_blocks.scheduled_hold_epoch("99", "stop-1", "[01]", _epoch(2026, 9, 14, 7, 42)) == _epoch(2026, 9, 14, 8, 0)
+
+
+# --- time-aware timestops + out-of-service plans ---------------------------------------------
+
+def test_is_timestop_at_follows_the_schedule_through_the_day(monkeypatch):
+    _patch_data(monkeypatch, SAMPLE_BLOCKS, SAMPLE_TIMESTOPS)
+    assert uts_blocks.is_timestop_at("99", "stop-1", _epoch(2026, 9, 14, 8, 20))    # Monday, on a visit
+    assert uts_blocks.is_timestop_at("99", "stop-1", _epoch(2026, 9, 14, 8, 55))    # within the window of 8:40
+    assert not uts_blocks.is_timestop_at("99", "stop-1", _epoch(2026, 9, 14, 12, 0))  # no visits near noon
+    assert not uts_blocks.is_timestop_at("99", "stop-1", _epoch(2026, 9, 19, 8, 20))  # Saturday: only a 10:00 visit
+    assert uts_blocks.is_timestop_at("99", "stop-1", _epoch(2026, 9, 19, 10, 5))    # ...which does count
+    assert not uts_blocks.is_timestop_at("99", "stop-2", _epoch(2026, 9, 14, 8, 20))  # unmapped stop
+    assert not uts_blocks.is_timestop_at("other-route", "stop-1", _epoch(2026, 9, 14, 8, 20))
+
+
+def test_is_timestop_at_only_counts_blocks_on_that_route(monkeypatch):
+    blocks = {
+        "[01]": {"route_ids": ["99"], "weekday_groups": [{"weekdays": [0], "stops": [[8 * 3600, "AAA"]]}]},
+        "[02]": {"route_ids": ["77"], "weekday_groups": [{"weekdays": [0], "stops": [[15 * 3600, "AAA"]]}]},
+    }
+    _patch_data(monkeypatch, blocks, {"AAA": {"99": "stop-1", "77": "stop-9"}})
+    assert uts_blocks.is_timestop_at("99", "stop-1", _epoch(2026, 9, 14, 8, 0))
+    assert not uts_blocks.is_timestop_at("99", "stop-1", _epoch(2026, 9, 14, 15, 0))  # 15:00 belongs to route 77
+    assert uts_blocks.is_timestop_at("77", "stop-9", _epoch(2026, 9, 14, 15, 0))
+
+
+def test_is_timestop_at_reads_previous_day_entries_that_run_past_midnight(monkeypatch):
+    # Night Pilot style: Monday's schedule has an entry at 26:00 (02:00 Tuesday).
+    blocks = {"[03]": {"weekday_groups": [{"weekdays": [0], "stops": [[26 * 3600, "AAA"]]}]}}
+    _patch_data(monkeypatch, blocks, SAMPLE_TIMESTOPS)
+    assert uts_blocks.is_timestop_at("99", "stop-1", _epoch(2026, 9, 15, 1, 50))  # Tuesday 01:50
+    assert not uts_blocks.is_timestop_at("99", "stop-1", _epoch(2026, 9, 15, 6, 0))
+
+
+OOS_BLOCKS = {
+    "[10]": {
+        "route_ids": ["99"],
+        "weekday_groups": [{
+            "weekdays": [0, 1, 2, 3, 4],
+            "stops": [[19 * 3600 + 55 * 60, "AAA"]],
+            "out_of_service": {
+                "leave_code": "AAA", "leave_s": 19 * 3600 + 55 * 60,
+                "until_code": "BBB", "last_code": "DORMS", "then": "lot",
+            },
+        }],
+    }
+}
+OOS_TIMESTOPS = {"AAA": {"99": "stop-1"}, "BBB": {"99": "stop-2"}}
+
+
+def test_out_of_service_plan_resolves_cutoff_from_landmark_then_timestop(monkeypatch):
+    _patch_data(monkeypatch, OOS_BLOCKS, OOS_TIMESTOPS)
+    monkeypatch.setattr(uts_blocks, "_landmarks", {"DORMS": {"99": "stop-dorms"}})
+    ref = _epoch(2026, 9, 14, 19, 41)
+    leave_stop, leave_epoch, cutoff, active_from = uts_blocks.out_of_service_plan("99", "[10]", ref)
+    assert (leave_stop, cutoff) == ("stop-1", "stop-dorms")   # "as far as the dorms" wins over "until BBB"
+    assert leave_epoch == _epoch(2026, 9, 14, 19, 55)
+    assert active_from == leave_epoch - uts_blocks.EARLY_MATCH_LIMIT_S
+    # "As far as the dorms" but the dorms aren't mapped on this route: no plan at all. Falling back to the
+    # nearer "until" stop would hide stops the bus really does serve.
+    monkeypatch.setattr(uts_blocks, "_landmarks", {})
+    assert uts_blocks.out_of_service_plan("99", "[10]", ref) is None
+    # With no "as far as" stop, the "stay in service until" stop is the cut-off.
+    no_last = {"[10]": {"route_ids": ["99"], "weekday_groups": [{
+        "weekdays": [0], "stops": [[19 * 3600 + 55 * 60, "AAA"]],
+        "out_of_service": {"leave_code": "AAA", "leave_s": 19 * 3600 + 55 * 60, "until_code": "BBB", "last_code": None, "then": "lot"},
+    }]}}
+    _patch_data(monkeypatch, no_last, OOS_TIMESTOPS)
+    assert uts_blocks.out_of_service_plan("99", "[10]", ref)[2] == "stop-2"
+    monkeypatch.setattr(uts_blocks, "_timestops", {"AAA": {"99": "stop-1"}})  # cut-off unmapped -> no plan
+    assert uts_blocks.out_of_service_plan("99", "[10]", ref) is None
+
+
+def test_out_of_service_plan_only_near_the_departure_and_only_for_that_block_and_route(monkeypatch):
+    _patch_data(monkeypatch, OOS_BLOCKS, OOS_TIMESTOPS)
+    monkeypatch.setattr(uts_blocks, "_landmarks", {"DORMS": {"99": "stop-dorms"}})
+    assert uts_blocks.out_of_service_plan("99", "[10]", _epoch(2026, 9, 14, 14, 0)) is None   # hours before
+    assert uts_blocks.out_of_service_plan("99", "[10]", _epoch(2026, 9, 14, 23, 30)) is None  # long after
+    assert uts_blocks.out_of_service_plan("99", "[11]", _epoch(2026, 9, 14, 19, 41)) is None   # other block
+    assert uts_blocks.out_of_service_plan("55", "[10]", _epoch(2026, 9, 14, 19, 41)) is None   # other route
+    assert uts_blocks.out_of_service_plan("99", "[10]", _epoch(2026, 9, 19, 19, 41)) is None   # Saturday: no group
+    assert uts_blocks.out_of_service_plan("99", None, _epoch(2026, 9, 14, 19, 41)) is None
+
+
+def test_out_of_service_plan_full_lap_has_cutoff_equal_to_leave_stop(monkeypatch):
+    blocks = {"[05]": {"route_ids": ["99"], "weekday_groups": [{
+        "weekdays": [6], "stops": [[21 * 3600 + 30 * 60, "AAA"]],
+        "out_of_service": {"leave_code": "AAA", "leave_s": 21 * 3600 + 30 * 60, "until_code": "AAA",
+                           "last_code": None, "then": "night_pilot"},
+    }]}}
+    _patch_data(monkeypatch, blocks, OOS_TIMESTOPS)
+    monkeypatch.setattr(uts_blocks, "_landmarks", {})
+    plan = uts_blocks.out_of_service_plan("99", "[05]", _epoch(2026, 9, 20, 21, 20))  # a Sunday
+    assert plan is not None and plan[0] == plan[2] == "stop-1"
+
+
+def test_a_landmark_code_resolves_for_a_route_where_the_code_is_not_a_timestop(monkeypatch):
+    _patch_data(monkeypatch, OOS_BLOCKS, {"AAA": {"99": "stop-1"}, "BBB": {"55": "stop-x"}})
+    monkeypatch.setattr(uts_blocks, "_landmarks", {"BBB": {"99": "stop-landmark"}, "DORMS": {"99": "stop-dorms"}})
+    assert uts_blocks._stop_for_code("99", "BBB") == "stop-landmark"   # not a timestop on 99, landmark fills in
+    assert uts_blocks._stop_for_code("55", "BBB") == "stop-x"          # a timestop elsewhere is untouched
+    assert uts_blocks.timestop_code_for_stop("99", "stop-landmark") is None  # and it never becomes a timestop
+
+
+def test_block_mismatches_route_only_for_a_known_route_of_a_different_line(monkeypatch):
+    blocks = {
+        "[05]": {"route_ids": ["53", "55"], "weekday_groups": []},
+        "[03]": {"route_ids": ["59"], "weekday_groups": []},
+        "[00]": {"weekday_groups": []},   # no family recorded (older data): unrestricted
+    }
+    _patch_data(monkeypatch, blocks, {})
+    assert uts_blocks.block_mismatches_route("[03]", "55")        # Night Pilot block on an Orange bus
+    assert not uts_blocks.block_mismatches_route("[05]", "55")    # its own line
+    assert not uts_blocks.block_mismatches_route("[03]", "999")   # a route no family lists: never a mismatch
+    assert not uts_blocks.block_mismatches_route("[00]", "55")    # no family recorded
+    assert not uts_blocks.block_mismatches_route(None, "55")
+    assert not uts_blocks.block_mismatches_route("[77]", "55")    # unknown block

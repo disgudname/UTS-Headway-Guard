@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-09-16T14:05:02",
+  "generated_at": "2026-09-23T21:38:51",
   "source_files": {
     "Gold Line": "Gold Line 08.11.2026.xlsx",
     "Green Line": "Green Line 08.10.2026.xlsx",
@@ -229,7 +229,14 @@
               79200,
               "BAR"
             ]
-          ]
+          ],
+          "out_of_service": {
+            "leave_code": "BAR",
+            "leave_s": 79200,
+            "until_code": "LIB",
+            "last_code": "DORMS",
+            "then": "lot"
+          }
         },
         {
           "weekdays": [
@@ -417,7 +424,14 @@
               79200,
               "HER"
             ]
-          ]
+          ],
+          "out_of_service": {
+            "leave_code": "HER",
+            "leave_s": 79200,
+            "until_code": "BAR",
+            "last_code": null,
+            "then": "lot"
+          }
         }
       ]
     },
@@ -642,7 +656,14 @@
               79200,
               "CHP"
             ]
-          ]
+          ],
+          "out_of_service": {
+            "leave_code": "CHP",
+            "leave_s": 79200,
+            "until_code": "BAR",
+            "last_code": null,
+            "then": "lot"
+          }
         },
         {
           "weekdays": [
@@ -830,7 +851,14 @@
               79200,
               "BAR"
             ]
-          ]
+          ],
+          "out_of_service": {
+            "leave_code": "BAR",
+            "leave_s": 79200,
+            "until_code": "LIB",
+            "last_code": "DORMS",
+            "then": "lot"
+          }
         }
       ]
     },
@@ -1027,7 +1055,14 @@
               79200,
               "HER"
             ]
-          ]
+          ],
+          "out_of_service": {
+            "leave_code": "HER",
+            "leave_s": 79200,
+            "until_code": "BAR",
+            "last_code": null,
+            "then": "lot"
+          }
         }
       ]
     },
@@ -1188,7 +1223,14 @@
               71700,
               "BAR"
             ]
-          ]
+          ],
+          "out_of_service": {
+            "leave_code": "BAR",
+            "leave_s": 71700,
+            "until_code": "LIB",
+            "last_code": "DORMS",
+            "then": "lot"
+          }
         }
       ]
     },
@@ -1391,7 +1433,14 @@
               79200,
               "CHP"
             ]
-          ]
+          ],
+          "out_of_service": {
+            "leave_code": "CHP",
+            "leave_s": 79200,
+            "until_code": "MP",
+            "last_code": null,
+            "then": "night_pilot"
+          }
         },
         {
           "weekdays": [
@@ -1519,7 +1568,14 @@
               79200,
               "CHP"
             ]
-          ]
+          ],
+          "out_of_service": {
+            "leave_code": "CHP",
+            "leave_s": 79200,
+            "until_code": "MP",
+            "last_code": null,
+            "then": "night_pilot"
+          }
         }
       ]
     },
@@ -1722,7 +1778,14 @@
               79200,
               "JPA"
             ]
-          ]
+          ],
+          "out_of_service": {
+            "leave_code": "JPA",
+            "leave_s": 79200,
+            "until_code": "CHP",
+            "last_code": null,
+            "then": "lot"
+          }
         }
       ]
     },
@@ -1791,7 +1854,14 @@
               93600,
               "LIB"
             ]
-          ]
+          ],
+          "out_of_service": {
+            "leave_code": "LIB",
+            "leave_s": 93600,
+            "until_code": "HER",
+            "last_code": "PIN",
+            "then": "lot"
+          }
         },
         {
           "weekdays": [
@@ -1836,7 +1906,14 @@
               93600,
               "LIB"
             ]
-          ]
+          ],
+          "out_of_service": {
+            "leave_code": "LIB",
+            "leave_s": 93600,
+            "until_code": "HER",
+            "last_code": "PIN",
+            "then": "lot"
+          }
         }
       ]
     },
@@ -1888,7 +1965,14 @@
               93600,
               "PIN"
             ]
-          ]
+          ],
+          "out_of_service": {
+            "leave_code": "PIN",
+            "leave_s": 93600,
+            "until_code": "HER",
+            "last_code": null,
+            "then": "lot"
+          }
         }
       ]
     },
@@ -2436,7 +2520,14 @@
               79200,
               "LIB"
             ]
-          ]
+          ],
+          "out_of_service": {
+            "leave_code": "PIN",
+            "leave_s": 78000,
+            "until_code": "LIB",
+            "last_code": null,
+            "then": "night_pilot"
+          }
         },
         {
           "weekdays": [
@@ -2560,7 +2651,14 @@
               77400,
               "LIB"
             ]
-          ]
+          ],
+          "out_of_service": {
+            "leave_code": "LIB",
+            "leave_s": 77400,
+            "until_code": "LIB",
+            "last_code": null,
+            "then": "night_pilot"
+          }
         }
       ]
     },
@@ -3112,7 +3210,14 @@
               79200,
               "PIN"
             ]
-          ]
+          ],
+          "out_of_service": {
+            "leave_code": "PIN",
+            "leave_s": 79200,
+            "until_code": "LIB",
+            "last_code": null,
+            "then": "lot"
+          }
         }
       ]
     },
@@ -3516,7 +3621,14 @@
               64800,
               "CSW"
             ]
-          ]
+          ],
+          "out_of_service": {
+            "leave_code": "CSW",
+            "leave_s": 64800,
+            "until_code": "MP",
+            "last_code": null,
+            "then": "lot"
+          }
         }
       ]
     },
@@ -3880,7 +3992,14 @@
               64800,
               "MP"
             ]
-          ]
+          ],
+          "out_of_service": {
+            "leave_code": "MP",
+            "leave_s": 64800,
+            "until_code": "LIB",
+            "last_code": null,
+            "then": "lot"
+          }
         }
       ]
     },
@@ -4119,7 +4238,14 @@
               72000,
               "PIN"
             ]
-          ]
+          ],
+          "out_of_service": {
+            "leave_code": "PIN",
+            "leave_s": 72000,
+            "until_code": "MCQ",
+            "last_code": null,
+            "then": "lot"
+          }
         }
       ]
     },
@@ -4358,7 +4484,14 @@
               72000,
               "MCQ"
             ]
-          ]
+          ],
+          "out_of_service": {
+            "leave_code": "MCQ",
+            "leave_s": 72000,
+            "until_code": "PIN",
+            "last_code": "MCQ",
+            "then": "lot"
+          }
         }
       ]
     }
