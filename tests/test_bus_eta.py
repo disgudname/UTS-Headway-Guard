@@ -727,3 +727,38 @@ def test_timestop_cap_receives_the_time_the_bus_reaches_the_stop():
     )
     assert seen and all(w >= 5000.0 for _, w in seen)
     assert seen[0][1] < seen[-1][1]  # later stops are asked about later times
+
+
+# --- full-lap cut-off: the cut-off is the NEXT arrival at the stop the bus leaves from ---
+# Same six stops; leave = cut-off = s3 (900 m). Orange weekend [05]: leave the Library, make the loop, become Night Pilot.
+
+def _full_lap_setup():
+    line = _line([0, 300, 600, 900, 1200, 1500], n=17)
+    plan = (line.stops[3].id, 1000.0, line.stops[3].id, 400.0)
+    return line, plan
+
+
+def test_full_lap_bus_just_past_the_leave_stop_is_served_until_it_returns_and_no_further():
+    line, plan = _full_lap_setup()
+    kw = dict(hop_time_fn=_flat_hop_time_fn(60.0), when=1010.0, vehicle_block_id="B1", out_of_service_fn=_oos_fn(plan))
+    for i in (5, 0, 1, 2, 3):  # everything on the lap, ending with the stop it returns to
+        assert eta.estimate_stop_eta_s(line, 1300.0, 5.0, line.stops[i], **kw) is not None, i
+    assert eta.estimate_stop_eta_s(line, 1300.0, 5.0, line.stops[4], **kw) is None  # would need a second pass past s3
+
+
+def test_full_lap_bus_nearing_the_end_of_its_lap_gets_no_eta_past_the_return_stop():
+    line, plan = _full_lap_setup()
+    kw = dict(hop_time_fn=_flat_hop_time_fn(60.0), when=2000.0, vehicle_block_id="B1", out_of_service_fn=_oos_fn(plan))
+    assert eta.estimate_stop_eta_s(line, 800.0, 5.0, line.stops[3], **kw) is not None  # the return itself
+    assert eta.estimate_stop_eta_s(line, 800.0, 5.0, line.stops[4], **kw) is None       # Night Pilot territory
+
+
+def test_full_lap_bus_still_approaching_its_departure_is_not_cut_off_at_the_departure():
+    line, plan = _full_lap_setup()
+    kw = dict(
+        hop_time_fn=_flat_hop_time_fn(60.0), when=500.0, vehicle_block_id="B1", out_of_service_fn=_oos_fn(plan),
+        scheduled_timestop_fn=_hold_fn(line.stops[3].id, 1000.0),
+    )
+    # Reaching s3 is the scheduled departure; the stops after it are the final lap and must still be predicted.
+    for i in (4, 5, 0, 1):
+        assert eta.estimate_stop_eta_s(line, 800.0, 5.0, line.stops[i], **kw) is not None, i

@@ -619,6 +619,8 @@ def estimate_stop_eta_s(
     in_final = False
     cutoff_done = False
     leave_id = leave_epoch = cut_id = None
+    leave_guard = -1
+    full_lap = False
     if out_of_service_fn is not None and vehicle_block_id:
         plan = out_of_service_fn(line.id, vehicle_block_id, when)
         if plan is not None:
@@ -630,10 +632,25 @@ def estimate_stop_eta_s(
                 or leave_stop.arc_pos is None or cut_stop.arc_pos is None
             ):
                 leave_id = cut_id = None
-            elif when >= active_from:
-                span = _forward_distance(leave_stop.arc_pos, cut_stop.arc_pos, route_length_m)
+            else:
+                # A cut-off equal to the leave stop is the NEXT time the bus is back there: one full lap (Orange
+                # weekend [05] "final loop" then Night Pilot from the Library; Silver [14] "as far as MCQ").
+                full_lap = cut_id == leave_id
+            if leave_id is not None and when >= active_from:
+                span = route_length_m if full_lap else _forward_distance(leave_stop.arc_pos, cut_stop.arc_pos, route_length_m)
                 past = _forward_distance(leave_stop.arc_pos, vehicle_s_pos, route_length_m)
-                if 0.0 < past <= span or (dwelling_at_prev and str(prev_stop.id) == leave_id):
+                if full_lap:
+                    # By position alone the start of the lap (just left the stop) is unambiguous, and so is the
+                    # end of it (about to return) once enough time has passed since the scheduled departure; the
+                    # stretch in between is on the lap. A bus still approaching its departure gets flagged when
+                    # the walk reaches that scheduled visit instead.
+                    on_lap = (
+                        (when >= leave_epoch - 60.0 and 0.0 < past <= 0.85 * span)
+                        or (when >= leave_epoch + 600.0 and past > 0.85 * span)
+                    )
+                else:
+                    on_lap = 0.0 < past <= span
+                if on_lap or (dwelling_at_prev and str(prev_stop.id) == leave_id):
                     in_final = True
 
     total_s = current_leg_s
@@ -675,6 +692,7 @@ def estimate_stop_eta_s(
             if hold_epoch is not None:
                 if leave_epoch is not None and str(a.id) == leave_id and abs(hold_epoch - leave_epoch) < 1.0:
                     in_final = True  # this visit IS the block's last departure: everything after is the final trip
+                    leave_guard = guard
                 scheduled_hold = True
                 if dwell_fn is not None:
                     # Leaves at the later of (arrival + normal dwell) and (scheduled
@@ -741,8 +759,8 @@ def estimate_stop_eta_s(
         effective_ratio = 1.0 + (pace_ratio - 1.0) * decay
         effective_ratio = max(0.1, effective_ratio)  # guard divide-by-near-zero below
         total_s += hop_s / effective_ratio
-        if in_final and str(a.id) == cut_id:
-            cutoff_done = True
+        if in_final and str(a.id) == cut_id and not (full_lap and guard == leave_guard):
+            cutoff_done = True  # (a full-lap cut-off is the NEXT visit to the leave stop, not the departure itself)
         idx = nxt_idx
 
     if cutoff_done:

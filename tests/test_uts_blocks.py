@@ -343,3 +343,23 @@ def test_out_of_service_plan_only_near_the_departure_and_only_for_that_block_and
     assert uts_blocks.out_of_service_plan("55", "[10]", _epoch(2026, 9, 14, 19, 41)) is None   # other route
     assert uts_blocks.out_of_service_plan("99", "[10]", _epoch(2026, 9, 19, 19, 41)) is None   # Saturday: no group
     assert uts_blocks.out_of_service_plan("99", None, _epoch(2026, 9, 14, 19, 41)) is None
+
+
+def test_out_of_service_plan_full_lap_has_cutoff_equal_to_leave_stop(monkeypatch):
+    blocks = {"[05]": {"route_ids": ["99"], "weekday_groups": [{
+        "weekdays": [6], "stops": [[21 * 3600 + 30 * 60, "AAA"]],
+        "out_of_service": {"leave_code": "AAA", "leave_s": 21 * 3600 + 30 * 60, "until_code": "AAA",
+                           "last_code": None, "then": "night_pilot"},
+    }]}}
+    _patch_data(monkeypatch, blocks, OOS_TIMESTOPS)
+    monkeypatch.setattr(uts_blocks, "_landmarks", {})
+    plan = uts_blocks.out_of_service_plan("99", "[05]", _epoch(2026, 9, 20, 21, 20))  # a Sunday
+    assert plan is not None and plan[0] == plan[2] == "stop-1"
+
+
+def test_a_landmark_code_resolves_for_a_route_where_the_code_is_not_a_timestop(monkeypatch):
+    _patch_data(monkeypatch, OOS_BLOCKS, {"AAA": {"99": "stop-1"}, "BBB": {"55": "stop-x"}})
+    monkeypatch.setattr(uts_blocks, "_landmarks", {"BBB": {"99": "stop-landmark"}, "DORMS": {"99": "stop-dorms"}})
+    assert uts_blocks._stop_for_code("99", "BBB") == "stop-landmark"   # not a timestop on 99, landmark fills in
+    assert uts_blocks._stop_for_code("55", "BBB") == "stop-x"          # a timestop elsewhere is untouched
+    assert uts_blocks.timestop_code_for_stop("99", "stop-landmark") is None  # and it never becomes a timestop
