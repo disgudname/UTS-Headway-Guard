@@ -16,6 +16,11 @@
 import { UVA_BASEMAP_STYLE_URL, BRAND, SATELLITE } from './config.js';
 import { parseColor, colorToCss, luminance, mix } from './util.js';
 import { VEHICLE_SOURCE_ID, VEHICLE_SOURCE_DEF, VEHICLE_LAYER_DEFS } from './layers/vehicle-style.js';
+import {
+  OVERHEIGHT_SOURCE_ID,
+  OVERHEIGHT_SOURCE_DEF,
+  overheightLayerDefs,
+} from './layers/overheight-style.js';
 import { ROUTE_SOURCE_ID, ROUTE_SOURCE_DEF, routeLayerDefs } from './layers/route-style.js';
 import {
   TRIP_PLANNER_SOURCE_ID,
@@ -166,6 +171,7 @@ function normalizeBase(style) {
   // layers/vehicle-style.js, layers/route-style.js). The feature modules only
   // ever setData() them.
   s.sources[VEHICLE_SOURCE_ID] = clone(VEHICLE_SOURCE_DEF);
+  s.sources[OVERHEIGHT_SOURCE_ID] = clone(OVERHEIGHT_SOURCE_DEF);
   s.sources[ROUTE_SOURCE_ID] = clone(ROUTE_SOURCE_DEF);
   s.sources[STOP_SOURCE_ID] = clone(STOP_SOURCE_DEF);
   s.sources[CAT_ROUTE_SOURCE_ID] = clone(CAT_ROUTE_SOURCE_DEF);
@@ -357,6 +363,10 @@ function addSatelliteLayers(style) {
 }
 
 /** Append the live-vehicle symbol layers on top of everything. */
+function addOverheightLayers(style) {
+  for (const def of overheightLayerDefs()) style.layers.push(clone(def));
+}
+
 function addVehicleLayers(style) {
   for (const def of VEHICLE_LAYER_DEFS) style.layers.push(clone(def));
 }
@@ -458,6 +468,7 @@ function buildLight(raw) {
   addTrafficIncLayers(s, 'light');
   addVandispatchRouteLayer(s);
   addTripPlannerLayers(s, 'light');
+  addOverheightLayers(s); // just under the vehicles: tints streets, never a bus
   addVehicleLayers(s);
   addPulsePointLayers(s, 'light');
   s.name = 'UVA Grounds — Day';
@@ -773,6 +784,7 @@ function buildDark(raw) {
   addTrafficIncLayers(s, 'dark');
   addVandispatchRouteLayer(s);
   addTripPlannerLayers(s, 'dark');
+  addOverheightLayers(s); // just under the vehicles: tints streets, never a bus
   addVehicleLayers(s);
   addPulsePointLayers(s, 'dark');
   return s;

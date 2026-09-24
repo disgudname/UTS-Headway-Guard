@@ -198,6 +198,12 @@ export function getVehicleIds() {
   return [...state.keys()];
 }
 
+/** Current interpolated [lng, lat] of a tracked vehicle (state key), or null. */
+export function getVehicleLngLat(id) {
+  const s = state.get(String(id));
+  return s ? [s.lng, s.lat] : null;
+}
+
 /**
  * A flat snapshot of every currently-tracked vehicle, for the search box.
  * `id` is the prefixed state key (pass it straight to followVehicle).

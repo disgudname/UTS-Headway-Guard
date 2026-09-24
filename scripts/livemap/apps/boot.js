@@ -21,6 +21,7 @@ import { installBuildingHighlight } from '../core/layers/building-highlight.js';
 import { installRouteLayer } from '../core/layers/routes.js';
 import { installStopLayer } from '../core/layers/stops.js';
 import { installVehicleLayer } from '../core/layers/vehicles.js';
+import { installOverheightAlert } from '../core/layers/overheight.js';
 import { installCatLayer } from '../core/layers/cat.js';
 import { installMicroTripsLayer } from '../core/layers/micro-trips.js';
 import { installSafetyLayer } from '../core/layers/safety.js';
@@ -105,6 +106,7 @@ async function boot() {
   installMicroTripsLayer();
   installSafetyLayer();
   installVehicleLayer();
+  installOverheightAlert(); // after the vehicle layer: reads its state
   installMarkerMenu();
   installDispatcherBridge();
 
