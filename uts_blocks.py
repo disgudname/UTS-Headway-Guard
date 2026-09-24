@@ -32,11 +32,27 @@ Line's RouteID but 914 under Green Line's), so there's no way to collapse this
 to one shared id per code. Only (route, code) pairs with a real live vehicle
 to confirm against were mapped; an unmapped pair just leaves the schedule-hold
 feature inactive for that combination -- never wrong, just a no-op.
+
+Every route but Silver changes its timestops through the day (Gold: BAR/HER before
+18:00, CHP/LIB after; Green weekend: CHP only). uts_timestops.json only says where a
+code physically is, so is_timestop_at() answers "is this stop a timestop right now"
+from the schedule itself. NOTE: it is NOT wired into the live ETA -- the layover cap in
+app.py stays day-independent on purpose (a time-aware cap made weekend Orange ~70% late
+when it was deployed 2026-09-20, and a Sunday replay on 2026-09-23 scored worse again:
+>2 min late 3.1% -> 5.0%; see HANDOFF.md for why). Scheduled holds already follow the
+schedule per block.
+
+The "HOW TO GO OUT-OF-SERVICE" notes (see build_uts_blocks.py) end a block's public
+service: after its last scheduled departure the bus keeps carrying passengers only
+as far as a named stop. out_of_service_plan() hands bus_eta.py that stop so it can
+refuse to predict stops the bus is never going to serve. Cut-off stops that aren't
+timestops (e.g. McCormick Rd Dorms) live in config/uts_landmarks.json.
 """
 
 from __future__ import annotations
 
 import json
+from bisect import bisect_left
 from datetime import datetime, timedelta
 from datetime import time as dtime
 from pathlib import Path
@@ -49,6 +65,7 @@ NY_TZ = ZoneInfo("America/New_York")
 _CONFIG_DIR = Path(__file__).resolve().parent / "config"
 _BLOCKS_PATH = _CONFIG_DIR / "uts_blocks.json"
 _TIMESTOPS_PATH = _CONFIG_DIR / "uts_timestops.json"
+_LANDMARKS_PATH = _CONFIG_DIR / "uts_landmarks.json"
 
 # How far (seconds) a live/historical ETA's own estimated arrival time may be
 # from a scheduled entry for that entry to be considered "the same lap" of the
@@ -70,10 +87,12 @@ EARLY_MATCH_LIMIT_S = 10 * 60.0
 _blocks: Dict[str, Dict] = {}
 _timestops: Dict[str, Dict[str, str]] = {}  # code -> {route_id: stop_id}
 _stop_id_to_code: Dict[Tuple[str, str], str] = {}  # (route_id, stop_id) -> code
+_landmarks: Dict[str, Dict[str, str]] = {}  # code -> {route_id: stop_id}; NOT timestops, only out-of-service cut-offs
 
 
 def _load() -> None:
-    global _blocks, _timestops, _stop_id_to_code
+    global _blocks, _timestops, _stop_id_to_code, _landmarks
+    _landmarks = json.loads(_LANDMARKS_PATH.read_text(encoding="utf-8")) if _LANDMARKS_PATH.exists() else {}
     _blocks = json.loads(_BLOCKS_PATH.read_text(encoding="utf-8")).get("blocks", {}) if _BLOCKS_PATH.exists() else {}
     _timestops = json.loads(_TIMESTOPS_PATH.read_text(encoding="utf-8")) if _TIMESTOPS_PATH.exists() else {}
     _stop_id_to_code = {
@@ -238,6 +257,108 @@ def hold_for_ride(
         if block_id is None:
             return None, None
     return scheduled_hold_epoch(route_id, stop_id, block_id, reference_ts), block_id
+
+
+# A stop counts as a timestop at time T if some block on the route has a scheduled visit
+# to it within this many seconds of T. Timestop visits are 10-20 minutes apart, so half
+# an hour either side covers the gaps without leaking across the 18:00 route change.
+ACTIVE_TIMESTOP_WINDOW_S = 30 * 60
+
+_visit_cache: Tuple[Optional[Dict], Dict] = (None, {})
+
+
+def _visit_index() -> Dict[Tuple[str, str], Dict[int, List[int]]]:
+    """{(route_id or "*", code): {weekday: sorted [time_s, ...]}} over every block's schedule.
+    Rebuilt whenever _blocks is replaced (tests monkeypatch it)."""
+    global _visit_cache
+    if _visit_cache[0] is not _blocks:
+        idx: Dict[Tuple[str, str], Dict[int, List[int]]] = {}
+        for block in _blocks.values():
+            routes = [str(r) for r in (block.get("route_ids") or [])] or ["*"]
+            for group in block.get("weekday_groups", []):
+                for weekday in group.get("weekdays") or []:
+                    for time_s, code in group.get("stops", []):
+                        for route in routes:
+                            idx.setdefault((route, code), {}).setdefault(weekday, []).append(time_s)
+        for by_weekday in idx.values():
+            for times in by_weekday.values():
+                times.sort()
+        _visit_cache = (_blocks, idx)
+    return _visit_cache[1]
+
+
+def _any_within(times: Optional[List[int]], t: float, window: float) -> bool:
+    if not times:
+        return False
+    i = bisect_left(times, t - window)
+    return i < len(times) and times[i] <= t + window
+
+
+def is_timestop_at(route_id: str, stop_id: str, when: float) -> bool:
+    """Is (route_id, stop_id) a timestop AT THIS TIME OF DAY? It must be a mapped timestop
+    (uts_timestops.json) AND some block serving the route must have a scheduled visit to
+    that code within ACTIVE_TIMESTOP_WINDOW_S of `when`. Time is read as America/New_York
+    local time and also checks the previous day's schedule, whose entries run past midnight
+    (Night Pilot), the same way scheduled_hold_epoch does."""
+    code = timestop_code_for_stop(route_id, stop_id)
+    if code is None:
+        return False
+    idx = _visit_index()
+    local = datetime.fromtimestamp(when, tz=NY_TZ)
+    seconds = local.hour * 3600 + local.minute * 60 + local.second
+    weekday = local.weekday()
+    for route_key in (str(route_id), "*"):
+        by_weekday = idx.get((route_key, code))
+        if not by_weekday:
+            continue
+        if _any_within(by_weekday.get(weekday), seconds, ACTIVE_TIMESTOP_WINDOW_S):
+            return True
+        if _any_within(by_weekday.get((weekday - 1) % 7), seconds + 86400, ACTIVE_TIMESTOP_WINDOW_S):
+            return True
+    return False
+
+
+def _stop_for_code(route_id: str, code: Optional[str]) -> Optional[str]:
+    """The StopID a timestop code or landmark code resolves to on this route, if mapped."""
+    if not code:
+        return None
+    return (_timestops.get(code) or {}).get(str(route_id)) or (_landmarks.get(code) or {}).get(str(route_id))
+
+
+def out_of_service_plan(
+    route_id: str, block_id: Optional[str], when: float,
+) -> Optional[Tuple[str, float, str, float]]:
+    """If block_id is about to make (or is making) its last public trip of the day on this
+    route, returns (leave_stop_id, leave_epoch, cutoff_stop_id, active_from_epoch):
+
+      leave_stop_id / leave_epoch -- the scheduled last departure the note names
+      cutoff_stop_id -- the last stop the bus will serve (the note's "as far as ..." stop,
+                        else the "stay in service until ..." stop)
+      active_from_epoch -- how early a bus may be and still count as on that last trip
+
+    None if the block has no note today, the cut-off can't be resolved to a stop on this
+    route (an unmapped stop just leaves the feature off -- never wrong, only a no-op), or
+    the note's departure is not within a few hours of `when`."""
+    block = _blocks.get(block_id) if block_id else None
+    if not block or not _block_serves_route(block, route_id):
+        return None
+    local_dt = datetime.fromtimestamp(when, tz=NY_TZ)
+    for day_offset in (0, -1):
+        d = (local_dt + timedelta(days=day_offset)).date()
+        midnight_ts = datetime.combine(d, dtime.min, tzinfo=NY_TZ).timestamp()
+        for group in _weekday_groups_matching(block, d.weekday()):
+            note = group.get("out_of_service")
+            if not note:
+                continue
+            leave_epoch = midnight_ts + note["leave_s"]
+            if not (leave_epoch - 3600 <= when <= leave_epoch + 3 * 3600):
+                continue
+            leave_stop = _stop_for_code(route_id, note.get("leave_code"))
+            cutoff_stop = _stop_for_code(route_id, note.get("last_code") or note.get("until_code"))
+            if leave_stop is None or cutoff_stop is None:
+                continue
+            return leave_stop, leave_epoch, cutoff_stop, leave_epoch - EARLY_MATCH_LIMIT_S
+    return None
 
 
 def is_loaded() -> bool:

@@ -16372,10 +16372,14 @@ async def _compute_bus_eta_arrivals() -> Dict[str, Any]:
                     vehicle_dir_sign=getattr(veh, "dir_sign", 0),
                     vehicle_block_id=block_id,
                     scheduled_timestop_fn=uts_blocks.scheduled_hold_epoch if uts_blocks.is_loaded() else None,
+                    # Deliberately day/time-INDEPENDENT (uts_blocks.is_timestop_at exists but is NOT used here).
+                    # A time-aware cap was deployed and reverted 2026-09-20 (weekend Orange far too late) and
+                    # scored worse again in a 2026-09-23 Sunday replay -- see HANDOFF.md before changing this.
                     is_timestop_fn=(
-                        (lambda r, s: uts_blocks.timestop_code_for_stop(r, s) is not None)
+                        (lambda r, s, when: uts_blocks.timestop_code_for_stop(r, s) is not None)
                         if uts_blocks.is_loaded() else None
                     ),
+                    out_of_service_fn=uts_blocks.out_of_service_plan if uts_blocks.is_loaded() else None,
                 )
                 if result is None:
                     continue

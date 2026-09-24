@@ -46,6 +46,7 @@ from __future__ import annotations
 import argparse
 import json
 import re
+import zipfile
 from datetime import datetime, time as dtime
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
@@ -199,6 +200,112 @@ def parse_sheet(rows: List[Tuple[Any, ...]]) -> Tuple[Optional[List[int]], Dict[
     return weekdays, per_block
 
 
+# ---------------------------------------------------------------------------
+# "HOW TO GO OUT-OF-SERVICE" notes
+#
+# Each active sheet carries a text box (a drawing shape, NOT a cell -- openpyxl
+# can't see it, so the workbook's own XML is read directly) telling each block how
+# its last trip of the day works, e.g. Gold weekday block [10]:
+#   "LEAVE BAR AT 1955 AND STAY IN-SERVICE UNTIL LIB. TAKE PASSENGERS AS FAR AS
+#    McCORMICK RD DORMS AND RETURN TO LOT."
+# The "END" row a block's column ends with is only a marker for "no more scheduled
+# timestops" -- it is NOT a time, and is deliberately ignored (see EXCLUDE_CODES).
+# What the note adds is the real end of the block's PUBLIC service: after leaving
+# `leave_code` at `leave_s` the bus keeps carrying passengers until it reaches
+# `until_code` (or `last_code`, "as far as ...", if that's named and comes first),
+# then goes to the lot / becomes a Night Pilot block, and serves nothing after that.
+# ---------------------------------------------------------------------------
+
+# Words the notes use for a place -> the timestop code (or landmark code) it means.
+# "DORMS" is not a timestop; it names a stop in config/uts_landmarks.json.
+PLACE_ALIASES = {
+    "CHAPEL": "CHP", "LIBRARY": "LIB",
+    "MCCORMICK RD DORMS": "DORMS", "MCCORMICK ROAD DORMS": "DORMS", "MCCORMICK RD": "DORMS",
+}
+
+_OOS_BLOCK_RE = re.compile(r"BLK\s*0?(\d{1,2})\s*:?\s*LEAVE\s+([A-Z]{2,8})\s+AT\s+(\d{4})")
+_OOS_UNTIL_RE = re.compile(r"IN-?\s?SERVICE\s+UNTIL\s+([A-Z]{2,8})")
+_OOS_LAST_RE = re.compile(r"(?:AS FAR AS|PASSENGERS THRU)\s+([A-Z][A-Z .]*?)(?:\s+AND\b|,|\.|$)")
+
+
+def _place(word: str) -> str:
+    word = re.sub(r"\s+", " ", word.strip().upper())
+    return PLACE_ALIASES.get(word, word)
+
+
+def sheet_drawing_texts(xlsx_path: Path, sheet_name: str) -> List[str]:
+    """Every text box's text on one sheet (one string per shape, paragraphs joined by
+    spaces). Empty if the sheet has no drawing. Reads the workbook's XML directly."""
+    with zipfile.ZipFile(xlsx_path) as z:
+        wb = z.read("xl/workbook.xml").decode("utf-8", "ignore")
+        rels = z.read("xl/_rels/workbook.xml.rels").decode("utf-8", "ignore")
+        rid = None
+        for m in re.finditer(r"<sheet\b[^>]*>", wb):
+            tag = m.group(0)
+            name = re.search(r'name="([^"]*)"', tag)
+            r = re.search(r'r:id="([^"]*)"', tag)
+            if name and r and name.group(1).replace("&amp;", "&") == sheet_name:
+                rid = r.group(1)
+        if rid is None:
+            return []
+        target = None
+        for m in re.finditer(r"<Relationship\b[^>]*>", rels):
+            tag = m.group(0)
+            if f'Id="{rid}"' in tag:
+                t = re.search(r'Target="([^"]*)"', tag)
+                target = t.group(1) if t else None
+        if not target:
+            return []
+        sheet_file = target.split("/")[-1]
+        rel_path = f"xl/worksheets/_rels/{sheet_file}.rels"
+        if rel_path not in z.namelist():
+            return []
+        d = re.search(r'Target="[^"]*?(drawing\d+\.xml)"', z.read(rel_path).decode("utf-8", "ignore"))
+        if not d:
+            return []
+        xml = z.read(f"xl/drawings/{d.group(1)}").decode("utf-8", "ignore")
+    out = []
+    for sp in re.findall(r"<xdr:sp\b.*?</xdr:sp>", xml, re.S):
+        paras = ["".join(re.findall(r"<a:t>(.*?)</a:t>", p)) for p in re.findall(r"<a:p>.*?</a:p>", sp, re.S)]
+        text = " ".join(x.strip() for x in paras if x.strip())
+        if text:
+            out.append(text)
+    return out
+
+
+def parse_out_of_service_notes(texts: List[str]) -> Dict[str, Dict[str, Any]]:
+    """{block_id: {leave_code, leave_s, until_code, last_code, then}} from a sheet's text
+    boxes. leave_s is seconds after 00:00 as written (the caller adds a day if the block's
+    own day already rolled past midnight -- Night Pilot's 0200). until_code/last_code are
+    None when the note doesn't name one ("MAKE FINAL LOOP"). then is "lot" or "night_pilot".
+    Text boxes that aren't the out-of-service one (e.g. "EVENING ROUTE CHANGE") are skipped."""
+    out: Dict[str, Dict[str, Any]] = {}
+    for text in texts:
+        flat = re.sub(r"\s+", " ", text.upper())
+        if "OUT-OF-SERVICE" not in flat and "OUT OF SERVICE" not in flat:
+            continue
+        matches = list(_OOS_BLOCK_RE.finditer(flat))
+        for i, m in enumerate(matches):
+            seg = flat[m.end(): matches[i + 1].start() if i + 1 < len(matches) else len(flat)]
+            hhmm = m.group(3)
+            until = _OOS_UNTIL_RE.search(seg)
+            last = _OOS_LAST_RE.search(seg)
+            until_code = _place(until.group(1)) if until else None
+            last_code = _place(last.group(1)) if last else None
+            if until_code == m.group(2):
+                until_code = None  # a full lap ("make final loop"): no cut-off
+            if last_code == m.group(2):
+                last_code = None
+            out[f"[{int(m.group(1)):02d}]"] = {
+                "leave_code": m.group(2),
+                "leave_s": int(hhmm[:2]) * 3600 + int(hhmm[2:]) * 60,
+                "until_code": until_code,
+                "last_code": last_code,
+                "then": "night_pilot" if "NIGHT PILOT" in seg else "lot",
+            }
+    return out
+
+
 def build(blocks_dir: Path) -> Dict[str, Any]:
     active_sheets = json.loads(ACTIVE_SHEETS_PATH.read_text(encoding="utf-8"))
     # Which live TransLoc RouteIDs correspond to each Block Package route file --
@@ -231,6 +338,11 @@ def build(blocks_dir: Path) -> Dict[str, Any]:
             ws = wb[sheet_name]
             rows = list(ws.iter_rows(values_only=True))
             weekdays, per_block = parse_sheet(rows)
+            oos_notes = parse_out_of_service_notes(sheet_drawing_texts(path, sheet_name))
+            for block_id in oos_notes:
+                if block_id not in per_block:
+                    print(f"[build_uts_blocks] WARNING: out-of-service note for {block_id} in {fn}/{sheet_name} "
+                          f"but that block has no schedule column there")
             if weekdays is None:
                 print(f"[build_uts_blocks] WARNING: couldn't find a header row in {fn}/{sheet_name}")
                 continue
@@ -247,7 +359,14 @@ def build(blocks_dir: Path) -> Dict[str, Any]:
                 entry = blocks.setdefault(
                     block_id, {"route_ids": route_ids_by_name.get(route_name, []), "weekday_groups": []}
                 )
-                entry["weekday_groups"].append({"weekdays": weekdays, "stops": [list(t) for t in seq]})
+                group = {"weekdays": weekdays, "stops": [list(t) for t in seq]}
+                note = oos_notes.get(block_id)
+                if note:
+                    note = dict(note)
+                    if note["leave_s"] < seq[0][0]:
+                        note["leave_s"] += 86400  # e.g. Night Pilot "0200": the block's day started at 22:00
+                    group["out_of_service"] = note
+                entry["weekday_groups"].append(group)
 
     return {
         "generated_at": datetime.now().isoformat(timespec="seconds"),

@@ -641,7 +641,7 @@ def test_hop_leaving_a_mapped_timestop_never_carries_layover_even_with_no_hold_s
     # hold has to be scheduled at that moment.
     line = _line([0, 300, 900, 1200])
     inflated = _flat_hop_time_fn(400.0)  # 600m hop "taking" 400s
-    is_timestop = lambda route_id, stop_id: stop_id == line.stops[1].id
+    is_timestop = lambda route_id, stop_id, when: stop_id == line.stops[1].id
     # Vehicle at 100m: its next stop is the timestop (200m away = 40s live), then the
     # timestop -> s2 hop is the one that must be capped.
     with_map = eta.estimate_stop_eta_s(
@@ -653,3 +653,77 @@ def test_hop_leaving_a_mapped_timestop_never_carries_layover_even_with_no_hold_s
     # it can only get shorter than the cap, never longer)
     assert 40.0 < with_map.seconds <= 40.0 + drive + 0.5
     assert without.seconds > with_map.seconds + 100.0
+
+
+# --- Out-of-service cut-off (out_of_service_fn) ---
+# Six stops 300m apart; block "B1" makes its last public departure from s1 and serves nothing
+# past s3 (the cut-off), like Gold block [10]: leave BAR 19:55, carry passengers as far as the dorms.
+
+def _oos_setup():
+    line = _line([0, 300, 600, 900, 1200, 1500], n=17)
+    leave_epoch, active_from = 1000.0, 400.0
+    plan = (line.stops[1].id, leave_epoch, line.stops[3].id, active_from)
+    return line, plan, leave_epoch
+
+
+def _oos_fn(plan):
+    return lambda route_id, block_id, when: plan if block_id == "B1" else None
+
+
+def test_out_of_service_target_beyond_cutoff_is_none_and_up_to_cutoff_is_served():
+    line, plan, leave_epoch = _oos_setup()
+    hop = _flat_hop_time_fn(60.0)
+    kw = dict(
+        hop_time_fn=hop, when=900.0, vehicle_block_id="B1",
+        scheduled_timestop_fn=_hold_fn(line.stops[1].id, leave_epoch), out_of_service_fn=_oos_fn(plan),
+    )
+    # Bus still upstream of the last departure (100m): reaching s1 IS the last departure.
+    assert eta.estimate_stop_eta_s(line, 100.0, 5.0, line.stops[2], **kw) is not None
+    assert eta.estimate_stop_eta_s(line, 100.0, 5.0, line.stops[3], **kw) is not None  # the cut-off itself
+    assert eta.estimate_stop_eta_s(line, 100.0, 5.0, line.stops[4], **kw) is None
+    assert eta.estimate_stop_eta_s(line, 100.0, 5.0, line.stops[0], **kw) is None  # next lap: never served
+
+
+def test_out_of_service_bus_already_between_leave_and_cutoff_is_on_its_last_trip():
+    line, plan, leave_epoch = _oos_setup()
+    kw = dict(hop_time_fn=_flat_hop_time_fn(60.0), when=1010.0, vehicle_block_id="B1", out_of_service_fn=_oos_fn(plan))
+    assert eta.estimate_stop_eta_s(line, 400.0, 5.0, line.stops[3], **kw) is not None
+    assert eta.estimate_stop_eta_s(line, 400.0, 5.0, line.stops[4], **kw) is None
+
+
+def test_out_of_service_not_applied_before_the_active_window_or_without_a_plan():
+    line, plan, leave_epoch = _oos_setup()
+    hop = _flat_hop_time_fn(60.0)
+    # Same position as above but far too early in the day to be the last trip (the bus is just
+    # passing this stretch on an earlier lap): predictions beyond the cut-off stand.
+    early = eta.estimate_stop_eta_s(
+        line, 400.0, 5.0, line.stops[4], hop, when=100.0, vehicle_block_id="B1", out_of_service_fn=_oos_fn(plan),
+    )
+    assert early is not None
+    # A block with no plan is untouched.
+    other = eta.estimate_stop_eta_s(
+        line, 400.0, 5.0, line.stops[4], hop, when=1010.0, vehicle_block_id="B2", out_of_service_fn=_oos_fn(plan),
+    )
+    assert other is not None
+    # A visit to the leave stop that is not the note's scheduled departure (another lap's hold)
+    # does not start the last trip.
+    not_final = eta.estimate_stop_eta_s(
+        line, 100.0, 5.0, line.stops[4], hop_time_fn=hop, when=100.0, vehicle_block_id="B1",
+        scheduled_timestop_fn=_hold_fn(line.stops[1].id, 555.0), out_of_service_fn=_oos_fn(plan),
+    )
+    assert not_final is not None
+
+
+def test_timestop_cap_receives_the_time_the_bus_reaches_the_stop():
+    line = _line([0, 300, 900, 1200])
+    seen = []
+
+    def is_timestop(route_id, stop_id, when):
+        seen.append((stop_id, when))
+        return False
+
+    eta.estimate_stop_eta_s(
+        line, 100.0, 5.0, line.stops[3], _flat_hop_time_fn(100.0), when=5000.0, is_timestop_fn=is_timestop,
+    )
+    assert seen and all(w >= 5000.0 for _, w in seen)
+    assert seen[0][1] < seen[-1][1]  # later stops are asked about later times

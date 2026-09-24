@@ -133,7 +133,7 @@ def main():
     m = build_models(headway_dir, cutoff)
     lines = load_lines()
     ec_stops, ec_lines = ec.load_graph()
-    capped = lambda r, s: uts_blocks.timestop_code_for_stop(r, s) is not None  # noqa: E731
+    capped = lambda r, s, w=None: uts_blocks.timestop_code_for_stop(r, s) is not None  # noqa: E731
     def scheduled(route, stop, _block, ref):
         # Offline stand-in for the app's live block tracking: the block whose schedule has the
         # nearest visit to this timestop (fine on weekends, where each route runs ~one bus).

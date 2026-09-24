@@ -51,6 +51,11 @@ from trip_planner import Line, Stop, HopTimeFn, SECONDS_PER_HOP_ESTIMATE, havers
 # the only implementation of this today. Optional/UTS-only (no such schedule
 # exists for CAT) -- every caller must tolerate None throughout.
 ScheduledTimestopFn = Callable[[str, str, str, float], Optional[float]]
+# (route_id, stop_id, when) -> is this stop a timestop AT THIS TIME OF DAY (see uts_blocks.is_timestop_at)
+IsTimestopFn = Callable[[str, str, float], bool]
+# (route_id, block_id, when) -> (leave_stop_id, leave_epoch, cutoff_stop_id, active_from_epoch) for a block on its
+# last public trip of the day, else None (see uts_blocks.out_of_service_plan)
+OutOfServiceFn = Callable[[str, str, float], Optional[Tuple[str, float, str, float]]]
 
 # How much the current segment's live pace factor still influences a downstream
 # segment's estimate, per hop of distance from the vehicle's current position.
@@ -376,8 +381,9 @@ def estimate_stop_eta_s(
     vehicle_dir_sign: int = 0,
     vehicle_block_id: Optional[str] = None,
     scheduled_timestop_fn: Optional[ScheduledTimestopFn] = None,
-    is_timestop_fn: Optional[Callable[[str, str], bool]] = None,
+    is_timestop_fn: Optional[IsTimestopFn] = None,
     dwell_fn: Optional[Callable[[str, str, float], float]] = None,
+    out_of_service_fn: Optional[OutOfServiceFn] = None,
 ) -> Optional[BusEtaEstimate]:
     """Seconds until this vehicle reaches target_stop, or None if the line/target
     don't carry the shape+arc_pos data this needs (e.g. CAT, or a UTS route whose
@@ -538,7 +544,7 @@ def estimate_stop_eta_s(
             # isn't known here, so charge the typical (or, at a scheduled hold, the
             # normal) dwell in full.
             current_leg_s += TYPICAL_DWELL_S if hold_epoch is not None else dwell_fn(line.id, prev_stop.id, when)
-        elif hold_epoch is not None or (is_timestop_fn and is_timestop_fn(line.id, prev_stop.id)):
+        elif hold_epoch is not None or (is_timestop_fn and is_timestop_fn(line.id, prev_stop.id, when)):
             # The hop history for a hop leaving a timestop already contains the layover
             # being added below -- drive it at typical speed instead (see
             # POST_HOLD_HOP_ALLOWANCE_S).
@@ -602,6 +608,34 @@ def estimate_stop_eta_s(
             pace_ratio = clamped_vehicle_mps / clamped_expected_mps
     pace_ratio = max(PACE_RATIO_MIN, min(PACE_RATIO_MAX, pace_ratio))
 
+    # Out-of-service cut-off (see uts_blocks.out_of_service_plan): a block on its last public trip of the
+    # day only carries passengers as far as a named stop, then goes to the lot / becomes a Night Pilot block.
+    # A prediction for a stop the walk can only reach by going past that cut-off is a stop this bus will
+    # never serve, so return None for it instead of a confident ETA. `in_final` turns on once the bus is on
+    # that last trip: either it is already between the last departure stop and the cut-off, or the walk
+    # below reaches the last departure's own scheduled visit. Buses already past the cut-off and heading to
+    # the lot are deliberately left alone -- by position alone they can't be told apart from a bus still
+    # approaching its last departure.
+    in_final = False
+    cutoff_done = False
+    leave_id = leave_epoch = cut_id = None
+    if out_of_service_fn is not None and vehicle_block_id:
+        plan = out_of_service_fn(line.id, vehicle_block_id, when)
+        if plan is not None:
+            leave_id, leave_epoch, cut_id, active_from = str(plan[0]), plan[1], str(plan[2]), plan[3]
+            by_id = {str(st.id): st for st in stops}
+            leave_stop, cut_stop = by_id.get(leave_id), by_id.get(cut_id)
+            if (
+                leave_stop is None or cut_stop is None
+                or leave_stop.arc_pos is None or cut_stop.arc_pos is None
+            ):
+                leave_id = cut_id = None
+            elif when >= active_from:
+                span = _forward_distance(leave_stop.arc_pos, cut_stop.arc_pos, route_length_m)
+                past = _forward_distance(leave_stop.arc_pos, vehicle_s_pos, route_length_m)
+                if 0.0 < past <= span or (dwelling_at_prev and str(prev_stop.id) == leave_id):
+                    in_final = True
+
     total_s = current_leg_s
     all_historical = historical_current_seg_s is not None
     idx = next_idx
@@ -619,9 +653,11 @@ def estimate_stop_eta_s(
         guard += 1
         if guard > len(stops):
             return None  # target unreachable in one lap -- shouldn't happen on a loop, but never spin forever
+        if cutoff_done:
+            return None  # the bus stops serving at its cut-off stop; the target lies beyond it
         nxt_idx = (idx + 1) % len(stops)
         a, b = stops[idx], stops[nxt_idx]
-        held_here = bool(is_timestop_fn and is_timestop_fn(line.id, a.id)) and dwell_fn is None
+        held_here = bool(is_timestop_fn and is_timestop_fn(line.id, a.id, when + total_s)) and dwell_fn is None
 
         # Scheduled timestop hold: total_s right now represents the estimated
         # time to REACH `a` (every hop added so far, including current_leg_s
@@ -637,6 +673,8 @@ def estimate_stop_eta_s(
         if scheduled_timestop_fn is not None and vehicle_block_id:
             hold_epoch = scheduled_timestop_fn(line.id, a.id, vehicle_block_id, when + total_s)
             if hold_epoch is not None:
+                if leave_epoch is not None and str(a.id) == leave_id and abs(hold_epoch - leave_epoch) < 1.0:
+                    in_final = True  # this visit IS the block's last departure: everything after is the final trip
                 scheduled_hold = True
                 if dwell_fn is not None:
                     # Leaves at the later of (arrival + normal dwell) and (scheduled
@@ -703,6 +741,10 @@ def estimate_stop_eta_s(
         effective_ratio = 1.0 + (pace_ratio - 1.0) * decay
         effective_ratio = max(0.1, effective_ratio)  # guard divide-by-near-zero below
         total_s += hop_s / effective_ratio
+        if in_final and str(a.id) == cut_id:
+            cutoff_done = True
         idx = nxt_idx
 
+    if cutoff_done:
+        return None  # the walk had to pass the out-of-service cut-off to arrive here (target is the very next stop)
     return BusEtaEstimate(seconds=total_s, source="historical" if all_historical else "projected")
