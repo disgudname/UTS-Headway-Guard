@@ -27,12 +27,11 @@ Machine tags: `[dev]` = Windows dev machine · `[home]` = home server (Windows b
 
 ## 1. Message board (newest first)
 
-### 2026-09-24 · [home] · Kiosk flapping to /downed: prod edge is resetting ~1 in 4 new connections; fix staged in `fly.toml` (NOT deployed)
-- **Symptom:** a kiosk alternates between its page and the "unable to reach" fallback (`/downed`). The kiosk falls back when its ~15 s `POST /v1/kiosk-checkin` fails.
-- **Finding:** from this box, 7 of 30 requests to `https://uts-headway-guard.fly.dev/v1/health` died with `Connection was reset` (google.com: 15/15 fine). The rest were 60-70 ms, so the app itself is not slow. Machine is healthy (1 started, check passing), logs show check-ins returning 200.
-- **Likely cause (not proven):** `fly.toml` has no `[http_service.concurrency]`, so Fly's default cap (~25 connections, soft 20) applies; the app holds many SSE streams + kiosk/tab polling. Couldn't read the live connection count.
-- **Staged, uncommitted:** `type = "requests"`, soft 200 / hard 500 in `fly.toml`. Needs "cpd" to go live. After deploying, re-run the 30x `/v1/health` probe: expect 0 resets. If resets persist, it's not the cap (look at Fly edge / that kiosk's own network instead).
-- Note the earlier finding still applies: slow event loop can also trip check-ins (see `BUS_ETA_CACHE_TTL_S`).
+### 2026-09-24 · [home] · Kiosk flapping to /downed: cause NOT found; my "connection cap" theory was wrong (fly.toml concurrency change deployed anyway, harmless)
+- **Symptom:** a kiosk alternates between its page and the fallback (`/downed`). The kiosk falls back when its ~15 s `POST /v1/kiosk-checkin` fails. App is healthy (1 machine, check passing, check-ins return 200 in the logs, `/v1/health` 60-70 ms).
+- **RETRACTED:** I saw ~1 in 4 `Connection was reset` probing prod from the [home] Windows box and blamed Fly's default connection cap. Deployed `[http_service.concurrency]` (requests, soft 200 / hard 500, commit b27c6c3); resets did NOT stop. Control test: `fly.io` and `api.machines.dev` (not our app) fail at the same ~25% from that box, while cloudflare.com is 0%. So it's the [home] box's path to Fly, not the app. The probe proves nothing about the kiosk.
+- **Still unknown:** which kiosk flaps and why. Next: at `/kiosk-fleet` check that device's `last_seen` gaps and image_build; look at its own network/Wi-Fi; check whether other kiosks flap too. Don't probe prod from [home] as evidence without a control host.
+- The concurrency block is still a sane setting (Fly's default ~25 is low for SSE-heavy traffic); leave it unless it causes trouble. Earlier finding still applies: a slow event loop can trip check-ins (see `BUS_ETA_CACHE_TTL_S`).
 
 ### 2026-09-23 · [home] · Cut-off live test 21:46-22:03: 6 of 7 buses exact; two Orange [05] bugs found and fixed live (3 deploys total); prod = `claude/oos-cutoff` b4eebf7
 - **Verified against an independent expectation** (each bus should predict exactly the stops from its next stop through its cut-off): Green 01/02, Orange 07, Gold 09/11/12 all MATCHED (11, 5, 11, 11, 11, 17 stops). The only wrong bus was Orange [05] (vehicle 17432).
