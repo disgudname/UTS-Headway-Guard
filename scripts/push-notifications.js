@@ -212,7 +212,15 @@
     </svg>
     <span class="badge"></span>
   `;
-  document.body.appendChild(bell);
+  // A host page can provide a [data-push-bell-slot] (livemap's control cluster)
+  // to hold the bell inline instead of the default floating bottom-right spot.
+  const bellSlot = document.querySelector('[data-push-bell-slot]');
+  if (bellSlot) {
+    bell.classList.add('inline');
+    bellSlot.appendChild(bell);
+  } else {
+    document.body.appendChild(bell);
+  }
 
   // Create preferences panel (for authenticated users)
   const panel = document.createElement('div');

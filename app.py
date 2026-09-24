@@ -373,7 +373,7 @@ async def send_low_soc_notification(bus_number: str, soc: float, threshold: int)
         "icon": "/media/icon-192.png",
         "badge": "/media/notification-badge.png",
         "tag": f"low-soc-{bus_number}",
-        "url": "/map"
+        "url": "/"
     })
 
     sent = 0
@@ -6655,7 +6655,7 @@ async def startup():
                             "body": message[:200],
                             "icon": "/media/icon-192.png",
                             "tag": f"alert-{alert_id}",
-                            "url": "/map",
+                            "url": "/",
                         })
                         print(f"[push_notification_poller] new alert {alert_id}: {message[:50]}...")
                     if new_alerts:
@@ -14117,6 +14117,17 @@ async def landing_page():
 async def manifest():
     return FileResponse(
         BASE_DIR / "manifest.json",
+        media_type="application/manifest+json",
+        headers={"Cache-Control": "no-cache"},
+    )
+
+
+@app.get("/livemap.webmanifest", include_in_schema=False)
+async def livemap_manifest():
+    # Separate from /manifest.json so "Add to Home Screen" from /livemap opens the
+    # map itself (start_url /livemap), not the ops landing page.
+    return FileResponse(
+        BASE_DIR / "livemap-manifest.json",
         media_type="application/manifest+json",
         headers={"Cache-Control": "no-cache"},
     )

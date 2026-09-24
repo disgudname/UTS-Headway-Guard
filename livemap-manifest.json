@@ -1,0 +1,17 @@
+{
+  "id": "/livemap",
+  "name": "UVATransit Live Map",
+  "short_name": "UVATransit Map",
+  "description": "Live UVA bus locations, arrivals, and trip planner",
+  "start_url": "/livemap?source=pwa",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#232D4B",
+  "theme_color": "#232D4B",
+  "icons": [
+    { "src": "/media/icon-192.png", "sizes": "192x192", "type": "image/png" },
+    { "src": "/media/icon-512.png", "sizes": "512x512", "type": "image/png" },
+    { "src": "/media/icon-maskable-192.png", "sizes": "192x192", "type": "image/png", "purpose": "maskable" },
+    { "src": "/media/icon-maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ]
+}

@@ -998,6 +998,34 @@ body {
 .map-ctrl-btn:hover {
   background: var(--hover-bg);
 }
+/* Service-alert bell (scripts/push-notifications.js) seated in the cluster: keeps
+   its orange (off) / navy (subscribed) treatment so it reads as the alert
+   control, but drops the standalone floating-button geometry. Takes no space
+   until the script decides push is available (.visible). */
+.map-ctrl-push-slot #uts-push-bell {
+  position: static;
+  display: none;
+  width: 40px;
+  height: 40px;
+  box-shadow: var(--panel-shadow);
+}
+.map-ctrl-push-slot #uts-push-bell.visible {
+  display: flex;
+}
+.map-ctrl-push-slot #uts-push-bell svg {
+  width: 20px;
+  height: 20px;
+}
+.map-ctrl-push-slot #uts-push-bell .badge {
+  top: 2px;
+  right: 2px;
+  width: 10px;
+  height: 10px;
+}
+.map-ctrl-push-slot {
+  display: contents;
+}
+
 .map-ctrl-btn[hidden] {
   display: none !important;
 }

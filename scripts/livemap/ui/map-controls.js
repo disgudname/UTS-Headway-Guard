@@ -28,6 +28,19 @@ const ICONS = {
     '<svg viewBox="0 0 16 16" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round" stroke-linecap="round"><path d="M8 1.4 2.7 14.3l5.3-3 5.3 3z"/></svg>',
 };
 
+/** The service-alert bell (scripts/push-notifications.js) is a classic script
+ *  that seats itself in [data-push-bell-slot] if one exists when it runs, so it
+ *  has to load after the cluster is in the DOM. It hides itself when the browser
+ *  has no push support or the server has no VAPID keys. */
+function installPushBell() {
+  if (document.getElementById('uts-push-bell') || document.querySelector('script[data-push-bell]')) return;
+  const s = document.createElement('script');
+  s.src = '/scripts/push-notifications.js';
+  s.dataset.pushBell = '';
+  s.async = true;
+  document.head.appendChild(s);
+}
+
 let userLocationMarker = null; // shared across mounts -- there's only ever one map
 
 export class MapControls {
@@ -35,6 +48,7 @@ export class MapControls {
     const el = document.createElement('div');
     el.className = 'map-ctrl-cluster';
     el.innerHTML = `
+      <span class="map-ctrl-push-slot" data-push-bell-slot></span>
       <button type="button" class="map-ctrl-btn map-ctrl-navhere" aria-label="Navigate here" hidden>
         ${ICONS.navigate}<span class="map-ctrl-label">Navigate here</span>
       </button>
@@ -54,6 +68,7 @@ export class MapControls {
     el.querySelector('.map-ctrl-locate').addEventListener('click', () => this._locate());
 
     (parent || document.body).appendChild(el);
+    installPushBell();
     return this;
   }
 

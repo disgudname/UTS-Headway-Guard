@@ -6,6 +6,11 @@
     <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no" />
     <link rel="icon" type="image/png" href="/media/favicon.ico" />
     <link rel="apple-touch-icon" sizes="180x180" href="/media/apple-touch-icon-180.png" />
+    <link rel="manifest" href="/livemap.webmanifest" />
+    <meta name="theme-color" content="#232D4B" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-title" content="UVATransit Map" />
 
     <!-- Libre Franklin — the web equivalent UVA endorses for Franklin Gothic. -->
     <link rel="preconnect" href="https://fonts.googleapis.com" />
@@ -44,5 +49,13 @@
     </div>
 
     <script type="module" src="/livemap-src/apps/live.js"></script>
+    <script>
+      // Makes the page installable (Add to Home Screen). The worker is
+      // network-first for pages/code and ignores /v1, /api, /stream, so it
+      // never serves stale map data.
+      if ('serviceWorker' in navigator) {
+        navigator.serviceWorker.register('/service-worker.js').catch(() => {});
+      }
+    </script>
   </body>
 </html>
