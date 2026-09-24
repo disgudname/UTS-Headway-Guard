@@ -27,6 +27,13 @@ Machine tags: `[dev]` = Windows dev machine · `[home]` = home server (Windows b
 
 ## 1. Message board (newest first)
 
+### 2026-09-24 · [home] · Kiosk flapping to /downed: prod edge is resetting ~1 in 4 new connections; fix staged in `fly.toml` (NOT deployed)
+- **Symptom:** a kiosk alternates between its page and the "unable to reach" fallback (`/downed`). The kiosk falls back when its ~15 s `POST /v1/kiosk-checkin` fails.
+- **Finding:** from this box, 7 of 30 requests to `https://uts-headway-guard.fly.dev/v1/health` died with `Connection was reset` (google.com: 15/15 fine). The rest were 60-70 ms, so the app itself is not slow. Machine is healthy (1 started, check passing), logs show check-ins returning 200.
+- **Likely cause (not proven):** `fly.toml` has no `[http_service.concurrency]`, so Fly's default cap (~25 connections, soft 20) applies; the app holds many SSE streams + kiosk/tab polling. Couldn't read the live connection count.
+- **Staged, uncommitted:** `type = "requests"`, soft 200 / hard 500 in `fly.toml`. Needs "cpd" to go live. After deploying, re-run the 30x `/v1/health` probe: expect 0 resets. If resets persist, it's not the cap (look at Fly edge / that kiosk's own network instead).
+- Note the earlier finding still applies: slow event loop can also trip check-ins (see `BUS_ETA_CACHE_TTL_S`).
+
 ### 2026-09-23 · [home] · Cut-off live test 21:46-22:03: 6 of 7 buses exact; two Orange [05] bugs found and fixed live (3 deploys total); prod = `claude/oos-cutoff` b4eebf7
 - **Verified against an independent expectation** (each bus should predict exactly the stops from its next stop through its cut-off): Green 01/02, Orange 07, Gold 09/11/12 all MATCHED (11, 5, 11, 11, 11, 17 stops). The only wrong bus was Orange [05] (vehicle 17432).
 - **Bug 1 (deploy #2, `82eb544`):** [05] parked AT the Library (its cut-off) projected a few metres past the end of its last segment, so it stopped counting as on its last run and predicted 20/20 stops; and the "next stop is the target" shortcut returned the first stop past the cut-off before the check ran. Fixed with a 40 m tolerance (`OOS_CUTOFF_TOL_M`), moving the cut-off setup ahead of the shortcut, and `bus_eta.out_of_service_phase` / `out_of_service_finished` + per-bus memory in `app.py` (`_oos_run_seen`): a bus seen on its last run and later outside it gets no ETAs; never-seen buses are treated as finished 45 min after the scheduled departure (server restart).
