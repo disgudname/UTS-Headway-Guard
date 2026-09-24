@@ -36,6 +36,14 @@ kill_timeout = "5s"
   min_machines_running = 1
   processes = ["app"]
 
+  # Without this block Fly applies its default cap (~25 simultaneous connections,
+  # soft limit 20). This app holds many long-lived SSE streams plus every kiosk/tab
+  # polling, so the edge was resetting new connections ("Connection was reset").
+  [http_service.concurrency]
+    type = "requests"
+    soft_limit = 200
+    hard_limit = 500
+
   [[http_service.checks]]
     grace_period = "25s"       # give the app a moment to boot
     interval = "10s"
