@@ -27,7 +27,7 @@ Machine tags: `[dev]` = Windows dev machine · `[home]` = home server (Windows b
 
 ## 1. Message board (newest first)
 
-### 2026-09-24 · [home] · /livemap trip planner MOBILE: list still needs an app switch to appear (defensive fix deployed, root cause NOT reproduced)
+### 2026-09-24 · [home] · /livemap trip planner MOBILE: list still needs an app switch to appear (FIXED: user confirmed on phone 2026-09-24; the click-outside-after-reparent hypothesis was right)
 - User confirmed desktop fixed, phone unchanged (pages are `no-store`, so the phone has the new code). Can't reproduce a WebView bug in desktop Chrome (a 400px iframe of /livemap gets the real mobile layout and works fine).
 - **Hypothesis:** the tap reparents the focused input into `.tp-search-overlay`, so the follow-up click lands outside `f.wrap` and the document click-outside handler hides the list. **Change:** ignore click-outside for 700 ms after the overlay opens, and re-assert the empty-state list 400 ms after open if missing/hidden (`trip-planner-panel.js`).
 - If the phone STILL needs the app switch: next suspects are the `translateX` overlay transition/compositor bug (try dropping the slide animation entirely on mobile) or the reparent-blur; get a remote-debug console from the phone.
