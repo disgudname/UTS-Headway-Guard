@@ -372,6 +372,12 @@ def out_of_service_plan(
 # after which the bus is predicted against the new route's own stops; this just covers a slow flip.
 ROUTE_CHANGE_ACTIVE_AFTER_S = 10 * 60.0
 ROUTE_CHANGE_ACTIVE_BEFORE_S = 60 * 60.0
+# A block with no "EVENING ROUTE CHANGE" note whose OUT-OF-SERVICE note has it leave at about 18:00 (Orange [06]/[08]:
+# "leave MP/CSW at 1800, stay in service until LIB/MP, return to lot") starts that final trip on the post-1800 route, so
+# its leave stop and time act as the change point. Bus tracks 2026-09-21..24 show [06] on the post-1800 Orange path
+# (Grady, Rugby, Library) and [08] on Alderman Rd right after 18:00.
+ROUTE_CHANGE_OOS_LEAVE_MIN_S = 17.5 * 3600
+ROUTE_CHANGE_OOS_LEAVE_MAX_S = 18.5 * 3600
 
 
 def route_change_plan(
@@ -394,6 +400,10 @@ def route_change_plan(
     midnight_ts = datetime.combine(local_dt.date(), dtime.min, tzinfo=NY_TZ).timestamp()
     for group in _weekday_groups_matching(block, local_dt.weekday()):
         note = group.get("route_change")
+        if not note:
+            oos = group.get("out_of_service")
+            if oos and ROUTE_CHANGE_OOS_LEAVE_MIN_S <= oos.get("leave_s", 0) <= ROUTE_CHANGE_OOS_LEAVE_MAX_S:
+                note = oos
         if not note:
             continue
         change_epoch = midnight_ts + note["leave_s"]

@@ -69,6 +69,10 @@ def main():
         for r, _s, v, *_ in p["ours"]:
             if r in OLD.values() and v not in flip_t:
                 flip_t[v] = p["t"]
+    for p in polls:  # a bus TransLoc drops to route 0 (out of service) after being on an old route counts too
+        for veh, route, _la, _lo, _m in p["veh"]:
+            if route == "0" and veh not in flip_t and any(k[0] == veh for k in tracks if k[1] in OLD):
+                flip_t[veh] = p["t"]
     SLACK_S = 120.0  # TransLoc flips ~1-2 min after the bus physically changes over
     stats = collections.Counter()
     missed = collections.Counter()

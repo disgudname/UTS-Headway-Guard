@@ -415,3 +415,19 @@ def test_route_change_plan_is_windowed_and_only_for_the_pre_evening_route_and_a_
     assert uts_blocks.route_change_plan("67", "[09]", _epoch(2026, 9, 19, 17, 40)) is None   # Saturday: no weekday group
     monkeypatch.setattr(uts_blocks, "_timestops", {})   # change stop unmapped -> off, never wrong
     assert uts_blocks.route_change_plan("67", "[09]", _epoch(2026, 9, 14, 17, 40)) is None
+
+
+def test_route_change_plan_falls_back_to_an_evening_out_of_service_leave_at_about_1800(monkeypatch):
+    # Orange [06]/[08]-style: no "evening route change" note, but the out-of-service note has the bus leave at 18:00 to
+    # start its final trip on the post-1800 route, so that leave stop/time is the change point.
+    blocks = {"[06]": {"route_ids": ["67", "57"], "weekday_groups": [{
+        "weekdays": [0, 1, 2, 3, 4], "stops": [[16 * 3600 + 40 * 60, "HHH"], [18 * 3600, "HHH"]],
+        "out_of_service": {"leave_code": "HHH", "leave_s": 18 * 3600, "until_code": "LIB", "last_code": None, "then": "lot"},
+    }]}}
+    _patch_data(monkeypatch, blocks, {"HHH": {"67": "her-old", "57": "her-new"}})
+    monkeypatch.setattr(uts_blocks, "_evening_pairs", {"67": {"to": "57", "served_names": ["A"]}})
+    plan = uts_blocks.route_change_plan("67", "[06]", _epoch(2026, 9, 14, 17, 45))
+    assert plan == ("her-old", _epoch(2026, 9, 14, 18, 0), ["A"], _epoch(2026, 9, 14, 16, 40))
+    # a late-night out-of-service leave (22:00) is not an evening route change
+    blocks["[06]"]["weekday_groups"][0]["out_of_service"]["leave_s"] = 22 * 3600
+    assert uts_blocks.route_change_plan("67", "[06]", _epoch(2026, 9, 14, 21, 45)) is None
