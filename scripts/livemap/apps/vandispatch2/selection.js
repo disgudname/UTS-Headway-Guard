@@ -27,7 +27,7 @@ export function onMapBackground(fn) {
 }
 
 let map = null;
-let selected = null; // { source, id, driverNorm }
+let selected = null; // { source, id, driverNorm, dutyId }
 
 export const getSelected = () => selected;
 
@@ -35,6 +35,8 @@ export const getSelected = () => selected;
 export function vanCardMatches(el) {
   if (!selected) return false;
   if (el.dataset.vanSource !== selected.source) return false;
+  // A van shared by several duties: a duty-card click selects just that duty.
+  if (selected.dutyId && el.dataset.dutyId && el.dataset.dutyId !== selected.dutyId) return false;
   if (selected.id && el.dataset.vehicleId && el.dataset.vehicleId === selected.id) return true;
   // W2W shift rows / OnDemand cards carry no vehicle id — fall back to driver name.
   if (selected.driverNorm && el.dataset.driver && el.dataset.driver === selected.driverNorm) return true;
@@ -64,19 +66,21 @@ export function clearSelection() {
   bus.emit('change', null);
 }
 
-export function selectVan(source, id, driverNorm) {
+export function selectVan(source, id, driverNorm, dutyId) {
   const normId = id != null && id !== '' ? String(id) : null;
   const norm = driverNorm || null;
+  const normDuty = dutyId || null;
   if (
     selected &&
     selected.source === source &&
     selected.id === normId &&
-    selected.driverNorm === norm
+    selected.driverNorm === norm &&
+    selected.dutyId === normDuty
   ) {
     clearSelection(); // clicked the already-selected van -> toggle off
     return;
   }
-  selected = { source, id: normId, driverNorm: norm };
+  selected = { source, id: normId, driverNorm: norm, dutyId: normDuty };
   applyHighlight(true);
   bus.emit('change', selected);
 }

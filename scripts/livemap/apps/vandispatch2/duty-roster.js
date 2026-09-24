@@ -368,7 +368,7 @@ export function installDutyRoster() {
     const card = e.target.closest('.duty-card');
     if (!card) return;
     if (card.dataset.vanSource === 'spare') {
-      selectVan('spare', card.dataset.vehicleId || null);
+      selectVan('spare', card.dataset.vehicleId || null, null, card.dataset.dutyId || null);
     } else {
       selectVan('od', card.dataset.vehicleId || null, card.dataset.driver || null);
     }
