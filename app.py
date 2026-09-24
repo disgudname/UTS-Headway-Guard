@@ -16334,6 +16334,11 @@ _oos_run_seen: set = set()
 # handed over and serves no more stops on this route.
 _oos_handover: Dict[str, Tuple[str, str, float]] = {}
 _bus_eta_history_at: float = 0.0
+# vehicle id -> (block id, epoch) last seen with an evening-route-change plan. Dispatch's block assignment for a bus
+# drops out for a minute or two around the change (seen live 2026-09-24 17:44 and 17:50); without this the stops the
+# post-6PM route skips would reappear in the feed for that minute and vanish again.
+_route_change_block_memory: Dict[str, Tuple[str, float]] = {}
+_ROUTE_CHANGE_BLOCK_MEMORY_S = 300.0
 
 
 def _smooth_bus_eta_seconds(key: Tuple[str, str, str], now_ts: float, raw_seconds: float) -> float:
@@ -16422,14 +16427,12 @@ async def _compute_bus_eta_arrivals() -> Dict[str, Any]:
                         _oos_handover[str(vid)] = (block_id, route_id, oos_plan[1])
                     elif bus_eta.out_of_service_finished(oos_phase, oos_key in _oos_run_seen, when_ts, oos_plan[1]):
                         continue  # past its cut-off, heading to the lot / becoming Night Pilot: serves nothing more
-            for stop in line.stops:
-                if stop.arc_pos is None:
-                    continue
-                result = bus_eta.estimate_stop_eta_s(
-                    line, veh.s_pos, ema_mps, stop, hop_time_fn, when_ts,
-                    vehicle_lat=veh.lat, vehicle_lon=veh.lon,
-                    vehicle_dir_sign=getattr(veh, "dir_sign", 0),
-                    vehicle_block_id=block_id,
+            def _estimate(target_stop, _line=line, _veh=veh, _ema=ema_mps, _block=block_id):
+                return bus_eta.estimate_stop_eta_s(
+                    _line, _veh.s_pos, _ema, target_stop, hop_time_fn, when_ts,
+                    vehicle_lat=_veh.lat, vehicle_lon=_veh.lon,
+                    vehicle_dir_sign=getattr(_veh, "dir_sign", 0),
+                    vehicle_block_id=_block,
                     scheduled_timestop_fn=uts_blocks.scheduled_hold_epoch if uts_blocks.is_loaded() else None,
                     # Deliberately day/time-INDEPENDENT (uts_blocks.is_timestop_at exists but is NOT used here).
                     # A time-aware cap was deployed and reverted 2026-09-20 (weekend Orange far too late) and
@@ -16440,6 +16443,28 @@ async def _compute_bus_eta_arrivals() -> Dict[str, Any]:
                     ),
                     out_of_service_fn=uts_blocks.out_of_service_plan if uts_blocks.is_loaded() else None,
                 )
+
+            # Evening route change (Gold/Green/Orange, ~17:45-18:00): a bus about to switch to its post-6PM route
+            # shouldn't be predicted at stops that route skips. TransLoc only flips the route id ~1-2 min after.
+            hidden_stop_ids: set = set()
+            rc_block_id = block_id
+            if not rc_block_id:
+                remembered = _route_change_block_memory.get(str(vid))
+                if remembered and when_ts - remembered[1] <= _ROUTE_CHANGE_BLOCK_MEMORY_S:
+                    rc_block_id = remembered[0]
+            if rc_block_id and uts_blocks.is_loaded():
+                rc_plan = uts_blocks.route_change_plan(route_id, rc_block_id, when_ts)
+                if rc_plan is not None:
+                    _route_change_block_memory[str(vid)] = (rc_block_id, when_ts)
+                    rc_stop = next((st for st in line.stops if str(st.id) == str(rc_plan[0])), None)
+                    rc_est = _estimate(rc_stop) if rc_stop is not None and rc_stop.arc_pos is not None else None
+                    hidden_stop_ids = bus_eta.route_change_hidden_stops(
+                        line, veh.s_pos, rc_plan, when_ts, rc_est.seconds if rc_est is not None else None,
+                    )
+            for stop in line.stops:
+                if stop.arc_pos is None or str(stop.id) in hidden_stop_ids:
+                    continue
+                result = _estimate(stop)
                 if result is None:
                     continue
                 key = f"{route_id}|{stop.id}"
@@ -16457,6 +16482,8 @@ async def _compute_bus_eta_arrivals() -> Dict[str, Any]:
                     "BlockId": block_id,
                 })
 
+    for gone in [v for v, (_b, seen) in _route_change_block_memory.items() if seen < when_ts - _ROUTE_CHANGE_BLOCK_MEMORY_S]:
+        del _route_change_block_memory[gone]
     for done_key in [k for k in _oos_run_seen if k[2] < when_ts - 6 * 3600]:
         _oos_run_seen.discard(done_key)  # that block's last departure was hours ago
     for done_vid in [v for v, h in _oos_handover.items() if h[2] < when_ts - 6 * 3600]:

@@ -794,3 +794,80 @@ def test_a_bus_seen_on_its_last_run_is_finished_once_it_is_outside_it():
     assert not eta.out_of_service_finished("outside", False, 1000.0 + 600.0, 1000.0)
     assert eta.out_of_service_finished("outside", False, 1000.0 + eta.OOS_DONE_AFTER_S, 1000.0)
     assert not eta.out_of_service_finished("before", True, 1010.0, 1000.0)
+
+
+# ---- evening route change: hide the stops the post-6PM route skips -------------------------------------------------
+# Loop of 5 stops, 1000 m apart on a 5000 m loop: s0 (0), s1 (1000), s2 CHANGE STOP (2000), s3 (3000), s4 (4000).
+# The post-6PM route serves s0, s2 and s4 only, so s1 and s3 are the "skipped" stops.
+def _rc_line():
+    shape, cum = _shape(n=51, step_m=100.0)
+    names = ["Zero", "One", "Two", "Three", "Four"]
+    stops = [Stop(id=f"s{i}", name=names[i], lat=0.0, lon=i * 1000 / 111_320.0, source="uts", arc_pos=i * 1000.0)
+             for i in range(5)]
+    return Line(id="67", name="Loop", color="#fff", source="uts", stops=stops, loop=True, shape=shape, shape_cum=cum)
+
+
+_RC_T = 1_000_000.0  # the note's change time
+_RC_SERVED = ["Zero", "Two", "Four"]
+
+
+def _rc(s_pos, when, eta_at_change, prev=_RC_T - 2700.0):
+    return eta.route_change_hidden_stops(_rc_line(), s_pos, ("s2", _RC_T, _RC_SERVED, prev), when, eta_at_change)
+
+
+def test_route_change_hides_skipped_stops_beyond_the_change_stop_only():
+    # Bus at 1500 m heading for the change stop (500 m away), due there for the noted trip.
+    # s3 comes right after the change stop; s1 is 500 m BEHIND the bus, i.e. a full lap away, reached after the change
+    assert _rc(1500.0, _RC_T - 120.0, 120.0) == {"s1", "s3"}
+
+
+def test_route_change_hides_skipped_stops_after_the_change_stop_when_bus_is_upstream_of_them_all():
+    # Bus at 500 m: s1 (skipped) is between it and the change stop, so it is still served on the old route.
+    assert _rc(500.0, _RC_T - 300.0, 300.0) == {"s3"}
+
+
+def test_route_change_keeps_everything_for_a_bus_on_the_earlier_trip():
+    # Bus reaches the change stop ~30 min before the note's time (the previous scheduled visit was 45 min before): it
+    # is still on the old route for that lap, so nothing is hidden.
+    assert _rc(1500.0, _RC_T - 2100.0, 120.0) == set()
+
+
+def test_route_change_without_a_previous_visit_treats_any_approach_as_the_change_trip():
+    # Orange [07]-style: the block's first visit to the stop IS the change visit.
+    assert _rc(1500.0, _RC_T - 2100.0, 120.0, prev=None) == {"s1", "s3"}
+
+
+def test_route_change_bus_parked_at_the_change_stop_hides_beyond_it_until_the_change_time_then_everything():
+    assert _rc(2000.0, _RC_T - 300.0, 0.0) == {"s1", "s3"}   # nothing it will still serve on the old route is hidden
+    assert _rc(2010.0, _RC_T + 5.0, 0.0) == {"s1", "s3"}   # about to leave / just leaving: the whole skipped set
+
+
+def test_route_change_bus_just_past_the_change_stop_hides_all_skipped_stops():
+    assert _rc(2400.0, _RC_T + 30.0, 4000.0) == {"s1", "s3"}
+    # Well before the note's time, a bus 400 m past the stop still has a whole lap to run on the old route: s1 and s3
+    # both come up before it is back at the change stop, so neither is hidden.
+    assert _rc(2400.0, _RC_T - 600.0, 4000.0) == set()
+
+
+def test_route_change_never_hides_a_due_reading_at_a_stop_the_bus_is_sitting_on():
+    # Bus a hair past s3 (3 m) while waiting to reach the change stop next lap: "Due" at s3 must stay visible.
+    hidden = _rc(3003.0, _RC_T - 300.0, 4000.0)
+    assert "s3" not in hidden
+
+
+def test_route_change_is_a_noop_without_a_plan_eta_shape_or_skipped_stops():
+    line = _rc_line()
+    assert eta.route_change_hidden_stops(line, 1500.0, None, _RC_T, 100.0) == set()
+    assert _rc(1500.0, _RC_T - 120.0, None) == set()   # no ETA at the change stop: do nothing rather than guess
+    assert eta.route_change_hidden_stops(line, 1500.0, ("nope", _RC_T, _RC_SERVED, None), _RC_T, 100.0) == set()
+    all_served = ["Zero", "One", "Two", "Three", "Four"]
+    assert eta.route_change_hidden_stops(line, 1500.0, ("s2", _RC_T, all_served, None), _RC_T, 100.0) == set()
+    bare = Line(id="67", name="x", color="#fff", source="uts", stops=line.stops, loop=True)
+    assert eta.route_change_hidden_stops(bare, 1500.0, ("s2", _RC_T, _RC_SERVED, None), _RC_T, 100.0) == set()
+
+
+def test_route_change_matches_stop_names_ignoring_case_and_punctuation():
+    line = _rc_line()
+    served = ["zero", "TWO", "Four"]   # same names, sloppy spelling / mojibake-safe
+    hidden = eta.route_change_hidden_stops(line, 1500.0, ("s2", _RC_T, served, None), _RC_T - 120.0, 120.0)
+    assert hidden == {"s1", "s3"}

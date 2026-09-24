@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-09-23T21:38:51",
+  "generated_at": "2026-09-24T18:43:13",
   "source_files": {
     "Gold Line": "Gold Line 08.11.2026.xlsx",
     "Green Line": "Green Line 08.10.2026.xlsx",
@@ -236,6 +236,10 @@
             "until_code": "LIB",
             "last_code": "DORMS",
             "then": "lot"
+          },
+          "route_change": {
+            "leave_code": "HER",
+            "leave_s": 64200
           }
         },
         {
@@ -663,6 +667,10 @@
             "until_code": "BAR",
             "last_code": null,
             "then": "lot"
+          },
+          "route_change": {
+            "leave_code": "BAR",
+            "leave_s": 64200
           }
         },
         {
@@ -1062,6 +1070,10 @@
             "until_code": "BAR",
             "last_code": null,
             "then": "lot"
+          },
+          "route_change": {
+            "leave_code": "BAR",
+            "leave_s": 64800
           }
         }
       ]
@@ -1230,6 +1242,10 @@
             "until_code": "LIB",
             "last_code": "DORMS",
             "then": "lot"
+          },
+          "route_change": {
+            "leave_code": "HER",
+            "leave_s": 64800
           }
         }
       ]
@@ -1440,6 +1456,10 @@
             "until_code": "MP",
             "last_code": null,
             "then": "night_pilot"
+          },
+          "route_change": {
+            "leave_code": "HER",
+            "leave_s": 63900
           }
         },
         {
@@ -1785,6 +1805,10 @@
             "until_code": "CHP",
             "last_code": null,
             "then": "lot"
+          },
+          "route_change": {
+            "leave_code": "MP",
+            "leave_s": 63900
           }
         }
       ]
@@ -2527,6 +2551,10 @@
             "until_code": "LIB",
             "last_code": null,
             "then": "night_pilot"
+          },
+          "route_change": {
+            "leave_code": "MP",
+            "leave_s": 64200
           }
         },
         {
@@ -3217,6 +3245,10 @@
             "until_code": "LIB",
             "last_code": null,
             "then": "lot"
+          },
+          "route_change": {
+            "leave_code": "PIN",
+            "leave_s": 64800
           }
         }
       ]

@@ -1,0 +1,90 @@
+{
+  "source": "20260923_routes.json",
+  "pairs": {
+    "67": {
+      "to": "57",
+      "served_names": [
+        "Alderman Rd @ Gooch/Dillard (Southbound)",
+        "Alderman Rd @ O-Hill Dining Hall",
+        "Arlington Blvd @ Barracks Road Shopping Center",
+        "Arlington Blvd @ Jeffersonian Apts",
+        "Arlington Blvd @ Millmont St",
+        "Emmet St @ Emmet / Ivy Garage (Northbound)",
+        "Emmet St @ Emmet / Ivy Garage (Southbound)",
+        "Emmet St @ Goodwin Bridge (Northbound)",
+        "Emmet St @ Goodwin Bridge (Southbound)",
+        "Hereford Dr @ Johnson House (Northbound)",
+        "Hereford Dr @ Runk Dining Hall",
+        "Massie Rd @ Copeley Apts",
+        "Massie Rd @ Faulkner Apts (Northbound)",
+        "Massie Rd @ Faulkner Apts (Southbound)",
+        "Massie Rd @ JPJ (West Entrance)",
+        "Massie Rd @ JPJ South Lot",
+        "Massie Rd @ Law School",
+        "Massie Rd @ North Grounds Rec (Northbound)",
+        "Massie Rd @ North Grounds Rec (Southbound)",
+        "McCormick Rd @ Chemistry Building",
+        "McCormick Rd @ Garrett Hall",
+        "McCormick Rd @ Kellogg House",
+        "McCormick Rd @ Lile-Maupin House (Eastbound)",
+        "McCormick Rd @ McCormick Rd Dorms",
+        "McCormick Rd @ Monroe Hall",
+        "McCormick Rd @ Shannon Library",
+        "McCormick Rd @ UVA Chapel",
+        "Stadium Rd @ Runk Dining Hall",
+        "University Ave @ Newcomb Rd (Eastbound)",
+        "University Ave @ Newcomb Rd (Westbound)"
+      ]
+    },
+    "68": {
+      "to": "54",
+      "served_names": [
+        "14th Street @ Virginia Ave",
+        "14th Street @ Wertland St (Southbound)",
+        "Alderman Rd @ AFC",
+        "Alderman Rd @ Gooch/Dillard (Northbound)",
+        "Grady Ave @ 10 ½ St",
+        "Grady Ave @ 14th St",
+        "Grady Ave @ 16th St",
+        "Jefferson Park Ave @ Cabell Hall",
+        "Jefferson Park Ave @ Maury Ave",
+        "Jefferson Park Ave @ Montebello Circle",
+        "Jefferson Park Ave @ Shamrock Rd (Southbound)",
+        "Jefferson Park Ave @ West Complex",
+        "Madison Ave @ Grady Ave",
+        "Madison Ave @ Preston Ave",
+        "Maury Ave @ Clark Ct",
+        "McCormick Rd @ Chemistry Building",
+        "McCormick Rd @ Garrett Hall",
+        "McCormick Rd @ UVA Chapel",
+        "Preston Ave @ Washington Park",
+        "Rugby Rd @ Lambeth Ln (Northbound)"
+      ]
+    },
+    "53": {
+      "to": "55",
+      "served_names": [
+        "14th Street @ John St",
+        "14th Street @ Wertland St (Northbound)",
+        "Alderman Rd @ Gooch/Dillard (Southbound)",
+        "Alderman Rd @ O-Hill Dining Hall",
+        "Grady Ave @ 10 ½ St",
+        "Grady Ave @ 14th St",
+        "Grady Ave @ Preston Pl",
+        "Jefferson Park Ave @ Brandon Ave",
+        "Jefferson Park Ave @ Kent Terrace",
+        "Jefferson Park Ave @ Observatory Ave",
+        "Jefferson Park Ave @ Pinn Hall",
+        "Jefferson Park Ave @ Shamrock Rd (Northbound)",
+        "Jefferson Park Ave @ Valley Rd",
+        "Madison Ave @ Grady Ave",
+        "Madison Ave @ Preston Ave",
+        "McCormick Rd @ McCormick Rd Dorms",
+        "McCormick Rd @ Monroe Hall",
+        "McCormick Rd @ Shannon Library",
+        "Preston Ave @ Washington Park",
+        "Rugby Rd @ Lambeth Ln (Southbound)"
+      ]
+    }
+  }
+}

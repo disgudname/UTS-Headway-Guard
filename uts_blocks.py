@@ -66,6 +66,7 @@ _CONFIG_DIR = Path(__file__).resolve().parent / "config"
 _BLOCKS_PATH = _CONFIG_DIR / "uts_blocks.json"
 _TIMESTOPS_PATH = _CONFIG_DIR / "uts_timestops.json"
 _LANDMARKS_PATH = _CONFIG_DIR / "uts_landmarks.json"
+_EVENING_STOPS_PATH = _CONFIG_DIR / "evening_route_stops.json"
 
 # How far (seconds) a live/historical ETA's own estimated arrival time may be
 # from a scheduled entry for that entry to be considered "the same lap" of the
@@ -88,10 +89,11 @@ _blocks: Dict[str, Dict] = {}
 _timestops: Dict[str, Dict[str, str]] = {}  # code -> {route_id: stop_id}
 _stop_id_to_code: Dict[Tuple[str, str], str] = {}  # (route_id, stop_id) -> code
 _landmarks: Dict[str, Dict[str, str]] = {}  # code -> {route_id: stop_id}; NOT timestops, only out-of-service cut-offs
+_evening_pairs: Dict[str, Dict] = {}  # pre-6PM route id -> {"to": post-6PM route id, "served_names": [stop names]}
 
 
 def _load() -> None:
-    global _blocks, _timestops, _stop_id_to_code, _landmarks
+    global _blocks, _timestops, _stop_id_to_code, _landmarks, _evening_pairs
     _landmarks = json.loads(_LANDMARKS_PATH.read_text(encoding="utf-8")) if _LANDMARKS_PATH.exists() else {}
     _blocks = json.loads(_BLOCKS_PATH.read_text(encoding="utf-8")).get("blocks", {}) if _BLOCKS_PATH.exists() else {}
     _timestops = json.loads(_TIMESTOPS_PATH.read_text(encoding="utf-8")) if _TIMESTOPS_PATH.exists() else {}
@@ -100,6 +102,10 @@ def _load() -> None:
         for code, by_route in _timestops.items()
         for route_id, stop_id in by_route.items()
     }
+    _evening_pairs = (
+        json.loads(_EVENING_STOPS_PATH.read_text(encoding="utf-8")).get("pairs", {})
+        if _EVENING_STOPS_PATH.exists() else {}
+    )
 
 
 _load()
@@ -358,6 +364,47 @@ def out_of_service_plan(
             if leave_stop is None or cutoff_stop is None:
                 continue
             return leave_stop, leave_epoch, cutoff_stop, leave_epoch - EARLY_MATCH_LIMIT_S
+    return None
+
+
+# How long after a block's scheduled evening-route-change departure we keep hiding the stops its bus will no longer
+# reach. TransLoc moves the bus onto the post-6PM route id itself ~1-2 min after the change (measured 2026-09-21..24),
+# after which the bus is predicted against the new route's own stops; this just covers a slow flip.
+ROUTE_CHANGE_ACTIVE_AFTER_S = 10 * 60.0
+ROUTE_CHANGE_ACTIVE_BEFORE_S = 60 * 60.0
+
+
+def route_change_plan(
+    route_id: str, block_id: Optional[str], when: float,
+) -> Optional[Tuple[str, float, List[str], Optional[float]]]:
+    """If block_id is about to switch (or just switched) from this pre-6PM route to its post-6PM route, returns
+    (change_stop_id, change_epoch, served_names, prev_visit_epoch): the stop the bus leaves at the note's time, that
+    time, the names of the stops the post-6PM route serves, and when the block's PREVIOUS scheduled visit to that stop
+    was (None if it has none earlier that day -- e.g. Orange [07] starts its evening at the layover). None when route_id isn't a pre-6PM route with a known post-6PM sibling,
+    the block has no "EVENING ROUTE CHANGE" note today, the change stop can't be resolved on this route, or `when`
+    is not within about an hour before / ten minutes after the change (an unmapped stop or missing stop list just
+    leaves the feature off -- never wrong, only a no-op)."""
+    pair = _evening_pairs.get(str(route_id))
+    block = _blocks.get(block_id) if block_id else None
+    if not pair or not pair.get("served_names") or not block or not _block_serves_route(block, route_id):
+        return None
+    if pair.get("to") and str(pair["to"]) not in (block.get("route_ids") or [str(pair["to"])]):
+        return None
+    local_dt = datetime.fromtimestamp(when, tz=NY_TZ)
+    midnight_ts = datetime.combine(local_dt.date(), dtime.min, tzinfo=NY_TZ).timestamp()
+    for group in _weekday_groups_matching(block, local_dt.weekday()):
+        note = group.get("route_change")
+        if not note:
+            continue
+        change_epoch = midnight_ts + note["leave_s"]
+        if not (change_epoch - ROUTE_CHANGE_ACTIVE_BEFORE_S <= when <= change_epoch + ROUTE_CHANGE_ACTIVE_AFTER_S):
+            continue
+        change_stop = _stop_for_code(route_id, note.get("leave_code"))
+        if change_stop is None:
+            continue
+        earlier = [t for t, code in group.get("stops", []) if code == note.get("leave_code") and t < note["leave_s"]]
+        prev_epoch = midnight_ts + max(earlier) if earlier else None
+        return change_stop, change_epoch, list(pair["served_names"]), prev_epoch
     return None
 
 

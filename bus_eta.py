@@ -37,6 +37,7 @@ historical baseline from (see trip_planner.py's CAT branch for the same reason).
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass
 from typing import Callable, List, Optional, Tuple
 
@@ -296,6 +297,61 @@ def out_of_service_finished(phase: str, run_seen: bool, when: float, leave_epoch
     is treated the same once OOS_DONE_AFTER_S has passed since its scheduled last departure. Such a bus serves no more
     stops, so the caller should publish no ETAs for it."""
     return phase == "outside" and (run_seen or when >= leave_epoch + OOS_DONE_AFTER_S)
+
+
+# Evening route change (Gold 67->57, Green 68->54, Orange 53->55): a block's bus leaves a named stop at a scheduled time
+# and from then on follows the post-6PM route, which skips some stops the pre-6PM route serves (Emmet St, University/
+# Newcomb, most of the JPA stretch...). TransLoc only moves the bus to the new route id ~1-2 min after that time, so until
+# then every ETA for a stop the new route skips is a bus that will never come.
+ROUTE_CHANGE_JUST_LEFT_M = 3000.0  # a bus this far past the change stop has just made the change (it holds ~1-2 min, ~1 km)
+
+RouteChangePlan = Tuple[str, float, List[str], Optional[float]]
+
+
+def _norm_stop_name(name: str) -> str:
+    return re.sub(r"[^a-z0-9]", "", (name or "").lower())
+
+
+def route_change_hidden_stops(
+    line: Line, vehicle_s_pos: float, plan: Optional[RouteChangePlan], when: float,
+    change_stop_eta_s: Optional[float],
+) -> set:
+    """IDs of stops on the pre-6PM `line` this bus will never reach because of its evening route change
+    (uts_blocks.route_change_plan). Only stops the post-6PM route doesn't serve (matched by stop NAME, since TransLoc
+    renumbers IDs per variant) are ever hidden. Two situations:
+      * still heading for the change stop: if it will reach it for the trip the note names (its ETA there is closer to
+        the note's time than to the block's previous scheduled visit there; with no previous visit, any ETA), every
+        skipped stop beyond it is hidden. A bus on the earlier trip keeps them, since it still serves them this lap.
+      * just left it (or sitting at it at/after the note's time): every skipped stop is hidden.
+    Nothing is hidden without a usable plan, shape, stop match or change-stop ETA (a no-op, never a wrong hide)."""
+    if plan is None or not line.shape_cum or len(line.shape_cum) < 2:
+        return set()
+    change_id, change_epoch, served_names, prev_visit_epoch = str(plan[0]), plan[1], plan[2], plan[3]
+    change_stop = next((st for st in line.stops if str(st.id) == change_id), None)
+    if change_stop is None or change_stop.arc_pos is None:
+        return set()
+    served = {_norm_stop_name(n) for n in served_names}
+    skipped = [st for st in line.stops if st.arc_pos is not None and _norm_stop_name(st.name) not in served]
+    if not skipped:
+        return set()
+    length = line.shape_cum[-1]
+    past_change = _forward_distance(change_stop.arc_pos, vehicle_s_pos, length)  # change stop -> bus
+    if past_change <= OOS_CUTOFF_TOL_M and when >= change_epoch:
+        return {str(st.id) for st in skipped}  # at the change stop as the change time arrives: about to leave
+    if OOS_CUTOFF_TOL_M < past_change <= ROUTE_CHANGE_JUST_LEFT_M and change_epoch - 60.0 <= when:
+        return {str(st.id) for st in skipped}  # has just left it
+    if change_stop_eta_s is None:
+        return set()
+    if prev_visit_epoch is not None and when + change_stop_eta_s < (prev_visit_epoch + change_epoch) / 2.0:
+        return set()
+    def ahead(to_s: float) -> float:
+        # A bus sitting AT a stop projects a few metres either side of it (GPS / polyline jitter); a stop that hair
+        # behind it is "here", not a full lap away (a "Due" reading must never be hidden as if it were beyond).
+        d = _forward_distance(vehicle_s_pos, to_s, length)
+        return 0.0 if d >= length - OOS_CUTOFF_TOL_M else d
+
+    ahead_of_change = 0.0 if past_change <= OOS_CUTOFF_TOL_M else ahead(change_stop.arc_pos)
+    return {str(st.id) for st in skipped if ahead(st.arc_pos) > ahead_of_change + 1.0}
 
 
 def _nearest_polyline_point(lat: float, lon: float, shape: List[Tuple[float, float]]) -> Tuple[int, float]:

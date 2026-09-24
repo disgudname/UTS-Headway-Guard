@@ -68,3 +68,22 @@ def test_passengers_thru_names_the_last_stop():
 
 def test_evening_route_change_box_alone_yields_nothing():
     assert b.parse_out_of_service_notes(GOLD[:1]) == {}
+
+
+def test_evening_route_change_notes_give_the_leave_stop_and_time():
+    text = [
+        "EVENING ROUTE CHANGE BLK 09: AFTER LEAVING HER AT 1750, FOLLOW POST-1800 ROUTE TO CHP. BLK 12: AFTER LEAVING "
+        "BAR AT 1800, FOLLOW POST-1800 ROUTE TO LIB.",
+        "EVENING ROUTE CHANGE BLK 05: AFTER LEAVING MP AT 1750, FOLLOW POST-1800 ROUTE TO LIB. BLK 07: FOLLOW "
+        "POST-1800 ROUTE STARTING WITH 1800 DEPARTURE FROM PIN.",
+        "HOW TO GO OUT-OF-SERVICE BLK 06: LEAVE MP AT 1800, STAY IN-SERVICE UNTIL LIB, AND RETURN TO LOT.",
+    ]
+    notes = b.parse_route_change_notes(text)
+    assert notes == {
+        "[09]": {"leave_code": "HER", "leave_s": 17 * 3600 + 50 * 60},
+        "[12]": {"leave_code": "BAR", "leave_s": 18 * 3600},
+        "[05]": {"leave_code": "MP", "leave_s": 17 * 3600 + 50 * 60},
+        "[07]": {"leave_code": "PIN", "leave_s": 18 * 3600},   # "starting with the 1800 departure from PIN"
+    }
+    # the out-of-service box is not an evening-change box, and vice versa
+    assert b.parse_out_of_service_notes(text[:2]) == {}

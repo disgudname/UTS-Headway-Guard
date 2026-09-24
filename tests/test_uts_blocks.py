@@ -378,3 +378,40 @@ def test_block_mismatches_route_only_for_a_known_route_of_a_different_line(monke
     assert not uts_blocks.block_mismatches_route("[00]", "55")    # no family recorded
     assert not uts_blocks.block_mismatches_route(None, "55")
     assert not uts_blocks.block_mismatches_route("[77]", "55")    # unknown block
+
+
+RC_BLOCKS = {
+    "[09]": {
+        "route_ids": ["67", "57"],
+        "weekday_groups": [{
+            "weekdays": [0, 1, 2, 3, 4],
+            "stops": [[17 * 3600 + 5 * 60, "HHH"], [17 * 3600 + 50 * 60, "HHH"]],
+            "route_change": {"leave_code": "HHH", "leave_s": 17 * 3600 + 50 * 60},
+        }],
+    },
+    "[01]": {"route_ids": ["67", "57"], "weekday_groups": [{"weekdays": [0, 1, 2, 3, 4], "stops": [[17 * 3600, "HHH"]]}]},
+}
+
+
+def _patch_route_change(monkeypatch):
+    _patch_data(monkeypatch, RC_BLOCKS, {"HHH": {"67": "her-old", "57": "her-new"}})
+    monkeypatch.setattr(uts_blocks, "_evening_pairs", {"67": {"to": "57", "served_names": ["A", "B"]}})
+
+
+def test_route_change_plan_gives_stop_time_served_names_and_previous_visit(monkeypatch):
+    _patch_route_change(monkeypatch)
+    plan = uts_blocks.route_change_plan("67", "[09]", _epoch(2026, 9, 14, 17, 40))  # a Monday
+    assert plan == ("her-old", _epoch(2026, 9, 14, 17, 50), ["A", "B"], _epoch(2026, 9, 14, 17, 5))
+
+
+def test_route_change_plan_is_windowed_and_only_for_the_pre_evening_route_and_a_noted_block(monkeypatch):
+    _patch_route_change(monkeypatch)
+    assert uts_blocks.route_change_plan("67", "[09]", _epoch(2026, 9, 14, 14, 0)) is None   # hours before
+    assert uts_blocks.route_change_plan("67", "[09]", _epoch(2026, 9, 14, 18, 5)) is None   # long after
+    assert uts_blocks.route_change_plan("67", "[09]", _epoch(2026, 9, 14, 17, 55)) is not None   # slow flip
+    assert uts_blocks.route_change_plan("57", "[09]", _epoch(2026, 9, 14, 17, 40)) is None   # the post-6PM route itself
+    assert uts_blocks.route_change_plan("67", "[01]", _epoch(2026, 9, 14, 17, 40)) is None   # block without a note
+    assert uts_blocks.route_change_plan("67", None, _epoch(2026, 9, 14, 17, 40)) is None
+    assert uts_blocks.route_change_plan("67", "[09]", _epoch(2026, 9, 19, 17, 40)) is None   # Saturday: no weekday group
+    monkeypatch.setattr(uts_blocks, "_timestops", {})   # change stop unmapped -> off, never wrong
+    assert uts_blocks.route_change_plan("67", "[09]", _epoch(2026, 9, 14, 17, 40)) is None

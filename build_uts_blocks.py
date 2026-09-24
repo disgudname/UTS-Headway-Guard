@@ -309,6 +309,38 @@ def parse_out_of_service_notes(texts: List[str]) -> Dict[str, Dict[str, Any]]:
     return out
 
 
+_RC_BLOCK_RE = re.compile(r"BLK\s*0?(\d{1,2})\s*:?\s*")
+_RC_LEAVE_RE = re.compile(r"AFTER LEAVING\s+([A-Z]{2,8})\s+AT\s+(\d{4})")
+_RC_START_RE = re.compile(r"STARTING WITH\s+(?:THE\s+)?(\d{4})\s+DEPARTURE FROM\s+([A-Z]{2,8})")
+
+
+def parse_route_change_notes(texts: List[str]) -> Dict[str, Dict[str, Any]]:
+    """{block_id: {leave_code, leave_s}} from a sheet's "EVENING ROUTE CHANGE" text boxes: the scheduled departure
+    (stop code + seconds after 00:00) after which the block follows the post-6PM route instead of the pre-6PM one.
+    Handles "AFTER LEAVING HER AT 1750, FOLLOW ..." and "FOLLOW POST-1800 ROUTE STARTING WITH 1800 DEPARTURE FROM PIN"."""
+    out: Dict[str, Dict[str, Any]] = {}
+    for text in texts:
+        flat = re.sub(r"\s+", " ", text.upper())
+        if "ROUTE CHANGE" not in flat or "OUT-OF-SERVICE" in flat or "OUT OF SERVICE" in flat:
+            continue
+        matches = list(_RC_BLOCK_RE.finditer(flat))
+        for i, m in enumerate(matches):
+            seg = flat[m.end(): matches[i + 1].start() if i + 1 < len(matches) else len(flat)]
+            leave = _RC_LEAVE_RE.search(seg)
+            if leave:
+                code, hhmm = _place(leave.group(1)), leave.group(2)
+            else:
+                start = _RC_START_RE.search(seg)
+                if not start:
+                    continue
+                hhmm, code = start.group(1), _place(start.group(2))
+            out[f"[{int(m.group(1)):02d}]"] = {
+                "leave_code": code,
+                "leave_s": int(hhmm[:2]) * 3600 + int(hhmm[2:]) * 60,
+            }
+    return out
+
+
 def build(blocks_dir: Path) -> Dict[str, Any]:
     active_sheets = json.loads(ACTIVE_SHEETS_PATH.read_text(encoding="utf-8"))
     # Which live TransLoc RouteIDs correspond to each Block Package route file --
@@ -341,7 +373,9 @@ def build(blocks_dir: Path) -> Dict[str, Any]:
             ws = wb[sheet_name]
             rows = list(ws.iter_rows(values_only=True))
             weekdays, per_block = parse_sheet(rows)
-            oos_notes = parse_out_of_service_notes(sheet_drawing_texts(path, sheet_name))
+            drawing_texts = sheet_drawing_texts(path, sheet_name)
+            oos_notes = parse_out_of_service_notes(drawing_texts)
+            route_change_notes = parse_route_change_notes(drawing_texts)
             for block_id in oos_notes:
                 if block_id not in per_block:
                     print(f"[build_uts_blocks] WARNING: out-of-service note for {block_id} in {fn}/{sheet_name} "
@@ -369,6 +403,8 @@ def build(blocks_dir: Path) -> Dict[str, Any]:
                     if note["leave_s"] < seq[0][0]:
                         note["leave_s"] += 86400  # e.g. Night Pilot "0200": the block's day started at 22:00
                     group["out_of_service"] = note
+                if block_id in route_change_notes:
+                    group["route_change"] = dict(route_change_notes[block_id])
                 entry["weekday_groups"].append(group)
 
     return {
