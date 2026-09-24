@@ -18336,7 +18336,14 @@ async def api_spare_duties(request: Request):
 
     async def fetch():
         try:
-            duties = await client.get_duties(limit=100)
+            # Ask Spare for only the two statuses the roster shows. An unfiltered
+            # limit=100 returned an arbitrary slice of all history (hundreds of
+            # completed duties), which silently dropped today's in-progress ones.
+            in_prog, sched = await asyncio.gather(
+                client.get_duties(status="inProgress", limit=1000),
+                client.get_duties(status="scheduled", limit=1000),
+            )
+            duties = [*in_prog, *sched]
         except httpx.HTTPStatusError as exc:
             print(f"[spare] duties fetch error {exc.response.status_code}: {exc}")
             return []
