@@ -66,14 +66,31 @@ export function renderTrips() {
       ? req.dropoffEta || req.scheduledDropoffTs
       : req.pickupEta || req.scheduledPickupTs) || Infinity;
 
-  // vehicleId -> driver name, from the duty roster.
+  // Driver name per duty, from the duty roster. A van can have several duties in
+  // a day (different drivers), so a trip is matched by its own dutyId first; the
+  // per-van fallback prefers the duty running right now, never just "the last one".
+  const spareDriverByDuty = {};
   const spareDriverByVid = {};
+  const nowS = Date.now() / 1000;
+  const rankByVid = {};
+  const dutyRank = (d) => {
+    if (d.status === 'inProgress') return 3;
+    if ((d.startRequestedTs || 0) <= nowS && nowS <= (d.endRequestedTs || 0)) return 2;
+    return d.status === 'completed' || d.status === 'cancelled' ? 0 : 1;
+  };
   for (const d of spareDuties) {
     const vid = d.vehicleId || (d.vehicle && d.vehicle.id);
     const dn = [d.driver && d.driver.firstName, d.driver && d.driver.lastName]
       .filter(Boolean)
       .join(' ');
-    if (vid && dn) spareDriverByVid[vid] = dn;
+    if (!dn) continue;
+    if (d.id) spareDriverByDuty[d.id] = dn;
+    if (!vid) continue;
+    const rank = dutyRank(d);
+    if (rankByVid[vid] === undefined || rank > rankByVid[vid]) {
+      rankByVid[vid] = rank;
+      spareDriverByVid[vid] = dn;
+    }
   }
   const stopOrder = computeStopOrderLookup();
 
@@ -114,7 +131,9 @@ export function renderTrips() {
     const van = req.vehicleId ? vehicleData[req.vehicleId] || {} : null;
     const vanLabel = van ? van.identifier || 'Van' : null;
     const vanColor = van ? getVanColor(vanLabel, van.markerColor || '#E57200') : null;
-    const vanDriver = req.vehicleId ? spareDriverByVid[req.vehicleId] : null;
+    const vanDriver =
+      (req.dutyId && spareDriverByDuty[req.dutyId]) ||
+      (req.vehicleId ? spareDriverByVid[req.vehicleId] : null);
     const vanLine = van
       ? `<div class="addr" style="color:#aaa;font-size:.72rem;margin-bottom:.15rem">${svgIcon(
           'van',
