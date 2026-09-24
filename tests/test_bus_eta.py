@@ -762,3 +762,35 @@ def test_full_lap_bus_still_approaching_its_departure_is_not_cut_off_at_the_depa
     # Reaching s3 is the scheduled departure; the stops after it are the final lap and must still be predicted.
     for i in (4, 5, 0, 1):
         assert eta.estimate_stop_eta_s(line, 800.0, 5.0, line.stops[i], **kw) is not None, i
+
+
+# --- a bus parked AT its cut-off stop, and a bus that has finished its last run ---
+
+def test_bus_parked_at_the_cutoff_stop_still_counts_as_on_its_last_run():
+    # Orange [05] parked at the Library 2026-09-23: it projected a few metres past the end of its final segment and
+    # every stop reappeared. The cut-off stop is s3 (900 m); park the bus 20 m past it.
+    line, plan, leave_epoch = _oos_setup()
+    kw = dict(hop_time_fn=_flat_hop_time_fn(60.0), when=1010.0, vehicle_block_id="B1", out_of_service_fn=_oos_fn(plan))
+    assert eta.estimate_stop_eta_s(line, 920.0, 5.0, line.stops[4], **kw) is None       # beyond the cut-off: nothing
+    assert eta.estimate_stop_eta_s(line, 920.0, 5.0, line.stops[3], **kw) is not None   # the cut-off stop itself
+
+
+def test_out_of_service_phase_run_outside_before_and_na():
+    line, plan, leave_epoch = _oos_setup()
+    assert eta.out_of_service_phase(line, 400.0, plan, 1010.0) == "run"        # between leave (300) and cut-off (900)
+    assert eta.out_of_service_phase(line, 920.0, plan, 1010.0) == "run"        # parked at the cut-off (tolerance)
+    assert eta.out_of_service_phase(line, 1300.0, plan, 1010.0) == "outside"   # past the cut-off, heading away
+    assert eta.out_of_service_phase(line, 100.0, plan, 1010.0) == "outside"    # not yet at the last departure
+    assert eta.out_of_service_phase(line, 400.0, plan, 100.0) == "before"      # window not open yet
+    assert eta.out_of_service_phase(line, 400.0, None, 1010.0) == "na"
+    full_lap = (line.stops[3].id, 1000.0, line.stops[3].id, 400.0)
+    assert eta.out_of_service_phase(line, 400.0, full_lap, 1010.0) == "na"
+
+
+def test_a_bus_seen_on_its_last_run_is_finished_once_it_is_outside_it():
+    assert eta.out_of_service_finished("outside", True, 1010.0, 1000.0)
+    assert not eta.out_of_service_finished("run", True, 1010.0, 1000.0)
+    # never seen on the last run (e.g. server restart): only finished long after the scheduled departure
+    assert not eta.out_of_service_finished("outside", False, 1000.0 + 600.0, 1000.0)
+    assert eta.out_of_service_finished("outside", False, 1000.0 + eta.OOS_DONE_AFTER_S, 1000.0)
+    assert not eta.out_of_service_finished("before", True, 1010.0, 1000.0)

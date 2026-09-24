@@ -16292,6 +16292,9 @@ _BUS_ETA_SMOOTH_WINDOW = 3
 _BUS_ETA_SMOOTH_MAX_GAP_S = 60.0   # history older than this is stale (bus left service, no one polling)
 _BUS_ETA_SMOOTH_SKIP_BELOW_S = 20.0  # never delay an "arriving now" reading
 _bus_eta_history: Dict[Tuple[str, str, str], List[float]] = {}
+# (vehicle id, block id, scheduled last-departure epoch) of buses seen on their out-of-service last-run stretch (see
+# bus_eta.out_of_service_phase). Once such a bus is past its cut-off it serves nothing more and gets no ETAs.
+_oos_run_seen: set = set()
 _bus_eta_history_at: float = 0.0
 
 
@@ -16363,6 +16366,15 @@ async def _compute_bus_eta_arrivals() -> Dict[str, Any]:
             ema_mps = veh.ema_mps
             if ema_mps >= MAX_SPEED_CEIL:
                 ema_mps = bus_eta.TYPICAL_BUS_SPEED_MPS
+            if block_id and uts_blocks.is_loaded():
+                oos_plan = uts_blocks.out_of_service_plan(route_id, block_id, when_ts)
+                if oos_plan is not None:
+                    oos_phase = bus_eta.out_of_service_phase(line, veh.s_pos, oos_plan, when_ts)
+                    oos_key = (str(vid), block_id, oos_plan[1])
+                    if oos_phase == "run":
+                        _oos_run_seen.add(oos_key)
+                    elif bus_eta.out_of_service_finished(oos_phase, oos_key in _oos_run_seen, when_ts, oos_plan[1]):
+                        continue  # past its cut-off, heading to the lot / becoming Night Pilot: serves nothing more
             for stop in line.stops:
                 if stop.arc_pos is None:
                     continue
@@ -16398,6 +16410,8 @@ async def _compute_bus_eta_arrivals() -> Dict[str, Any]:
                     "BlockId": block_id,
                 })
 
+    for done_key in [k for k in _oos_run_seen if k[2] < when_ts - 6 * 3600]:
+        _oos_run_seen.discard(done_key)  # that block's last departure was hours ago
     for stale in [k for k in _bus_eta_history if k not in seen_keys]:
         del _bus_eta_history[stale]  # bus/stop pair not predicted this round (bus gone, or no estimate)
 
