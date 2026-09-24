@@ -580,7 +580,16 @@ export class TripPlannerPanel {
       // _maybeOpenOverlay does the move AND the empty-state populate itself now
       // (see its own comment) -- still reported missing live even after moving
       // the DOM before populating, so the populate call moved again, further in.
-      this._maybeOpenOverlay(field);
+      const populated = this._maybeOpenOverlay(field);
+      // Desktop (no overlay) and an already-open mobile overlay both bail out of
+      // _maybeOpenOverlay before its populate step, so do it here -- otherwise the
+      // Your Location / Choose on map / Recent list never appears on desktop.
+      if (!populated && !f.input.value.trim()) this._showEmptyStateResults(field);
+    });
+    // Clicking an already-focused, still-empty field after its list was dismissed
+    // (click-outside, Escape) fires no new 'focus' -- reopen the list on click.
+    f.input.addEventListener('click', () => {
+      if (!f.input.value.trim() && f.results.hidden) this._showEmptyStateResults(field);
     });
     f.input.addEventListener('keydown', (e) => {
       if (e.key !== 'Escape') return;
@@ -609,7 +618,7 @@ export class TripPlannerPanel {
   }
 
   _maybeOpenOverlay(field) {
-    if (!this._isMobileLayout() || this._overlayField === field) return;
+    if (!this._isMobileLayout() || this._overlayField === field) return false;
     // A close animation for the OTHER field might still be in flight (rapid tap
     // from one field to another) -- finish it synchronously (no animation, just
     // the cleanup) rather than leaving two fields' worth of DOM parented inside
@@ -646,6 +655,7 @@ export class TripPlannerPanel {
     this._overlayEl.style.transition = '';
     this._overlayEl.style.transform = 'translateX(0)';
     f.input.focus();
+    return true;
   }
 
   _closeOverlay() {

@@ -27,6 +27,10 @@ Machine tags: `[dev]` = Windows dev machine · `[home]` = home server (Windows b
 
 ## 1. Message board (newest first)
 
+### 2026-09-24 · [home] · /livemap trip planner: empty-field list (Your Location / Choose on map / Recent) missing on DESKTOP (FIXED in code, committed; NOT yet verified live or deployed)
+- **Root cause:** `18ccb38` moved the empty-state populate into `_maybeOpenOverlay()`, which returns early on desktop (`!_isMobileLayout()`), so the focus handler never populated on desktop. Same gap on mobile when the overlay was already open for that field.
+- **Fix** (`scripts/livemap/ui/trip-planner-panel.js`): `_maybeOpenOverlay` now returns true when it populated; the focus handler populates itself otherwise; a click on an empty, already-focused field with a hidden list reopens it. Needs `fly deploy` + a live check on desktop AND a phone.
+
 ### 2026-09-24 · [home] · /vandispatch Active Trips card showed the wrong driver for a shared van (FIXED, committed `311d8bb`, deployed to prod)
 - **Symptom:** Van 13 trip card showed Nidal while the roster card said Jaquan (Nidal's shift hadn't started). **Cause (found by reading, not reproduced live):** `trip-board.js` built `vehicleId -> driver` with last-duty-wins, so a van with 2+ duties in a day showed whichever duty came last in the list. **Fix:** trip cards now look the driver up by the trip's own `dutyId`; per-van fallback prefers the in-progress / current-window duty over completed/cancelled ones. Roster (`duty-roster.js`) untouched. Not covered: the map van label, if it derives its driver separately (unchecked).
 - **Verified:** logic test (Van 13 scenario) AND the user confirmed on live data after deploy that the trip card shows the right driver. Done; nothing pending. (Map van label not checked, but no symptom reported.)
