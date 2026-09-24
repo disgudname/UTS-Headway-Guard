@@ -16911,6 +16911,11 @@ async def kiosk_checkin(request: Request):
     entry["hostname"] = str(body.get("hostname") or "").strip()
     entry["rustdesk_id"] = str(body.get("rustdesk_id") or "").strip()
     entry["image_build"] = str(body.get("image_build") or "").strip()
+    # app_version = git commit the kiosk's self-updater last installed (blank if it
+    # has never self-updated). Only overwritten when the kiosk actually sends the key,
+    # so kiosks still on an older kiosk-launch.sh don't clobber it.
+    if "app_version" in body:
+        entry["app_version"] = str(body.get("app_version") or "").strip()[:40]
     entry.setdefault("site_code", None)
     entry.setdefault("url", None)
     entry.setdefault("channel", "prod")

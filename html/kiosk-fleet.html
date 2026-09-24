@@ -65,14 +65,15 @@
   <table>
     <thead>
       <tr>
-        <th style="width: 12%">MAC</th>
-        <th style="width: 9%">Site Code</th>
-        <th style="width: 14%">URL Override</th>
-        <th style="width: 8%">Channel</th>
-        <th style="width: 11%">Hostname</th>
-        <th style="width: 10%">RustDesk ID</th>
+        <th style="width: 11%">MAC</th>
+        <th style="width: 8%">Site Code</th>
+        <th style="width: 12%">URL Override</th>
+        <th style="width: 7%">Channel</th>
+        <th style="width: 10%">Hostname</th>
+        <th style="width: 9%">RustDesk ID</th>
         <th style="width: 10%">Image Build</th>
-        <th style="width: 11%">Last Seen</th>
+        <th style="width: 8%">App Version</th>
+        <th style="width: 10%">Last Seen</th>
         <th style="width: 15%">Actions</th>
       </tr>
     </thead>
@@ -180,6 +181,13 @@
       const buildTd = document.createElement('td');
       buildTd.textContent = entry.image_build || '';
       tr.appendChild(buildTd);
+
+      // Commit the kiosk's self-updater last installed; blank = never self-updated
+      // (or still on a kiosk-launch.sh too old to report it).
+      const appVerTd = document.createElement('td');
+      appVerTd.textContent = (entry.app_version || '').slice(0, 7);
+      appVerTd.title = entry.app_version || 'not reported';
+      tr.appendChild(appVerTd);
 
       const seenTd = document.createElement('td');
       seenTd.textContent = relativeTime(entry.last_seen);
