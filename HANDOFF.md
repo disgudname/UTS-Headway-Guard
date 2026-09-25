@@ -27,6 +27,12 @@ Machine tags: `[dev]` = Windows dev machine · `[home]` = home server (Windows b
 
 ## 1. Message board (newest first)
 
+### 2026-09-25 · [home] · Route-change run 17:30: "97 missing visits" explained; off-route direction fix DEPLOYED (`9c36ecc`, v2010) + [08] still skipping MP
+- **The 97 were NOT TransLoc phantoms** (the scorer only keeps visits it saw happen). They were 2 events: (1) Orange [07] bus 13 (fleet 18432) lays over at Carl Smith Way @ Scott Stadium (an Orange Pre-6PM stop), 190-260 m off route 55's polyline. Pulling out, the projection hopped between unrelated passes of the loop, `dir_sign` went -1, and bus_eta dropped all 20 of its ETAs for ~1 min (17:52:15-17:53:15; the same thing happened on 09-24 at 17:51:46). (2) Gold buses 18/39: TransLoc's vehicle feed had them on route 0 until 17:57:15 while its arrivals feed was already on 57, so we had nothing for one poll (a scorer artifact).
+- **Fix (deployed v2010, health ok, ETA feed repopulated 87 entries):** `_resolve_dir_sign` keeps the previous sign when the bus is more than `DIR_SIGN_OFF_ROUTE_M` = 100 m from its matched segment (on-route p99 ≤ 42 m over three logs; >100 m only at the changeover). Known trade-off: an off-route bus whose projection snaps to the wrong pass now gets a wrong ETA for that poll instead of none; median-of-3 smoothing should hide a single poll. **Checker:** a one-poll gap on a bus's first poll on a new route now counts as `single_poll`, and breaches add `only_transloc_gaps` (distinct bus gaps). Today's run re-scores to 60 visits / 1 gap (bus 13, real). **Verify:** the Mon 09-28 17:30 `ETA-RouteChange-Weekdays` run should show no bus 13 gap.
+- **Not investigated:** 09-24 17:40 also had gaps for on-route Purple buses 12/19/24/48 and Gold 39 (a different cause).
+- **Block [08] 09-25:** bus 14 (fleet 18232) left CSW at 18:01:30, stopped at Stadium Rd @ Alderman, passed Gooch/Dillard without stopping, then O-Hill -> Massie -> Arlington -> lot by 18:12. No MP again (last MP pass 17:33). Same pattern as the 08-25..09-24 pull.
+
 ### 2026-09-25 · [home] · ETA-Health weekday early-AM run moved 04:30 -> 05:00
 - Changed the `ETA-Health-Weekday-EarlyAM` Task Scheduler trigger (Mon-Fri) from 04:30 to 05:00 at the user's request; updated the schedule lines in section 7. Results file will now show `20260925-0500`-style names for that run.
 
