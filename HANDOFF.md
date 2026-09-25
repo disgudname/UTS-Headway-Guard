@@ -27,6 +27,9 @@ Machine tags: `[dev]` = Windows dev machine · `[home]` = home server (Windows b
 
 ## 1. Message board (newest first)
 
+### 2026-09-25 · [home] · ETA-Health weekday early-AM run moved 04:30 -> 05:00
+- Changed the `ETA-Health-Weekday-EarlyAM` Task Scheduler trigger (Mon-Fri) from 04:30 to 05:00 at the user's request; updated the schedule lines in section 7. Results file will now show `20260925-0500`-style names for that run.
+
 ### 2026-09-24 · [home] · /livemap over-height bridge alert (DEPLOYED 2026-09-24; engage + release tested locally in Chrome) + /map-vs-/livemap audit
 - **Built:** `core/layers/overheight.js` (+ `overheight-style.js`, popup CSS in `livemap.css`). When a bus on `OVERHEIGHT_BUSES` (from `/v1/config`, testmap defaults as fallback) is inside `BRIDGE_RADIUS` of the bridge: map eases to the bridge (zoom>=18), gestures locked, red disc, "OVERHEIGHT VEHICLE" popup glued to the bus; releases + returns to the prior view when none is in range. **Gate = ANY authenticated dispatcher (`isAuthed()`), plus `?dispatcher=true` / adminKiosk** (user asked 2026-09-24: too safety-critical to limit to the dispatch iframe; it seizes the camera for them by design; `?adminMode=false` does not veto it). The disc layers are baked into the style just under the vehicle layer. Verified locally in Chrome against a live bus (engage, disc, popup, locked handlers); release (popup gone, gestures back, view restored) also verified. **Verified on a real prod bus 2026-09-24** (user saw it fire). **Real over-height buses are ONLY the 25131/25231/25331/25431; 171xx/141xx/124xx/185xx were the user's test buses** — code defaults (`app.py`, `overheight.js`, `testmap.js`) trimmed to the 25s (`dbb2af6`, not yet deployed). Prod `/v1/config` `OVERHEIGHT_BUSES` is a runtime override and still held test bus 18832 as of this entry — needs cleanup to just the 25s. `dispatcher.html` still iframes `/testmap?dispatcher=true`, so this only matters once that iframe moves to `/livemap?dispatcher=true`.
 - **Audit result (user decisions 2026-09-24):** Amtrak/radar/aircraft/battery never coming to livemap; Traccar disused; OnDemand route lines unnecessary (vandispatch2 exists); headway bubbles no longer needed; agency switcher is deliberately absent (livemap is single-feed). **Headings checked:** `/v1/testmap/transloc/vehicles` already returns server-derived sticky headings for on-route buses, so livemap using raw `Heading` is fine there; only route-0 (out-of-service) buses get TransLoc's raw heading (0 when parked) vs testmap's client-side bearing-from-movement. Cosmetic, left as is.
@@ -549,7 +552,7 @@ share is a scorer artifact until proven otherwise; (3) early misses are the less
   too little data — that's not a breach). Exit code 0 clean/inconclusive, 2 breach, 1 check couldn't run.
   Thresholds are the constants at the top of the script (the §7 numbers) — edit them there once weekday data exists.
 - Scheduled via Windows Task Scheduler on the home server (local Eastern time, `ETA-Health-*` tasks):
-  Mon–Fri 04:30, 08:30, 12:30, 17:00, 19:30 · Sat+Sun 07:30, 12:00, 14:00, 17:00, 20:00 ·
+  Mon–Fri 05:00, 08:30, 12:30, 17:00, 19:30 · Sat+Sun 07:30, 12:00, 14:00, 17:00, 20:00 ·
   every day 00:00 and 01:30. (Updated 2026-09-19 at the user's request; the earlier Saturday-only 12:00 task was
   folded into the Sat+Sun noon task; the Sunday-only 14:00 became Sat+Sun. Night Pilot runs until 2 AM every night while classes are in session, so the overnight runs should catch it.) They run under
   `pythonw.exe` from the repo root, only if the machine is awake/online (missed runs start when available).
@@ -588,7 +591,7 @@ notification through this service (ntfy).
 - The user must install the ntfy app on their phone and subscribe to the channel before anything can be received.
 
 **Decisions (user, 2026-09-19) — these settle the earlier open questions:**
-- **Frequency: a push after every run.** The schedule above is 7 runs/day (Mon–Fri 04:30, 08:30, 12:30, 17:00, 19:30
+- **Frequency: a push after every run.** The schedule above is 7 runs/day (Mon–Fri 05:00, 08:30, 12:30, 17:00, 19:30
   plus 00:00 and 01:30; Sat+Sun 07:30, 12:00, 14:00, 17:00, 20:00 plus 00:00 and 01:30), so 7 messages a day. A one-line
   "all clear" is fine and wanted; make a breach message stand out (e.g. higher ntfy priority or a clear "PROBLEM" prefix).
 - **Claude usage cost: not a concern.** No need to optimize the prompt for cost, but keep it focused so runs finish quickly.
