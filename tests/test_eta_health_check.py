@@ -122,5 +122,25 @@ def test_a_vehicle_we_never_predicted_is_still_a_breach():
 
 def test_warmup_and_single_poll_gaps_are_split_independently():
     rows = _filler() + _track(12, missing={0, 6}, key=("57", "830", "39")) + _track(12, missing={8, 9}, key=("57", "831", "39"))
-    persistent, warmup, single = h.transloc_only_gaps(rows, warmup_until=2000.0 + 15.0)
-    assert (persistent, warmup, single) == (2, 1, 1)
+    persistent, warmup, single, gaps = h.transloc_only_gaps(rows, warmup_until=2000.0 + 15.0)
+    assert (persistent, warmup, single, gaps) == (2, 1, 1, 1)
+
+
+def test_first_poll_on_a_new_route_is_a_one_poll_lag_not_a_breach():
+    # TransLoc's arrivals moved Gold buses 18/39 to route 57 one poll before its vehicle feed did (2026-09-25 17:57):
+    # nothing on that route for the bus the poll before, we have it the poll after.
+    rows = _filler() + _track(10, missing={0}, t0=2500.0)
+    out, problems = h.analyze(rows, {}, None)
+    assert out["only_transloc"] == 0
+    assert out["only_transloc_ignored"] == {"warmup": 0, "single_poll": 1}
+    assert not any("TransLoc predicted" in p for p in problems)
+
+
+def test_a_bus_missing_at_many_stops_is_one_gap():
+    rows = _filler()
+    for stop in ("700", "701", "702"):
+        rows += _track(10, missing={4, 5, 6}, key=("55", stop, "13"))
+    out, problems = h.analyze(rows, {}, None)
+    assert out["only_transloc"] == 9
+    assert out["only_transloc_gaps"] == 1
+    assert any("9 visit(s) TransLoc predicted that we didn't (1 separate bus gap(s))" in p for p in problems)

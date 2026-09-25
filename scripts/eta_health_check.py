@@ -74,29 +74,40 @@ def route_names():
 
 
 def transloc_only_gaps(rows, warmup_until=None):
-    """(persistent, warmup, single_poll): rows where TransLoc predicted a visit and we didn't, split into
+    """(persistent, warmup, single_poll, gaps): rows where TransLoc predicted a visit and we didn't, split into
     the ones that are worth a breach and the two known noise kinds (see WARMUP_POLLS). A row is `warmup` if its
-    poll is at or before `warmup_until`; `single_poll` if we DID predict that same (route, stop, vehicle) at both
-    the previous and the next poll (one 15 s hole, then back)."""
+    poll is at or before `warmup_until`; `single_poll` if it is a one-poll hole: we DID predict that same (route, stop,
+    vehicle) at the next poll, and at the previous poll either we did too or TransLoc had nothing for that vehicle on
+    that route yet (a bus's first poll on a new route: TransLoc's arrivals feed moves it a poll before its vehicle feed,
+    which ours follows -- seen at the 2026-09-25 evening route change, Gold buses 18 and 39). `gaps` is how many
+    separate (route, vehicle) stretches of consecutive polls the persistent rows make up: one bus missing for 45 s
+    is one gap however many stops it covers."""
     times = sorted({r["t"] for r in rows})
     idx = {t: i for i, t in enumerate(times)}
     present = {}
+    tl_on_route = {}
     for r in rows:
         if r["ours"] is not None:
             present.setdefault(r["key"], set()).add(idx[r["t"]])
+        if r["tl"] is not None:
+            tl_on_route.setdefault((r["key"][0], r["key"][2]), set()).add(idx[r["t"]])
     persistent = warmup = single = 0
+    missing = {}
     for r in rows:
         if r["ours"] is not None or r["tl"] is None:
             continue
         i = idx[r["t"]]
         have = present.get(r["key"], ())
+        route_new = (i - 1) not in tl_on_route.get((r["key"][0], r["key"][2]), ())
         if warmup_until is not None and r["t"] <= warmup_until:
             warmup += 1
-        elif (i - 1) in have and (i + 1) in have:
+        elif (i + 1) in have and ((i - 1) in have or route_new):
             single += 1
         else:
             persistent += 1
-    return persistent, warmup, single
+            missing.setdefault((r["key"][0], r["key"][2]), set()).add(i)
+    gaps = sum(1 for polls in missing.values() for i in polls if (i - 1) not in polls)
+    return persistent, warmup, single, gaps
 
 
 def analyze(rows, names, warmup_until=None):
@@ -116,8 +127,10 @@ def analyze(rows, names, warmup_until=None):
     if tl:
         out["tl_median_err_s"] = round(statistics.median(tl))
         out["tl_late_over_2min_pct"] = round(100.0 * sum(1 for e in tl if e > LATE_MISS_S) / len(tl), 1)
-    persistent, warmup, single = transloc_only_gaps(rows, warmup_until)
+    persistent, warmup, single, gaps = transloc_only_gaps(rows, warmup_until)
     out["only_transloc"] = persistent
+    if persistent:
+        out["only_transloc_gaps"] = gaps
     if warmup or single:
         out["only_transloc_ignored"] = {"warmup": warmup, "single_poll": single}
 
@@ -165,7 +178,8 @@ def analyze(rows, names, warmup_until=None):
     if flips:
         problems.append(f"{len(flips)} full-lap flip(s): our ETA >20 min off while TransLoc was within 2 min")
     if out["only_transloc"]:
-        problems.append(f"{out['only_transloc']} visit(s) TransLoc predicted that we didn't")
+        problems.append(f"{out['only_transloc']} visit(s) TransLoc predicted that we didn't "
+                        f"({out['only_transloc_gaps']} separate bus gap(s))")
     if "historical_pct" in out:
         pct = out["historical_pct"]
         if pct < MIN_HISTORICAL_PCT_BREACH:

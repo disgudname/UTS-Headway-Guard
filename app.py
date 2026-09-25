@@ -1202,11 +1202,16 @@ def heading_diff(a: float, b: float) -> float:
 # Below this TransLoc-reported ground speed (m/s), a vehicle is trusted as
 # genuinely stationary -- see _resolve_dir_sign for why this matters.
 DIR_SIGN_STATIONARY_MPS = 0.5
+# Beyond this distance (m) from its route's polyline, a vehicle's projected position is not trusted for direction.
+# Seen live 2026-09-25 17:52: Orange [07] (bus 13) pulling out of its layover 190-260 m off route 55's shape; the
+# nearest-point projection hopped between unrelated passes of the loop, read as "backward", and blanked all 20 of its
+# ETAs for about a minute. On-route buses sit within ~40 m (p99 over three logged runs), so 100 m only trips off-route.
+DIR_SIGN_OFF_ROUTE_M = 100.0
 
 
 def _resolve_dir_sign(
     mps: float, along_mps: float, prev_sign: int, dir_eps: float = 0.3,
-    stationary_mps: float = DIR_SIGN_STATIONARY_MPS,
+    stationary_mps: float = DIR_SIGN_STATIONARY_MPS, off_route_m: float = 0.0,
 ) -> Tuple[int, bool]:
     """Which way (+1 forward, -1 backward, 0 unknown) a vehicle is moving along
     its route right now. Returns (dir_sign, needs_heading_tiebreak) -- the
@@ -1235,8 +1240,12 @@ def _resolve_dir_sign(
     speedometer is trusted over our derived signal whenever they'd disagree
     about direction, since a vehicle TransLoc itself says isn't moving can't
     really be "moving backward fast" no matter what our own polyline
-    projection derived."""
-    if mps <= stationary_mps:
+    projection derived.
+
+    Same reasoning for a vehicle `off_route_m` metres from the polyline (beyond
+    DIR_SIGN_OFF_ROUTE_M): its projected position is not on the road it is on,
+    so the last direction stands."""
+    if mps <= stationary_mps or off_route_m > DIR_SIGN_OFF_ROUTE_M:
         return prev_sign, False
     if along_mps > dir_eps:
         return 1, False
@@ -1827,6 +1836,16 @@ def project_vehicle_to_route(v: Vehicle, route: Route, prev_idx: Optional[int] =
         if take:
             best_cost = cost; best_s = s; best_i = i
     return best_s, best_i
+
+def distance_to_segment_m(lat: float, lon: float, route: Route, seg_idx: int) -> float:
+    """Metres from (lat, lon) to segment seg_idx of the route polyline."""
+    a_lat, a_lon = route.poly[seg_idx]
+    b_lat, b_lon = route.poly[seg_idx + 1]
+    bx, by = ll_to_xy(b_lat, b_lon, a_lat, a_lon)
+    px, py = ll_to_xy(lat, lon, a_lat, a_lon)
+    vv = bx*bx + by*by
+    t = 0.0 if vv <= 0 else max(0.0, min(1.0, (px*bx + py*by) / vv))
+    return math.hypot(px - t*bx, py - t*by)
 
 # ---------------------------
 # App & state
@@ -6127,7 +6146,13 @@ async def startup():
                             else:
                                 along_mps = 0.0
                             DIR_EPS = 0.3
-                            dir_sign, needs_heading_tiebreak = _resolve_dir_sign(mps, along_mps, prev_sign, DIR_EPS)
+                            off_route_m = (
+                                distance_to_segment_m(lat, lon, state.routes[rid], seg_idx)
+                                if lat is not None and lon is not None and len(state.routes[rid].poly) >= 2 else 0.0
+                            )
+                            dir_sign, needs_heading_tiebreak = _resolve_dir_sign(
+                                mps, along_mps, prev_sign, DIR_EPS, off_route_m=off_route_m,
+                            )
                             if needs_heading_tiebreak and seg_idx is not None:
                                 seg_heading = bearing_between(
                                     state.routes[rid].poly[seg_idx],

@@ -62,3 +62,16 @@ def test_stationary_with_no_prior_direction_does_not_request_tiebreak():
     dir_sign, tiebreak = _resolve_dir_sign(mps=0.0, along_mps=-5.0, prev_sign=0)
     assert dir_sign == 0
     assert tiebreak is False
+
+
+def test_far_off_route_keeps_previous_direction():
+    # Bus pulling out of a layover 200 m off its route's shape (Orange [07] at Scott Stadium, 2026-09-25): the
+    # projection hops between passes of the loop and reads as backward; the last direction must stand.
+    dir_sign, tiebreak = _resolve_dir_sign(mps=5.0, along_mps=-78.0, prev_sign=1, off_route_m=250.0)
+    assert dir_sign == 1
+    assert tiebreak is False
+
+
+def test_near_route_still_detects_reversal():
+    dir_sign, _ = _resolve_dir_sign(mps=5.0, along_mps=-4.0, prev_sign=1, off_route_m=30.0)
+    assert dir_sign == -1
