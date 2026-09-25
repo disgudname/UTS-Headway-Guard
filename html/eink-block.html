@@ -706,10 +706,9 @@
     return trimmed;
   }
 
-  function normalizeDriverAssignmentsPayload(payload){
+  // Turns one {block: {period: [driver, ...]}} map from /v1/dispatch/block-drivers into display-ready driver lists.
+  function normalizeAssignmentsMap(assignments){
     const result=Object.create(null);
-    if(!payload || typeof payload!=='object') return result;
-    const assignments=payload.assignments_by_block || payload.assignmentsByBlock;
     if(!assignments || typeof assignments!=='object') return result;
     for(const [blockKey, periods] of Object.entries(assignments)){
       if(!periods || typeof periods!=='object') continue;
@@ -767,7 +766,9 @@
             endLabel:formatDriverTimeLabel(endLabel,endTs),
             startTs:startTs,
             endTs:endTs,
-            colorId:colorId
+            colorId:colorId,
+            // A shift nobody is assigned to (named "OPEN"): shown as an uncovered slot, not a person.
+            unassigned:driver.unassigned===true
           });
         }
         if(!normalizedDrivers.length) continue;
@@ -781,6 +782,26 @@
       }
       if(Object.keys(blockMap).length){
         result[String(blockKey)]=blockMap;
+      }
+    }
+    return result;
+  }
+
+  // Assigned drivers plus the shifts nobody is assigned to (payload.unassigned_by_block), sorted in by start time.
+  function normalizeDriverAssignmentsPayload(payload){
+    if(!payload || typeof payload!=='object') return Object.create(null);
+    const result=normalizeAssignmentsMap(payload.assignments_by_block || payload.assignmentsByBlock);
+    const open=normalizeAssignmentsMap(payload.unassigned_by_block || payload.unassignedByBlock);
+    for(const [blockKey, periods] of Object.entries(open)){
+      const blockMap=result[blockKey] || (result[blockKey]=Object.create(null));
+      for(const [periodKey, shifts] of Object.entries(periods)){
+        const merged=(blockMap[periodKey]||[]).concat(shifts);
+        merged.sort((a,b)=>{
+          const aKey=a.startTs!=null?a.startTs:(a.endTs!=null?a.endTs:0);
+          const bKey=b.startTs!=null?b.startTs:(b.endTs!=null?b.endTs:0);
+          return aKey-bKey;
+        });
+        blockMap[periodKey]=merged;
       }
     }
     return result;

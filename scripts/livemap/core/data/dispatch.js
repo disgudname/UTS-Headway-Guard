@@ -9,7 +9,7 @@
 // for a signed-in dispatcher.
 //
 //   getBlock(vehicleId)   -> "[05]" | "Training" | "" (none)
-//   getDrivers(vehicleId) -> [{ name, start, end }]
+//   getDrivers(vehicleId) -> [{ name, start, end, unassigned }]   (unassigned: an OPEN shift nobody is on)
 //   onDispatchData(fn)    -> fn()   when the mapping changes
 // -----------------------------------------------------------------------------
 
@@ -93,6 +93,7 @@ async function poll() {
               name: (d && (d.name || '')).toString().trim(),
               start: (d && (d.shift_start_label || '')).toString().trim(),
               end: (d && (d.shift_end_label || '')).toString().trim(),
+              unassigned: !!(d && d.unassigned),
             }))
             .filter((d) => d.name)
         : [];
@@ -173,6 +174,7 @@ function sameDrivers(a, b) {
     if (!w || w.length !== v.length) return false;
     for (let i = 0; i < v.length; i++) {
       if (v[i].name !== w[i].name || v[i].start !== w[i].start || v[i].end !== w[i].end) return false;
+      if (v[i].unassigned !== w[i].unassigned) return false;
     }
   }
   return true;

@@ -2700,6 +2700,11 @@
         color: var(--panel-muted-text);
         font-size: 13px;
       }
+      /* a supervisor / dispatcher shift nobody is assigned to */
+      .status-open-shift {
+        color: #d97706;
+        font-weight: 600;
+      }
       .status-section__list {
         list-style: none;
         margin: 0;

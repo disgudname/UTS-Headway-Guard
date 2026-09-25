@@ -121,12 +121,17 @@ async function loadW2WShifts() {
     if (r.status === 401 || r.status === 403 || !r.ok) return;
     const data = await r.json();
     const byBlock = data.assignments_by_block || {};
+    // Shifts nobody is assigned to (W2W's calendar feed lists them; the API does not): same positions, flagged
+    // unassigned so the roster shows them as OPEN instead of dropping them.
+    const openByBlock = data.unassigned_by_block || {};
     const shifts = [];
     for (const blockName of ['OnDemand Driver', 'OnDemand EB', 'FlexRide Driver']) {
-      const block = byBlock[blockName];
-      if (!block) continue;
-      for (const period of Object.values(block)) {
-        for (const s of period) shifts.push({ ...s, position_name: blockName });
+      for (const source of [byBlock, openByBlock]) {
+        const block = source[blockName];
+        if (!block) continue;
+        for (const period of Object.values(block)) {
+          for (const s of period) shifts.push({ ...s, position_name: blockName });
+        }
       }
     }
     w2wShifts = shifts;

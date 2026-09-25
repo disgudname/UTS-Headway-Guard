@@ -38,6 +38,7 @@ from Crypto.Cipher import AES
 from Crypto.Util.Padding import unpad
 from headway_storage import HeadwayStorage, parse_iso8601_utc, _isoformat as _headway_isoformat
 from fullbus_storage import FullBusStorage
+from w2w_schedule import W2WScheduleLog
 from fullbus_tracker import FullBusTracker
 from headway_tracker import (
     HeadwayTracker,
@@ -120,6 +121,9 @@ W2W_KEY = os.getenv("W2W_KEY")
 if W2W_KEY:
     W2W_KEY = W2W_KEY.strip()
 W2W_ASSIGNMENT_TTL_S = int(os.getenv("W2W_ASSIGNMENT_TTL_S", "45"))
+# Secret iCal address of the W2W "Complete Schedule" Google Calendar. Unlike the API it includes UNASSIGNED shifts.
+W2W_ICAL_URL = (os.getenv("W2W_ICAL_URL") or "").strip()
+W2W_ICAL_POLL_S = int(os.getenv("W2W_ICAL_POLL_S", "300"))
 W2W_POSITION_RE = re.compile(r"\[(\d{1,2})(?:\s*(AM|PM))?\]", re.IGNORECASE)
 AM_PM_BLOCKS: set[str] = {f"{number:02d}" for number in range(20, 27)}
 # ViriCiti EV telemetry (optional - disabled if VIRICITI_API_KEY not set)
@@ -938,6 +942,8 @@ EXPECTED_ENV_KEYS = sorted(
         "VEH_LOG_RETENTION_MS",
         "VEH_REFRESH_S",
         "W2W_ASSIGNMENT_TTL_S",
+        "W2W_ICAL_POLL_S",
+        "W2W_ICAL_URL",
         "W2W_KEY",
         "SPARE_API_KEY",
         "SPARE_BASE_URL",
@@ -6768,6 +6774,31 @@ async def startup():
 
     asyncio.create_task(tomtom_incidents_poller())
 
+    # W2W full-schedule iCal feed -> change log (who was on / left open on each shift, and when it changed)
+    w2w_schedule_log = W2WScheduleLog(PRIMARY_DATA_DIR)
+    app.state.w2w_schedule_log = w2w_schedule_log
+
+    async def w2w_schedule_poller():
+        if not W2W_ICAL_URL:
+            return
+        await asyncio.sleep(20)
+        while True:
+            try:
+                async with httpx.AsyncClient(follow_redirects=True) as client:
+                    resp = await client.get(W2W_ICAL_URL, timeout=60)
+                resp.raise_for_status()
+                events = await asyncio.to_thread(w2w_schedule_log.apply, resp.text)
+                if events:
+                    print(f"[w2w-schedule] {len(events)} change(s) logged")
+                if w2w_schedule_log.last_error:
+                    print(f"[w2w-schedule] {w2w_schedule_log.last_error}")
+            except Exception as exc:
+                w2w_schedule_log.last_error = _redact_w2w_error(str(exc))
+                print(f"[w2w-schedule] poll failed: {w2w_schedule_log.last_error}")
+            await asyncio.sleep(max(60, W2W_ICAL_POLL_S))
+
+    asyncio.create_task(w2w_schedule_poller())
+
 # ---------------------------
 # REST: Routes
 # ---------------------------
@@ -7525,6 +7556,10 @@ def _build_driver_assignments(
         if is_training:
             assignment_entry["is_training"] = True
 
+        # A shift with nobody on it (W2W's calendar feed lists these; its API never does). Named "OPEN" above.
+        if not (first or last):
+            assignment_entry["unassigned"] = True
+
         bucket.append(assignment_entry)
     for entry in assignments.values():
         for drivers in entry.values():
@@ -7539,6 +7574,20 @@ def _redact_w2w_error(message: str) -> str:
     return _W2W_KEY_ENCODED_RE.sub(r"\1***", redacted)
 
 
+def _open_shift_assignments(now: datetime, tz: ZoneInfo) -> Dict[str, Dict[str, List[Dict[str, Any]]]]:
+    """Unassigned W2W shifts from the calendar-feed snapshot (see w2w_schedule.py), shaped like _build_driver_assignments.
+    Empty when W2W_ICAL_URL isn't set or the first poll hasn't landed yet, so callers just see no open shifts."""
+    log = getattr(app.state, "w2w_schedule_log", None)
+    if log is None:
+        return {}
+    try:
+        rows = log.open_shift_rows(now)
+        return _build_driver_assignments(rows, now, tz) if rows else {}
+    except Exception as exc:
+        print(f"[w2w-schedule] open shifts unavailable: {exc}")
+        return {}
+
+
 async def _fetch_w2w_assignments():
     tz = ZoneInfo("America/New_York")
     now = datetime.now(tz)
@@ -7547,6 +7596,7 @@ async def _fetch_w2w_assignments():
             "disabled": True,
             "fetched_at": int(now.timestamp() * 1000),
             "assignments_by_block": {},
+            "unassigned_by_block": {},
         }
     # Query yesterday + today, not a single "service day". Fixed-route shifts end by
     # ~02:30 and OnDemand/FlexRide shifts run 19:30/21:30 -> 05:30, so no one calendar
@@ -7576,6 +7626,9 @@ async def _fetch_w2w_assignments():
     return {
         "fetched_at": int(now.timestamp() * 1000),
         "assignments_by_block": assignments,
+        # Shifts nobody is assigned to, same shape as assignments_by_block (each entry has name "OPEN" and
+        # "unassigned": true). Kept separate so nothing that treats assignments_by_block as "people on duty" changes.
+        "unassigned_by_block": _open_shift_assignments(now, tz),
     }
 
 
@@ -7593,6 +7646,37 @@ async def dispatch_block_drivers(request: Request):
             "reason": _redact_w2w_error(str(exc)),
         }
         raise HTTPException(status_code=502, detail=detail) from exc
+
+
+@app.get("/v1/w2w/schedule-changes")
+async def w2w_schedule_changes(
+    request: Request,
+    limit: int = Query(200, ge=1, le=2000),
+    date: Optional[str] = Query(None, description="Only shifts on this day, YYYY-MM-DD"),
+    position: Optional[str] = Query(None, description="Only this position, e.g. 08"),
+):
+    """Every change seen in the W2W full-schedule feed (shift added/removed/reassigned/retimed), newest first."""
+    _require_dispatcher_access(request)
+    log = getattr(app.state, "w2w_schedule_log", None)
+    return {
+        "configured": bool(W2W_ICAL_URL),
+        "last_poll": getattr(log, "last_poll_ts", None),
+        "last_error": getattr(log, "last_error", None),
+        "events": log.recent_changes(limit, date, position) if log else [],
+    }
+
+
+@app.get("/v1/w2w/unassigned")
+async def w2w_unassigned(request: Request, days: int = Query(7, ge=1, le=60), start: Optional[str] = Query(None)):
+    """Bus-block shifts with nobody assigned in the W2W full-schedule feed, from `start` (default today) for `days` days."""
+    _require_dispatcher_access(request)
+    log = getattr(app.state, "w2w_schedule_log", None)
+    first = datetime.strptime(start, "%Y-%m-%d").date() if start else datetime.now(ZoneInfo("America/New_York")).date()
+    return {
+        "configured": bool(W2W_ICAL_URL),
+        "last_poll": getattr(log, "last_poll_ts", None),
+        "shifts": log.unassigned(first, days) if log else [],
+    }
 
 
 @app.get("/v1/dispatch/blocks")
@@ -7953,9 +8037,11 @@ async def _fetch_vehicle_drivers():
     try:
         w2w_data = await w2w_assignments_cache.get(_fetch_w2w_assignments)
         assignments_by_block = w2w_data.get("assignments_by_block", {})
+        unassigned_by_block = w2w_data.get("unassigned_by_block", {})
     except Exception as exc:
         print(f"[vehicle_drivers] w2w fetch failed: {exc}")
         assignments_by_block = {}
+        unassigned_by_block = {}
 
     vehicle_drivers: Dict[str, Any] = {}
 
@@ -7965,7 +8051,7 @@ async def _fetch_vehicle_drivers():
     # Select current block for each vehicle, considering both TransLoc block times
     # and W2W driver shift times. A vehicle is included if:
     # 1. TransLoc block time is currently active, OR
-    # 2. A W2W driver shift is currently active for that block
+    # 2. A W2W driver shift (assigned, or open/unassigned) is currently active for that block
     # This allows showing driver/block info before and after revenue service.
     blocks_mapping = {}
     for vehicle_id, block_list in blocks_with_times.items():
@@ -7979,7 +8065,11 @@ async def _fetch_vehicle_drivers():
             for block_name, start_ts, end_ts in block_list:
                 block_numbers = _split_interlined_blocks(block_name)
                 for block_number in block_numbers:
-                    drivers = _find_current_drivers(block_number, assignments_by_block, now_ts)
+                    # An open (unassigned) shift counts too: EBs usually drive those, so the bus is really out there.
+                    drivers = (
+                        _find_current_drivers(block_number, assignments_by_block, now_ts)
+                        or _find_current_drivers(block_number, unassigned_by_block, now_ts)
+                    )
                     if drivers:
                         # For blocks with a known end time, only accept drivers whose
                         # shift started at or before that end time. Without this, a
@@ -8051,6 +8141,15 @@ async def _fetch_vehicle_drivers():
             if block_drivers:
                 drivers_by_block[block_number] = block_drivers
 
+        # Shifts nobody is assigned to that are running right now on this vehicle's block(s). They are ADDED to a
+        # vehicle's driver list (as "OPEN", unassigned: true), name its block when nobody else does, and (above) keep a
+        # bus listed outside its TransLoc block times; they never change which block an assigned driver puts it on.
+        open_by_block = {}
+        for block_number in block_numbers:
+            open_now = _find_current_drivers(block_number, unassigned_by_block, now_ts)
+            if open_now:
+                open_by_block[block_number] = open_now
+
         # Determine which specific block to use for this vehicle
         # Priority:
         # 1. Preferred block that matches current route (see ROUTE_PREFERRED_BLOCKS)
@@ -8106,6 +8205,17 @@ async def _fetch_vehicle_drivers():
                             selected_block_number = blk_num
                             w2w_position_name = drv.get("position_name")
 
+        # Nobody assigned to any of this vehicle's blocks, but a shift is open on one: name the block from that
+        open_only_block = None
+        if selected_block_number is None and open_by_block:
+            for candidates in (preferred_blocks_for_route, valid_blocks_for_route):
+                open_only_block = next((b for b in open_by_block if candidates and b in candidates), None)
+                if open_only_block:
+                    break
+            if open_only_block is None:
+                open_only_block = next(iter(open_by_block))
+            w2w_position_name = open_by_block[open_only_block][0].get("position_name")
+
         # Collect drivers ONLY from the selected block (not all interlined blocks)
         all_drivers = []
         seen_drivers = set()
@@ -8125,6 +8235,18 @@ async def _fetch_vehicle_drivers():
                     # Track latest shift end for cache expiry
                     if driver["end_ts"] > max_shift_end_ts:
                         max_shift_end_ts = driver["end_ts"]
+
+        # Open (unassigned) shifts on the block being shown, listed among its drivers
+        open_block = selected_block_number or open_only_block
+        for shift in open_by_block.get(open_block, []) if open_block else []:
+            all_drivers.append({
+                "name": shift["name"],
+                "shift_start": shift["start_ts"],
+                "shift_start_label": shift["start_label"],
+                "shift_end": shift["end_ts"],
+                "shift_end_label": shift["end_label"],
+                "unassigned": True,
+            })
 
         # Sort drivers by shift start time (for consistency with overlapping shifts)
         all_drivers.sort(key=lambda d: d["shift_start"])
@@ -12763,7 +12885,18 @@ async def _fetch_on_duty_personnel() -> Dict[str, Any]:
             if isinstance(raw_shifts, list):
                 shifts = raw_shifts
 
-        for shift in shifts:
+        # Shifts nobody is assigned to (the API never lists them; W2W's calendar feed does). They ride through the same
+        # loop but land in the *_open lists, never in the on-duty ones.
+        open_log = getattr(app.state, "w2w_schedule_log", None)
+        try:
+            open_rows = open_log.open_shift_rows(now) if open_log is not None else []
+        except Exception as exc:
+            print(f"[on_duty] open shifts unavailable: {exc}")
+            open_rows = []
+        all_open_supervisors = []
+        all_open_dispatchers = []
+
+        for shift in list(shifts) + open_rows:
             if not isinstance(shift, dict):
                 continue
             position_name = shift.get("POSITION_NAME", "")
@@ -12818,7 +12951,12 @@ async def _fetch_on_duty_personnel() -> Dict[str, Any]:
                 "end_ts": end_ts,
             }
 
-            if position_key == "Sup":
+            if not (first or last):
+                if position_key == "Sup":
+                    all_open_supervisors.append(person)
+                elif position_key in _DISPATCH_POSITION_CODES:
+                    all_open_dispatchers.append(person)
+            elif position_key == "Sup":
                 all_supervisors.append(person)
             elif position_key in _DISPATCH_POSITION_CODES:
                 all_dispatchers.append(person)
@@ -12839,6 +12977,8 @@ async def _fetch_on_duty_personnel() -> Dict[str, Any]:
         # Determine current and next for each position type
         current_sups, next_sups = _get_current_and_next_shifts(all_supervisors, now_ts)
         current_disps, next_disps = _get_current_and_next_shifts(all_dispatchers, now_ts)
+        open_sups, open_sups_next = _get_current_and_next_shifts(all_open_supervisors, now_ts)
+        open_disps, open_disps_next = _get_current_and_next_shifts(all_open_dispatchers, now_ts)
 
         # Remove internal timestamps from output
         def clean_person(p):
@@ -12849,6 +12989,12 @@ async def _fetch_on_duty_personnel() -> Dict[str, Any]:
             "supervisors_next": [clean_person(p) for p in next_sups],
             "ondemand_dispatchers": [clean_person(p) for p in current_disps],
             "ondemand_dispatchers_next": [clean_person(p) for p in next_disps],
+            # Shifts with nobody assigned: a supervisor / dispatcher position that is uncovered now or coming up.
+            # active: true = uncovered right now; false = an uncovered shift coming up
+            "supervisors_open": [{**clean_person(p), "active": True} for p in open_sups]
+            + [{**clean_person(p), "active": False} for p in open_sups_next],
+            "ondemand_dispatchers_open": [{**clean_person(p), "active": True} for p in open_disps]
+            + [{**clean_person(p), "active": False} for p in open_disps_next],
             "fetched_at": now.isoformat(),
         }
 

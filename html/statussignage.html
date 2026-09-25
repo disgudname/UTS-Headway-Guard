@@ -56,6 +56,10 @@
             font-size: 14px;
             color: #a0a0c0;
         }
+        .open-info {
+            color: #fbbf24;
+            font-weight: 600;
+        }
         .status-online {
             color: #4ade80;
         }
@@ -178,19 +182,31 @@
             return false;
         }
 
-        function formatPersonDisplay(current, next) {
-            if (!current && !next) return '--';
+        // open: shifts on this position nobody is assigned to ({name, start, end, active}); active = uncovered right now.
+        function formatPersonDisplay(current, next, open) {
+            const openNow = (open || []).filter(o => o.active);
+            const openLater = (open || []).filter(o => !o.active);
+            if (!current && !next && !openNow.length && !openLater.length) return '--';
 
             const showNext = shouldShowNext(current, next);
 
             if (current && current.length > 0) {
                 const names = current.map(p => p.name).join(', ');
+                const openTag = openNow.length ? ` <span class="open-info">+ OPEN until ${openNow[0].end}</span>` : '';
                 if (showNext && next && next.length > 0) {
                     const nextPerson = next[0];
                     const startTime = formatStartTime(nextPerson.start);
-                    return `${names} <span class="next-info">(${nextPerson.name} @ ${startTime})</span>`;
+                    return `${names}${openTag} <span class="next-info">(${nextPerson.name} @ ${startTime})</span>`;
                 }
-                return names;
+                return names + openTag;
+            }
+
+            // Nobody on duty but the shift is open (uncovered): say so
+            if (openNow.length) {
+                const nextBit = next && next.length > 0
+                    ? ` <span class="next-info">(${next[0].name} @ ${formatStartTime(next[0].start)})</span>`
+                    : '';
+                return `<span class="open-info">OPEN until ${openNow[0].end}</span>${nextBit}`;
             }
 
             // No one currently on duty, show next
@@ -198,6 +214,10 @@
                 const nextPerson = next[0];
                 const startTime = formatStartTime(nextPerson.start);
                 return `<span class="next-info">${nextPerson.name} @ ${startTime}</span>`;
+            }
+
+            if (openLater.length) {
+                return `<span class="open-info">OPEN from ${openLater[0].start}</span>`;
             }
 
             return '--';
@@ -223,7 +243,8 @@
             if (onDutyData) {
                 supEl.innerHTML = formatPersonDisplay(
                     onDutyData.supervisors,
-                    onDutyData.supervisors_next
+                    onDutyData.supervisors_next,
+                    onDutyData.supervisors_open
                 );
             } else {
                 supEl.textContent = authenticated ? '--' : '(auth required)';
@@ -234,7 +255,8 @@
             if (onDutyData) {
                 dispEl.innerHTML = formatPersonDisplay(
                     onDutyData.ondemand_dispatchers,
-                    onDutyData.ondemand_dispatchers_next
+                    onDutyData.ondemand_dispatchers_next,
+                    onDutyData.ondemand_dispatchers_open
                 );
             } else {
                 dispEl.textContent = authenticated ? '--' : '(auth required)';

@@ -425,6 +425,13 @@ body {
   font-variant-numeric: tabular-nums;
 }
 
+/* A shift nobody is assigned to (W2W "OPEN"): shown in place of a driver name */
+.lv-open {
+  color: var(--warn, #d97706);
+  font-weight: 600;
+  letter-spacing: 0.02em;
+}
+
 .lv-access {
   font-style: italic;
 }
@@ -1780,6 +1787,12 @@ body {
 .st-next {
   opacity: 0.7;
   font-style: italic;
+}
+
+/* A supervisor / dispatcher shift nobody is assigned to */
+.st-open {
+  color: var(--warn, #e5a100);
+  font-weight: 600;
 }
 
 .st-empty {

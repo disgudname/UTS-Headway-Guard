@@ -160,9 +160,11 @@ function buildDutyCard(r) {
       ? r.onBreakSince
         ? `<span class="duty-status onBreak">On break</span>`
         : `<span class="duty-status ${r.status}">${escHtml(humanizeStatus(r.status))}</span>`
-      : r.odActive
-        ? `<span class="duty-status inProgress">Active</span>`
-        : `<span class="duty-status scheduled" style="background:#0a4a4d;color:#C9F2F4">Shift</span>`;
+      : r.unassigned
+        ? `<span class="duty-status open">Open</span>`
+        : r.odActive
+          ? `<span class="duty-status inProgress">Active</span>`
+          : `<span class="duty-status scheduled" style="background:#0a4a4d;color:#C9F2F4">Shift</span>`;
   const assignLine = r.vanColor
     ? `${svgIcon('van', r.vanColor)} <span style="color:${r.vanColor};font-weight:600">${escHtml(
         r.assignment,
@@ -292,7 +294,7 @@ export function renderDuties() {
     };
   });
 
-  const flexRideShifts = w2wShifts.filter((s) => s.position_name === 'FlexRide Driver');
+  const flexRideShifts = w2wShifts.filter((s) => s.position_name === 'FlexRide Driver' && !s.unassigned);
   const consumedShifts = new Set();
   for (const row of spareRows) {
     const match = flexRideShifts.find(
@@ -316,20 +318,22 @@ export function renderDuties() {
   const w2wRows = w2wShifts
     .filter((s) => !consumedShifts.has(s))
     .map((s) => {
+      const open = !!s.unassigned; // a shift nobody is assigned to: never matches a van
       const nameNorm = normalizeName(s.name);
-      const odVan = odVehicles.find(
-        (v) => v.driverName && normalizeName(v.driverName) === nameNorm,
-      );
+      const odVan = open
+        ? null
+        : odVehicles.find((v) => v.driverName && normalizeName(v.driverName) === nameNorm);
       return {
         source: 'w2w',
         startMs: s.start_ts || 0,
-        driverName: s.name || '—',
-        driverNameNorm: nameNorm,
+        driverName: open ? 'OPEN — no driver assigned' : s.name || '—',
+        driverNameNorm: open ? '' : nameNorm,
+        unassigned: open,
         assignment: odVan ? odVan.label : s.position_name || 'UVA Ride',
         vanColor: odVan ? odVan.color : null,
         vehicleId: odVan ? odVan.vehicleId : '',
         odActive: !!odVan,
-        status: odVan ? 'inProgress' : 'shift',
+        status: open ? 'open' : odVan ? 'inProgress' : 'shift',
         shiftStr: `${fmtTime(s.start_ts / 1000)} – ${fmtTime(s.end_ts / 1000)}`,
         dutyStr: null,
         detail: odVan && odVan.rideCount ? `${odVan.rideCount} ride${odVan.rideCount > 1 ? 's' : ''}` : '',

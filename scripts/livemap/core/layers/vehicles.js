@@ -1320,8 +1320,9 @@ function popupHTML(id) {
   const driverBits = [];
   if (dispatch) {
     for (const d of p.drivers) {
+      // An OPEN shift (nobody assigned) reads as a warning, not as a person's name.
       driverBits.push(
-        escapeHTML(d.name) +
+        (d.unassigned ? `<span class="lv-open">${escapeHTML(d.name)}</span>` : escapeHTML(d.name)) +
           (d.start || d.end
             ? ` <span class="lv-shift">${escapeHTML(`${d.start}–${d.end}`)}</span>`
             : ''),

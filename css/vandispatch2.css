@@ -386,6 +386,13 @@ header .subtitle {
 .duty-card.shift {
   border-left: 3px solid #25cad3;
 } /* UVA Teal */
+/* A W2W shift nobody is assigned to */
+.duty-card.open {
+  border-left: 3px solid #fdda24;
+} /* UVA Yellow */
+.duty-card.open .rider-name {
+  color: #fdda24;
+}
 /* Driver currently on a break/pause -- overrides the inProgress green stripe */
 .duty-card.onBreak {
   border-left: 3px solid #fdda24;
@@ -413,6 +420,10 @@ header .subtitle {
 .duty-status.cancelled {
   background: #c11833;
   color: #ffe6ea;
+}
+.duty-status.open {
+  background: #4d3f00;
+  color: #fdda24;
 }
 .duty-status.onBreak {
   background: #b58900;

@@ -285,6 +285,7 @@ body.kiosk-mode .panel.downed-panel .downed-embed-wrapper{
 #blocks td .cell .bus,.blocks-grid .cell .bus{width:100%;display:flex;align-items:center;justify-content:center;text-align:center}
 .driver-line{background:none;border:none;color:inherit;font:inherit;padding:0;cursor:pointer;text-align:center}
 .driver-line[data-active="true"]{font-weight:600}
+.driver-line[data-open="true"]{color:#e5a100;font-weight:600}
 .driver-line:hover{opacity:.86;text-decoration:underline}
 .driver-line:focus-visible{outline:2px solid var(--ui-accent);outline-offset:2px;text-decoration:none}
 #blocks td .cell .drivers .driver-line,.blocks-grid .cell .drivers .driver-line{
@@ -397,6 +398,8 @@ body.kiosk-mode .credit{margin-top:auto;padding:8px 12px}
 .driver-popup-list{list-style:none;padding:0;margin:0;display:flex;flex-direction:column;gap:10px}
 .driver-popup-item{display:flex;flex-direction:column;align-items:flex-start;gap:4px;padding:10px 12px;border-radius:12px;background:var(--popup-item-bg);border:1px solid var(--popup-line-soft)}
 .driver-popup-item.is-active{border-color:var(--ui-accent);background:rgba(229,114,0,.16)}
+.driver-popup-item.is-open .driver-name{color:#e5a100}
+.duty-open .duty-name,.duty-open.duty-name{color:#e5a100;font-weight:600}
 .driver-popup-item .driver-name{font-weight:600;font-size:15px}
 .driver-popup-item .driver-time{font-size:13px;color:var(--text-dim)}
 .driver-popup-empty{font-size:14px;color:var(--text-dim)}
@@ -1617,10 +1620,9 @@ function formatDriverTimeLabel(label,timestamp){
   return trimmed;
 }
 
-function normalizeDriverAssignmentsPayload(payload){
+// Turns one {block: {period: [driver, ...]}} map from /v1/dispatch/block-drivers into display-ready driver lists.
+function normalizeAssignmentsMap(assignments){
   const result=Object.create(null);
-  if(!payload || typeof payload!=='object') return result;
-  const assignments=payload.assignments_by_block || payload.assignmentsByBlock;
   if(!assignments || typeof assignments!=='object') return result;
   for(const [blockKey,periods] of Object.entries(assignments)){
     if(!periods || typeof periods!=='object') continue;
@@ -1674,7 +1676,9 @@ function normalizeDriverAssignmentsPayload(payload){
           endLabel:formatDriverTimeLabel(endLabel,endTs),
           startTs:startTs,
           endTs:endTs,
-          colorId:colorId
+          colorId:colorId,
+          // A shift nobody is assigned to (W2W calendar feed): named "OPEN", shown as an uncovered slot, not a person.
+          unassigned:driver.unassigned===true
         });
       }
       if(!normalizedDrivers.length) continue;
@@ -1688,6 +1692,27 @@ function normalizeDriverAssignmentsPayload(payload){
     }
     if(Object.keys(blockMap).length){
       result[String(blockKey)]=blockMap;
+    }
+  }
+  return result;
+}
+
+// Assigned drivers plus the shifts nobody is assigned to (payload.unassigned_by_block, sorted in by start time), so an
+// uncovered block shows "OPEN until ..." next to the drivers around it instead of only an inferred gap.
+function normalizeDriverAssignmentsPayload(payload){
+  if(!payload || typeof payload!=='object') return Object.create(null);
+  const result=normalizeAssignmentsMap(payload.assignments_by_block || payload.assignmentsByBlock);
+  const open=normalizeAssignmentsMap(payload.unassigned_by_block || payload.unassignedByBlock);
+  for(const [blockKey,periods] of Object.entries(open)){
+    const blockMap=result[blockKey] || (result[blockKey]=Object.create(null));
+    for(const [periodKey,shifts] of Object.entries(periods)){
+      const merged=(blockMap[periodKey]||[]).concat(shifts);
+      merged.sort((a,b)=>{
+        const aKey=a.startTs!=null?a.startTs:(a.endTs!=null?a.endTs:0);
+        const bKey=b.startTs!=null?b.startTs:(b.endTs!=null?b.endTs:0);
+        return aKey-bKey;
+      });
+      blockMap[periodKey]=merged;
     }
   }
   return result;
@@ -1921,6 +1946,9 @@ function renderDriverLines(container,drivers){
     if(isDriverActiveNow(driver,nowMs)){
       line.dataset.active='true';
     }
+    if(driver.unassigned){
+      line.dataset.open='true';
+    }
     container.appendChild(line);
   }
   showDriverPreview(container);
@@ -2087,6 +2115,9 @@ function showDriverAssignmentsPopup({blockNumber,blockLabel,busLabel,customBlock
         if(active){
           item.classList.add('is-active');
         }
+        if(driver.unassigned){
+          item.classList.add('is-open');
+        }
         const nameEl=document.createElement('div');
         nameEl.className='driver-name';
         nameEl.textContent=driver.name;
@@ -2156,12 +2187,18 @@ function updateDutyRoster(){
     if(!nameEl || !lineEl) continue;
     const drivers=selectDriversForBlock(duty.blockKey,'');
     const lines=buildDriverLineTexts(drivers);
-    const displayLine=Array.isArray(lines)
+    const personLine=Array.isArray(lines)
       ? lines.find(text=>typeof text==='string' && text.trim() && !/^OPEN\b/i.test(text)) || ''
       : '';
+    // Nobody to show, but a shift is open (uncovered) on this position: say so instead of a bare dash.
+    const openLine=(!personLine && Array.isArray(lines))
+      ? lines.find(text=>typeof text==='string' && /^OPEN\b/i.test(text)) || ''
+      : '';
+    const displayLine=personLine||openLine;
     const hasLine=Boolean(displayLine);
     nameEl.textContent=hasLine?displayLine:'—';
     lineEl.classList.toggle('duty-empty',!hasLine);
+    lineEl.classList.toggle('duty-open',Boolean(openLine));
   }
 }
 

@@ -177,6 +177,7 @@ QUICK_DEPARTURE_MIN_DURATION_S = 5.0          # Quick departure threshold
 - `AMTRAKER_URL` - Amtrak train tracking
 - `RIDESYSTEMS_CLIENTS_URL` - RideSystems client API
 - `W2W_ASSIGNED_SHIFT_URL` - WhenToWork shift assignments
+- `W2W_ICAL_URL` - secret iCal address of the W2W "Complete Schedule" Google Calendar (a credential: never print or commit it). The only source of UNASSIGNED shifts, see [W2W Unassigned Shifts](#w2w-unassigned-shifts); `W2W_ICAL_POLL_S` (default 300) is its poll interval
 
 **Storage:**
 - `DATA_DIRS=/data` - Persistent storage location (colon-separated)
@@ -744,6 +745,29 @@ current arrivals list, since an alert can reference a route with no active arriv
 this particular stop). Matching requires the words to already be uppercase in the source
 text, so an admin opts into a route bullet by writing the name in caps, and ordinary
 alert prose isn't accidentally swallowed as a pill.
+
+### W2W Unassigned Shifts
+
+W2W's read-only API (`AssignedShiftList`, used for `/v1/dispatch/block-drivers`, `/vehicle-drivers` and `/v1/uts/on_duty`)
+**never returns a shift nobody is assigned to**, so an uncovered block used to look the same as "no such shift". The
+documented `/API/DailyPositionTotals` only gives per-position/day counts and hours. The W2W "Complete Schedule" calendar
+feed (`W2W_ICAL_URL`) lists every shift, unassigned ones with an empty employee line, with times and the shift note.
+
+- `w2w_schedule.py` polls that feed (every `W2W_ICAL_POLL_S`, started in `app.py`'s startup), keeps a snapshot and appends every
+  change (shift added/removed/reassigned/retimed) to `w2w_schedule_changes.jsonl` in the data dir. The feed is only the
+  schedule as it is NOW, so the log is the only history; a poll that has no shifts or shrinks by more than half is ignored.
+  Dispatcher-auth endpoints: `GET /v1/w2w/schedule-changes` (`?date=&position=&limit=`) and `GET /v1/w2w/unassigned` (`?days=&start=`).
+- `_fetch_w2w_assignments` returns `unassigned_by_block` next to `assignments_by_block`: same shape, each entry named `"OPEN"`
+  with `"unassigned": true`. It is deliberately SEPARATE so nothing that treats `assignments_by_block` as "people on duty"
+  (vehicle matching, OnDemand name matching, van roster) changes; only display code opts in.
+- `/v1/dispatch/vehicle-drivers`: a bus's `drivers` list can include `{"name": "OPEN", "unassigned": true, ...}` for an open shift
+  on its block. An open shift also keeps a bus listed outside its TransLoc block times (EBs usually drive open shifts), but
+  never changes which block an assigned driver puts it on.
+- `/v1/uts/on_duty` adds `supervisors_open` / `ondemand_dispatchers_open` (`{name, start, end, active}`; `active` = uncovered right now).
+- Consumers updated to show OPEN: `/busdispatch` (block grid, duty roster, popup), `eink-block` (with `showDrivers`), `/livemap`
+  (vehicle popup + status panel), vandispatch2 duty roster (OnDemand/FlexRide), `/statussignage`, and the legacy `/map` status panel
+  (its bus popup shows the OPEN entry as the driver name). `vehicle_drivers/uva.py` is an unused parallel implementation and was left alone.
+- `scripts/w2w_ics.py` parses an exported .ics by hand; `scripts/ridership_pull.py` / `block8_ridership.py` are the analysis scripts.
 
 ### Adding External API Integration
 

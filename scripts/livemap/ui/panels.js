@@ -563,15 +563,26 @@ function renderRouteRows(bodyEl, rows, onToggle, emptyText) {
 
 function renderStatusHtml(data, staleCount) {
   const od = data?.onDuty || {};
-  const line = (label, people, next) => {
+  // open = shifts on this position nobody is assigned to ({name, start, end, active}); active = uncovered right now.
+  const line = (label, people, next, open) => {
+    const openNow = (open || []).filter((o) => o.active);
+    const openLater = (open || []).filter((o) => !o.active);
     let val;
     if (people && people.length) {
       val = people.map((p) => esc(p.name || p)).join(', ');
       if (next && next.length) {
         val += ` <span class="st-next">→ ${esc(next[0].name)} (${esc(next[0].start)})</span>`;
       }
+      if (openNow.length) val += ` <span class="st-open">+ OPEN until ${esc(openNow[0].end)}</span>`;
+    } else if (openNow.length) {
+      val = `<span class="st-open">OPEN until ${esc(openNow[0].end)}</span>`;
+      if (next && next.length) {
+        val += ` <span class="st-next">→ ${esc(next[0].name)} (${esc(next[0].start)})</span>`;
+      }
     } else if (next && next.length) {
       val = `<span class="st-next">Next: ${esc(next[0].name)} at ${esc(next[0].start)}</span>`;
+    } else if (openLater.length) {
+      val = `<span class="st-open">OPEN from ${esc(openLater[0].start)}</span>`;
     } else {
       val = '<span class="st-empty">— none —</span>';
     }
@@ -587,8 +598,8 @@ function renderStatusHtml(data, staleCount) {
     <div class="lp-section-body">
       <div class="st-group">
         <div class="st-group-label">On Duty</div>
-        ${line('Supervisor:', od.supervisors, od.supervisors_next)}
-        ${line('Dispatcher:', od.ondemand_dispatchers, od.ondemand_dispatchers_next)}
+        ${line('Supervisor:', od.supervisors, od.supervisors_next, od.supervisors_open)}
+        ${line('Dispatcher:', od.ondemand_dispatchers, od.ondemand_dispatchers_next, od.ondemand_dispatchers_open)}
       </div>
       <div class="st-group">
         <div class="st-group-label">Active Conditions</div>

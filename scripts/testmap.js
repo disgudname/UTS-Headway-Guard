@@ -11441,34 +11441,35 @@ TM.registerVisibilityResumeHandler(() => {
         const dispatchers = od?.ondemand_dispatchers || [];
         const dispatchersNext = od?.ondemand_dispatchers_next || [];
 
-        onDutyHtml += '<div style="margin-bottom:6px"><span style="font-size:12px;color:var(--panel-muted-text)">Supervisor:</span> ';
-        if (supervisors.length > 0) {
-          onDutyHtml += supervisors.map(s => escapeHtml(s.name)).join(', ');
-          if (supervisorsNext.length > 0) {
-            const next = supervisorsNext[0];
-            onDutyHtml += ` <span class="status-next-shift">→ ${escapeHtml(next.name)} (${next.start})</span>`;
+        // open = shifts on that position nobody is assigned to ({name, start, end, active}); active = uncovered right now
+        const renderOnDutyPosition = (people, next, open) => {
+          const openNow = (open || []).filter(o => o.active);
+          const openLater = (open || []).filter(o => !o.active);
+          const openNowHtml = openNow.length > 0
+            ? `<span class="status-open-shift">OPEN until ${openNow[0].end}</span>`
+            : '';
+          const nextArrow = next.length > 0
+            ? ` <span class="status-next-shift">→ ${escapeHtml(next[0].name)} (${next[0].start})</span>`
+            : '';
+          if (people.length > 0) {
+            return people.map(p => escapeHtml(p.name)).join(', ') + nextArrow + (openNowHtml ? ` + ${openNowHtml}` : '');
           }
-        } else if (supervisorsNext.length > 0) {
-          const next = supervisorsNext[0];
-          onDutyHtml += `<span class="status-next-shift">Next: ${escapeHtml(next.name)} at ${next.start}</span>`;
-        } else {
-          onDutyHtml += '<span class="status-section__value--empty">— none assigned —</span>';
-        }
+          if (openNowHtml) return openNowHtml + nextArrow;
+          if (next.length > 0) {
+            return `<span class="status-next-shift">Next: ${escapeHtml(next[0].name)} at ${next[0].start}</span>`;
+          }
+          if (openLater.length > 0) {
+            return `<span class="status-open-shift">OPEN from ${openLater[0].start}</span>`;
+          }
+          return '<span class="status-section__value--empty">— none assigned —</span>';
+        };
+
+        onDutyHtml += '<div style="margin-bottom:6px"><span style="font-size:12px;color:var(--panel-muted-text)">Supervisor:</span> ';
+        onDutyHtml += renderOnDutyPosition(supervisors, supervisorsNext, od?.supervisors_open);
         onDutyHtml += '</div>';
 
         onDutyHtml += '<div><span style="font-size:12px;color:var(--panel-muted-text)">OnDemand Dispatcher:</span> ';
-        if (dispatchers.length > 0) {
-          onDutyHtml += dispatchers.map(d => escapeHtml(d.name)).join(', ');
-          if (dispatchersNext.length > 0) {
-            const next = dispatchersNext[0];
-            onDutyHtml += ` <span class="status-next-shift">→ ${escapeHtml(next.name)} (${next.start})</span>`;
-          }
-        } else if (dispatchersNext.length > 0) {
-          const next = dispatchersNext[0];
-          onDutyHtml += `<span class="status-next-shift">Next: ${escapeHtml(next.name)} at ${next.start}</span>`;
-        } else {
-          onDutyHtml += '<span class="status-section__value--empty">— none assigned —</span>';
-        }
+        onDutyHtml += renderOnDutyPosition(dispatchers, dispatchersNext, od?.ondemand_dispatchers_open);
         onDutyHtml += '</div>';
 
         // Build ACTIVE CONDITIONS section
