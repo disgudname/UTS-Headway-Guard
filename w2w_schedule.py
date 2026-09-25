@@ -199,18 +199,24 @@ class W2WScheduleLog:
         rows.sort(key=lambda r: (r["start"], r["position"]))
         return rows
 
-    def open_shift_rows(self, now: Optional[datetime] = None, days_ahead: int = 2) -> List[Dict[str, str]]:
-        """Unassigned shifts (any position: bus blocks, Sup, OnDemand, ...) that have not ended yet and start within
-        `days_ahead` days, shaped like the rows of W2W's AssignedShiftList (empty FIRST_NAME/LAST_NAME) so the same
-        builders that turn API shifts into per-block assignments can take them. Yesterday's shifts are included so a
-        shift running past midnight still counts. Empty until the first poll has succeeded."""
+    def open_shift_rows(
+        self, now: Optional[datetime] = None, first: Optional[date] = None, last: Optional[date] = None,
+    ) -> List[Dict[str, str]]:
+        """Unassigned shifts (any position: bus blocks, Sup, OnDemand, ...) that have not ended yet and START on a day
+        from `first` to `last` inclusive, shaped like the rows of W2W's AssignedShiftList (empty FIRST_NAME/LAST_NAME) so
+        the same builders that turn API shifts into per-block assignments can take them.
+
+        The caller passes the SAME days it asked W2W's API for, because "today" is defined differently in different
+        places (block-drivers: yesterday + today; on_duty: one service day that rolls over at 02:30) and a shift
+        from another day must not show up as if it were today's. Default: yesterday..today, which is what block-drivers
+        uses (yesterday so a shift running past midnight still counts). Empty until the first poll has succeeded."""
         now = (now or datetime.now(timezone.utc)).astimezone(NY)
         shifts = self._load_snapshot() or {}
-        first = (now.date() - timedelta(days=1)).isoformat()
-        last = (now.date() + timedelta(days=days_ahead)).isoformat()
+        first_day = (first or (now.date() - timedelta(days=1))).isoformat()
+        last_day = (last or now.date()).isoformat()
         rows: List[Dict[str, str]] = []
         for shift in shifts.values():
-            if shift["employee"] or not (first <= shift["start"][:10] <= last):
+            if shift["employee"] or not (first_day <= shift["start"][:10] <= last_day):
                 continue
             start, end = datetime.fromisoformat(shift["start"]), datetime.fromisoformat(shift["end"])
             if end <= now:

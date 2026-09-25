@@ -109,7 +109,8 @@ def test_open_shift_rows_are_api_shaped_and_skip_assigned_ended_and_far_future_s
     assert [(r["POSITION_NAME"], r["START_DATE"], r["START_TIME"], r["END_TIME"]) for r in rows[:1]] == [
         ("[08]", "9/4/2026", "10:30am", "6:30pm")]
     assert rows[0]["FIRST_NAME"] == "" and rows[0]["LAST_NAME"] == "" and rows[0]["DURATION"] == "8.0"
-    assert all(r["START_DATE"] != "9/20/2026" for r in rows)                     # beyond the 2-day look-ahead
+    assert all(r["START_DATE"] != "9/20/2026" for r in rows)                     # a later day
+    assert all(r["START_DATE"] != "9/6/2026" for r in rows)                      # tomorrow-and-after never counts as today
     assert all(r["END_TIME"] != "11am" for r in rows)                             # 7-11am already over
 
 
@@ -249,7 +250,7 @@ def test_on_duty_lists_uncovered_supervisor_and_dispatch_shifts_separately(monke
 
     log = w.W2WScheduleLog(tmp_path)
     open_rows = [api_shift("OnDemand Dispatch", "", "", -1, 2), api_shift("Sup", "", "", 3, 7), api_shift("[08]", "", "", -1, 2)]
-    monkeypatch.setattr(log, "open_shift_rows", lambda now=None, days_ahead=2: open_rows)
+    monkeypatch.setattr(log, "open_shift_rows", lambda now=None, first=None, last=None: open_rows)
     monkeypatch.setattr(app.app.state, "w2w_schedule_log", log, raising=False)
     monkeypatch.setattr(app, "W2W_KEY", "test-key")
     monkeypatch.setattr(app.httpx, "AsyncClient", lambda *a, **k: FakeClient())
@@ -273,3 +274,22 @@ def test_an_unassigned_block_is_labelled_with_the_w2w_name_not_transloc_s(monkey
     # no W2W shift at all (assigned or open): still TransLoc's label, as before
     nothing = _run_fetch_vehicle_drivers(monkeypatch, lambda n: {}, lambda n: {}, transloc_block="[24] PM")
     assert nothing["block"] == "[24] PM" and nothing["drivers"] == []
+
+
+def test_open_shifts_only_come_from_the_days_the_caller_asked_for(tmp_path):
+    def shift(uid, start_z, end_z, position, day):
+        return _event(uid, start_z, end_z, "", position, "t", day, "")
+    # New York: yesterday 22:00 -> 06:00 today (runs past midnight), today 16:00-22:30, tomorrow 07:00-11:00
+    feed = _feed(
+        shift("y", "20260904T020000Z", "20260904T100000Z", "01", "Sep 3, 2026"),
+        shift("t", "20260904T200000Z", "20260905T023000Z", "02", "Sep 4, 2026"),
+        shift("n", "20260905T110000Z", "20260905T150000Z", "03", "Sep 5, 2026"),
+    )
+    log = w.W2WScheduleLog(tmp_path)
+    log.apply(feed, NOW)
+    now = datetime(2026, 9, 4, 8, 0, tzinfo=timezone.utc)       # 04:00 New York on 09-04: the overnight shift is running
+    names = lambda rows: sorted(r["POSITION_NAME"] for r in rows)
+    assert names(log.open_shift_rows(now)) == ["[01]", "[02]"]                       # default: yesterday + today, never tomorrow
+    assert names(log.open_shift_rows(now, first=date(2026, 9, 4), last=date(2026, 9, 4))) == ["[02]"]   # one service day
+    assert names(log.open_shift_rows(now, first=date(2026, 9, 3), last=date(2026, 9, 3))) == ["[01]"]   # 02:30 rollover: still yesterday's
+    assert names(log.open_shift_rows(now, first=date(2026, 9, 3), last=date(2026, 9, 5))) == ["[01]", "[02]", "[03]"]

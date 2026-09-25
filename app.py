@@ -7581,7 +7581,8 @@ def _open_shift_assignments(now: datetime, tz: ZoneInfo) -> Dict[str, Dict[str, 
     if log is None:
         return {}
     try:
-        rows = log.open_shift_rows(now)
+        # Same days _fetch_w2w_assignments asks W2W's API for: yesterday + today
+        rows = log.open_shift_rows(now, first=(now - timedelta(days=1)).date(), last=now.date())
         return _build_driver_assignments(rows, now, tz) if rows else {}
     except Exception as exc:
         print(f"[w2w-schedule] open shifts unavailable: {exc}")
@@ -12889,7 +12890,11 @@ async def _fetch_on_duty_personnel() -> Dict[str, Any]:
         # loop but land in the *_open lists, never in the on-duty ones.
         open_log = getattr(app.state, "w2w_schedule_log", None)
         try:
-            open_rows = open_log.open_shift_rows(now) if open_log is not None else []
+            # Only the service day this function asked W2W for (it rolls over at 02:30, not midnight)
+            open_rows = (
+                open_log.open_shift_rows(now, first=service_day.date(), last=service_day.date())
+                if open_log is not None else []
+            )
         except Exception as exc:
             print(f"[on_duty] open shifts unavailable: {exc}")
             open_rows = []
