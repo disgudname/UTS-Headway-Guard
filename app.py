@@ -921,6 +921,7 @@ EXPECTED_ENV_KEYS = sorted(
         "ORS_HTTP_TIMEOUT_S",
         "ORS_KEY",
         "OVERPASS_EP",
+        "PULSEPOINT_BROWSER_CHANNEL",
         "PULSEPOINT_ICON_TTL_S",
         "PULSEPOINT_PASSPHRASE",
         "PULSEPOINT_TTL_S",
@@ -11461,19 +11462,86 @@ def _decrypt_pulsepoint_payload(payload: Dict[str, Any]) -> Any:
     return parsed
 
 
+PULSEPOINT_USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/143.0.0.0 Safari/537.36"
+# Since ~2026-09 api.pulsepoint.org sits behind an AWS WAF JS challenge: without a token
+# it answers 202 with an empty body and `x-amzn-waf-action: challenge`. The challenge is
+# silent (no CAPTCHA), so a headless Chrome on web.pulsepoint.org can solve it and hand
+# back a token, which then works from plain httpx (sent as `x-aws-waf-token`, together
+# with a browser User-Agent) and isn't tied to the IP that minted it.
+PULSEPOINT_WAF_PAGE = "https://web.pulsepoint.org/"
+PULSEPOINT_WAF_MINT_COOLDOWN_S = 60.0
+_pulsepoint_waf_token: Optional[str] = None
+_pulsepoint_waf_minted_at = 0.0
+_pulsepoint_waf_last_attempt = 0.0
+_pulsepoint_waf_lock = asyncio.Lock()
+
+
+def _pulsepoint_waf_challenged(resp: httpx.Response) -> bool:
+    return resp.status_code == 202 or bool(resp.headers.get("x-amzn-waf-action"))
+
+
+async def _mint_pulsepoint_waf_token() -> Optional[str]:
+    """Launch headless Chrome just long enough to solve the WAF challenge."""
+    global _pulsepoint_waf_token, _pulsepoint_waf_minted_at, _pulsepoint_waf_last_attempt
+    async with _pulsepoint_waf_lock:
+        now = time.time()
+        # At most one browser launch per cooldown, so a broken mint (or a token PulsePoint
+        # rejects straight away) can't spawn Chrome on every poll.
+        if now - _pulsepoint_waf_last_attempt < PULSEPOINT_WAF_MINT_COOLDOWN_S:
+            return None
+        _pulsepoint_waf_last_attempt = now
+        try:
+            from playwright.async_api import async_playwright
+        except ImportError:
+            print("[pulsepoint] playwright not installed; can't solve the WAF challenge")
+            return None
+        channel = os.getenv("PULSEPOINT_BROWSER_CHANNEL") or None  # e.g. "chrome" for local dev
+        try:
+            async with async_playwright() as p:
+                browser = await p.chromium.launch(headless=True, channel=channel)
+                try:
+                    page = await browser.new_page(user_agent=PULSEPOINT_USER_AGENT)
+                    await page.goto(PULSEPOINT_WAF_PAGE, wait_until="domcontentloaded", timeout=30000)
+                    await page.wait_for_function("typeof AwsWafIntegration !== 'undefined'", timeout=30000)
+                    token = await page.evaluate("AwsWafIntegration.getToken()")
+                finally:
+                    await browser.close()
+        except Exception as exc:
+            print(f"[pulsepoint] WAF token mint failed: {exc!r}")
+            return None
+        if not token:
+            print("[pulsepoint] WAF token mint returned nothing")
+            return None
+        age = now - _pulsepoint_waf_minted_at if _pulsepoint_waf_minted_at else None
+        print(f"[pulsepoint] minted WAF token in {time.time() - now:.1f}s" + (f" (previous lasted {age / 60:.0f} min)" if age else ""))
+        _pulsepoint_waf_token = token
+        _pulsepoint_waf_minted_at = time.time()
+        return token
+
+
 async def _get_pulsepoint_incidents() -> Any:
     async def fetch():
         async with httpx.AsyncClient() as client:
-            resp = await client.get(
-                PULSEPOINT_ENDPOINT,
-                timeout=20,
-                headers={
-                    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/143.0.0.0 Safari/537.36"
-                },
-            )
-            record_api_call("GET", str(resp.request.url), resp.status_code)
+            async def get(token: Optional[str]) -> httpx.Response:
+                headers = {"User-Agent": PULSEPOINT_USER_AGENT}
+                if token:
+                    headers["x-aws-waf-token"] = token
+                resp = await client.get(PULSEPOINT_ENDPOINT, timeout=20, headers=headers)
+                record_api_call("GET", str(resp.request.url), resp.status_code)
+                return resp
+
+            resp = await get(_pulsepoint_waf_token)
+            if _pulsepoint_waf_challenged(resp):
+                token = await _mint_pulsepoint_waf_token()
+                if token:
+                    resp = await get(token)
+            if _pulsepoint_waf_challenged(resp):
+                raise HTTPException(status_code=502, detail="PulsePoint blocked the request (WAF challenge)")
             resp.raise_for_status()
-            data = resp.json()
+            try:
+                data = resp.json()
+            except ValueError as exc:
+                raise HTTPException(status_code=502, detail="PulsePoint returned non-JSON") from exc
         if isinstance(data, str):
             try:
                 data = json.loads(data)

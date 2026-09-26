@@ -24,6 +24,13 @@ COPY requirements.txt /app/
 RUN python -m pip install --upgrade pip && \
     pip install -r requirements.txt
 
+# Headless Chromium for solving PulsePoint's AWS WAF challenge (see
+# _mint_pulsepoint_waf_token in app.py). Full Chromium rather than --only-shell: the
+# challenge was verified against Chrome's new headless mode, which the shell lacks.
+# Shared path so appuser can run what root installed.
+ENV PLAYWRIGHT_BROWSERS_PATH=/opt/ms-playwright     PULSEPOINT_BROWSER_CHANNEL=chromium
+RUN python -m playwright install --with-deps chromium &&     rm -rf /var/lib/apt/lists/*
+
 # Copy app
 COPY . /app
 
