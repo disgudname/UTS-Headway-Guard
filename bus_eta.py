@@ -202,6 +202,20 @@ SCHEDULED_DEPARTURE_LAG_S = 30.0
 # it on a Saturday, where Pinn Hall has no hold: 36% of Orange predictions >2 min late.
 POST_HOLD_HOP_ALLOWANCE_S = 30.0
 
+
+def _post_hold_hop_cap_s(line_id, from_id, to_id, dist_m, when, timestop_drive_fn) -> float:
+    """What a hop leaving a timestop may cost once the hold is accounted for: driving it at typical speed
+    plus POST_HOLD_HOP_ALLOWANCE_S, raised to that hop's own driving-only history (last departure -> next
+    arrival, trip_planner_history.build_drive_and_dwell_samples) where real driving is slower. The typical
+    speed is far too fast on slow streets: Silver's Pinn Hall -> Madison Hall (861 m up JPA/University Ave)
+    really takes a median 360 s (2.4 m/s) against a 187 s cap, so every Silver stop after Pinn Hall read
+    2-3 min early (measured 2026-09-24/25). Only ever RAISED: replacing the cap outright with shorter drive
+    history (most hops) made Gold/Green/Orange daytime ETAs 5-12 s worse -- the allowance's slack covers
+    pull-out time that departure-event timing doesn't."""
+    cap_s = dist_m / TYPICAL_BUS_SPEED_MPS + POST_HOLD_HOP_ALLOWANCE_S
+    drive_s = timestop_drive_fn(line_id, from_id, to_id, when) if timestop_drive_fn else None
+    return max(cap_s, drive_s) if drive_s and drive_s > 0 else cap_s
+
 # Plausibility bounds on the speed any single historical hop-time bucket is
 # allowed to imply (hop_distance_m / hop_seconds) -- see the inline comment
 # where this is applied for why: a 3-sample bucket (MIN_SAMPLES in
@@ -514,6 +528,7 @@ def estimate_stop_eta_s(
     is_timestop_fn: Optional[IsTimestopFn] = None,
     dwell_fn: Optional[Callable[[str, str, float], float]] = None,
     out_of_service_fn: Optional[OutOfServiceFn] = None,
+    timestop_drive_fn: Optional[HopTimeFn] = None,
 ) -> Optional[BusEtaEstimate]:
     """Seconds until this vehicle reaches target_stop, or None if the line/target
     don't carry the shape+arc_pos data this needs (e.g. CAT, or a UTS route whose
@@ -678,7 +693,8 @@ def estimate_stop_eta_s(
             # The hop history for a hop leaving a timestop already contains the layover
             # being added below -- drive it at typical speed instead (see
             # POST_HOLD_HOP_ALLOWANCE_S).
-            current_leg_s = min(current_leg_s, dist_to_next / TYPICAL_BUS_SPEED_MPS + POST_HOLD_HOP_ALLOWANCE_S)
+            current_leg_s = min(current_leg_s, _post_hold_hop_cap_s(
+                line.id, prev_stop.id, next_stop.id, dist_to_next, when, timestop_drive_fn))
         # Scheduled timestop hold, dwelling_at_prev counterpart: the main
         # hop-walk below starts at next_stop and checks each stop it departs
         # from in turn (see the in-loop comment) -- but when dwelling_at_prev,
@@ -891,7 +907,7 @@ def estimate_stop_eta_s(
             elif implied_mps > MAX_HOP_SPEED_MPS:
                 hop_s = hop_dist / MAX_HOP_SPEED_MPS
             if held_here:
-                hop_s = min(hop_s, hop_dist / TYPICAL_BUS_SPEED_MPS + POST_HOLD_HOP_ALLOWANCE_S)
+                hop_s = min(hop_s, _post_hold_hop_cap_s(line.id, a.id, b.id, hop_dist, when, timestop_drive_fn))
         decay = PACE_DECAY ** hop_number
         effective_ratio = 1.0 + (pace_ratio - 1.0) * decay
         effective_ratio = max(0.1, effective_ratio)  # guard divide-by-near-zero below
