@@ -325,3 +325,52 @@ def test_neighbouring_hours_never_cross_midnight():
     model = tph.HopTimeModel({tph._bucket_key("57", "A", "B", 5, 23): {"seconds": 300.0, "samples": 4}})
     early = datetime(2026, 9, 19, 0, 30, tzinfo=NY_TZ).timestamp()
     assert model.lookup("57", "A", "B", early) is None
+
+
+def test_drive_and_dwell_treats_repeat_arrivals_at_one_stop_as_one_visit():
+    # A bus staged at A is logged arrive/depart/arrive/depart; the hold is first arrival -> last
+    # departure (200 s) and the drive is last departure -> arrival at B (40 s).
+    t0 = _wed_5pm(0)
+    events = [
+        _event(t0, "74", "A", "blk"),
+        _event(t0 + timedelta(seconds=60), "74", "A", "blk", event_type="departure"),
+        _event(t0 + timedelta(seconds=70), "74", "A", "blk"),
+        _event(t0 + timedelta(seconds=200), "74", "A", "blk", event_type="departure"),
+        _event(t0 + timedelta(seconds=240), "74", "B", "blk"),
+        _event(t0 + timedelta(seconds=260), "74", "B", "blk", event_type="departure"),
+    ]
+    drive, dwell = tph.build_drive_and_dwell_samples(FakeStorage(events), now=t0 + timedelta(hours=1))
+    assert dwell[tph._bucket_key("74", "A", tph.DWELL_KEY, 2, 17)] == [200.0]
+    assert dwell[tph._bucket_key("74", "B", tph.DWELL_KEY, 2, 17)] == [20.0]
+    assert drive == {tph._bucket_key("74", "A", "B", 2, 17): [40.0]}
+
+
+def test_drive_and_dwell_needs_a_departure_to_time_a_visit():
+    t0 = _wed_5pm(0)
+    events = [_event(t0, "74", "A", "blk"), _event(t0 + timedelta(seconds=90), "74", "B", "blk")]
+    drive, dwell = tph.build_drive_and_dwell_samples(FakeStorage(events), now=t0 + timedelta(hours=1))
+    assert not drive and not dwell
+
+
+def test_load_drive_dwell_models_builds_and_caches(tmp_path, monkeypatch):
+    monkeypatch.setattr(tph, "DRIVE_DWELL_CACHE_PATH", tmp_path / "dd.json")
+    monkeypatch.setattr(tph, "_drive_dwell_memo", {})
+    events = []
+    for week in range(3):
+        t0 = _wed_5pm(week)
+        events += [
+            _event(t0, "74", "A", f"blk{week}"),
+            _event(t0 + timedelta(seconds=100 * (week + 1)), "74", "A", f"blk{week}", event_type="departure"),
+            _event(t0 + timedelta(seconds=100 * (week + 1) + 40), "74", "B", f"blk{week}"),
+        ]
+    now = _wed_5pm(0) + timedelta(hours=1)
+    drive, dwell = tph.load_drive_dwell_models(FakeStorage(events), now=now)
+    when = _wed_5pm(0).timestamp()
+    assert drive.lookup("74", "A", "B", when) == 40.0
+    assert dwell.lookup("74", "A", when) == 200.0  # 40th percentile of 100/200/300
+    assert (tmp_path / "dd.json").exists()
+    drive2, _ = tph.load_drive_dwell_models(FakeStorage([]), now=now)  # fresh cache: not rebuilt from the empty store
+    assert drive2.lookup("74", "A", "B", when) == 40.0
+    monkeypatch.setattr(tph, "_drive_dwell_memo", {})  # e.g. after a restart: read back from the file
+    drive3, _ = tph.load_drive_dwell_models(FakeStorage([]), now=now)
+    assert drive3.lookup("74", "A", "B", when) == 40.0

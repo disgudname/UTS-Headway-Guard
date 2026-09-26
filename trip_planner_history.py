@@ -176,10 +176,15 @@ def build_hop_time_samples(
 # baked into that hop; bus_eta then has to cap it after the fact for every mapped
 # timestop, which can't know that a stop is a layover on weekdays but not on weekends
 # (history is pooled across day groups) and reopened a weekday-layover leak when made
-# day-aware. Here a hop is departure(A) -> arrival(B) (driving only) and the time the
-# bus sits at each stop is recorded separately from the departure event's own
-# dwell_seconds, so layover length simply shows up in the dwell data of the day group
-# it actually happens in.
+# day-aware. Here a hop is last departure(A) -> first arrival(B) (driving only) and the time
+# the bus sits at each stop (first arrival -> last departure of the visit) is recorded
+# separately, so layover length simply shows up in the dwell data of the day group it
+# actually happens in.
+#
+# Live only for routes with no block schedule (Purple, see app.py's
+# BUS_ETA_DWELL_MODE_ROUTE_PREFIXES): their buses stage at different stops by time of day
+# (Fontaine in the morning, the hospital later), which only dwell history can express.
+# Routes with a block package keep arrival->arrival hops + the schedule hold clamp.
 
 DWELL_KEY = "DWELL"
 DEFAULT_DWELL_S = 20.0  # median dwell of non-layover stops, 9 months of headway events (2026-09-20)
@@ -232,20 +237,36 @@ def build_drive_and_dwell_samples(
 
         for run_events in runs.values():
             run_events.sort(key=lambda e: e.timestamp)
-            for a, b in zip(run_events, run_events[1:]):
-                if a.event_type != "departure":
+            # One visit = every consecutive event at the same (route, stop). A bus staged at a
+            # stop for minutes is logged as arrive/depart/arrive/depart... (GPS jitter in and out
+            # of the final bubble, "route_activation" re-arrivals): ~13% of all arrivals on
+            # 2026-09-25, 2-3 per lap at JPA @ West Complex. Taking each departure's own
+            # dwell_seconds split the hold into slivers and dropped the rest, so Purple's
+            # staging holds (2-6 min, measured) never reached the dwell data.
+            visits: List[Dict[str, Any]] = []
+            for ev in run_events:
+                stop = resolve_stop_id(ev)
+                if not visits or (visits[-1]["route"], visits[-1]["stop"]) != (ev.route_id, stop):
+                    visits.append({"route": ev.route_id, "stop": stop, "arr": None, "dep": None})
+                v = visits[-1]
+                if ev.event_type == "arrival" and v["arr"] is None:
+                    v["arr"] = ev.timestamp
+                elif ev.event_type == "departure":
+                    v["dep"] = ev.timestamp
+            for v, nxt in zip(visits, visits[1:] + [None]):
+                if v["dep"] is None:
                     continue
-                local_dt = a.timestamp.astimezone(NY_TZ)
-                a_stop = resolve_stop_id(a)
-                if a.dwell_seconds is not None and 0 <= a.dwell_seconds <= MAX_PLAUSIBLE_DWELL_S:
-                    dwell[_bucket_key(a.route_id, a_stop, DWELL_KEY, local_dt.weekday(), local_dt.hour)].append(a.dwell_seconds)
-                b_stop = resolve_stop_id(b)
-                if b.event_type != "arrival" or a.route_id != b.route_id or a_stop == b_stop:
+                local_dt = v["dep"].astimezone(NY_TZ)
+                if v["arr"] is not None:
+                    held = (v["dep"] - v["arr"]).total_seconds()
+                    if 0 <= held <= MAX_PLAUSIBLE_DWELL_S:
+                        dwell[_bucket_key(v["route"], v["stop"], DWELL_KEY, local_dt.weekday(), local_dt.hour)].append(held)
+                if nxt is None or nxt["arr"] is None or nxt["route"] != v["route"]:
                     continue
-                duration = (b.timestamp - a.timestamp).total_seconds()
+                duration = (nxt["arr"] - v["dep"]).total_seconds()
                 if duration <= 0 or duration > MAX_PLAUSIBLE_HOP_S:
                     continue
-                drive[_bucket_key(a.route_id, a_stop, b_stop, local_dt.weekday(), local_dt.hour)].append(duration)
+                drive[_bucket_key(v["route"], v["stop"], nxt["stop"], local_dt.weekday(), local_dt.hour)].append(duration)
     return drive, dwell
 
 
@@ -297,6 +318,50 @@ class DwellModel:
             for key, v in samples.items() if len(v) >= MIN_SAMPLES
         })
 
+
+# Staging holds vary a lot (1-10 min at the same stop and hour), so the median dwell makes
+# every lap where the bus does NOT stage long read too late. Offline replay of Purple
+# 2026-09-24/25 (drive+dwell, minus the time the bus has already sat at its stop): median
+# dwell took route 73's ">2 min late" share 9.8% -> 14.5%; the 40th percentile kept it at
+# 10.0% while still cutting median |error| 123 -> 104 s (74) and 128 -> 121 s (73).
+DWELL_QUANTILE = 0.40
+DRIVE_DWELL_CACHE_PATH = Path(os.getenv("TRIP_PLANNER_DRIVE_DWELL_CACHE", "/data/trip_planner_drive_dwell.json"))
+
+
+def refresh_drive_dwell_cache(storage, now: Optional[datetime] = None) -> Dict[str, Any]:
+    now = now or datetime.now(NY_TZ)
+    drive, dwell = build_drive_and_dwell_samples(storage, now=now)
+    payload = {
+        "refreshed_at": now.isoformat(),
+        "drive": {k: {"seconds": statistics.median(v), "samples": len(v)} for k, v in drive.items() if len(v) >= MIN_SAMPLES},
+        "dwell": DwellModel.from_samples(dwell, DWELL_QUANTILE)._buckets,
+    }
+    DRIVE_DWELL_CACHE_PATH.parent.mkdir(parents=True, exist_ok=True)
+    tmp_path = DRIVE_DWELL_CACHE_PATH.with_suffix(".tmp")
+    with tmp_path.open("w", encoding="utf-8") as f:
+        json.dump(payload, f, ensure_ascii=False)
+    tmp_path.replace(DRIVE_DWELL_CACHE_PATH)
+    return payload
+
+
+_drive_dwell_memo: Dict[str, Any] = {}  # last cache payload, so a fresh cache isn't re-read every ETA computation
+
+
+def load_drive_dwell_models(storage, now: Optional[datetime] = None) -> Tuple[HopTimeModel, DwellModel]:
+    """(driving-only hop model, dwell model), rebuilt at most once a day like the hop cache.
+    The rebuild scans LOOKBACK_DAYS of events (~11 s locally): call it off the event loop."""
+    global _drive_dwell_memo
+    cache = _drive_dwell_memo
+    if is_cache_stale(cache, now=now) and DRIVE_DWELL_CACHE_PATH.exists():
+        try:
+            with DRIVE_DWELL_CACHE_PATH.open("r", encoding="utf-8") as f:
+                cache = json.load(f)
+        except (OSError, json.JSONDecodeError):
+            cache = {}
+    if is_cache_stale(cache, now=now):
+        cache = refresh_drive_dwell_cache(storage, now=now)
+    _drive_dwell_memo = cache
+    return HopTimeModel(cache.get("drive") or {}), DwellModel(cache.get("dwell") or {})
 
 
 def refresh_hop_time_cache(storage, now: Optional[datetime] = None) -> Dict[str, Any]:
