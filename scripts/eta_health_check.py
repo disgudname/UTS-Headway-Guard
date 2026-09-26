@@ -49,6 +49,15 @@ MIN_ROWS = 50               # too little data to judge anything
 # exactly one 15 s poll as it pulls off a stop/layover and then comes back unchanged. Neither is a rider-visible gap
 # worth a breach; both are still counted (only_transloc_ignored) so they stay visible. Gaps of 2+ polls still count.
 WARMUP_POLLS = 2
+# Purple (Mon-Fri commuter route) stages buses at different stops by time of day, for hold lengths that change every
+# day and can't be predicted (user, 2026-09-26; drivers are told to ignore TransLoc's anti-bunching guidance too). Its
+# typical error across all horizons sat at 110-150 s on every weekday run, so the all-horizon median |error| limit only
+# produced noise. It is judged instead on what riders can use: predictions made under NEAR_TERM_S out (same 90 s limit),
+# and its own too-late share, kept out of the global one it was dragging over 3% on its own (routes 73/74 ran ~6-10%
+# >2 min late in the 2026-09-24/25 replay; 12% flags a real regression).
+NEAR_TERM_ONLY_ROUTE_PREFIXES = ("Purple Line",)
+NEAR_TERM_S = 300
+NEAR_TERM_MAX_LATE_MISS_PCT = 12.0
 
 
 def watch(minutes, every, log):
@@ -69,6 +78,17 @@ def watch(minutes, every, log):
 def route_names():
     try:
         return {str(l["id"]): l["name"] for l in eta_watch.fetch("/v1/trip-planner/uts-graph")["lines"]}
+    except Exception:
+        return {}
+
+
+def graph_names(log):
+    """Route names from the graph saved next to a log (eta_compare.load_graph), for routes the live list lacks:
+    a route that stopped running before the run ended, or a re-score of an old log. Without a name, a
+    NEAR_TERM_ONLY route would silently be judged by the all-horizon rules."""
+    try:
+        g = json.loads(Path(str(log) + ".graph.json").read_text(encoding="utf-8"))
+        return {str(l["id"]): l["name"] for l in g["lines"]}
     except Exception:
         return {}
 
@@ -165,13 +185,32 @@ def analyze(rows, names, warmup_until=None):
     if len(rows) < MIN_ROWS:
         out["inconclusive"] = f"only {len(rows)} scoreable predictions -- too little data to trust"
         return out, []
-    if late > MAX_LATE_MISS_PCT:
-        problems.append(f"{late:.1f}% of predictions >2 min late (limit {MAX_LATE_MISS_PCT}%)")
+
+    def near_term_only(rid):
+        return names.get(rid, rid).startswith(NEAR_TERM_ONLY_ROUTE_PREFIXES)
+
+    rest = [r["ours"] for r in rows if r["ours"] is not None and not near_term_only(r["key"][0])]
+    late_rest = 100.0 * sum(1 for e in rest if e > LATE_MISS_S) / len(rest) if rest else 0.0
+    if rest and len(rest) != len(ours):
+        out["late_over_2min_pct_excl_near_term_only"] = round(late_rest, 1)
+    if late_rest > MAX_LATE_MISS_PCT:
+        problems.append(f"{late_rest:.1f}% of predictions >2 min late (limit {MAX_LATE_MISS_PCT}%)")
     for rid, e in by_route.items():
         if len(e) < MIN_ROUTE_ROWS:
             continue
         name = names.get(rid, rid)
-        if statistics.median(abs(x) for x in e) > MAX_ROUTE_MEDIAN_ABS_S:
+        if near_term_only(rid):
+            near = [r["ours"] for r in rows if r["ours"] is not None and r["key"][0] == rid and r["remaining"] < NEAR_TERM_S]
+            route_late = 100.0 * sum(1 for x in e if x > LATE_MISS_S) / len(e)
+            out["routes"][name]["late_over_2min_pct"] = round(route_late, 1)
+            if near:
+                out["routes"][name]["near_term_median_abs_err_s"] = round(statistics.median(abs(x) for x in near))
+            if len(near) >= MIN_ROUTE_ROWS and statistics.median(abs(x) for x in near) > MAX_ROUTE_MEDIAN_ABS_S:
+                problems.append(f"{name}: median |error| under {NEAR_TERM_S // 60} min out "
+                                f"{statistics.median(abs(x) for x in near):.0f}s (limit {MAX_ROUTE_MEDIAN_ABS_S}s)")
+            if route_late > NEAR_TERM_MAX_LATE_MISS_PCT:
+                problems.append(f"{name}: {route_late:.1f}% of predictions >2 min late (limit {NEAR_TERM_MAX_LATE_MISS_PCT}%)")
+        elif statistics.median(abs(x) for x in e) > MAX_ROUTE_MEDIAN_ABS_S:
             problems.append(f"{name}: median |error| {statistics.median(abs(x) for x in e):.0f}s (limit {MAX_ROUTE_MEDIAN_ABS_S}s)")
         if statistics.median(e) > MAX_ROUTE_LATE_BIAS_S:
             problems.append(f"{name}: late bias {statistics.median(e):+.0f}s (limit +{MAX_ROUTE_LATE_BIAS_S}s)")
@@ -207,6 +246,7 @@ def main():
         summary["purple_in_service"] = any(names.get(r, "").lower().startswith("purple") for r in seen)
         polls = [json.loads(l) for l in log.open(encoding="utf-8") if l.strip()]
         stops, lines = eta_compare.load_graph(log)
+        names = {**graph_names(log), **names}
         rows = eta_compare.score_rows(polls, stops, lines)
         warmup_until = polls[min(WARMUP_POLLS, len(polls)) - 1]["t"] if polls else None
         stats, problems = analyze(rows, names, warmup_until)
