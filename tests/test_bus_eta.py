@@ -871,3 +871,17 @@ def test_route_change_matches_stop_names_ignoring_case_and_punctuation():
     served = ["zero", "TWO", "Four"]   # same names, sloppy spelling / mojibake-safe
     hidden = eta.route_change_hidden_stops(line, 1500.0, ("s2", _RC_T, served, None), _RC_T - 120.0, 120.0)
     assert hidden == {"s1", "s3"}
+
+
+def test_elapsed_dwell_fn_charges_only_the_rest_of_the_current_hold():
+    import bus_eta as be
+    fn = be.elapsed_dwell_fn(lambda r, s, w: 300.0 if s == "A" else 10.0, "A", 200.0, 1000.0)
+    assert fn("74", "A", 1000.0) == 100.0            # 300 typical, 200 already sat
+    assert fn("74", "A", 1000.0 + 1500) == 300.0     # same stop a lap later: full hold
+    assert fn("74", "B", 1000.0) == 10.0             # other stops untouched
+    long_wait = be.elapsed_dwell_fn(lambda r, s, w: 300.0, "A", 900.0, 1000.0)
+    assert long_wait("74", "A", 1000.0) == be.TYPICAL_DWELL_S  # overdue: still a normal stop's dwell
+    short = be.elapsed_dwell_fn(lambda r, s, w: 5.0, "A", 1.0, 1000.0)
+    assert short("74", "A", 1000.0) == 5.0           # never raised above the stop's own dwell
+    base = lambda r, s, w: 1.0  # noqa: E731
+    assert be.elapsed_dwell_fn(base, None, 50.0, 1000.0) is base

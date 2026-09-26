@@ -16583,6 +16583,30 @@ _bus_eta_history_at: float = 0.0
 # post-6PM route skips would reappear in the feed for that minute and vanish again.
 _route_change_block_memory: Dict[str, Tuple[str, float]] = {}
 _ROUTE_CHANGE_BLOCK_MEMORY_S = 300.0
+# Routes (by TransLoc name prefix, since route ids get renumbered) predicted with driving-only
+# hops + per-stop dwell history instead of arrival->arrival hops. For routes with NO block
+# package: nothing else tells the engine where their buses hold. Purple stages at different
+# stops by time of day (Fontaine mornings, the hospital later), 2-6 min at a time, and those
+# holds never showed up in arrival->arrival history (see trip_planner_history.build_drive_and_dwell_samples).
+BUS_ETA_DWELL_MODE_ROUTE_PREFIXES = tuple(
+    p.strip() for p in os.getenv("BUS_ETA_DWELL_MODE_ROUTE_PREFIXES", "Purple Line").split(",") if p.strip()
+)
+# "vehicle|route" -> (stop id, since epoch, last seen epoch): the stop a dwell-mode bus is sitting at and since when,
+# so its remaining dwell is charged instead of the full typical one (bus_eta.elapsed_dwell_fn). A gap longer than
+# _BUS_ETA_STOP_ZONE_MAX_GAP_S between computations means we don't know how long it has been there: start over.
+_bus_eta_stop_zone: Dict[str, Tuple[str, float, float]] = {}
+_BUS_ETA_STOP_ZONE_MAX_GAP_S = 90.0
+
+
+def _bus_eta_stop_zone_elapsed(key: str, stop_id: Optional[str], now_ts: float) -> float:
+    """Record where a bus is sitting now; seconds it has been sitting there (0 if not at a stop)."""
+    prev = _bus_eta_stop_zone.get(key)
+    if stop_id is None:
+        _bus_eta_stop_zone.pop(key, None)
+        return 0.0
+    since = prev[1] if prev and prev[0] == stop_id and now_ts - prev[2] <= _BUS_ETA_STOP_ZONE_MAX_GAP_S else now_ts
+    _bus_eta_stop_zone[key] = (stop_id, since, now_ts)
+    return now_ts - since
 
 
 def _smooth_bus_eta_seconds(key: Tuple[str, str, str], now_ts: float, raw_seconds: float) -> float:
@@ -16619,11 +16643,27 @@ async def _compute_bus_eta_arrivals() -> Dict[str, Any]:
             hop_time_fn = hop_model.lookup
         except Exception as exc:
             print(f"[bus-eta] hop-time model unavailable, using flat estimate: {exc}")
+    dwell_mode_route_ids = {
+        rid for rid, line in lines_by_id.items()
+        if BUS_ETA_DWELL_MODE_ROUTE_PREFIXES and (line.name or "").startswith(BUS_ETA_DWELL_MODE_ROUTE_PREFIXES)
+    }
+    drive_model = dwell_model = None
+    if dwell_mode_route_ids and headway_storage is not None:
+        try:
+            # Daily rebuild scans 60 days of events: keep it off the event loop.
+            drive_model, dwell_model = await asyncio.to_thread(
+                trip_planner_history.load_drive_dwell_models,
+                headway_storage, datetime.now(ZoneInfo("America/New_York")),
+            )
+        except Exception as exc:
+            print(f"[bus-eta] drive/dwell model unavailable, dwell-mode routes use hop history: {exc}")
 
     when_ts = time.time()
     async with state.lock:
         vehicles_by_route = {rid: dict(vehs) for rid, vehs in state.vehicles_by_route.items()}
     vehicle_block_windows = _vehicle_block_windows()
+    for zone_key in [k for k, z in _bus_eta_stop_zone.items() if when_ts - z[2] > 3600]:
+        del _bus_eta_stop_zone[zone_key]
 
     global _bus_eta_history_at
     if when_ts - _bus_eta_history_at > _BUS_ETA_SMOOTH_MAX_GAP_S:
@@ -16671,9 +16711,17 @@ async def _compute_bus_eta_arrivals() -> Dict[str, Any]:
                         _oos_handover[str(vid)] = (block_id, route_id, oos_plan[1])
                     elif bus_eta.out_of_service_finished(oos_phase, oos_key in _oos_run_seen, when_ts, oos_plan[1]):
                         continue  # past its cut-off, heading to the lot / becoming Night Pilot: serves nothing more
-            def _estimate(target_stop, _line=line, _veh=veh, _ema=ema_mps, _block=block_id):
+            veh_hop_fn, veh_dwell_fn = hop_time_fn, None
+            if route_id in dwell_mode_route_ids and drive_model is not None and dwell_model is not None:
+                at_stop = bus_eta.stop_zone_at(line, veh.lat, veh.lon)
+                elapsed = _bus_eta_stop_zone_elapsed(f"{vid}|{route_id}", at_stop, when_ts)
+                veh_hop_fn = drive_model.lookup
+                veh_dwell_fn = bus_eta.elapsed_dwell_fn(dwell_model.lookup, at_stop, elapsed, when_ts)
+
+            def _estimate(target_stop, _line=line, _veh=veh, _ema=ema_mps, _block=block_id, _hop=veh_hop_fn, _dwell=veh_dwell_fn):
                 return bus_eta.estimate_stop_eta_s(
-                    _line, _veh.s_pos, _ema, target_stop, hop_time_fn, when_ts,
+                    _line, _veh.s_pos, _ema, target_stop, _hop, when_ts,
+                    dwell_fn=_dwell,
                     vehicle_lat=_veh.lat, vehicle_lon=_veh.lon,
                     vehicle_dir_sign=getattr(_veh, "dir_sign", 0),
                     vehicle_block_id=_block,

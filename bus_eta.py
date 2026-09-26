@@ -467,6 +467,38 @@ def _next_stop_index(stops: List[Stop], vehicle_s_pos: float, route_length_m: fl
     return best_idx
 
 
+def stop_zone_at(line: Line, lat: float, lon: float) -> Optional[str]:
+    """Id of the stop on `line` the vehicle is sitting at (within DWELL_DETECTION_RADIUS_M), if any."""
+    for s in line.stops:
+        if haversine_m(lat, lon, s.lat, s.lon) <= DWELL_DETECTION_RADIUS_M:
+            return str(s.id)
+    return None
+
+
+# Only the CURRENT visit to the stop the bus is sitting at has partly elapsed; a lookup this
+# far past `now` is the same stop a lap later and gets its full dwell.
+ELAPSED_DWELL_HORIZON_S = 120.0
+
+
+def elapsed_dwell_fn(
+    dwell_fn: Callable[[str, str, float], float], stop_id: Optional[str], elapsed_s: float, now: float
+) -> Callable[[str, str, float], float]:
+    """dwell_fn, minus the time a bus has already sat at `stop_id`. estimate_stop_eta_s charges
+    the full typical dwell at the stop a bus is dwelling at; for a staged bus (Purple sits
+    2-6 min at Fontaine / the hospital, by time of day) that keeps its ETAs minutes too late
+    until it pulls out. Never cut below a normal stop's dwell (TYPICAL_DWELL_S)."""
+    if stop_id is None or elapsed_s <= 0:
+        return dwell_fn
+
+    def fn(route_id: str, s_id: str, when: float) -> float:
+        d = dwell_fn(route_id, s_id, when)
+        if str(s_id) == stop_id and when - now <= ELAPSED_DWELL_HORIZON_S:
+            return min(d, max(TYPICAL_DWELL_S, d - elapsed_s))
+        return d
+
+    return fn
+
+
 def estimate_stop_eta_s(
     line: Line,
     vehicle_s_pos: float,
