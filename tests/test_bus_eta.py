@@ -885,3 +885,12 @@ def test_elapsed_dwell_fn_charges_only_the_rest_of_the_current_hold():
     assert short("74", "A", 1000.0) == 5.0           # never raised above the stop's own dwell
     base = lambda r, s, w: 1.0  # noqa: E731
     assert be.elapsed_dwell_fn(base, None, 50.0, 1000.0) is base
+
+
+def test_post_hold_hop_cap_is_only_raised_by_slower_drive_history():
+    import bus_eta as be
+    cap = 861 / be.TYPICAL_BUS_SPEED_MPS + be.POST_HOLD_HOP_ALLOWANCE_S
+    assert be._post_hold_hop_cap_s("58", "726", "727", 861, 0.0, None) == cap
+    assert be._post_hold_hop_cap_s("58", "726", "727", 861, 0.0, lambda *a: 360.0) == 360.0   # slow street: real drive
+    assert be._post_hold_hop_cap_s("58", "726", "727", 861, 0.0, lambda *a: 60.0) == cap      # faster history never lowers it
+    assert be._post_hold_hop_cap_s("58", "726", "727", 861, 0.0, lambda *a: None) == cap      # no history: typical speed
