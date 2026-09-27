@@ -56,6 +56,13 @@
       if ('serviceWorker' in navigator) {
         navigator.serviceWorker.register('/service-worker.js').catch(() => {});
       }
+      // Chrome can fire this before the map modules load; keep it for the
+      // "Install app" button in ui/map-controls.js.
+      window.addEventListener('beforeinstallprompt', (e) => {
+        e.preventDefault();
+        window.__lmInstallPrompt = e;
+        window.dispatchEvent(new Event('lm-installable'));
+      });
     </script>
   </body>
 </html>
