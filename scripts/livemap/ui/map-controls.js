@@ -26,10 +26,6 @@ const ICONS = {
     '<svg viewBox="0 0 16 16" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><circle cx="8" cy="8" r="2.3"/><path d="M8 1v2.6M8 12.4V15M1 8h2.6M12.4 8H15"/></svg>',
   navigate:
     '<svg viewBox="0 0 16 16" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round" stroke-linecap="round"><path d="M8 1.4 2.7 14.3l5.3-3 5.3 3z"/></svg>',
-  install:
-    '<svg viewBox="0 0 16 16" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M8 1.8v8.4M4.6 7l3.4 3.4L11.4 7M2.5 11.5v1.6c0 .6.5 1.1 1.1 1.1h8.8c.6 0 1.1-.5 1.1-1.1v-1.6"/></svg>',
-  share:
-    '<svg viewBox="0 0 16 16" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-2px"><path d="M8 1.5v8.5M5.2 4.3 8 1.5l2.8 2.8M5 6.5H3.8v8h8.4v-8H11"/></svg>',
 };
 
 /** The service-alert bell (scripts/push-notifications.js) is a classic script
@@ -45,19 +41,6 @@ function installPushBell() {
   document.head.appendChild(s);
 }
 
-/** Already running as the installed app (Android/desktop standalone, or an
- *  iOS Home Screen web app)? */
-function isInstalledApp() {
-  return window.matchMedia?.('(display-mode: standalone)').matches || navigator.standalone === true;
-}
-
-/** iOS has no install prompt API: "Add to Home Screen" is only in the Share
- *  sheet, so the button shows instructions instead. iPadOS reports as a Mac. */
-function isIOS() {
-  return /iPad|iPhone|iPod/.test(navigator.userAgent) ||
-    (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
-}
-
 let userLocationMarker = null; // shared across mounts -- there's only ever one map
 
 export class MapControls {
@@ -65,7 +48,6 @@ export class MapControls {
     const el = document.createElement('div');
     el.className = 'map-ctrl-cluster';
     el.innerHTML = `
-      <button type="button" class="map-ctrl-btn map-ctrl-install" title="Install app" aria-label="Install app" hidden>${ICONS.install}</button>
       <span class="map-ctrl-push-slot" data-push-bell-slot></span>
       <button type="button" class="map-ctrl-btn map-ctrl-navhere" aria-label="Navigate here" hidden>
         ${ICONS.navigate}<span class="map-ctrl-label">Navigate here</span>
@@ -87,66 +69,7 @@ export class MapControls {
 
     (parent || document.body).appendChild(el);
     installPushBell();
-    this._setupInstall();
     return this;
-  }
-
-  /** "Install app": Chrome/Edge/Android get the browser's own install prompt
-   *  (captured early in livemap.html as window.__lmInstallPrompt); iOS gets a
-   *  "Share -> Add to Home Screen" hint. Hidden when already installed or when
-   *  /livemap is iframed (dispatcher embed). */
-  _setupInstall() {
-    const btn = this._el.querySelector('.map-ctrl-install');
-    if (isInstalledApp() || window.self !== window.top) return;
-
-    const showIfPromptable = () => { if (window.__lmInstallPrompt) btn.hidden = false; };
-    if (isIOS()) {
-      btn.hidden = false;
-    } else {
-      showIfPromptable();
-      window.addEventListener('lm-installable', showIfPromptable);
-    }
-    window.addEventListener('appinstalled', () => {
-      btn.hidden = true;
-      window.__lmInstallPrompt = null;
-    });
-
-    btn.addEventListener('click', async () => {
-      const prompt = window.__lmInstallPrompt;
-      if (prompt) {
-        prompt.prompt();
-        const { outcome } = await prompt.userChoice;
-        // A prompt event can only be used once; Chrome fires a fresh one later
-        // if the user dismissed it.
-        window.__lmInstallPrompt = null;
-        if (outcome === 'accepted') btn.hidden = true;
-        else showIfPromptable();
-        return;
-      }
-      if (isIOS()) this._toggleIOSInstallHint();
-    });
-  }
-
-  _toggleIOSInstallHint() {
-    let hint = this._el.querySelector('.map-ctrl-install-hint');
-    if (hint) {
-      hint.remove();
-      return;
-    }
-    hint = document.createElement('div');
-    hint.className = 'map-ctrl-install-hint';
-    hint.setAttribute('role', 'dialog');
-    hint.setAttribute('aria-label', 'Install app');
-    hint.innerHTML = `
-      <button type="button" class="map-ctrl-install-hint-close" aria-label="Close">&times;</button>
-      <div class="map-ctrl-install-hint-title">Install UVATransit Map</div>
-      <ol>
-        <li>Tap the Share button ${ICONS.share} in Safari's toolbar</li>
-        <li>Choose <strong>Add to Home Screen</strong></li>
-        <li>Open the map from your Home Screen, then tap the bell for service alerts</li>
-      </ol>`;
-    hint.querySelector('.map-ctrl-install-hint-close').addEventListener('click', () => hint.remove());
-    this._el.appendChild(hint);
   }
 
   /** Where TripPlannerPanel should mount its own toggle button so it renders as
