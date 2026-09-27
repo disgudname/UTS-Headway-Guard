@@ -36,6 +36,7 @@ Machine tags: `[dev]` = Windows dev machine · `[home]` = home server (Windows b
 - **Hops it raises** (everything else keeps the old cap): Silver Pinn Hall -> Madison (all hours, up to 410 s); **Orange Loop Pinn Hall -> 14th St @ Wertland** (evenings incl. weekends, up to 197 s vs 124 s); Gold evening Chapel -> Newcomb (up to 110 vs 74 s); Green Loop Chapel -> Rugby (148 vs 136 s).
 - **WATCH:** the Orange Loop Pinn Hall hop is the one from the 09-20/09-23 "DON'T make the layover cap time-aware" entries. That entry measured real Sunday driving at ~214 s there, so raising toward it should be right, and the 09-23 replay found the Sunday 17:00/20:00 runs BETTER without the cap. But no weekend-evening log was replayable (the user chose to deploy now over waiting for Sunday). **Check Sun 09-27 17:00 + 20:00 health runs for Orange Loop (route 55).** If its >2 min late share jumps (09-20 failure: 23% -> 41%), roll back: `fly deploy --image` to v2012's image, or revert `5f19ab1`.
 - ↳ [home] 2026-09-27: Sun 12:00 health run: Orange (55) 17.1% >2 min late (median +50 s; 10+ min out +107 s), Gold/Green clean; 07:30 Orange was fine (-59 s). Checked against the cap change: Orange stops the changed Pinn Hall->Wertland hop can't touch are late too (Pinn Hall itself +53 s / 17%, Brandon +47 s), the worst stop is the Library (+94 s / 38%), and last Sunday's 12:00 run on pre-v2013 code looked the same (16.5% late, +96 s at 10+ min). So it is the known Sunday-midday Library-layover swing, not v2013 (the hop may add a few tens of seconds downstream of Pinn Hall at most; max possible raise is 73 s). Evening 17:00/20:00 check still stands.
+- ↳ [home] 2026-09-27: at the user's request `ETA-Health-Weekend-Noon` now runs Sat+Sun **11:30 for 60 min** (`eta_health_check.py 60 15`, task time limit raised 1 h -> 2 h), so the log (`<date>-1130.jsonl`) covers the 12:00 Library departure from both sides. Today's 12:00 log showed Orange bus 34 [05] reaching the Library at 12:05 (5 min behind), leaving after 15 s, back on schedule by 12:30; ETAs made 12:00-12:05 were +93 s / 36% late and self-corrected by 12:20. What made it late happened before 12:00 and wasn't logged -- the user has a suspicion; the 11:30 start is to catch it.
 
 ### 2026-09-26 · [home] · Purple ETAs: staging holds were invisible to history; fix on branch `claude/purple-staging-dwell` (NOT merged, NOT deployed)
 - **Symptom:** Purple (74 Fontaine, 73 Scott Stadium & Fontaine) misses the 90 s limit on every weekday run (110-150 s). Almost all of it is at Cabell Hall and 400 Fontaine, the stops AFTER the staging spots.
@@ -589,7 +590,7 @@ share is a scorer artifact until proven otherwise; (3) early misses are the less
   too little data — that's not a breach). Exit code 0 clean/inconclusive, 2 breach, 1 check couldn't run.
   Thresholds are the constants at the top of the script (the §7 numbers) — edit them there once weekday data exists.
 - Scheduled via Windows Task Scheduler on the home server (local Eastern time, `ETA-Health-*` tasks):
-  Mon–Fri 05:00, 08:30, 12:30, 17:00, 19:30 · Sat+Sun 07:30, 12:00, 14:00, 17:00, 20:00 ·
+  Mon–Fri 05:00, 08:30, 12:30, 17:00, 19:30 · Sat+Sun 07:30, 11:30 (60 min, to 12:30), 14:00, 17:00, 20:00 ·
   every day 00:00 and 01:30. (Updated 2026-09-19 at the user's request; the earlier Saturday-only 12:00 task was
   folded into the Sat+Sun noon task; the Sunday-only 14:00 became Sat+Sun. Night Pilot runs until 2 AM every night while classes are in session, so the overnight runs should catch it.) They run under
   `pythonw.exe` from the repo root, only if the machine is awake/online (missed runs start when available).
@@ -629,7 +630,7 @@ notification through this service (ntfy).
 
 **Decisions (user, 2026-09-19) — these settle the earlier open questions:**
 - **Frequency: a push after every run.** The schedule above is 7 runs/day (Mon–Fri 05:00, 08:30, 12:30, 17:00, 19:30
-  plus 00:00 and 01:30; Sat+Sun 07:30, 12:00, 14:00, 17:00, 20:00 plus 00:00 and 01:30), so 7 messages a day. A one-line
+  plus 00:00 and 01:30; Sat+Sun 07:30, 11:30 (60 min), 14:00, 17:00, 20:00 plus 00:00 and 01:30), so 7 messages a day. A one-line
   "all clear" is fine and wanted; make a breach message stand out (e.g. higher ntfy priority or a clear "PROBLEM" prefix).
 - **Claude usage cost: not a concern.** No need to optimize the prompt for cost, but keep it focused so runs finish quickly.
 - **Where it runs: `[home]`** (owns Task Scheduler, always on). Headless runs need `claude.exe` reachable from the scheduled

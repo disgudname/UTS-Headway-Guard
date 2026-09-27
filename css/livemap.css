@@ -1037,6 +1037,61 @@ body {
   display: none !important;
 }
 
+/* "Install app" (map-controls.js _setupInstall). Icon-only circle; hidden
+   unless the browser can install or it's iOS (which gets the hint card). */
+.map-ctrl-install {
+  padding: 0;
+  width: 40px;
+}
+.map-ctrl-install-hint {
+  /* Inside .map-ctrl-cluster, so it rides along when the cluster slides clear
+     of the right column. */
+  position: absolute;
+  right: 0;
+  bottom: 52px;
+  z-index: 1;
+  width: min(300px, calc(100vw - 32px));
+  padding: 14px 16px;
+  border: 1px solid var(--panel-border);
+  border-radius: var(--radius-card);
+  background: var(--panel-surface);
+  box-shadow: var(--panel-shadow);
+  backdrop-filter: var(--panel-blur);
+  color: var(--panel-fg);
+  font-size: var(--fs-md);
+  line-height: 1.45;
+}
+.map-ctrl-install-hint-title {
+  margin: 0 24px 6px 0;
+  color: var(--panel-heading);
+  font-weight: 700;
+  font-size: var(--fs-lg);
+}
+.map-ctrl-install-hint ol {
+  margin: 0;
+  padding-left: 20px;
+}
+.map-ctrl-install-hint li + li {
+  margin-top: 4px;
+}
+.map-ctrl-install-hint-close {
+  position: absolute;
+  top: 6px;
+  right: 8px;
+  width: 28px;
+  height: 28px;
+  border: none;
+  border-radius: var(--radius-pill);
+  background: transparent;
+  color: var(--panel-muted);
+  font-size: 20px;
+  line-height: 1;
+  cursor: pointer;
+}
+.map-ctrl-install-hint-close:hover {
+  background: var(--hover-bg);
+}
+
 .map-ctrl-locate,
 .map-ctrl-zoom-in,
 .map-ctrl-zoom-out {
