@@ -40,6 +40,7 @@ from headway_storage import HeadwayStorage, parse_iso8601_utc, _isoformat as _he
 from fullbus_storage import FullBusStorage
 from w2w_schedule import W2WScheduleLog
 from slides_mirror import SlidesMirror
+from service_schedule import ServiceSchedule, fetch_tables as fetch_service_schedule_tables
 from fullbus_tracker import FullBusTracker
 from headway_tracker import (
     HeadwayTracker,
@@ -131,6 +132,8 @@ OB_SLIDES_DECK_URL = (
     or "https://docs.google.com/presentation/d/e/2PACX-1vRvM7fr86mNMlGclURZy3E5_ByTRMrjfnThhFvNXuvuzNSXzqZuCi2a-2HvS722PSry2f8KkYrUZvat/pub"
 ).strip()
 OB_SLIDES_POLL_S = int(os.getenv("OB_SLIDES_POLL_S", "900"))
+# parking.virginia.edu/serviceschedule pull (headless Chromium past Cloudflare; see service_schedule.py).
+SERVICE_SCHEDULE_POLL_S = int(os.getenv("SERVICE_SCHEDULE_POLL_S", "3600"))
 W2W_POSITION_RE = re.compile(r"\[(\d{1,2})(?:\s*(AM|PM))?\]", re.IGNORECASE)
 AM_PM_BLOCKS: set[str] = {f"{number:02d}" for number in range(20, 27)}
 # ViriCiti EV telemetry (optional - disabled if VIRICITI_API_KEY not set)
@@ -950,6 +953,7 @@ EXPECTED_ENV_KEYS = sorted(
         "VEH_LOG_RETENTION_MS",
         "VEH_REFRESH_S",
         "W2W_ASSIGNMENT_TTL_S",
+        "SERVICE_SCHEDULE_POLL_S",
         "W2W_ICAL_POLL_S",
         "W2W_ICAL_URL",
         "W2W_KEY",
@@ -6852,6 +6856,27 @@ async def startup():
             await asyncio.sleep(max(60, OB_SLIDES_POLL_S))
 
     asyncio.create_task(slides_mirror_poller())
+
+    # UTS service level calendar (parking.virginia.edu/serviceschedule)
+    service_schedule = ServiceSchedule(PRIMARY_DATA_DIR)
+    app.state.service_schedule = service_schedule
+
+    async def service_schedule_poller():
+        await asyncio.sleep(30)
+        while True:
+            try:
+                tables = await fetch_service_schedule_tables(channel=os.getenv("PULSEPOINT_BROWSER_CHANNEL") or None)
+                changed = service_schedule.apply(tables, datetime.now(ZoneInfo("America/New_York")).date())
+                if service_schedule.last_error:
+                    print(f"[service-schedule] bad pull, keeping the last good copy: {service_schedule.last_error}")
+                elif changed:
+                    print(f"[service-schedule] {len(changed)} day(s) changed")
+            except Exception as exc:
+                service_schedule.last_error = f"{exc!r}"[:300]
+                print(f"[service-schedule] pull failed: {service_schedule.last_error}")
+            await asyncio.sleep(max(300, SERVICE_SCHEDULE_POLL_S))
+
+    asyncio.create_task(service_schedule_poller())
 
 # ---------------------------
 # REST: Routes
@@ -18452,6 +18477,22 @@ async def ob_slides_file(kind: str, name: str):
         "Cache-Control": "public, max-age=31536000, immutable",
         "Content-Security-Policy": "default-src 'none'; img-src 'self'; style-src 'unsafe-inline'",
     })
+
+# UTS service levels by day. Public: it's straight off a public page.
+@app.get("/v1/service-schedule")
+async def service_schedule_status(start: Optional[str] = None, days: int = 14):
+    sched = getattr(app.state, "service_schedule", None)
+    if sched is None:
+        raise HTTPException(503, "service schedule not started")
+    # Same service day as the OB bus board: it rolls over at 02:30, so late-night buses count toward the evening before.
+    now = datetime.now(ZoneInfo("America/New_York"))
+    service_day = (now - timedelta(hours=2, minutes=30)).date()
+    try:
+        first = date.fromisoformat(start) if start else service_day
+    except ValueError:
+        raise HTTPException(400, "start must be YYYY-MM-DD")
+    return JSONResponse(sched.status(service_day, first, min(max(days, 1), 120)), headers={"Cache-Control": "no-store"})
+
 
 # ---------------------------
 # REPLAY PAGE

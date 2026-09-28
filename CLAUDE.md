@@ -393,6 +393,7 @@ Admin-managed alerts (`/v1/system-notices` CRUD, edited at `/system-notices`). `
 - `GET /api/mileage` - Vehicle mileage tracking
 - `GET /api/pulsepoint` - Emergency incidents
 - `GET /api/amtrak` - Train positions
+- `GET /v1/service-schedule?start=&days=` - UTS service level per day (Full/Recess/No Service, per UVA Transit / UVA Ride / Night Pilot / UVA FlexRide + notes), scraped hourly from parking.virginia.edu/serviceschedule via headless Chromium past Cloudflare (`service_schedule.py`)
 - `GET /api/rss/stop_arrivals/{code}` / `GET /api/cap/stop_arrivals/{code}` - RSS 2.0 / CAP 1.2 arrival feeds for signage, keyed by a feed code managed at `/feed-codes`
 - `GET /api/rss/stop_arrivals?stopID=` / `GET /api/cap/stop_arrivals?stopID=` - same feeds, legacy raw-stop-ID form
 - `GET /v1/transloc/stop_arrivals/{code}` - raw TransLoc-shaped JSON arrivals (same shape as `/v1/transloc/stop_arrivals`), keyed by a feed code instead of raw stop IDs; used by `/countdown` and the standalone Countdown Clock Pi driver so a code repoint at `/feed-codes` takes effect without redeploying the client

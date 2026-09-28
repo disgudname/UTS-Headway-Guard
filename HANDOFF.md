@@ -27,6 +27,12 @@ Machine tags: `[dev]` = Windows dev machine · `[home]` = home server (Windows b
 
 ## 1. Message board (newest first)
 
+### 2026-09-28 · [home] · UTS service-level calendar pulled via headless Chromium (NOT deployed yet)
+- **What:** `service_schedule.py` loads `parking.virginia.edu/serviceschedule` in the image's Playwright Chromium (the page is behind a Cloudflare challenge that 403s httpx/curl; Chromium passes in ~1-2 s, **tested from the prod Fly machine too**). Hourly (`SERVICE_SCHEDULE_POLL_S=3600`), merged by date into `/data/service_schedule.json` (past days kept ~400 d as history).
+- **Endpoint:** `GET /v1/service-schedule?start=&days=` (public, default 14 days) -> `{today, days:[{date, label, services:{"UVA Transit","UVA Ride","Night Pilot","UVA FlexRide"}, notes}], fetched_at, last_error}`. `today` uses the 02:30 service-day rollover (same as the OB bus board).
+- **Page quirks:** the schedule is split across **two tables** (headers appear twice); columns are kept by header text, not position; dates have no year (nearest year to today). "UVA Ride" holds hours ("10:00 PM - 5:00 AM"), not a level. A bad pull keeps the last good copy.
+- Verified locally end-to-end (34 days, Fall Break No/Recess Service Oct 3-6 picked up); `tests/test_service_schedule.py` 4 pass. No consumer page uses it yet.
+
 ### 2026-09-28 · [home] · /weather signage widget DEPLOYED (`bf830b3`, Fly v2023)
 - **What:** a fixed **1044×297** weather box for the wall signage (replaces a third-party "Base Weather" widget; the user wanted it prettier, NOT a visual match). UVA navy/orange, color SVG icons, top row = current temp/condition + today's H/L, bottom = +1/+6/+12 hr cards + tomorrow + day-after high/low. Scales to fit if the box isn't exactly that size.
 - **How:** 100% client-side against `api.weather.gov` (CORS is open; no backend code besides the route). `/points` → hourly + daily forecast + nearest station's latest obs (KCHO). Current = obs if < 2 h old, else this hour's forecast. Rain % only shown when ≥ 20%. 10-min refresh; on failure it keeps the last data and says "NWS unavailable".
