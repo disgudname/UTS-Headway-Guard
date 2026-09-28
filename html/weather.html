@@ -12,8 +12,7 @@
      whole widget is scaled to fit (see fit()). UVA navy + orange to sit next to
      the rest of the signage. */
   :root {
-    --bg: #232d4b;
-    --bg2: #1a2240;
+    --bg: #24234b; /* exact match to /clockdisplay; left + bottom edges must stay this */
     --card: rgba(255, 255, 255, 0.07);
     --card-edge: rgba(255, 255, 255, 0.10);
     --text: #ffffff;
@@ -29,7 +28,9 @@
   #wx {
     width: 1044px; height: 297px; box-sizing: border-box; padding: 10px 12px 12px;
     display: grid; grid-template-rows: 128px 1fr; gap: 10px;
-    background: radial-gradient(120% 140% at 15% 0%, #2f3b63 0%, var(--bg) 45%, var(--bg2) 100%);
+    /* Glow is confined to the top-right (ends 626px left / 267px down), so the
+       left and bottom edges are pure --bg. */
+    background: radial-gradient(60% 90% at 100% 0%, rgba(255,255,255,0.07), rgba(255,255,255,0) 100%), var(--bg);
     transform-origin: 0 0; position: absolute; top: 0; left: 0;
   }
   svg { display: block; overflow: visible; }
