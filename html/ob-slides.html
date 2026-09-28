@@ -1,0 +1,117 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>OB + Slides</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        html, body { height: 100%; overflow: hidden; background: #000; }
+        /* Every layer is always laid out (never display:none) so /ob can still measure its columns while off-screen. */
+        .layer {
+            position: absolute;
+            inset: 0;
+            width: 100%;
+            height: 100%;
+            border: 0;
+            background: #000;
+            transform: translateX(100%);
+        }
+        .layer.on { transform: translateX(0); }
+        .layer.gone { transform: translateX(-100%); }
+        .layer.moving { transition: transform 0.9s ease-in-out; }
+    </style>
+</head>
+<body>
+    <iframe id="ob" class="layer on" title="OB board"></iframe>
+    <iframe class="layer slide" title="Slide"></iframe>
+    <iframe class="layer slide" title="Slide"></iframe>
+    <script>
+        // Loop: the /ob board, then every slide of the mirrored Google Slides deck (see slides_mirror.py), sliding right to left.
+        // Query string: ?pass= (passed to /ob for kiosks), ?slide= seconds per slide (default 15),
+        // ?ob= minimum seconds on the OB board (default 15; it stays longer if a column pages, 10 s per page).
+        const params = new URLSearchParams(location.search);
+        const seconds = (name, fallback) => {
+            const value = parseFloat(params.get(name));
+            return (value > 0 ? value : fallback) * 1000;
+        };
+        const SLIDE_MS = seconds("slide", 15);
+        const OB_MIN_MS = seconds("ob", 15);
+        const OB_PAGE_MS = 10 * 1000;  // /ob's PAGE_MS
+        const MOVE_MS = 900;
+        const LOAD_TIMEOUT_MS = 20 * 1000;
+
+        const ob = document.getElementById("ob");
+        const slideFrames = [...document.querySelectorAll(".slide")];
+        const obParams = new URLSearchParams();
+        if (params.get("pass")) obParams.set("pass", params.get("pass"));
+        ob.src = "/ob" + (obParams.toString() ? "?" + obParams : "");
+
+        const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
+        let current = ob;
+        let slides = [];
+
+        function load(frame, url) {
+            return new Promise(resolve => {
+                const done = () => { clearTimeout(timer); frame.onload = null; resolve(); };
+                const timer = setTimeout(done, LOAD_TIMEOUT_MS);
+                frame.onload = done;
+                frame.src = url;
+            });
+        }
+
+        async function slideTo(next) {
+            if (next === current) return;
+            const prev = current;
+            next.classList.remove("moving", "on", "gone");  // park it off the right edge, without animating
+            void next.offsetWidth;
+            next.classList.add("moving", "on");
+            prev.classList.add("moving", "gone");
+            prev.classList.remove("on");
+            current = next;
+            await sleep(MOVE_MS);
+            prev.classList.remove("moving", "gone");  // back to the right edge, ready for next time
+        }
+
+        // Longest page count of any /ob column ("2/3" markers), so every page gets shown once.
+        function obDuration() {
+            let pages = 1;
+            try {
+                ob.contentDocument.querySelectorAll(".pageno").forEach(span => {
+                    const total = parseInt(span.textContent.split("/")[1], 10);
+                    if (total > pages) pages = total;
+                });
+            } catch (e) { /* not loaded yet */ }
+            return Math.max(OB_MIN_MS, pages > 1 ? pages * OB_PAGE_MS : 0);
+        }
+
+        async function refreshSlides() {
+            try {
+                const resp = await fetch("/v1/ob-slides", { cache: "no-store" });
+                if (resp.ok) slides = (await resp.json()).slides || [];
+            } catch (e) {
+                console.error("slide list fetch failed:", e);  // keep the last list
+            }
+        }
+
+        (async () => {
+            while (true) {
+                await refreshSlides();
+                await sleep(obDuration());
+                let spare = 0;
+                let pending = slides.length ? load(slideFrames[spare], slides[0]) : null;
+                for (let i = 0; i < slides.length; i++) {
+                    await pending;
+                    const frame = slideFrames[spare];
+                    await slideTo(frame);
+                    spare = 1 - spare;
+                    // Preload the next slide into the other frame while this one is up.
+                    pending = i + 1 < slides.length ? load(slideFrames[spare], slides[i + 1]) : null;
+                    await sleep(SLIDE_MS - MOVE_MS);
+                }
+                await slideTo(ob);
+            }
+        })();
+    </script>
+</body>
+</html>

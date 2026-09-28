@@ -39,6 +39,7 @@ from Crypto.Util.Padding import unpad
 from headway_storage import HeadwayStorage, parse_iso8601_utc, _isoformat as _headway_isoformat
 from fullbus_storage import FullBusStorage
 from w2w_schedule import W2WScheduleLog
+from slides_mirror import SlidesMirror
 from fullbus_tracker import FullBusTracker
 from headway_tracker import (
     HeadwayTracker,
@@ -124,6 +125,12 @@ W2W_ASSIGNMENT_TTL_S = int(os.getenv("W2W_ASSIGNMENT_TTL_S", "45"))
 # Secret iCal address of the W2W "Complete Schedule" Google Calendar. Unlike the API it includes UNASSIGNED shifts.
 W2W_ICAL_URL = (os.getenv("W2W_ICAL_URL") or "").strip()
 W2W_ICAL_POLL_S = int(os.getenv("W2W_ICAL_POLL_S", "300"))
+# Published Google Slides deck mirrored for /ob-slides (see slides_mirror.py). Must be a /pub link.
+OB_SLIDES_DECK_URL = (
+    os.getenv("OB_SLIDES_DECK_URL")
+    or "https://docs.google.com/presentation/d/e/2PACX-1vRvM7fr86mNMlGclURZy3E5_ByTRMrjfnThhFvNXuvuzNSXzqZuCi2a-2HvS722PSry2f8KkYrUZvat/pub"
+).strip()
+OB_SLIDES_POLL_S = int(os.getenv("OB_SLIDES_POLL_S", "900"))
 W2W_POSITION_RE = re.compile(r"\[(\d{1,2})(?:\s*(AM|PM))?\]", re.IGNORECASE)
 AM_PM_BLOCKS: set[str] = {f"{number:02d}" for number in range(20, 27)}
 # ViriCiti EV telemetry (optional - disabled if VIRICITI_API_KEY not set)
@@ -2044,6 +2051,7 @@ CLOCKDISPLAY_HTML = _load_html("clockdisplay.html")
 SOCDISPLAY_HTML = _load_html("socdisplay.html")
 STATUSSIGNAGE_HTML = _load_html("statussignage.html")
 OB_HTML = _load_html("ob.html")
+OB_SLIDES_HTML = _load_html("ob-slides.html")
 BUS_TABLE_HTML = _load_html("buses.html")
 NOT_FOUND_HTML = _load_html("404.html")
 RADAR_HTML = _load_html("radar.html")
@@ -6825,6 +6833,24 @@ async def startup():
             await asyncio.sleep(max(60, W2W_ICAL_POLL_S))
 
     asyncio.create_task(w2w_schedule_poller())
+
+    # Published Google Slides deck -> local copy for /ob-slides
+    slides_mirror = SlidesMirror(PRIMARY_DATA_DIR)
+    app.state.slides_mirror = slides_mirror
+
+    async def slides_mirror_poller():
+        if not OB_SLIDES_DECK_URL:
+            return
+        await asyncio.sleep(15)
+        while True:
+            changed = await asyncio.to_thread(slides_mirror.refresh, OB_SLIDES_DECK_URL)
+            if slides_mirror.last_error:
+                print(f"[ob-slides] pull failed, still serving the last good copy: {slides_mirror.last_error}")
+            elif changed:
+                print(f"[ob-slides] deck updated: {len(slides_mirror.manifest.get('slides') or [])} slides")
+            await asyncio.sleep(max(60, OB_SLIDES_POLL_S))
+
+    asyncio.create_task(slides_mirror_poller())
 
 # ---------------------------
 # REST: Routes
@@ -18393,6 +18419,34 @@ async def statussignage_page():
 @app.get("/ob")
 async def ob_page():
     return HTMLResponse(OB_HTML)
+
+
+@app.get("/ob-slides")
+async def ob_slides_page():
+    return HTMLResponse(OB_SLIDES_HTML)
+
+
+# The deck itself is published publicly by Google, so these are public too.
+@app.get("/v1/ob-slides")
+async def ob_slides_manifest():
+    mirror = getattr(app.state, "slides_mirror", None)
+    if mirror is None:
+        raise HTTPException(503, "slides mirror not started")
+    return JSONResponse(mirror.status(), headers={"Cache-Control": "no-store"})
+
+
+@app.get("/v1/ob-slides/{kind}/{name}")
+async def ob_slides_file(kind: str, name: str):
+    mirror = getattr(app.state, "slides_mirror", None)
+    path = mirror.path_for(kind, name) if mirror is not None and kind in ("slide", "img") else None
+    if path is None:
+        raise HTTPException(404, "not found")
+    # Names are content hashes, so a file never changes.
+    # The SVGs come from Google's page: don't let them run scripts or load anything but our saved pictures.
+    return FileResponse(path, headers={
+        "Cache-Control": "public, max-age=31536000, immutable",
+        "Content-Security-Policy": "default-src 'none'; img-src 'self'; style-src 'unsafe-inline'",
+    })
 
 # ---------------------------
 # REPLAY PAGE
