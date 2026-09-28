@@ -31,11 +31,23 @@
             flex: 1;
             display: grid;
             grid-template-columns: 1fr 1fr;
+            grid-template-rows: minmax(0, 1fr);
             min-height: 0;
         }
-        .side { padding: 0.6em 0.9em; overflow: hidden; }
+        .side {
+            display: flex;
+            flex-direction: column;
+            min-height: 0;
+            padding: 0.6em 0.9em;
+            overflow: hidden;
+        }
         .side + .side { border-left: 2px solid #24234b; }
         .side h2 { font-size: 1.15em; letter-spacing: 0.04em; }
+        .side h2 .pageno { float: right; font-size: 0.65em; font-weight: 400; color: #a0a0c0; }
+        /* The list is what gets fitted to the column: ended rows collapse, then text shrinks, then it pages. */
+        .list { flex: 1; min-height: 0; overflow: hidden; }
+        .list > h3:first-child { margin-top: 0.3em; }
+        .ended-summary { font-size: 0.8em; color: #a0a0c0; opacity: 0.6; padding: 0.3em 0; }
         .side .day { font-size: 0.75em; color: #a0a0c0; margin-bottom: 0.5em; }
         .side h3 {
             font-size: 0.7em;
@@ -88,7 +100,7 @@
         }
         .signin a { color: #f1f1f7; }
         @media (max-width: 700px) {
-            main { grid-template-columns: 1fr; }
+            main { grid-template-columns: 1fr; grid-template-rows: minmax(0, 1fr) minmax(0, 1fr); }
             .side + .side { border-left: 0; border-top: 2px solid #24234b; }
         }
     </style>
@@ -170,27 +182,92 @@
             return row;
         }
 
+        // Rows for one column, in display order. Ended rows: "all" shows them, "collapse" makes each group's ended rows
+        // one "+N ended" line, "drop" leaves them out (a group with only ended rows then disappears).
+        function listItems(side, cfg, now, ended) {
+            const items = [];
+            for (const [group, heading, emptyText] of cfg.groups) {
+                const shifts = side.shifts.filter(s => s.group === group);
+                const live = shifts.filter(s => new Date(s.end) > now);
+                const done = shifts.filter(s => new Date(s.end) <= now);
+                if (!shifts.length && !emptyText) continue;
+                if (shifts.length && !live.length && ended === "drop") continue;
+                const add = node => { node.dataset.heading = heading; items.push(node); };
+                add(el("h3", null, heading));
+                if (!shifts.length) {
+                    add(el("div", "empty", emptyText));
+                    continue;
+                }
+                live.forEach(s => add(shiftRow(s, now)));
+                if (ended === "collapse" && done.length) add(el("div", "ended-summary", "+" + done.length + " ended"));
+                else if (ended === "all") done.forEach(s => add(shiftRow(s, now)));
+            }
+            return items;
+        }
+
+        const fits = list => list.scrollHeight <= list.clientHeight + 1;
+
+        // Split items into pages that each fit the list. A page never ends on a heading, and a page that starts
+        // partway through a group repeats that group's heading with "(cont.)".
+        function paginate(list, items) {
+            const pages = [];
+            let page = [];
+            list.replaceChildren();
+            for (const item of items) {
+                list.append(item);
+                if (!page.length || fits(list)) {
+                    page.push(item);
+                    continue;
+                }
+                let carry = [];
+                if (page.length > 1 && page[page.length - 1].tagName === "H3") carry = [page.pop()];
+                else if (item.tagName !== "H3") carry = [el("h3", null, item.dataset.heading + " (cont.)")];
+                pages.push(page);
+                page = carry.concat(item);
+                list.replaceChildren(...page);
+            }
+            pages.push(page);
+            return pages;
+        }
+
+        const PAGE_MS = 10 * 1000;
+        const MIN_SCALE = 0.75;
+        const pageIndex = { bus: 0, ondemand: 0 };
+        const pageCount = { bus: 1, ondemand: 1 };
+
         function renderSide(id, now) {
             const box = document.getElementById(id);
             if (!box) return;
             const side = data && data[id];
             const cfg = SIDES[id];
-            box.replaceChildren(el("h2", null, cfg.title));
+            const title = el("h2", null, cfg.title);
+            box.replaceChildren(title);
             if (!side) return;
             const dayStart = new Date(side.day_start), dayEnd = new Date(side.day_end);
-            box.append(el("div", "day", dayLabel(dayStart) + " " + hhmm(dayStart) + " → " + dayLabel(dayEnd) + " " + hhmm(dayEnd)));
-            for (const [group, heading, emptyText] of cfg.groups) {
-                const shifts = side.shifts.filter(s => s.group === group);
-                if (!shifts.length && !emptyText) continue;
-                box.append(el("h3", null, heading));
-                if (!shifts.length) {
-                    box.append(el("div", "empty", emptyText));
-                    continue;
-                }
-                const live = shifts.filter(s => new Date(s.end) > now);
-                const done = shifts.filter(s => new Date(s.end) <= now);
-                for (const s of live.concat(done)) box.append(shiftRow(s, now));
+            const list = el("div", "list");
+            const day = el("div", "day", dayLabel(dayStart) + " " + hhmm(dayStart) + " → " + dayLabel(dayEnd) + " " + hhmm(dayEnd));
+            box.append(day, list);
+
+            // Everything as-is; then ended rows collapsed; then smaller text; then ended rows dropped (counted on the
+            // day line); then pages at the smallest size.
+            pageCount[id] = 1;
+            list.replaceChildren(...listItems(side, cfg, now, "all"));
+            if (fits(list)) return;
+            list.replaceChildren(...listItems(side, cfg, now, "collapse"));
+            for (let scale = 1; scale >= MIN_SCALE - 0.001; scale -= 0.05) {
+                list.style.fontSize = scale + "em";
+                if (fits(list)) return;
             }
+            const endedCount = side.shifts.filter(s => new Date(s.end) <= now).length;
+            if (endedCount) day.textContent += " · " + endedCount + " ended";
+            const items = listItems(side, cfg, now, "drop");
+            list.replaceChildren(...items);
+            if (fits(list)) return;
+            const pages = paginate(list, items);
+            pageCount[id] = pages.length;
+            pageIndex[id] %= pages.length;
+            list.replaceChildren(...pages[pageIndex[id]]);
+            title.append(el("span", "pageno", (pageIndex[id] + 1) + "/" + pages.length));
         }
 
         function render() {
@@ -261,6 +338,12 @@
             if (!(await load(false))) return;
             setInterval(() => load(false), REFRESH_MS);
             setInterval(render, 15 * 1000);
+            setInterval(() => {
+                const paged = Object.keys(pageCount).filter(id => pageCount[id] > 1);
+                paged.forEach(id => { pageIndex[id] += 1; });
+                if (paged.length) render();
+            }, PAGE_MS);
+            window.addEventListener("resize", render);
         })();
     </script>
 </body>
