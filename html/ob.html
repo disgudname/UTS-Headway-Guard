@@ -117,7 +117,7 @@
             "FlexRide EB": "FR EB",
         };
         const SIDES = {
-            bus: { title: "Bus", groups: [["block", "Blocks", "No OB"], ["staff", "Sup / FlexRide Dispatch", null]] },
+            bus: { title: "Bus", groups: [["block", "Blocks", "No OB"], ["charter", "Charters", null], ["staff", "Sup / FlexRide Dispatch", null]] },
             ondemand: { title: "Ride / FlexRide", groups: [["driver", "Drivers", "No OB"], ["staff", "Ride Dispatch", null]] },
         };
         let data = null;
@@ -150,7 +150,11 @@
             const start = new Date(s.start), end = new Date(s.end);
             const ended = end <= now;
             const row = el("div", "shift" + (ended ? " ended" : ""));
-            const pill = el("span", "pill", s.group === "block" ? "[" + s.position + "]" : (ROLE_LABELS[s.position] || s.position));
+            // "Charter (Transit Bus)" -> pill "Charter", bus type goes in front of the note
+            const charterType = s.group === "charter" ? (/\((.+)\)/.exec(s.position) || [])[1] : null;
+            const label = s.group === "block" ? "[" + s.position + "]"
+                : s.group === "charter" ? "Charter" : (ROLE_LABELS[s.position] || s.position);
+            const pill = el("span", "pill", label);
             if (s.group !== "block") pill.classList.add("role");
             if (s.color) {
                 pill.style.background = s.color;
@@ -161,7 +165,8 @@
             if (ended) row.append(el("span", "status", "ended"));
             else if (start <= now) row.append(el("span", "status now", "open now"));
             else row.append(el("span", "status", until(start - now)));
-            if (s.note) row.append(el("div", "note", s.note));
+            const note = [charterType, s.note].filter(Boolean).join(" · ");
+            if (note) row.append(el("div", "note", note));
             return row;
         }
 

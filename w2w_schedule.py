@@ -31,6 +31,7 @@ _BUS_BLOCK_RE = re.compile(r"\d{2}")
 OB_SIDES = (
     ("bus", time(2, 30), [
         ("block", lambda p: bool(_BUS_BLOCK_RE.fullmatch(p))),
+        ("charter", lambda p: p.startswith("Charter")),
         ("staff", lambda p: p in ("Sup", "FlexRide Dispatch")),
     ]),
     ("ondemand", time(5, 30), [
@@ -212,7 +213,7 @@ class W2WScheduleLog:
         return rows
 
     def open_blocks(self, now: Optional[datetime] = None) -> Dict[str, Dict[str, Any]]:
-        """Open shifts ("OB") for the current service day of each side, for the /ob board. Bus side: bus blocks, Sup and
+        """Open shifts ("OB") for the current service day of each side, for the /ob board. Bus side: bus blocks, charters, Sup and
         FlexRide Dispatch, day 02:30 -> 02:30. OnDemand side: OnDemand/FlexRide drivers and EBs and OnDemand Dispatch,
         day 05:30 -> 05:30. A shift belongs to the day its START falls in; ended shifts are kept (flagged by the page)."""
         now = (now or datetime.now(timezone.utc)).astimezone(NY)
