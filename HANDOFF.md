@@ -27,6 +27,13 @@ Machine tags: `[dev]` = Windows dev machine · `[home]` = home server (Windows b
 
 ## 1. Message board (newest first)
 
+### 2026-09-28 · [home] · /ob open-blocks board DEPLOYED (`cec1c20`, Fly v2015)
+- **What:** wall-TV board of today's unassigned W2W shifts ("OB" = open blocks, UVA Transit's term; don't call it "open shifts"). Two columns: **Bus** (bus blocks + `Sup` + `FlexRide Dispatch`, service day **02:30 -> 02:30**) and **OnDemand / FlexRide** (`OnDemand Driver`, `OnDemand EB`, `FlexRide Driver`, `FlexRide EB`, `OnDemand Dispatch`, day **05:30 -> 05:30**). The user gave those day/position splits. A shift belongs to the day its START falls in. Plain `[EB]`/`[OCEB]` bus positions are not shown.
+- **Data:** `W2WScheduleLog.open_blocks()` (`OB_SIDES` holds the exact W2W position names, confirmed against the prod snapshot) -> `GET /v1/w2w/ob` (dispatcher auth), which adds route name + color to bus blocks via `ROUTE_TO_BLOCKS` + live TransLoc colors (fallback `_OB_ROUTE_COLORS`).
+- **Look (user's choices):** block numbers are route-colored pills; "open now" is deliberately plain, NOT alarming (an open shift is often covered by an EB or pulled); ended shifts are dimmed at the bottom; W2W notes show under the shift; footer turns amber if the W2W poll is >20 min old. Kiosk auth is `?pass=` like `/statussignage`.
+- **Verified:** layout checked in Chrome with stub data; on prod `/ob` 200, `/v1/w2w/ob` 401 unauth, and `open_blocks()` against the real snapshot returned today's 6 open bus blocks. NOT yet seen logged in on prod (live route colors are untested there).
+- **Unrelated, pre-existing:** `tests/test_vehicle_drivers.py` fails to import (`_parse_driving_role` isn't in `app.py`, and wasn't at HEAD before this change either).
+
 ### 2026-09-26 · [home] · Silver ETAs: timestop hop cap too tight on Pinn Hall -> Madison; DEPLOYED (v2013) — WATCH SUNDAY EVENING ORANGE
 - **Symptom:** Silver median |err| 110-160 s on weekday runs. Stops Goodwin..Brandon are fine (30-55 s); from Pinn Hall on everything reads ~2 min early.
 - **Not the schedule:** GPS geofence (40 m) shows blocks [13]/[14] reach Pinn Hall 3-6 min early, wait, and leave a median +15..+49 s after the scheduled minute (engine assumes +30 s). JPJ the same. The holds fire; both buses have their BlockId every run.
