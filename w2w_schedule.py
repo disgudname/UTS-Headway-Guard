@@ -26,7 +26,7 @@ TRACK_DAYS_BACK = 60
 # A fetch that suddenly has far fewer shifts than the last good one is treated as a bad response, not a mass deletion.
 MIN_KEEP_FRACTION = 0.5
 COMPARED_FIELDS = ("employee", "position", "start", "end", "note")
-_BUS_BLOCK_RE = re.compile(r"\d{1,2}( ?[AP]M)?")
+_BUS_BLOCK_RE = re.compile(r"\d{2}")
 # /ob board: (side, service-day rollover, [(group, position matcher)]). Positions are W2W's exact names.
 OB_SIDES = (
     ("bus", time(2, 30), [
@@ -199,7 +199,7 @@ class W2WScheduleLog:
         return out
 
     def unassigned(self, start: date, days: int = 7) -> List[Dict[str, Any]]:
-        """Unassigned bus-block shifts (position like "08" or "19 PM") starting from `start` for `days` days."""
+        """Unassigned bus-block shifts (position like "08") starting from `start` for `days` days."""
         shifts = self._load_snapshot() or {}
         end = start + timedelta(days=days)
         rows = [
