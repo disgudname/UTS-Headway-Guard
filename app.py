@@ -2058,6 +2058,7 @@ RADAR_HTML = _load_html("radar.html")
 EINK_BLOCK_HTML = _load_html("eink-block.html")
 STOP_APPROACH_HTML = _load_html("stop-approach.html")
 COUNTDOWN_HTML = _load_html("countdown.html")
+WEATHER_HTML = _load_html("weather.html")
 DUCK_CONFIG_HTML = _load_html("duck-config.html")
 DOWNED_HTML = _load_html("downed.html")
 IPS_HTML = _load_html("ips.html")
@@ -14514,6 +14515,10 @@ async def eink_block_page():
 @app.get("/countdown")
 async def countdown_page():
     return HTMLResponse(COUNTDOWN_HTML)
+
+@app.get("/weather")
+async def weather_page():
+    return HTMLResponse(WEATHER_HTML)
 
 @app.get("/vdot-cams")
 async def vdot_cams_page():
