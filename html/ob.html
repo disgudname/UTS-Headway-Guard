@@ -1,0 +1,262 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>OB</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        html, body {
+            height: 100%;
+            background: #16152e;
+            color: #f1f1f7;
+            font-family: "Segoe UI", system-ui, -apple-system, sans-serif;
+        }
+        body {
+            display: flex;
+            flex-direction: column;
+            font-size: clamp(16px, 1.6vw, 34px);
+        }
+        header {
+            display: flex;
+            align-items: baseline;
+            gap: 1em;
+            padding: 0.5em 0.9em;
+            background: #24234b;
+        }
+        header h1 { font-size: 1.8em; letter-spacing: 0.05em; }
+        header .date { font-size: 1.1em; color: #a0a0c0; margin-left: auto; }
+        header .clock { font-size: 1.5em; font-variant-numeric: tabular-nums; }
+        main {
+            flex: 1;
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            min-height: 0;
+        }
+        .side { padding: 0.6em 0.9em; overflow: hidden; }
+        .side + .side { border-left: 2px solid #24234b; }
+        .side h2 { font-size: 1.15em; letter-spacing: 0.04em; }
+        .side .day { font-size: 0.75em; color: #a0a0c0; margin-bottom: 0.5em; }
+        .side h3 {
+            font-size: 0.7em;
+            font-weight: 600;
+            letter-spacing: 0.08em;
+            text-transform: uppercase;
+            color: #a0a0c0;
+            margin: 0.9em 0 0.2em;
+        }
+        .shift {
+            display: grid;
+            grid-template-columns: 5.2em auto 1fr;
+            align-items: center;
+            column-gap: 0.7em;
+            padding: 0.3em 0;
+            border-bottom: 1px solid #24234b;
+        }
+        .pill {
+            justify-self: start;
+            padding: 0.05em 0.45em;
+            border-radius: 0.35em;
+            font-weight: 700;
+            white-space: nowrap;
+            background: #3a3960;
+            box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.25);
+        }
+        .pill.role { font-size: 0.8em; font-weight: 600; }
+        .times { font-variant-numeric: tabular-nums; white-space: nowrap; }
+        .status { justify-self: end; color: #a0a0c0; white-space: nowrap; font-size: 0.85em; }
+        .status.now { color: #f1f1f7; }
+        .note {
+            grid-column: 2 / -1;
+            font-size: 0.7em;
+            color: #a0a0c0;
+            font-style: italic;
+        }
+        .shift.ended { opacity: 0.35; }
+        .empty { color: #a0a0c0; padding: 0.3em 0; }
+        footer {
+            padding: 0.3em 0.9em;
+            font-size: 0.6em;
+            color: #6c6c90;
+            background: #1c1b3a;
+        }
+        footer.stale { color: #fbbf24; }
+        .signin {
+            margin: auto;
+            text-align: center;
+            color: #a0a0c0;
+        }
+        .signin a { color: #f1f1f7; }
+        @media (max-width: 700px) {
+            main { grid-template-columns: 1fr; }
+            .side + .side { border-left: 0; border-top: 2px solid #24234b; }
+        }
+    </style>
+</head>
+<body>
+    <header>
+        <h1>OB</h1>
+        <span class="date" id="date"></span>
+        <span class="clock" id="clock"></span>
+    </header>
+    <main id="main">
+        <section class="side" id="bus"></section>
+        <section class="side" id="ondemand"></section>
+    </main>
+    <footer id="footer">Loading…</footer>
+    <script>
+        const REFRESH_MS = 60 * 1000;
+        const STALE_MS = 20 * 60 * 1000;
+        const ROLE_LABELS = {
+            "Sup": "Sup",
+            "FlexRide Dispatch": "FR Disp",
+            "OnDemand Dispatch": "OD Disp",
+            "OnDemand Driver": "OD",
+            "OnDemand EB": "OD EB",
+            "FlexRide Driver": "FR",
+            "FlexRide EB": "FR EB",
+        };
+        const SIDES = {
+            bus: { title: "Bus", groups: [["block", "Blocks", "No open blocks"], ["staff", "Sup / FlexRide Dispatch", null]] },
+            ondemand: { title: "OnDemand / FlexRide", groups: [["driver", "Drivers", "No open drivers"], ["staff", "OnDemand Dispatch", null]] },
+        };
+        let data = null;
+
+        function hhmm(d) {
+            return d.toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit", hour12: false, timeZone: "America/New_York" });
+        }
+        function dayLabel(d) {
+            return d.toLocaleDateString("en-US", { weekday: "short", month: "numeric", day: "numeric", timeZone: "America/New_York" });
+        }
+        function until(ms) {
+            const mins = Math.max(1, Math.round(ms / 60000));
+            const h = Math.floor(mins / 60), m = mins % 60;
+            return "in " + (h ? h + "h" + (m ? " " + m + "m" : "") : m + "m");
+        }
+        function textColorFor(hex) {
+            const n = parseInt(String(hex).replace("#", ""), 16);
+            if (Number.isNaN(n)) return "#fff";
+            const lum = (0.299 * ((n >> 16) & 255) + 0.587 * ((n >> 8) & 255) + 0.114 * (n & 255)) / 255;
+            return lum > 0.6 ? "#111" : "#fff";
+        }
+        function el(tag, cls, text) {
+            const e = document.createElement(tag);
+            if (cls) e.className = cls;
+            if (text != null) e.textContent = text;
+            return e;
+        }
+
+        function shiftRow(s, now) {
+            const start = new Date(s.start), end = new Date(s.end);
+            const ended = end <= now;
+            const row = el("div", "shift" + (ended ? " ended" : ""));
+            const pill = el("span", "pill", s.group === "block" ? s.position : (ROLE_LABELS[s.position] || s.position));
+            if (s.group !== "block") pill.classList.add("role");
+            if (s.color) {
+                pill.style.background = s.color;
+                pill.style.color = textColorFor(s.color);
+            }
+            if (s.route) pill.title = s.route;
+            row.append(pill, el("span", "times", hhmm(start) + "–" + hhmm(end)));
+            if (ended) row.append(el("span", "status", "ended"));
+            else if (start <= now) row.append(el("span", "status now", "open now"));
+            else row.append(el("span", "status", until(start - now)));
+            if (s.note) row.append(el("div", "note", s.note));
+            return row;
+        }
+
+        function renderSide(id, now) {
+            const box = document.getElementById(id);
+            if (!box) return;
+            const side = data && data[id];
+            const cfg = SIDES[id];
+            box.replaceChildren(el("h2", null, cfg.title));
+            if (!side) return;
+            const dayStart = new Date(side.day_start), dayEnd = new Date(side.day_end);
+            box.append(el("div", "day", dayLabel(dayStart) + " " + hhmm(dayStart) + " → " + dayLabel(dayEnd) + " " + hhmm(dayEnd)));
+            for (const [group, heading, emptyText] of cfg.groups) {
+                const shifts = side.shifts.filter(s => s.group === group);
+                if (!shifts.length && !emptyText) continue;
+                box.append(el("h3", null, heading));
+                if (!shifts.length) {
+                    box.append(el("div", "empty", emptyText));
+                    continue;
+                }
+                const live = shifts.filter(s => new Date(s.end) > now);
+                const done = shifts.filter(s => new Date(s.end) <= now);
+                for (const s of live.concat(done)) box.append(shiftRow(s, now));
+            }
+        }
+
+        function render() {
+            const now = new Date();
+            document.getElementById("clock").textContent = hhmm(now);
+            document.getElementById("date").textContent = now.toLocaleDateString("en-US", {
+                weekday: "long", month: "short", day: "numeric", timeZone: "America/New_York",
+            });
+            renderSide("bus", now);
+            renderSide("ondemand", now);
+            const footer = document.getElementById("footer");
+            if (!data) return;
+            if (!data.configured) {
+                footer.textContent = "W2W schedule feed not configured";
+                footer.className = "stale";
+                return;
+            }
+            const polled = data.last_poll ? new Date(data.last_poll) : null;
+            const stale = !polled || now - polled > STALE_MS;
+            footer.textContent = polled ? "W2W schedule as of " + hhmm(polled) + (stale ? " (not updating)" : "") : "Waiting for first W2W schedule poll";
+            footer.className = stale ? "stale" : "";
+        }
+
+        async function authenticate() {
+            const pass = new URLSearchParams(window.location.search).get("pass");
+            if (!pass) return false;
+            try {
+                const resp = await fetch("/api/dispatcher/auth", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    credentials: "same-origin",
+                    body: JSON.stringify({ password: pass.trim() }),
+                });
+                return resp.ok && (await resp.json()).ok === true;
+            } catch (e) {
+                return false;
+            }
+        }
+
+        function showSignIn() {
+            const main = document.getElementById("main");
+            const box = el("div", "signin");
+            const link = el("a", null, "Sign in");
+            link.href = "/login?return=" + encodeURIComponent(location.pathname + location.search);
+            box.append(link, document.createTextNode(" to view open blocks (or add ?pass= for a kiosk)."));
+            main.replaceChildren(box);
+            main.style.display = "flex";
+            document.getElementById("footer").textContent = "";
+        }
+
+        async function load(retried) {
+            try {
+                const resp = await fetch("/v1/w2w/ob", { credentials: "same-origin" });
+                if (resp.status === 401) {
+                    if (!retried && await authenticate()) return load(true);
+                    showSignIn();
+                    return false;
+                }
+                if (resp.ok) data = await resp.json();
+            } catch (e) {
+                console.error("OB fetch failed:", e);
+            }
+            render();
+            return true;
+        }
+
+        (async () => {
+            if (!(await load(false))) return;
+            setInterval(() => load(false), REFRESH_MS);
+            setInterval(render, 15 * 1000);
+        })();
+    </script>
+</body>
+</html>

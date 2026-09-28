@@ -2043,6 +2043,7 @@ ARRIVALSDISPLAY_HTML = _load_html("arrivalsdisplay.html")
 CLOCKDISPLAY_HTML = _load_html("clockdisplay.html")
 SOCDISPLAY_HTML = _load_html("socdisplay.html")
 STATUSSIGNAGE_HTML = _load_html("statussignage.html")
+OB_HTML = _load_html("ob.html")
 BUS_TABLE_HTML = _load_html("buses.html")
 NOT_FOUND_HTML = _load_html("404.html")
 RADAR_HTML = _load_html("radar.html")
@@ -7703,6 +7704,40 @@ async def w2w_unassigned(request: Request, days: int = Query(7, ge=1, le=60), st
         "configured": bool(W2W_ICAL_URL),
         "last_poll": getattr(log, "last_poll_ts", None),
         "shifts": log.unassigned(first, days) if log else [],
+    }
+
+
+# Fallback route colors for /ob when a route isn't in the live TransLoc feed (e.g. Night Pilot during the day).
+_OB_ROUTE_COLORS = {
+    "green": "#0c8103", "night pilot": "#232d48", "orange": "#ff7300",
+    "gold": "#ffdd00", "silver": "#5f6367", "purple": "#662c90",
+}
+
+
+@app.get("/v1/w2w/ob")
+async def w2w_open_blocks(request: Request):
+    """Open blocks for the /ob board: today's bus side (02:30 day) and OnDemand side (05:30 day). Bus blocks carry
+    their route name and color."""
+    _require_dispatcher_access(request)
+    log = getattr(app.state, "w2w_schedule_log", None)
+    data = log.open_blocks() if log else {}
+    async with state.lock:
+        live_colors = {r.name.lower(): r.color for r in state.routes.values() if r.name and r.color}
+    for shift in data.get("bus", {}).get("shifts", []):
+        if shift["group"] != "block":
+            continue
+        block = re.match(r"\d+", shift["position"]).group().zfill(2)
+        route = next((name for name, blocks in ROUTE_TO_BLOCKS.items() if block in blocks and name != "yellow"), None)
+        if route:
+            shift["route"] = route.title()
+            shift["color"] = next(
+                (c for n, c in live_colors.items() if route in n and "out of service" not in n),
+                _OB_ROUTE_COLORS[route],
+            )
+    return {
+        "configured": bool(W2W_ICAL_URL),
+        "last_poll": getattr(log, "last_poll_ts", None),
+        **data,
     }
 
 
@@ -18353,6 +18388,11 @@ async def socdisplay_page():
 @app.get("/statussignage")
 async def statussignage_page():
     return HTMLResponse(STATUSSIGNAGE_HTML)
+
+
+@app.get("/ob")
+async def ob_page():
+    return HTMLResponse(OB_HTML)
 
 # ---------------------------
 # REPLAY PAGE

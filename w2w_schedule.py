@@ -13,7 +13,7 @@ import json
 import os
 import re
 import tempfile
-from datetime import date, datetime, timedelta, timezone
+from datetime import date, datetime, time, timedelta, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 from zoneinfo import ZoneInfo
@@ -26,6 +26,18 @@ TRACK_DAYS_BACK = 60
 # A fetch that suddenly has far fewer shifts than the last good one is treated as a bad response, not a mass deletion.
 MIN_KEEP_FRACTION = 0.5
 COMPARED_FIELDS = ("employee", "position", "start", "end", "note")
+_BUS_BLOCK_RE = re.compile(r"\d{1,2}( ?[AP]M)?")
+# /ob board: (side, service-day rollover, [(group, position matcher)]). Positions are W2W's exact names.
+OB_SIDES = (
+    ("bus", time(2, 30), [
+        ("block", lambda p: bool(_BUS_BLOCK_RE.fullmatch(p))),
+        ("staff", lambda p: p in ("Sup", "FlexRide Dispatch")),
+    ]),
+    ("ondemand", time(5, 30), [
+        ("driver", lambda p: p in ("OnDemand Driver", "OnDemand EB", "FlexRide Driver", "FlexRide EB")),
+        ("staff", lambda p: p == "OnDemand Dispatch"),
+    ]),
+)
 _BS_N = "\\" + "n"
 _BS_COMMA = "\\" + ","
 
@@ -193,11 +205,36 @@ class W2WScheduleLog:
         rows = [
             {"date": s["start"][:10], "position": s["position"], "start": s["start"], "end": s["end"], "note": s["note"]}
             for s in shifts.values()
-            if not s["employee"] and re.fullmatch(r"\d{1,2}( ?[AP]M)?", s["position"] or "")
+            if not s["employee"] and _BUS_BLOCK_RE.fullmatch(s["position"] or "")
             and start.isoformat() <= s["start"][:10] < end.isoformat()
         ]
         rows.sort(key=lambda r: (r["start"], r["position"]))
         return rows
+
+    def open_blocks(self, now: Optional[datetime] = None) -> Dict[str, Dict[str, Any]]:
+        """Open shifts ("OB") for the current service day of each side, for the /ob board. Bus side: bus blocks, Sup and
+        FlexRide Dispatch, day 02:30 -> 02:30. OnDemand side: OnDemand/FlexRide drivers and EBs and OnDemand Dispatch,
+        day 05:30 -> 05:30. A shift belongs to the day its START falls in; ended shifts are kept (flagged by the page)."""
+        now = (now or datetime.now(timezone.utc)).astimezone(NY)
+        shifts = self._load_snapshot() or {}
+        result: Dict[str, Dict[str, Any]] = {}
+        for side, rollover, groups in OB_SIDES:
+            day_start = datetime.combine(now.date(), rollover, NY)
+            if now < day_start:
+                day_start -= timedelta(days=1)
+            day_end = day_start + timedelta(days=1)
+            rows = []
+            for shift in shifts.values():
+                if shift["employee"]:
+                    continue
+                group = next((g for g, match in groups if match(shift["position"] or "")), None)
+                if group and day_start <= datetime.fromisoformat(shift["start"]) < day_end:
+                    rows.append({"group": group, "position": shift["position"], "start": shift["start"],
+                                 "end": shift["end"], "note": shift["note"]})
+            rows.sort(key=lambda r: (r["start"], r["position"]))
+            result[side] = {"day_start": day_start.isoformat(timespec="minutes"),
+                            "day_end": day_end.isoformat(timespec="minutes"), "shifts": rows}
+        return result
 
     def open_shift_rows(
         self, now: Optional[datetime] = None, first: Optional[date] = None, last: Optional[date] = None,
