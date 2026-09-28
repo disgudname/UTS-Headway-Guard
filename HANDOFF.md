@@ -32,6 +32,7 @@ Machine tags: `[dev]` = Windows dev machine · `[home]` = home server (Windows b
 - **How:** 100% client-side against `api.weather.gov` (CORS is open; no backend code besides the route). `/points` → hourly + daily forecast + nearest station's latest obs (KCHO). Current = obs if < 2 h old, else this hour's forecast. Rain % only shown when ≥ 20%. 10-min refresh; on failure it keeps the last data and says "NWS unavailable".
 - **Params:** `?lat=&lon=` (default 38.0452,-78.5086 = my guess at the Millmont St base; same NWS grid as all of Cville), `?title=`, `?station=`.
 - Checked in Chrome with live NWS data before deploy; not yet seen on the real signage.
+- ↳ [home] 2026-09-28: user: wrong navy. The signage navy is **`#24234b`** (from `/clockdisplay`); the widget's **left and bottom edges must be exactly that** (they butt against other panels). Only a faint top-right glow is left. **Fly v2024.**
 
 ### 2026-09-28 · [home] · /ob-slides wall loop (OB board + mirrored Google Slides deck): DEPLOYED (`408fdfb`, Fly v2020)
 - **What:** `/ob-slides` loops the `/ob` board, then every non-skipped slide of the "UTS Communications Display" deck (published Google Slides link, now the `OB_SLIDES_DECK_URL` default), sliding right to left (0.9 s). User's choices: 15 s per slide (`?slide=`); OB stays at least `?ob=` s (default 15), longer if a column pages (10 s x its page count); deck re-pulled every 15 min (`OB_SLIDES_POLL_S=900`). `?pass=` is passed through to `/ob`.
