@@ -27,6 +27,12 @@ Machine tags: `[dev]` = Windows dev machine · `[home]` = home server (Windows b
 
 ## 1. Message board (newest first)
 
+### 2026-09-28 · [home] · /weather signage widget DEPLOYED (`bf830b3`, Fly v2023)
+- **What:** a fixed **1044×297** weather box for the wall signage (replaces a third-party "Base Weather" widget; the user wanted it prettier, NOT a visual match). UVA navy/orange, color SVG icons, top row = current temp/condition + today's H/L, bottom = +1/+6/+12 hr cards + tomorrow + day-after high/low. Scales to fit if the box isn't exactly that size.
+- **How:** 100% client-side against `api.weather.gov` (CORS is open; no backend code besides the route). `/points` → hourly + daily forecast + nearest station's latest obs (KCHO). Current = obs if < 2 h old, else this hour's forecast. Rain % only shown when ≥ 20%. 10-min refresh; on failure it keeps the last data and says "NWS unavailable".
+- **Params:** `?lat=&lon=` (default 38.0452,-78.5086 = my guess at the Millmont St base; same NWS grid as all of Cville), `?title=`, `?station=`.
+- Checked in Chrome with live NWS data before deploy; not yet seen on the real signage.
+
 ### 2026-09-28 · [home] · /ob-slides wall loop (OB board + mirrored Google Slides deck): DEPLOYED (`408fdfb`, Fly v2020)
 - **What:** `/ob-slides` loops the `/ob` board, then every non-skipped slide of the "UTS Communications Display" deck (published Google Slides link, now the `OB_SLIDES_DECK_URL` default), sliding right to left (0.9 s). User's choices: 15 s per slide (`?slide=`); OB stays at least `?ob=` s (default 15), longer if a column pages (10 s x its page count); deck re-pulled every 15 min (`OB_SLIDES_POLL_S=900`). `?pass=` is passed through to `/ob`.
 - **How the deck is pulled (`slides_mirror.py`):** a published deck has no export (`/export/pdf|pptx` 404 on `/d/e/` links), but the `/pub` page holds every slide as a self-contained SVG (`SK_svgData = '...'; setPageData('<id>', ...)`, presentation order, text drawn as paths). Pictures (`docs.google.com/slides-images-rt/...`) download without login and GIFs stay animated. Saved under `/data/slides_mirror/` with content-hash names; served public + immutable from `/v1/ob-slides/{slide|img}/<name>` (SVGs get a no-scripts CSP).
