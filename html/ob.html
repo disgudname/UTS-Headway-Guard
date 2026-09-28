@@ -47,7 +47,7 @@
         }
         .shift {
             display: grid;
-            grid-template-columns: 5.2em auto 1fr;
+            grid-template-columns: 6.2em auto 1fr;
             align-items: center;
             column-gap: 0.7em;
             padding: 0.3em 0;
@@ -110,15 +110,15 @@
         const ROLE_LABELS = {
             "Sup": "Sup",
             "FlexRide Dispatch": "FR Disp",
-            "OnDemand Dispatch": "OD Disp",
-            "OnDemand Driver": "OD",
-            "OnDemand EB": "OD EB",
+            "OnDemand Dispatch": "Ride Disp",
+            "OnDemand Driver": "Ride",
+            "OnDemand EB": "Ride EB",
             "FlexRide Driver": "FR",
             "FlexRide EB": "FR EB",
         };
         const SIDES = {
-            bus: { title: "Bus", groups: [["block", "Blocks", "No open blocks"], ["staff", "Sup / FlexRide Dispatch", null]] },
-            ondemand: { title: "OnDemand / FlexRide", groups: [["driver", "Drivers", "No open drivers"], ["staff", "OnDemand Dispatch", null]] },
+            bus: { title: "Bus", groups: [["block", "Blocks", "No OB"], ["staff", "Sup / FlexRide Dispatch", null]] },
+            ondemand: { title: "Ride / FlexRide", groups: [["driver", "Drivers", "No OB"], ["staff", "Ride Dispatch", null]] },
         };
         let data = null;
 
@@ -150,7 +150,7 @@
             const start = new Date(s.start), end = new Date(s.end);
             const ended = end <= now;
             const row = el("div", "shift" + (ended ? " ended" : ""));
-            const pill = el("span", "pill", s.group === "block" ? s.position : (ROLE_LABELS[s.position] || s.position));
+            const pill = el("span", "pill", s.group === "block" ? "[" + s.position + "]" : (ROLE_LABELS[s.position] || s.position));
             if (s.group !== "block") pill.classList.add("role");
             if (s.color) {
                 pill.style.background = s.color;
