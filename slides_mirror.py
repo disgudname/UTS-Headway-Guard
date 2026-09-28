@@ -7,8 +7,12 @@ slides-images-rt/...">`), and those download without a login, animated GIFs incl
 the SVGs, saves the pictures, and points each SVG at the saved copies.
 
 Slides marked "Skip slide" in the deck are still in the page. Each slide's entry in `viewerData`'s docData ends in
-`["<id>", "<previous id>"], "", [...image urls], [], <shown>, {...}`, and <shown> is 0 for a skipped slide: checked against
-Google's own player on 2026-09-28 (it visited exactly the 11 slides marked 1 out of 23). Skipped slides are left out.
+`["<id>", "<previous id>"], "<speaker notes>", [...image urls], [], <shown>, {...}`, and <shown> is 0 for a skipped slide:
+checked against Google's own player on 2026-09-28 (it visited exactly the 11 slides marked 1 out of 23). Skipped slides are
+left out.
+
+Speaker notes (HTML, JS-escaped) are in that same entry. A note with a time in it ("5s", "8 sec", "20 seconds") sets how long
+that slide stays up; slides without one use the screen's default.
 
 This relies on Google's internal page format, not a public API. A pull that finds no slides, or far fewer than the last good
 one, is rejected and the last good copy keeps being served. So is one where a slide's skip flag can't be found, so a
@@ -35,7 +39,10 @@ MIN_KEEP_FRACTION = 0.5
 _SLIDE_RE = re.compile(
     r"SK_svgData = '((?:[^'\\]|\\.)*)';.*?SK_viewerApp\.setPageData\('([^']+)', SK_svgData", re.S
 )
-_SHOWN_RE = re.compile(r'\["([^"]+)"(?:,"[^"]*")?\],"[^"]*",\[[^\]]*\],\[\],([01]),\{')
+# Groups: slide id, speaker notes (still JS-escaped HTML), shown flag.
+_SHOWN_RE = re.compile(r'\["([^"]+)"(?:,"[^"]*")?\],"((?:[^"\\]|\\.)*)",\[[^\]]*\],\[\],([01]),\{')
+_NOTE_SECONDS_RE = re.compile(r"(?<![\w.])(\d{1,3}(?:\.\d+)?)\s*(?:s|secs?|seconds?)\b", re.I)
+_TAG_RE = re.compile(r"<[^>]+>")
 _TITLE_RE = re.compile(r"viewerData = \{.*?title: '((?:[^'\\]|\\.)*)'", re.S)
 _REVISION_RE = re.compile(r"viewerData = \{.*?revision:\s*([0-9.]+)", re.S)
 _IMAGE_HREF_RE = re.compile(r'(<image\b[^>]*?\bxlink:href=")(https?://[^"]+)(")')
@@ -55,17 +62,31 @@ def _js_unescape(text: str) -> str:
     return _JS_ESCAPE_RE.sub(rep, text)
 
 
+def note_text(raw: str) -> str:
+    """Plain text of a slide's speaker notes as they appear in docData (JS-escaped HTML)."""
+    return html.unescape(_TAG_RE.sub(" ", _js_unescape(raw))).strip()
+
+
+def note_seconds(note: str) -> Optional[float]:
+    """Display time from a speaker note like "5s" or "20 seconds" (1-600 s), else None."""
+    match = _NOTE_SECONDS_RE.search(note)
+    return min(600.0, max(1.0, float(match.group(1)))) if match else None
+
+
 def parse_published_deck(page: str) -> Dict[str, Any]:
-    """{title, revision, slides: [(slide_id, svg, shown)]} from a published deck's /pub page, in presentation order.
+    """{title, revision, slides: [(slide_id, svg, shown, notes)]} from a published deck's /pub page, in presentation order.
     shown is None when the slide's skip flag wasn't found."""
     title = _TITLE_RE.search(page)
     revision = _REVISION_RE.search(page)
     doc_data = page[page.find("docData: "):] if "docData: " in page else ""
-    shown = {slide_id: flag == "1" for slide_id, flag in _SHOWN_RE.findall(doc_data)}
+    meta = {slide_id: (flag == "1", note_text(notes)) for slide_id, notes, flag in _SHOWN_RE.findall(doc_data)}
     return {
         "title": _js_unescape(title.group(1)) if title else "",
         "revision": revision.group(1) if revision else "",
-        "slides": [(slide_id, _js_unescape(data), shown.get(slide_id)) for data, slide_id in _SLIDE_RE.findall(page)],
+        "slides": [
+            (slide_id, _js_unescape(data), *meta.get(slide_id, (None, "")))
+            for data, slide_id in _SLIDE_RE.findall(page)
+        ],
     }
 
 
@@ -108,6 +129,8 @@ class SlidesMirror:
             "checked_at": self.last_checked,
             "last_error": self.last_error,
             "slides": [f"{self.url_prefix}/slide/{s['file']}" for s in slides],
+            # Per-slide display time from speaker notes (None = the screen's default), same order as "slides".
+            "seconds": [s.get("seconds") for s in slides],
         }
 
     def path_for(self, kind: str, name: str) -> Optional[Path]:
@@ -131,7 +154,7 @@ class SlidesMirror:
                     raise ValueError("no slides found in the published page (Google may have changed its format)")
                 if previous and len(slides) < previous * MIN_KEEP_FRACTION:
                     raise ValueError(f"only {len(slides)} slides found (last good copy had {previous}); keeping the old copy")
-                unknown = [slide_id for slide_id, _, shown in slides if shown is None]
+                unknown = [slide_id for slide_id, _, shown, _ in slides if shown is None]
                 if unknown:
                     raise ValueError(f"skip flag not found for {len(unknown)} slide(s) (Google may have changed its format)")
                 if deck["revision"] and deck["revision"] == self.manifest.get("revision") and len(slides) == previous:
@@ -140,8 +163,8 @@ class SlidesMirror:
                 self.slides_dir.mkdir(parents=True, exist_ok=True)
                 self.img_dir.mkdir(parents=True, exist_ok=True)
                 images: Dict[str, str] = {}
-                entries: List[Dict[str, str]] = []
-                for slide_id, svg, shown in slides:
+                entries: List[Dict[str, Any]] = []
+                for slide_id, svg, shown, notes in slides:
                     if not shown:
                         continue
                     svg = _IMAGE_HREF_RE.sub(lambda m: m.group(1) + self._save_image(client, m.group(2), images) + m.group(3), svg)
@@ -149,12 +172,15 @@ class SlidesMirror:
                     name = _sha(data) + ".svg"
                     if not (self.slides_dir / name).exists():
                         _write_atomic(self.slides_dir / name, data)
-                    entries.append({"id": slide_id, "file": name})
+                    entries.append({"id": slide_id, "file": name, "seconds": note_seconds(notes)})
         except Exception as exc:
             self.last_error = str(exc)
             return False
         old = self.manifest
-        changed = [e["file"] for e in entries] != [e["file"] for e in old.get("slides") or []]
+        def served(slides):
+            return [(e["file"], e.get("seconds")) for e in slides or []]
+
+        changed = served(entries) != served(old.get("slides"))
         self.manifest = {
             "title": deck["title"],
             "revision": deck["revision"],

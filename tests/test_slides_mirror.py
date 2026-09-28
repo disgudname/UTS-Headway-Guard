@@ -83,3 +83,24 @@ def test_path_for_rejects_anything_but_hashed_names(tmp_path):
     mirror = SlidesMirror(tmp_path)
     assert mirror.path_for("slide", "../manifest.json") is None
     assert mirror.path_for("img", "a" * 24 + ".exe") is None
+
+
+def test_speaker_note_sets_slide_seconds_and_escaped_notes_still_parse(tmp_path):
+    # Exactly how Google wrote the "5s" note on the real deck's first slide (escaped HTML with \" quotes).
+    note = r'\u003cp style\u003d\"font-family:\u0026quot;Helvetica Neue\u0026quot;;\"\u003e5s\u003c/p\u003e'
+    page = _page(["p1", "p2"]).replace('["p1"],"",', '["p1"],"' + note + '",', 1)
+    deck = parse_published_deck(page)
+    assert [(s[0], s[2], s[3]) for s in deck["slides"]] == [("p1", True, "5s"), ("p2", True, "")]
+
+    mirror = SlidesMirror(tmp_path)
+    _refresh(mirror, page)
+    assert mirror.last_error is None
+    assert mirror.status()["seconds"] == [5.0, None]
+
+
+def test_note_seconds():
+    assert slides_mirror.note_seconds("5s") == 5.0
+    assert slides_mirror.note_seconds("Show for 20 seconds please") == 20.0
+    assert slides_mirror.note_seconds("8 sec") == 8.0
+    assert slides_mirror.note_seconds("Deadline 9/21") is None
+    assert slides_mirror.note_seconds("0s") == 1.0

@@ -29,7 +29,7 @@
     <script>
         // Loop: the /ob board, then every slide of the mirrored Google Slides deck (see slides_mirror.py), sliding right to left.
         // Query string: ?pass= (passed to /ob for kiosks), ?slide= seconds per slide (default 15),
-        // ?ob= minimum seconds on the OB board (default 15; it stays longer if a column pages, 10 s per page),
+        // (a slide whose speaker notes say e.g. "5s" uses that instead), ?ob= minimum seconds on the OB board (default 15; it stays longer if a column pages, 10 s per page),
         // ?obscale= OB board text size multiplier (e.g. 1.2 = 20% bigger; default 1).
         const params = new URLSearchParams(location.search);
         const seconds = (name, fallback) => {
@@ -52,6 +52,7 @@
         const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
         let current = ob;
         let slides = [];
+        let slideSeconds = [];
 
         function load(frame, url) {
             return new Promise(resolve => {
@@ -90,7 +91,11 @@
         async function refreshSlides() {
             try {
                 const resp = await fetch("/v1/ob-slides", { cache: "no-store" });
-                if (resp.ok) slides = (await resp.json()).slides || [];
+                if (resp.ok) {
+                    const deck = await resp.json();
+                    slides = deck.slides || [];
+                    slideSeconds = deck.seconds || [];
+                }
             } catch (e) {
                 console.error("slide list fetch failed:", e);  // keep the last list
             }
@@ -109,7 +114,7 @@
                     spare = 1 - spare;
                     // Preload the next slide into the other frame while this one is up.
                     pending = i + 1 < slides.length ? load(slideFrames[spare], slides[i + 1]) : null;
-                    await sleep(SLIDE_MS - MOVE_MS);
+                    await sleep((slideSeconds[i] ? slideSeconds[i] * 1000 : SLIDE_MS) - MOVE_MS);
                 }
                 await slideTo(ob);
             }
