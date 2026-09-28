@@ -15,7 +15,8 @@
         body {
             display: flex;
             flex-direction: column;
-            font-size: clamp(16px, 1.6vw, 34px);
+            /* Sized off the screen's height (2.85vh = 1.6vw on 16:9), capped by width so a 4:3 screen isn't ~25% smaller. */
+            font-size: clamp(16px, min(2.85vh, 2.2vw), 34px);
         }
         header {
             display: flex;
@@ -117,6 +118,11 @@
     </main>
     <footer id="footer">Loading…</footer>
     <script>
+        // ?scale= enlarges everything (e.g. 1.2 = 20% bigger; /ob-slides passes its ?obscale=). Fitting/paging is em-based.
+        const SCALE = Math.min(3, Math.max(0.5, parseFloat(new URLSearchParams(location.search).get("scale")) || 1));
+        if (SCALE !== 1) {
+            document.body.style.fontSize = `clamp(${16 * SCALE}px, min(${2.85 * SCALE}vh, ${2.2 * SCALE}vw), ${34 * SCALE}px)`;
+        }
         const REFRESH_MS = 60 * 1000;
         const STALE_MS = 20 * 60 * 1000;
         const ROLE_LABELS = {

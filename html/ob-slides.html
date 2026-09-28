@@ -29,7 +29,8 @@
     <script>
         // Loop: the /ob board, then every slide of the mirrored Google Slides deck (see slides_mirror.py), sliding right to left.
         // Query string: ?pass= (passed to /ob for kiosks), ?slide= seconds per slide (default 15),
-        // ?ob= minimum seconds on the OB board (default 15; it stays longer if a column pages, 10 s per page).
+        // ?ob= minimum seconds on the OB board (default 15; it stays longer if a column pages, 10 s per page),
+        // ?obscale= OB board text size multiplier (e.g. 1.2 = 20% bigger; default 1).
         const params = new URLSearchParams(location.search);
         const seconds = (name, fallback) => {
             const value = parseFloat(params.get(name));
@@ -45,6 +46,7 @@
         const slideFrames = [...document.querySelectorAll(".slide")];
         const obParams = new URLSearchParams();
         if (params.get("pass")) obParams.set("pass", params.get("pass"));
+        if (params.get("obscale")) obParams.set("scale", params.get("obscale"));
         ob.src = "/ob" + (obParams.toString() ? "?" + obParams : "");
 
         const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
