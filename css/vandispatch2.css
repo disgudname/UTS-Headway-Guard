@@ -739,7 +739,8 @@ header .subtitle {
 }
 .incident-halo-icon {
   pointer-events: none !important;
-  position: relative;
+  /* No `position` here: .maplibregl-marker's position:absolute must win, or the
+     halos fall into normal flow and stack downward away from their incidents. */
   width: var(--incident-halo-diameter, 110px);
   height: var(--incident-halo-diameter, 110px);
 }
