@@ -1,18 +1,17 @@
 // livemap/core/data/safety.js
 // -----------------------------------------------------------------------------
-// "Traffic & Incidents" data: PulsePoint emergency incidents + TomTom traffic
-// incidents (both public, polled) and the TomTom traffic-flow raster (a tile
-// source, no polling — the layer module just toggles it).
+// "Traffic & Incidents" data: PulsePoint emergency incidents (public, polled)
+// and the TomTom traffic-flow raster (a tile source, no polling — the layer
+// module just toggles it).
 //
 // PulsePoint is special: an incident with responders committed that sits near a
 // transit route (or, while the FlexRide overlay is on, anywhere in the FlexRide
 // service area) shows AUTOMATICALLY — no toggle. The "Emergency incidents"
 // checkbox is an override that additionally surfaces every active incident,
-// anywhere. TomTom incidents + the flow raster stay plain opt-in toggles.
+// anywhere. The TomTom flow raster stays a plain opt-in toggle.
 //
 //   onPulsePoint(fn)   -> fn(incident[])   { id, lat, lng, kind, type, address, units[], age }
-//   onTrafficInc(fn)   -> fn(feature[])    GeoJSON LineString Features (+ normalised props)
-//   is/​set/onSafety(key) for keys: 'pulsepoint' | 'trafficInc' | 'trafficFlow'
+//   is/​set/onSafety(key) for keys: 'pulsepoint' | 'trafficFlow'
 // -----------------------------------------------------------------------------
 
 import { API_BASE } from '../config.js';
@@ -23,19 +22,17 @@ import { getMicroZone, onMicroZone } from './microtransit.js';
 import { isDispatcher, onDispatcher } from './session.js';
 
 const PULSEPOINT_URL = `${API_BASE}/v1/testmap/pulsepoint`;
-const TRAFFIC_INC_URL = `${API_BASE}/api/traffic/incidents`;
 const POLL_MS = 60_000;
 // "Near a route" for the auto-show + the popup's "Routes Nearby" pills — matches
 // testmap's INCIDENT_ROUTE_PROXIMITY_THRESHOLD_METERS (150 m). It's a transit
 // map, not a scanner feed.
 const NEAR_ROUTE_M = 150;
 
-const KEYS = ['pulsepoint', 'trafficInc', 'trafficFlow'];
+const KEYS = ['pulsepoint', 'trafficFlow'];
 const lsKey = (k) => `livemap.safety.${k}`;
 
 const bus = emitter();
 export const onPulsePoint = (fn) => bus.on('pulsepoint', fn);
-export const onTrafficInc = (fn) => bus.on('trafficInc', fn);
 export const onSafety = (key, fn) => {
   try { fn(enabled[key]); } catch (e) { console.error('[livemap] safety listener threw', e); }
   return bus.on(`toggle:${key}`, fn);
@@ -47,7 +44,6 @@ for (const k of KEYS) enabled[k] = lsGet(lsKey(k), '0') === '1';
 let started = false;
 let timer = 0;
 let pulsePoint = [];
-let trafficInc = [];
 
 // Route polylines for the near-route filter + the incident popup's "routes
 // nearby" pills; refreshed on change.
@@ -162,8 +158,6 @@ export const getPulsePoint = () => {
     (x) => x.hasActiveUnit && (x.nearRoute || inFlexZone(x.lat, x.lng)),
   );
 };
-// Traffic incidents + congestion are dispatcher-only, same as PulsePoint.
-export const getTrafficInc = () => (isDispatcher() && enabled.trafficInc ? trafficInc : []);
 
 export function setSafety(key, on) {
   on = !!on;
@@ -173,8 +167,7 @@ export function setSafety(key, on) {
   bus.emit(`toggle:${key}`, on);
   // Re-emit current data so a layer that just turned on paints immediately.
   if (key === 'pulsepoint') bus.emit('pulsepoint', getPulsePoint());
-  if (key === 'trafficInc') bus.emit('trafficInc', getTrafficInc());
-  if (on && (key === 'pulsepoint' || key === 'trafficInc')) poll();
+  if (on && key === 'pulsepoint') poll();
   maybeStopTimer();
 }
 
@@ -193,10 +186,8 @@ export function startSafetyFeed() {
   // or stops polling and showing.
   onDispatcher(() => {
     bus.emit('pulsepoint', getPulsePoint());
-    bus.emit('trafficInc', getTrafficInc());
     maybeStopTimer();
     if (wantPulsePoll()) pollPulsePoint();
-    if (wantTrafficPoll()) pollTrafficInc();
   });
   maybeStopTimer();
 }
@@ -207,12 +198,8 @@ function wantPulsePoll() {
   return isDispatcher();
 }
 
-function wantTrafficPoll() {
-  return isDispatcher() && enabled.trafficInc;
-}
-
 function maybeStopTimer() {
-  const wantPoll = wantPulsePoll() || wantTrafficPoll();
+  const wantPoll = wantPulsePoll();
   if (wantPoll && !timer) {
     poll();
     timer = setInterval(poll, POLL_MS);
@@ -402,52 +389,6 @@ async function pollPulsePoint() {
   }
 }
 
-// --- TomTom traffic incidents -------------------------------------------
-
-// iconCategory -> label; magnitudeOfDelay -> colour bucket.
-const TT_CAT = {
-  1: 'Accident', 2: 'Fog', 3: 'Dangerous conditions', 4: 'Rain', 5: 'Ice',
-  6: 'Traffic jam', 7: 'Lane closed', 8: 'Road closed', 9: 'Road works',
-  10: 'Wind', 11: 'Flooding', 14: 'Broken-down vehicle',
-};
-function ttColor(mag) {
-  const m = Number(mag);
-  // UVA palette: Emergency → Emergency → Orange → Yellow → Text Gray.
-  return m >= 4 ? '#df1e43' : m === 3 ? '#df1e43' : m === 2 ? '#e57200' : m === 1 ? '#fdda24' : '#666666';
-}
-
-async function pollTrafficInc() {
-  try {
-    const r = await fetch(TRAFFIC_INC_URL, { cache: 'no-store' });
-    if (!r.ok) return;
-    const data = await r.json();
-    const feats = (data && data.incidents) || [];
-    const out = [];
-    for (const f of feats) {
-      if (!f || !f.geometry || f.geometry.type !== 'LineString') continue;
-      const p = f.properties || {};
-      const events = Array.isArray(p.events) ? p.events.map((e) => e.description).filter(Boolean) : [];
-      out.push({
-        type: 'Feature',
-        geometry: f.geometry,
-        properties: {
-          cat: TT_CAT[p.iconCategory] || 'Incident',
-          color: ttColor(p.magnitudeOfDelay),
-          from: (p.from || '').toString(),
-          to: (p.to || '').toString(),
-          desc: events.join(' · '),
-          delay: p.delay == null ? '' : `${Math.round(Number(p.delay))}s delay`,
-        },
-      });
-    }
-    trafficInc = out;
-    bus.emit('trafficInc', getTrafficInc());
-  } catch (err) {
-    console.warn('[livemap] traffic incidents poll failed', err);
-  }
-}
-
 function poll() {
   if (wantPulsePoll()) pollPulsePoint();
-  if (wantTrafficPoll()) pollTrafficInc();
 }

@@ -47,12 +47,9 @@ import {
 import {
   TRAFFIC_FLOW_SOURCE_ID,
   TRAFFIC_FLOW_SOURCE_DEF,
-  TRAFFIC_INC_SOURCE_ID,
-  TRAFFIC_INC_SOURCE_DEF,
   PULSEPOINT_SOURCE_ID,
   PULSEPOINT_SOURCE_DEF,
   trafficFlowLayerDef,
-  trafficIncLayerDefs,
   pulsePointLayerDefs,
 } from './layers/safety-style.js';
 
@@ -179,7 +176,6 @@ function normalizeBase(style) {
   s.sources[MICRO_ZONE_SOURCE_ID] = clone(MICRO_ZONE_SOURCE_DEF);
   s.sources[MICRO_TRIP_SOURCE_ID] = clone(MICRO_TRIP_SOURCE_DEF);
   s.sources[TRAFFIC_FLOW_SOURCE_ID] = clone(TRAFFIC_FLOW_SOURCE_DEF);
-  s.sources[TRAFFIC_INC_SOURCE_ID] = clone(TRAFFIC_INC_SOURCE_DEF);
   s.sources[PULSEPOINT_SOURCE_ID] = clone(PULSEPOINT_SOURCE_DEF);
   s.sources[BUILDING_SOURCE_ID] = {
     type: 'geojson',
@@ -411,11 +407,6 @@ function addTrafficFlowLayer(style) {
   style.layers.push(clone(trafficFlowLayerDef()));
 }
 
-/** TomTom incident lines — above routes/stops, below vehicles. */
-function addTrafficIncLayers(style, theme) {
-  for (const def of trafficIncLayerDefs(theme)) style.layers.push(clone(def));
-}
-
 /** PulsePoint incident dots — on top of everything (safety info stays visible). */
 function addPulsePointLayers(style, theme) {
   for (const def of pulsePointLayerDefs(theme)) style.layers.push(clone(def));
@@ -465,7 +456,6 @@ function buildLight(raw) {
   addStopLayers(s, 'light');
   addCatLayers(s, 'light');
   addMicroTripLayers(s, 'light');
-  addTrafficIncLayers(s, 'light');
   addVandispatchRouteLayer(s);
   addTripPlannerLayers(s, 'light');
   addOverheightLayers(s); // just under the vehicles: tints streets, never a bus
@@ -781,7 +771,6 @@ function buildDark(raw) {
   addStopLayers(s, 'dark');
   addCatLayers(s, 'dark');
   addMicroTripLayers(s, 'dark');
-  addTrafficIncLayers(s, 'dark');
   addVandispatchRouteLayer(s);
   addTripPlannerLayers(s, 'dark');
   addOverheightLayers(s); // just under the vehicles: tints streets, never a bus

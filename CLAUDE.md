@@ -179,6 +179,11 @@ QUICK_DEPARTURE_MIN_DURATION_S = 5.0          # Quick departure threshold
 - `W2W_ASSIGNED_SHIFT_URL` - WhenToWork shift assignments
 - `W2W_ICAL_URL` - secret iCal address of the W2W "Complete Schedule" Google Calendar (a credential: never print or commit it). The only source of UNASSIGNED shifts, see [W2W Unassigned Shifts](#w2w-unassigned-shifts); `W2W_ICAL_POLL_S` (default 300) is its poll interval
 
+**TomTom traffic flow (free tier, 200k raster tiles/month):**
+- `TOMTOM_KEY` - API key (secret)
+- `TOMTOM_TILE_TTL_S=180` - min seconds between refetches of a tile; only the 12 z14 512px tiles over the service area are ever fetched, on demand
+- `TOMTOM_MONTHLY_CAP=195000` - stop fetching for the rest of the month (count in `/data/tomtom_usage.json`, shown at `/admin` via `GET /api/traffic/usage`)
+
 **Storage:**
 - `DATA_DIRS=/data` - Persistent storage location (colon-separated)
 - `VEH_LOG_DIRS=/data/vehicle_logs` - Vehicle log storage

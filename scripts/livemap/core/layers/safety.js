@@ -1,9 +1,8 @@
 // livemap/core/layers/safety.js
 // -----------------------------------------------------------------------------
-// "Traffic & Incidents" overlay controller: keeps the PulsePoint + TomTom
-// incident sources fed, toggles the three layers (traffic flow raster, traffic
-// incident lines, PulsePoint dots) independently with their panel checkboxes,
-// and owns the PulsePoint / incident popups.
+// "Traffic & Incidents" overlay controller: keeps the PulsePoint source fed,
+// toggles the two layers (traffic flow raster, PulsePoint dots) independently
+// with their panel checkboxes, and owns the PulsePoint popups.
 // -----------------------------------------------------------------------------
 
 import { API_BASE } from '../config.js';
@@ -15,15 +14,12 @@ import {
   isSafetyOn,
   onSafety,
   onPulsePoint,
-  onTrafficInc,
   getPulsePoint,
-  getTrafficInc,
 } from '../data/safety.js';
 import {
   TRAFFIC_FLOW_LAYER,
-  TRAFFIC_INC_SOURCE_ID,
-  TRAFFIC_INC_CASING_LAYER,
-  TRAFFIC_INC_LINE_LAYER,
+  TRAFFIC_FLOW_SOURCE_ID,
+  TRAFFIC_FLOW_TILE_URL,
   PULSEPOINT_SOURCE_ID,
   PULSEPOINT_DOT_LAYER,
   PULSEPOINT_FALLBACK_IMAGE,
@@ -40,8 +36,10 @@ const ppDone = new Set();
 let lastPulseFC = null;
 
 let pulse = [];
-let inc = [];
 let popup = null;
+let flowTimer = 0;
+// Matches the backend's TOMTOM_TILE_TTL_S; tiles don't refresh on their own.
+const FLOW_REFRESH_MS = 3 * 60 * 1000;
 let popupKey = null;
 let wired = false;
 
@@ -52,27 +50,19 @@ export function installSafetyLayer() {
     syncPulse();
     applyVis(); // near-route / service-area incidents auto-show — track that here
   });
-  onTrafficInc((list) => {
-    inc = list;
-    syncInc();
-  });
   onSafety('pulsepoint', () => applyVis());
-  onSafety('trafficInc', () => applyVis());
   onSafety('trafficFlow', () => applyVis());
   onDispatcher(() => applyVis());
   startSafetyFeed();
 
   const p = getPulsePoint();
   if (p.length) pulse = p;
-  const i = getTrafficInc();
-  if (i.length) inc = i;
 }
 
 function onRebuilt() {
   ppDone.clear(); // style rebuild wiped the image atlas
   ensureFallbackPin();
   syncPulse();
-  syncInc();
   applyVis();
   wire();
 }
@@ -150,15 +140,22 @@ function applyVis() {
   // PulsePoint shows whenever there's anything to show — the near-route /
   // FlexRide-zone set auto-shows; the toggle only widens it to "everything".
   const ppOn = isSafetyOn('pulsepoint') || pulse.length > 0;
-  // Traffic flow + incidents are dispatcher-only, regardless of a toggle state
+  // Traffic flow is dispatcher-only, regardless of a toggle state
   // left behind in localStorage from an earlier authed session.
   const disp = isDispatcher();
-  set(TRAFFIC_FLOW_LAYER, disp && isSafetyOn('trafficFlow'));
-  set(TRAFFIC_INC_CASING_LAYER, disp && isSafetyOn('trafficInc'));
-  set(TRAFFIC_INC_LINE_LAYER, disp && isSafetyOn('trafficInc'));
+  const flowOn = disp && isSafetyOn('trafficFlow');
+  set(TRAFFIC_FLOW_LAYER, flowOn);
+  if (flowOn && !flowTimer) {
+    flowTimer = setInterval(() => {
+      // A new query string makes MapLibre refetch the (otherwise cached) tiles.
+      getMap()?.getSource(TRAFFIC_FLOW_SOURCE_ID)?.setTiles([`${TRAFFIC_FLOW_TILE_URL}?t=${Date.now()}`]);
+    }, FLOW_REFRESH_MS);
+  } else if (!flowOn && flowTimer) {
+    clearInterval(flowTimer);
+    flowTimer = 0;
+  }
   set(PULSEPOINT_DOT_LAYER, ppOn);
   if (!ppOn && popupKey && popupKey.startsWith('pp:')) closePopup();
-  if ((!disp || !isSafetyOn('trafficInc')) && popupKey && popupKey.startsWith('ti:')) closePopup();
 }
 
 // --- sources ------------------------------------------------------------
@@ -192,12 +189,6 @@ function syncPulse() {
   src.setData(fc);
   for (const code of new Set(pulse.map((x) => x.iconType).filter(Boolean))) ensurePpIcon(code);
   if (popupKey && popupKey.startsWith('pp:')) refreshPopup();
-}
-
-function syncInc() {
-  const src = getMap()?.getSource(TRAFFIC_INC_SOURCE_ID);
-  if (!src) return;
-  src.setData({ type: 'FeatureCollection', features: inc });
 }
 
 // --- interactions -----------------------------------------------------
@@ -240,21 +231,6 @@ function wire() {
   map.on('mouseleave', PULSEPOINT_DOT_LAYER, () => {
     map.getCanvas().style.cursor = '';
   });
-
-  // Traffic-incident lines aren't marker-menu targets (they're linework), so
-  // give them their own click.
-  map.on('click', TRAFFIC_INC_LINE_LAYER, (e) => {
-    if (!isSafetyOn('trafficInc')) return;
-    const f = e.features && e.features[0];
-    if (!f) return;
-    openIncPopup(f.properties, e.lngLat);
-  });
-  map.on('mouseenter', TRAFFIC_INC_LINE_LAYER, () => {
-    map.getCanvas().style.cursor = 'pointer';
-  });
-  map.on('mouseleave', TRAFFIC_INC_LINE_LAYER, () => {
-    map.getCanvas().style.cursor = '';
-  });
 }
 
 // --- popups ---------------------------------------------------------
@@ -281,21 +257,6 @@ function refreshPopup() {
   const x = pulse.find((p) => p.id === id);
   if (!popup || !x) return;
   popup.setHTML(pulsePopupHTML(x));
-}
-
-function openIncPopup(props, lngLat) {
-  closePopup();
-  popupKey = `ti:${props.from}|${props.to}`;
-  popup = new maplibregl.Popup({
-    offset: 8,
-    closeButton: true,
-    className: 'livemap-stop-popup livemap-cat-popup',
-    maxWidth: '280px',
-  })
-    .setLngLat(lngLat)
-    .setHTML(incPopupHTML(props))
-    .addTo(getMap());
-  popup.on('close', clearPopup);
 }
 
 function closePopup() {
@@ -414,23 +375,6 @@ function contrastText(hex) {
   const n = parseInt(m[1], 16);
   const yiq = (((n >> 16) & 255) * 299 + ((n >> 8) & 255) * 587 + (n & 255) * 114) / 1000;
   return yiq >= 150 ? '#1b1f27' : '#f8fafc';
-}
-
-function incPopupHTML(p) {
-  const rows = [];
-  const seg = [p.from, p.to].filter(Boolean).join(' → ');
-  if (seg) rows.push(`<div class="ls-empty">${esc(seg)}</div>`);
-  if (p.desc) rows.push(row('Detail', p.desc));
-  if (p.delay) rows.push(row('Delay', p.delay));
-  return `
-    <div class="ls-pop">
-      <div class="ls-name">${esc(p.cat || 'Incident')} <span class="ls-tag">TRAFFIC</span></div>
-      ${rows.join('')}
-    </div>`;
-}
-
-function row(k, v) {
-  return `<div class="ls-row"><span class="ls-route">${esc(k)}</span><span class="ls-eta">${esc(v)}</span></div>`;
 }
 
 function esc(s) {

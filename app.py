@@ -161,10 +161,14 @@ GEOCODE_PROXY_URL = os.getenv("GEOCODE_PROXY_URL", "").strip() or None
 GEOCODE_HTTP_TIMEOUT_S = float(os.getenv("GEOCODE_HTTP_TIMEOUT_S", "3"))
 
 TOMTOM_KEY = os.getenv("TOMTOM_KEY", "").strip()
-TOMTOM_REFRESH_S = int(os.getenv("TOMTOM_REFRESH_S", "120"))  # seed cycle interval, seconds
-TOMTOM_SEED_ZOOM_MIN = 13
-TOMTOM_SEED_ZOOM_MAX = 15
-TOMTOM_ONDEMAND_ZOOM_MAX = 18
+# Free tier is 200k raster flow tiles/month. We only ever fetch ONE fixed set:
+# the 512px tiles at TOMTOM_TILE_ZOOM covering TOMTOM_SERVICE_BBOX (12 tiles),
+# and both maps scale those to every zoom. Each tile is refetched at most once
+# per TOMTOM_TILE_TTL_S and only when a client asks for it, so the kiosks
+# running 24/7 cost 12 tiles / 3 min ~= 173k/month.
+TOMTOM_TILE_ZOOM = 14
+TOMTOM_TILE_TTL_S = float(os.getenv("TOMTOM_TILE_TTL_S", "180"))
+TOMTOM_MONTHLY_CAP = int(os.getenv("TOMTOM_MONTHLY_CAP", "195000"))
 TOMTOM_SERVICE_BBOX = {
     "lat_min": float(os.getenv("TOMTOM_LAT_MIN", "38.0081")),
     "lat_max": float(os.getenv("TOMTOM_LAT_MAX", "38.0582")),
@@ -6736,84 +6740,6 @@ async def startup():
             await asyncio.sleep(poll_interval_s)
 
     asyncio.create_task(push_notification_poller())
-
-    async def tomtom_traffic_seeder():
-        if not TOMTOM_KEY:
-            print("[tomtom] TOMTOM_KEY not set, traffic tile seeder disabled")
-            return
-        tiles_by_zoom = {z: _tomtom_tiles_for_zoom(z) for z in range(TOMTOM_SEED_ZOOM_MIN, TOMTOM_SEED_ZOOM_MAX + 1)}
-        total = sum(len(v) for v in tiles_by_zoom.values())
-        print(f"[tomtom] traffic tile seeder starting — {total} tiles across zoom {TOMTOM_SEED_ZOOM_MIN}–{TOMTOM_SEED_ZOOM_MAX}, refresh every {TOMTOM_REFRESH_S}s")
-        await asyncio.sleep(5)
-        while True:
-            fetched = 0
-            errors = 0
-            try:
-                async with httpx.AsyncClient(timeout=httpx.Timeout(15.0)) as client:
-                    for z in range(TOMTOM_SEED_ZOOM_MIN, TOMTOM_SEED_ZOOM_MAX + 1):
-                        async def _fetch(tz: int, tx: int, ty: int) -> None:
-                            nonlocal fetched, errors
-                            url = (
-                                f"https://api.tomtom.com/traffic/map/4/tile/flow/relative"
-                                f"/{tz}/{tx}/{ty}.png?key={TOMTOM_KEY}"
-                            )
-                            try:
-                                resp = await client.get(url)
-                                if resp.status_code == 200:
-                                    _tomtom_tile_cache[(tz, tx, ty)] = resp.content
-                                    fetched += 1
-                                else:
-                                    errors += 1
-                            except Exception as tile_exc:
-                                errors += 1
-                                print(f"[tomtom] tile {tz}/{tx}/{ty} error: {tile_exc}")
-                        batch = tiles_by_zoom[z]
-                        concurrency = 8
-                        for i in range(0, len(batch), concurrency):
-                            await asyncio.gather(*[_fetch(tz, tx, ty) for tz, tx, ty in batch[i:i + concurrency]])
-                print(f"[tomtom] seeded {fetched} tiles ({errors} errors)")
-            except Exception as exc:
-                print(f"[tomtom] seeder cycle error: {exc}")
-            await asyncio.sleep(TOMTOM_REFRESH_S)
-
-    asyncio.create_task(tomtom_traffic_seeder())
-
-    async def tomtom_incidents_poller():
-        if not TOMTOM_KEY:
-            return
-        await asyncio.sleep(15)
-        bb = TOMTOM_SERVICE_BBOX
-        bbox = f"{bb['lon_min']},{bb['lat_min']},{bb['lon_max']},{bb['lat_max']}"
-        while True:
-            url = (
-                f"https://api.tomtom.com/traffic/services/5/incidentDetails"
-                f"?key={TOMTOM_KEY}&bbox={bbox}&language=en-US"
-                f"&timeValidityFilter=present&expandCluster=true"
-            )
-            fields = (
-                "{incidents{type,geometry{type,coordinates},properties{iconCategory,"
-                "events{description,code},from,to,delay,magnitudeOfDelay,"
-                "startTime,endTime,length,roadNumbers,"
-                "probabilityOfOccurrence,numberOfReports}}}"
-            )
-            params = {"fields": fields}
-            try:
-                async with httpx.AsyncClient(timeout=httpx.Timeout(15.0)) as client:
-                    resp = await client.get(url, params=params)
-                if resp.status_code == 200:
-                    data = resp.json()
-                    incidents = data.get("incidents", [])
-                    async with _tomtom_incidents_lock:
-                        global _tomtom_incidents_cache
-                        _tomtom_incidents_cache = incidents
-                    print(f"[tomtom] {len(incidents)} traffic incidents")
-                else:
-                    print(f"[tomtom] incidents API {resp.status_code}: {resp.text[:500]}")
-            except Exception as exc:
-                print(f"[tomtom] incidents poller error: {exc}")
-            await asyncio.sleep(TOMTOM_REFRESH_S)
-
-    asyncio.create_task(tomtom_incidents_poller())
 
     # W2W full-schedule iCal feed -> change log (who was on / left open on each shift, and when it changed)
     w2w_schedule_log = W2WScheduleLog(PRIMARY_DATA_DIR)
@@ -15021,15 +14947,53 @@ def _make_transparent_png() -> bytes:
 
 _TRANSPARENT_PNG = _make_transparent_png()
 
-# Seeded tiles (zoom TOMTOM_SEED_ZOOM_MIN–MAX): (z,x,y) -> PNG bytes
-_tomtom_tile_cache: dict[tuple[int, int, int], bytes] = {}
-# On-demand tiles (zoom > TOMTOM_SEED_ZOOM_MAX): (z,x,y) -> (PNG bytes, monotonic timestamp)
-_tomtom_ondemand_cache: dict[tuple[int, int, int], tuple[bytes, float]] = {}
-_TOMTOM_ONDEMAND_TTL_S = 300.0  # 5 minutes
+# (x, y) at TOMTOM_TILE_ZOOM -> (PNG bytes, monotonic fetch time)
+_tomtom_tiles: dict[tuple[int, int], tuple[bytes, float]] = {}
+# (x, y) -> monotonic time of the last fetch attempt (success or not)
+_tomtom_tile_attempts: dict[tuple[int, int], float] = {}
+_tomtom_tile_locks: dict[tuple[int, int], asyncio.Lock] = {}
+# Stop fetching until this monotonic time after TomTom refuses (out of credit, bad key)
+_tomtom_paused_until = 0.0
+_TOMTOM_PAUSE_S = 3600.0
+# A stale tile is still served this long after a failed refresh, then dropped
+_TOMTOM_STALE_MAX_S = 600.0
+_TOMTOM_USAGE_FILE = PRIMARY_DATA_DIR / "tomtom_usage.json"
 
-# Incidents cache: list of GeoJSON-like incident features
-_tomtom_incidents_cache: list[dict] = []
-_tomtom_incidents_lock = asyncio.Lock()
+
+def _tomtom_month() -> str:
+    return datetime.now(timezone.utc).strftime("%Y-%m")
+
+
+def _load_tomtom_usage() -> dict:
+    try:
+        data = json.loads(_TOMTOM_USAGE_FILE.read_text())
+        if data.get("month") == _tomtom_month():
+            return {"month": data["month"], "count": int(data.get("count", 0))}
+    except Exception:
+        pass
+    return {"month": _tomtom_month(), "count": 0}
+
+
+# Tile requests sent to TomTom this calendar month (UTC), persisted across restarts
+_tomtom_usage = _load_tomtom_usage()
+
+
+def _tomtom_count_request() -> None:
+    month = _tomtom_month()
+    if _tomtom_usage["month"] != month:
+        _tomtom_usage["month"] = month
+        _tomtom_usage["count"] = 0
+    _tomtom_usage["count"] += 1
+    try:
+        _atomic_write(_TOMTOM_USAGE_FILE, json.dumps(_tomtom_usage))
+    except Exception as exc:
+        print(f"[tomtom] usage save failed: {exc}")
+
+
+def _tomtom_budget_left() -> bool:
+    if _tomtom_usage["month"] != _tomtom_month():
+        return True
+    return _tomtom_usage["count"] < TOMTOM_MONTHLY_CAP
 
 
 def _tomtom_lon_to_tile_x(lon: float, zoom: int) -> int:
@@ -18520,83 +18484,64 @@ async def ips_page():
 # ---------------------------
 @app.get("/api/traffic/tile/{z}/{x}/{y}.png")
 async def traffic_tile(z: int, x: int, y: int):
-    """Serve TomTom traffic flow tiles from the seeded cache or on-demand for higher zooms.
-
-    Tiles outside the service area bounding box return a transparent PNG immediately
-    so the browser treats them as empty without making noise in the logs.
+    """Serve a 512px TomTom flow tile. Only TOMTOM_TILE_ZOOM inside the service
+    area is real; clients scale it to other zooms. Everything else gets a
+    transparent PNG without touching TomTom.
     """
-    if not _tomtom_tile_in_service_bbox(z, x, y) or z > TOMTOM_ONDEMAND_ZOOM_MAX:
-        return Response(content=_TRANSPARENT_PNG, media_type="image/png")
+    global _tomtom_paused_until
+    transparent = Response(content=_TRANSPARENT_PNG, media_type="image/png")
+    if z != TOMTOM_TILE_ZOOM or not _tomtom_tile_in_service_bbox(z, x, y) or not TOMTOM_KEY:
+        return transparent
 
-    # Seeded zoom range: serve directly from the pre-fetched cache
-    if TOMTOM_SEED_ZOOM_MIN <= z <= TOMTOM_SEED_ZOOM_MAX:
-        tile = _tomtom_tile_cache.get((z, x, y))
-        if tile:
-            return Response(content=tile, media_type="image/png",
-                            headers={"Cache-Control": "no-store"})
-        # Seed hasn't run yet — fall through to on-demand below
+    key = (x, y)
+    lock = _tomtom_tile_locks.setdefault(key, asyncio.Lock())
+    async with lock:  # several kiosks asking at once -> one TomTom request
+        now = time.monotonic()
+        cached = _tomtom_tiles.get(key)
+        last_attempt = _tomtom_tile_attempts.get(key, 0.0)
+        due = now - last_attempt >= TOMTOM_TILE_TTL_S
+        if due and now >= _tomtom_paused_until and _tomtom_budget_left():
+            _tomtom_tile_attempts[key] = now
+            _tomtom_count_request()
+            url = (
+                f"https://api.tomtom.com/traffic/map/4/tile/flow/relative"
+                f"/{z}/{x}/{y}.png?tileSize=512&key={TOMTOM_KEY}"
+            )
+            try:
+                async with httpx.AsyncClient(timeout=httpx.Timeout(10.0)) as client:
+                    resp = await client.get(url)
+                if resp.status_code == 200:
+                    cached = (resp.content, now)
+                    _tomtom_tiles[key] = cached
+                elif resp.status_code in (401, 403):
+                    _tomtom_paused_until = now + _TOMTOM_PAUSE_S
+                    print(f"[tomtom] {resp.status_code}, pausing traffic tiles for 1h: {resp.text[:200]}")
+                else:
+                    print(f"[tomtom] tile {z}/{x}/{y} HTTP {resp.status_code}")
+            except Exception as exc:
+                print(f"[tomtom] tile {z}/{x}/{y} error: {exc}")
 
-    if not TOMTOM_KEY:
-        return Response(content=_TRANSPARENT_PNG, media_type="image/png")
-
-    # On-demand path (zoom > seed range, or pre-seed cold start)
-    now = time.monotonic()
-    cached = _tomtom_ondemand_cache.get((z, x, y))
-    if cached and (now - cached[1]) < _TOMTOM_ONDEMAND_TTL_S:
+    if cached and time.monotonic() - cached[1] < _TOMTOM_STALE_MAX_S:
         return Response(content=cached[0], media_type="image/png",
                         headers={"Cache-Control": "no-store"})
-
-    url = (
-        f"https://api.tomtom.com/traffic/map/4/tile/flow/relative"
-        f"/{z}/{x}/{y}.png?key={TOMTOM_KEY}"
-    )
-    try:
-        async with httpx.AsyncClient(timeout=httpx.Timeout(10.0)) as client:
-            resp = await client.get(url)
-        if resp.status_code == 200:
-            _tomtom_ondemand_cache[(z, x, y)] = (resp.content, now)
-            return Response(content=resp.content, media_type="image/png",
-                            headers={"Cache-Control": "no-store"})
-    except Exception as exc:
-        print(f"[tomtom] on-demand tile {z}/{x}/{y} error: {exc}")
-
-    return Response(content=_TRANSPARENT_PNG, media_type="image/png")
+    _tomtom_tiles.pop(key, None)
+    return transparent
 
 
-@app.get("/api/traffic/incidents")
-async def traffic_incidents():
-    """Return cached TomTom traffic incidents for the service area."""
-    async with _tomtom_incidents_lock:
-        return {"incidents": _tomtom_incidents_cache}
-
-@app.get("/api/traffic/incidents/debug")
-async def traffic_incidents_debug():
-    """Fire a live TomTom incidents request and return the raw response for debugging."""
-    if not TOMTOM_KEY:
-        return {"error": "TOMTOM_KEY not set"}
-    bb = TOMTOM_SERVICE_BBOX
-    bbox = f"{bb['lon_min']},{bb['lat_min']},{bb['lon_max']},{bb['lat_max']}"
-    url = (
-        f"https://api.tomtom.com/traffic/services/5/incidentDetails"
-        f"?key={TOMTOM_KEY}&bbox={bbox}&language=en-US"
-        f"&timeValidityFilter=present&expandCluster=true"
-    )
-    fields = (
-        "{incidents{type,geometry{type,coordinates},properties{iconCategory,"
-        "events{description,code},from,to,delay,magnitudeOfDelay,"
-        "startTime,endTime,length,roadNumbers,"
-        "probabilityOfOccurrence,numberOfReports}}}"
-    )
-    try:
-        async with httpx.AsyncClient(timeout=httpx.Timeout(15.0)) as client:
-            resp = await client.get(url, params={"fields": fields})
-        return {
-            "status_code": resp.status_code,
-            "url": str(resp.url),
-            "body": resp.json() if resp.headers.get("content-type", "").startswith("application/json") else resp.text,
-        }
-    except Exception as exc:
-        return {"error": str(exc)}
+@app.get("/api/traffic/usage")
+async def traffic_usage():
+    """TomTom tile requests this month against the free-tier budget."""
+    month = _tomtom_month()
+    return {
+        "month": month,
+        "count": _tomtom_usage["count"] if _tomtom_usage["month"] == month else 0,
+        "cap": TOMTOM_MONTHLY_CAP,
+        "free_allowance": 200000,
+        "refresh_s": TOMTOM_TILE_TTL_S,
+        "tiles": len(_tomtom_tiles_for_zoom(TOMTOM_TILE_ZOOM)),
+        "paused": time.monotonic() < _tomtom_paused_until,
+        "enabled": bool(TOMTOM_KEY),
+    }
 
 
 # -----------------------------------------------------------------------

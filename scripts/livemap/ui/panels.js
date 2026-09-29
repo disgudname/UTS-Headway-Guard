@@ -223,7 +223,6 @@ function buildLeft() {
   const safety = section('safety', 'Traffic & Incidents');
   safety.body.innerHTML = `
     <label class="lp-check"><input type="checkbox" data-t="pulsepoint" /> <span>All PulsePoint incidents</span></label>
-    <label class="lp-check"><input type="checkbox" data-t="trafficInc" /> <span>Traffic incidents</span></label>
     <label class="lp-check"><input type="checkbox" data-t="trafficFlow" /> <span>Traffic congestion</span></label>`;
 
   // CAT last — least-used feature.
@@ -276,7 +275,7 @@ function buildLeft() {
     micro.wrap.hidden = !ok;
   });
 
-  for (const key of ['pulsepoint', 'trafficInc', 'trafficFlow']) {
+  for (const key of ['pulsepoint', 'trafficFlow']) {
     const box = safety.body.querySelector(`[data-t="${key}"]`);
     box.checked = isSafetyOn(key);
     box.addEventListener('change', () => setSafety(key, box.checked));
@@ -284,8 +283,8 @@ function buildLeft() {
       box.checked = on;
     });
   }
-  // The whole Traffic & Incidents section is dispatcher-only — PulsePoint,
-  // traffic incidents and congestion are all ops tools, not public info. (The
+  // The whole Traffic & Incidents section is dispatcher-only — PulsePoint
+  // and traffic congestion are both ops tools, not public info. (The
   // data layer independently refuses to render them for a non-dispatcher.)
   onDispatcher((isDisp) => {
     safety.wrap.hidden = !isDisp;

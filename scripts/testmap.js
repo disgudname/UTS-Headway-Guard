@@ -935,269 +935,8 @@ TM.registerVisibilityResumeHandler(() => {
       let trafficVisible = false;
       let trafficLayer = null;
       let trafficRefreshIntervalId = null;
-      const TRAFFIC_REDRAW_INTERVAL_MS = 2 * 60 * 1000; // match backend seed cycle
+      const TRAFFIC_REDRAW_INTERVAL_MS = 3 * 60 * 1000; // match backend TOMTOM_TILE_TTL_S
 
-      let tomtomIncidentsVisible = false;
-      let tomtomIncidentLayerGroup = null;
-      let tomtomIncidentRefreshIntervalId = null;
-      const TOMTOM_INCIDENTS_REFRESH_MS = 2 * 60 * 1000;
-      let tomtomIncidentMarkerRegistry = []; // { marker, incident } — rebuilt each refresh
-
-      const TOMTOM_INCIDENT_COLORS = {
-        0:  '#94A3B8', // unknown
-        1:  '#F59E0B', // accident
-        2:  '#64748B', // fog
-        3:  '#F59E0B', // dangerous conditions
-        4:  '#3B82F6', // rain
-        5:  '#06B6D4', // ice
-        6:  '#F59E0B', // jam
-        7:  '#F97316', // lane closed
-        8:  '#EF4444', // road closed
-        9:  '#F97316', // road works
-        10: '#3B82F6', // wind
-        11: '#2563EB', // flooding
-        14: '#F59E0B', // broken down
-      };
-
-      const TOMTOM_INCIDENT_TYPE_NAMES = {
-        0:  'Unknown',
-        1:  'Accident',
-        2:  'Fog',
-        3:  'Hazardous Conditions',
-        4:  'Rain',
-        5:  'Ice',
-        6:  'Traffic Jam',
-        7:  'Lane Closed',
-        8:  'Road Closed',
-        9:  'Road Works',
-        10: 'Wind',
-        11: 'Flooding',
-        14: 'Broken Down Vehicle',
-      };
-
-      const _TOMTOM_HARD_HAT_SVG = `<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 10V5a1 1 0 0 1 1-1h2a1 1 0 0 1 1 1v5"/><path d="M14 6a6 6 0 0 1 6 6v3"/><path d="M4 15v-3a6 6 0 0 1 6-6"/><rect x="2" y="15" width="20" height="4" rx="1"/></svg>`;
-
-      function _tomtomIncidentIconHtml(iconCategory) {
-        const icons = {
-          0:  '<i class="ti ti-alert-triangle"></i>',
-          1:  '<i class="ti ti-car-crash"></i>',
-          2:  '<i class="ti ti-mist"></i>',
-          3:  '<i class="ti ti-alert-hexagon"></i>',
-          4:  '<i class="ti ti-cloud-rain"></i>',
-          5:  '<i class="ti ti-snowflake"></i>',
-          6:  '<i class="ti ti-car-suv"></i>',
-          7:  '<i class="ti ti-road-off"></i>',
-          8:  '<i class="ti ti-ban"></i>',
-          9:  _TOMTOM_HARD_HAT_SVG,
-          10: '<i class="ti ti-wind"></i>',
-          11: '<i class="ti ti-ripple"></i>',
-          14: '<i class="ti ti-car-off"></i>',
-        };
-        return icons[iconCategory] ?? icons[0];
-      }
-
-      function _tomtomIncidentLatLng(incident) {
-        const geom = incident.geometry;
-        if (!geom) return null;
-        if (geom.type === 'Point') {
-          const [lon, lat] = geom.coordinates;
-          return [lat, lon];
-        }
-        if (geom.type === 'LineString' && geom.coordinates.length > 0) {
-          const mid = Math.floor(geom.coordinates.length / 2);
-          const [lon, lat] = geom.coordinates[mid];
-          return [lat, lon];
-        }
-        return null;
-      }
-
-      function _tomtomIncidentPopupHtml(incident) {
-        const props = incident.properties ?? {};
-        const iconCategory = props.iconCategory ?? 0;
-        const typeName = TOMTOM_INCIDENT_TYPE_NAMES[iconCategory] ?? 'Incident';
-        const color = TOMTOM_INCIDENT_COLORS[iconCategory] ?? '#94A3B8';
-        const iconHtml = _tomtomIncidentIconHtml(iconCategory);
-
-        const events = (props.events ?? []).map(e => escapeHtml(e.description)).filter(Boolean);
-        const from = props.from ?? '';
-        const to = props.to ?? '';
-        const roadNums = (props.roadNumbers ?? []).filter(Boolean);
-
-        const prob = props.probabilityOfOccurrence ?? '';
-        const probLabel = prob === 'certain' ? 'Confirmed' : prob === 'probable' ? 'Probable' : prob === 'risk_of' ? 'Risk of' : prob === 'low_risk' ? 'Low risk' : '';
-
-        const mag = props.magnitudeOfDelay ?? 0;
-        const magLabel = mag === 4 ? 'Major delays' : mag === 3 ? 'Long delays' : mag === 2 ? 'Delays' : mag === 1 ? 'Minor delays' : '';
-
-        const lengthM = typeof props.length === 'number' ? props.length : null;
-        const lengthFt = lengthM !== null ? lengthM * 3.28084 : null;
-        const lengthText = lengthFt !== null ? (lengthFt >= 1000 ? `${(lengthFt / 5280).toFixed(1)} mi` : `${Math.round(lengthFt).toLocaleString()} ft`) : '';
-
-        const delaySec = typeof props.delay === 'number' ? props.delay : null;
-        const delayText = delaySec !== null && delaySec > 60 ? `${Math.round(delaySec / 60)} min delay` : '';
-
-        const fmtDate = iso => {
-          if (!iso) return null;
-          const d = new Date(iso);
-          return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric', timeZone: 'America/New_York' });
-        };
-        const startText = fmtDate(props.startTime);
-        const endText = fmtDate(props.endTime);
-        const dateText = startText && endText ? `${startText} – ${endText}` : startText ? `Since ${startText}` : '';
-
-        let html = `<div class="tt-popup">`;
-
-        // Header: icon + title + badges
-        html += `<div class="tt-header">`;
-        html += `<div class="tt-icon" style="background:${color}">${iconHtml}</div>`;
-        html += `<div class="tt-title-block">`;
-        html += `<div class="tt-type">${escapeHtml(typeName)}</div>`;
-        html += `<div class="tt-badges">`;
-        if (probLabel) html += `<span class="tt-badge">${escapeHtml(probLabel)}</span>`;
-        if (magLabel) html += `<span class="tt-badge tt-badge--severity-${mag}">${escapeHtml(magLabel)}</span>`;
-        roadNums.forEach(r => { html += `<span class="tt-badge tt-badge--road">${escapeHtml(r)}</span>`; });
-        html += `</div></div></div>`;
-
-        // Events
-        if (events.length) {
-          html += `<div class="tt-divider"></div>`;
-          html += `<div class="tt-section"><div class="tt-section-label">Events</div><div class="tt-events">`;
-          events.forEach(e => { html += `<div class="tt-event">${e}</div>`; });
-          html += `</div></div>`;
-        }
-
-        // Location
-        if (from || to) {
-          html += `<div class="tt-divider"></div>`;
-          html += `<div class="tt-section"><div class="tt-section-label">Location</div><div class="tt-location">`;
-          if (from && to) html += `${escapeHtml(from)} → ${escapeHtml(to)}`;
-          else html += escapeHtml(from || to);
-          html += `</div></div>`;
-        }
-
-        // Meta footer
-        const metaParts = [lengthText, delayText, dateText].filter(Boolean);
-        if (metaParts.length) {
-          html += `<div class="tt-divider"></div><div class="tt-meta">`;
-          if (lengthText) html += `<div class="tt-meta-item"><i class="ti ti-ruler"></i> ${escapeHtml(lengthText)}</div>`;
-          if (delayText) html += `<div class="tt-meta-item"><i class="ti ti-clock-pause"></i> ${escapeHtml(delayText)}</div>`;
-          if (dateText) html += `<div class="tt-meta-item"><i class="ti ti-calendar"></i> ${escapeHtml(dateText)}</div>`;
-          html += `</div>`;
-        }
-
-        html += `</div>`;
-        return html;
-      }
-
-      function _buildTomtomIncidentLayers(incident) {
-        const iconCategory = incident.properties?.iconCategory ?? 0;
-        const color = TOMTOM_INCIDENT_COLORS[iconCategory] ?? '#94A3B8';
-        const popupHtml = _tomtomIncidentPopupHtml(incident);
-        const layers = [];
-
-        const openPopup = (latlng) => {
-          createCustomPopup({ popupType: 'tomtom-incident', position: latlng, incident });
-        };
-
-        // Polyline along geometry
-        const geom = incident.geometry;
-        if (geom?.type === 'LineString' && geom.coordinates.length >= 2) {
-          const latlngs = geom.coordinates.map(([lon, lat]) => [lat, lon]);
-          const polyline = L.polyline(latlngs, {
-            color,
-            weight: 5,
-            opacity: 0.85,
-            pane: 'tomtomIncidentPane',
-            className: 'tomtom-incident-line',
-          });
-          polyline.on('click', (e) => openPopup([e.latlng.lat, e.latlng.lng]));
-          layers.push(polyline);
-        }
-
-        // Icon marker at midpoint
-        const latlng = _tomtomIncidentLatLng(incident);
-        if (latlng) {
-          const iconHtml = _tomtomIncidentIconHtml(iconCategory);
-          const divIcon = L.divIcon({
-            html: `<div class="tomtom-incident-marker" style="--ti-color:${color}">${iconHtml}</div>`,
-            className: 'tomtom-incident-icon',
-            iconSize: [32, 32],
-            iconAnchor: [16, 16],
-          });
-          const marker = L.marker(latlng, { icon: divIcon, pane: 'tomtomIncidentPane' });
-          marker.on('click', (e) => {
-            const clickedLatLng = marker.getLatLng();
-            const overlappingItems = findOverlappingClickableItems(clickedLatLng);
-            if (overlappingItems.length >= 2 && typeof MarkerSelectionMenu !== 'undefined') {
-              if (e && e.originalEvent) L.DomEvent.stopPropagation(e.originalEvent);
-              MarkerSelectionMenu.handleMarkerClick(clickedLatLng, overlappingItems);
-            } else {
-              openPopup(latlng);
-            }
-          });
-          tomtomIncidentMarkerRegistry.push({ marker, incident });
-          layers.push(marker);
-        }
-
-        return layers;
-      }
-
-      async function fetchAndRenderTomtomIncidents() {
-        if (!tomtomIncidentLayerGroup || !tomtomIncidentsVisible) return;
-        try {
-          const resp = await fetch('/api/traffic/incidents');
-          if (!resp.ok) return;
-          const data = await resp.json();
-          const incidents = data.incidents ?? [];
-          tomtomIncidentLayerGroup.clearLayers();
-          tomtomIncidentMarkerRegistry = [];
-          for (const incident of incidents) {
-            for (const layer of _buildTomtomIncidentLayers(incident)) {
-              tomtomIncidentLayerGroup.addLayer(layer);
-            }
-          }
-        } catch (e) {
-          console.error('[tomtom incidents] fetch error:', e);
-        }
-      }
-
-      function setTomtomIncidentsVisibility(visible) {
-        tomtomIncidentsVisible = !!visible;
-        if (tomtomIncidentsVisible) {
-          if (!tomtomIncidentLayerGroup) {
-            tomtomIncidentLayerGroup = L.layerGroup([], { pane: 'tomtomIncidentPane' });
-          }
-          if (map && !map.hasLayer(tomtomIncidentLayerGroup)) {
-            tomtomIncidentLayerGroup.addTo(map);
-          }
-          fetchAndRenderTomtomIncidents();
-          if (!tomtomIncidentRefreshIntervalId) {
-            tomtomIncidentRefreshIntervalId = setInterval(fetchAndRenderTomtomIncidents, TOMTOM_INCIDENTS_REFRESH_MS);
-          }
-        } else {
-          if (tomtomIncidentLayerGroup && map && map.hasLayer(tomtomIncidentLayerGroup)) {
-            map.removeLayer(tomtomIncidentLayerGroup);
-          }
-          if (tomtomIncidentRefreshIntervalId !== null) {
-            clearInterval(tomtomIncidentRefreshIntervalId);
-            tomtomIncidentRefreshIntervalId = null;
-          }
-        }
-        updateTomtomIncidentsToggleButton();
-      }
-
-      function toggleTomtomIncidentsVisibility() {
-        setTomtomIncidentsVisibility(!tomtomIncidentsVisible);
-      }
-
-      function updateTomtomIncidentsToggleButton() {
-        const btn = document.getElementById('tomtomIncidentsToggleButton');
-        if (!btn) return;
-        btn.classList.toggle('is-active', tomtomIncidentsVisible);
-        btn.setAttribute('aria-pressed', tomtomIncidentsVisible ? 'true' : 'false');
-        const indicator = btn.querySelector('.toggle-indicator');
-        if (indicator) indicator.textContent = tomtomIncidentsVisible ? 'On' : 'Off';
-      }
       let radarRefreshTimerId = null;
       let radarCacheBustKey = "";
       let radarTileErrorCount = 0;
@@ -1916,10 +1655,18 @@ TM.registerVisibilityResumeHandler(() => {
         trafficVisible = !!visible;
         if (trafficVisible) {
           if (!trafficLayer) {
+            // The backend only has 512px tiles at z14 over the service area (free-tier
+            // budget), so pin the native zoom there and let Leaflet scale for every
+            // other zoom; `bounds` keeps it from asking for tiles outside that area.
             trafficLayer = L.tileLayer('/api/traffic/tile/{z}/{x}/{y}.png', {
               attribution: '© <a href="https://www.tomtom.com" target="_blank">TomTom</a>',
               pane: 'trafficPane',
               opacity: 0.7,
+              tileSize: 512,
+              zoomOffset: -1,
+              minNativeZoom: 15,
+              maxNativeZoom: 15,
+              bounds: [[38.0081, -78.5419], [38.0582, -78.4872]],
               errorTileUrl: 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg=='
             });
           }
@@ -10552,9 +10299,6 @@ TM.registerVisibilityResumeHandler(() => {
               <button type="button" id="trafficToggleButton" class="pill-button traffic-toggle-button${trafficVisible ? ' is-active' : ''}" aria-pressed="${trafficVisible ? 'true' : 'false'}" onclick="toggleTrafficVisibility()">
                 Traffic Flow<span class="toggle-indicator">${trafficVisible ? 'On' : 'Off'}</span>
               </button>
-              <button type="button" id="tomtomIncidentsToggleButton" class="pill-button tomtom-incidents-toggle-button${tomtomIncidentsVisible ? ' is-active' : ''}" aria-pressed="${tomtomIncidentsVisible ? 'true' : 'false'}" onclick="toggleTomtomIncidentsVisibility()">
-                Traffic Incidents<span class="toggle-indicator">${tomtomIncidentsVisible ? 'On' : 'Off'}</span>
-              </button>
             `;
           }
           if (incidentsAreAvailable()) {
@@ -10749,7 +10493,6 @@ TM.registerVisibilityResumeHandler(() => {
         updateOnDemandButton();
         updateOnDemandRoutingButton();
         updateTrafficToggleButton();
-        updateTomtomIncidentsToggleButton();
         refreshServiceAlertsUI();
         positionAllPanelTabs();
 
@@ -12684,12 +12427,6 @@ TM.registerVisibilityResumeHandler(() => {
               trafficPane.style.zIndex = 360;
               trafficPane.style.pointerEvents = 'none';
           }
-          map.createPane('tomtomIncidentPane');
-          const tomtomIncidentPane = map.getPane('tomtomIncidentPane');
-          if (tomtomIncidentPane) {
-              tomtomIncidentPane.style.zIndex = 460;
-              tomtomIncidentPane.style.pointerEvents = 'auto';
-          }
           sharedRouteRenderer = L.svg({ padding: 0 });
           if (sharedRouteRenderer) {
               map.addLayer(sharedRouteRenderer);
@@ -12820,7 +12557,6 @@ TM.registerVisibilityResumeHandler(() => {
           applyRadarState();
           if (adminKioskMode) {
               setTrafficVisibility(true);
-              setTomtomIncidentsVisibility(true);
           }
 
           if (enableOverlapDashRendering) {
@@ -13143,29 +12879,6 @@ TM.registerVisibilityResumeHandler(() => {
                           }
                       });
                   }
-              });
-          }
-
-          // Check TomTom traffic incident markers
-          if (tomtomIncidentsVisible && tomtomIncidentMarkerRegistry.length > 0) {
-              tomtomIncidentMarkerRegistry.forEach(({ marker, incident }) => {
-                  if (!marker || typeof marker.getLatLng !== 'function') return;
-                  const markerLatLng = marker.getLatLng();
-                  if (!markerLatLng || !isNearby(markerLatLng)) return;
-                  const props = incident.properties ?? {};
-                  const iconCategory = props.iconCategory ?? 0;
-                  const color = TOMTOM_INCIDENT_COLORS[iconCategory] ?? '#94A3B8';
-                  const typeName = TOMTOM_INCIDENT_TYPE_NAMES[iconCategory] ?? 'Incident';
-                  const roadNums = (props.roadNumbers ?? []).filter(Boolean).join(', ');
-                  const label = roadNums ? `${typeName} · ${roadNums}` : typeName;
-                  items.push({
-                      latlng: markerLatLng,
-                      color,
-                      label,
-                      onClick: () => {
-                          createCustomPopup({ popupType: 'tomtom-incident', position: [markerLatLng.lat, markerLatLng.lng], incident });
-                      }
-                  });
               });
           }
 
@@ -14745,19 +14458,6 @@ TM.registerVisibilityResumeHandler(() => {
           attachPopupCloseHandler(popupElement);
       }
 
-      function setTomtomIncidentPopupContent(popupElement, config) {
-          if (!popupElement) return;
-          popupElement.dataset.popupType = 'tomtom-incident';
-          const incident = config?.incident ?? null;
-          const innerHtml = incident ? _tomtomIncidentPopupHtml(incident) : '<div class="tt-popup">Incident information unavailable.</div>';
-          popupElement.innerHTML = `
-            <button class="custom-popup-close">&times;</button>
-            ${innerHtml}
-            <div class="custom-popup-arrow"></div>
-          `;
-          attachPopupCloseHandler(popupElement);
-      }
-
       function getIncidentPopupElementById(id) {
           const normalizedId = getNormalizedIncidentId(id);
           if (!normalizedId) {
@@ -14922,7 +14622,7 @@ TM.registerVisibilityResumeHandler(() => {
           busMarkerStates = {};
           previousBusData = {};
           cachedEtas = {};
-          customPopups = customPopups.filter(popup => popup && (popup.dataset.popupType === 'incident' || popup.dataset.popupType === 'tomtom-incident'));
+          customPopups = customPopups.filter(popup => popup && popup.dataset.popupType === 'incident');
           clearStopMarkerCache();
           stopDataCache = [];
           routeStopAddressMap = {};
@@ -15328,7 +15028,7 @@ TM.registerVisibilityResumeHandler(() => {
                   if (!popupElement) {
                       return false;
                   }
-                  if (popupElement.dataset.popupType === 'incident' || popupElement.dataset.popupType === 'tomtom-incident') {
+                  if (popupElement.dataset.popupType === 'incident') {
                       return true;
                   }
                   let parsedRouteStopIds = [];
@@ -15535,8 +15235,6 @@ TM.registerVisibilityResumeHandler(() => {
           popupElement.dataset.popupType = popupType;
           if (popupType === 'incident') {
               setIncidentPopupContent(popupElement, config);
-          } else if (popupType === 'tomtom-incident') {
-              setTomtomIncidentPopupContent(popupElement, config);
           } else {
               setStopPopupContent(popupElement, config);
           }

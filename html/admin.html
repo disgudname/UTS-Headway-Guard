@@ -58,6 +58,11 @@ button{margin-top:12px;padding:10px 14px;border-radius:6px;border:1px solid #2a3
   <p>Manage home page and signage alerts on their own page.</p>
   <a href="/system-notices" style="color:#3a8ef6;">Open System Notices editor &rarr;</a>
 </div>
+<div class="panel" id="trafficUsagePanel">
+  <h2>TomTom Traffic Usage</h2>
+  <p>Traffic flow tiles fetched from TomTom this month (free tier resets on the 1st).</p>
+  <div id="trafficUsage">Loading…</div>
+</div>
 <div class="panel" id="pushTestPanel">
   <h2>Test Push Notification</h2>
   <p>Send a test push notification to all subscribers.</p>
@@ -192,6 +197,24 @@ async function loadMissingEnv(){
     const error=document.createElement('div');
     error.textContent='Unable to load missing environment variables. Please try again.';
     missingRoot.appendChild(error);
+  }
+}
+async function loadTrafficUsage(){
+  const root=document.getElementById('trafficUsage');
+  if(!root) return;
+  try{
+    const resp=await fetch('/api/traffic/usage',{cache:'no-store'});
+    if(!resp.ok) throw new Error('HTTP '+resp.status);
+    const u=await resp.json();
+    if(!u.enabled){ root.textContent='TOMTOM_KEY is not set; traffic is off.'; return; }
+    const pct=Math.round(u.count/u.free_allowance*100);
+    let text=`${u.count.toLocaleString()} / ${u.free_allowance.toLocaleString()} (${pct}%) in ${u.month}. `
+      +`Stops at ${u.cap.toLocaleString()}. ${u.tiles} tiles, refreshed every ${Math.round(u.refresh_s/60)} min while someone is viewing.`;
+    if(u.paused) text+=' PAUSED: TomTom refused the last request (out of credit or bad key); retrying hourly.';
+    root.textContent=text;
+  }catch(err){
+    console.error('Failed to load traffic usage',err);
+    root.textContent='Unable to load traffic usage.';
   }
 }
 async function save(){
@@ -356,6 +379,7 @@ async function bootstrap(){
   try{
     await load();
     await loadMissingEnv();
+    loadTrafficUsage();
     if(logoutButton) logoutButton.hidden=false;
   }catch(err){
     if(err && err.status===401){

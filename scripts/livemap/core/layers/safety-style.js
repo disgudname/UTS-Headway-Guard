@@ -2,7 +2,6 @@
 // -----------------------------------------------------------------------------
 // Static source + layer defs for the "Traffic & Incidents" overlay:
 //   * traffic-flow  — TomTom congestion raster (a tile source, toggled)
-//   * traffic-inc   — TomTom incident LineStrings, coloured by delay magnitude
 //   * pulsepoint    — emergency incidents as category-coloured dots + label
 // Baked into the basemap style doc; safety.js feeds the geojson sources and
 // toggles each layer independently. All ship visibility:'none'.
@@ -13,10 +12,6 @@ import { API_BASE } from '../config.js';
 export const TRAFFIC_FLOW_SOURCE_ID = 'livemap-traffic-flow';
 export const TRAFFIC_FLOW_LAYER = 'livemap-traffic-flow';
 
-export const TRAFFIC_INC_SOURCE_ID = 'livemap-traffic-inc';
-export const TRAFFIC_INC_CASING_LAYER = 'livemap-traffic-inc-casing';
-export const TRAFFIC_INC_LINE_LAYER = 'livemap-traffic-inc-line';
-
 export const PULSEPOINT_SOURCE_ID = 'livemap-pulsepoint';
 // Kept the id `...-dot` for continuity (toggle logic, marker-menu registration),
 // but it's now a symbol layer drawing the PulsePoint "respond icon" pins — the
@@ -24,16 +19,16 @@ export const PULSEPOINT_SOURCE_ID = 'livemap-pulsepoint';
 export const PULSEPOINT_DOT_LAYER = 'livemap-pulsepoint-dot';
 export const PULSEPOINT_FALLBACK_IMAGE = 'livemap-pp-pin';
 
+export const TRAFFIC_FLOW_TILE_URL = `${API_BASE}/api/traffic/tile/{z}/{x}/{y}.png`;
+// The backend only has 512px tiles at z14 over the service area (TomTom
+// free-tier budget); MapLibre overzooms them past 14.
 export const TRAFFIC_FLOW_SOURCE_DEF = {
   type: 'raster',
-  tiles: [`${API_BASE}/api/traffic/tile/{z}/{x}/{y}.png`],
-  tileSize: 256,
-  minzoom: 8,
-  maxzoom: 20,
-};
-export const TRAFFIC_INC_SOURCE_DEF = {
-  type: 'geojson',
-  data: { type: 'FeatureCollection', features: [] },
+  tiles: [TRAFFIC_FLOW_TILE_URL],
+  tileSize: 512,
+  minzoom: 14,
+  maxzoom: 14,
+  bounds: [-78.5419, 38.0081, -78.4872, 38.0582],
 };
 export const PULSEPOINT_SOURCE_DEF = {
   type: 'geojson',
@@ -43,8 +38,6 @@ export const PULSEPOINT_SOURCE_DEF = {
 /** Every safety layer id — safety.js toggles these individually. */
 export const SAFETY_LAYER_IDS = [
   TRAFFIC_FLOW_LAYER,
-  TRAFFIC_INC_CASING_LAYER,
-  TRAFFIC_INC_LINE_LAYER,
   PULSEPOINT_DOT_LAYER,
 ];
 
@@ -57,35 +50,6 @@ export function trafficFlowLayerDef() {
     layout: { visibility: 'none' },
     paint: { 'raster-opacity': 0.75 },
   };
-}
-
-/** TomTom incident segments — above routes/stops, below vehicles. */
-export function trafficIncLayerDefs(theme) {
-  const casing = theme === 'dark' ? '#0b0f18' : '#ffffff';
-  return [
-    {
-      id: TRAFFIC_INC_CASING_LAYER,
-      type: 'line',
-      source: TRAFFIC_INC_SOURCE_ID,
-      layout: { visibility: 'none', 'line-cap': 'round', 'line-join': 'round' },
-      paint: {
-        'line-color': casing,
-        'line-width': ['interpolate', ['linear'], ['zoom'], 11, 4, 15, 9, 18, 14],
-        'line-opacity': 0.85,
-      },
-    },
-    {
-      id: TRAFFIC_INC_LINE_LAYER,
-      type: 'line',
-      source: TRAFFIC_INC_SOURCE_ID,
-      layout: { visibility: 'none', 'line-cap': 'round', 'line-join': 'round' },
-      paint: {
-        'line-color': ['get', 'color'],
-        'line-width': ['interpolate', ['linear'], ['zoom'], 11, 2.5, 15, 5.5, 18, 9],
-        'line-dasharray': [1, 1.4],
-      },
-    },
-  ];
 }
 
 /** PulsePoint incidents as the standard "respond icon" pins (PNG teardrops, the
