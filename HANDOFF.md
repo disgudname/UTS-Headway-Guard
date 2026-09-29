@@ -32,6 +32,7 @@ Machine tags: `[dev]` = Windows dev machine · `[home]` = home server (Windows b
 - **/map:** `setTrafficVisibility` now draws an `L.geoJSON` on a canvas renderer in `trafficPane`, refetched every 90 s, same reds-only palette + zoom widths as /livemap. **No per-direction offset** (Leaflet has none), so both directions overlap and the slowest draws on top.
 - **Budget:** the kiosks now use the **vector** allowance: 4 z13 tiles / 90 s 24/7 ~= 115k/month, plus /livemap's z11/z12 when zoomed out. **Raster is now unused by any client**: `/api/traffic/tile` and its bucket are kept only as a fallback. That makes the "512 px raster = 1 or 4 requests?" question below moot.
 - Checked headless on `/map?adminKioskMode=true` at z13/15/17 with live data (155 segments from 4 TomTom requests).
+- ↳ [home] 2026-09-29: **DEPLOYED Fly v2032** (`32e2b2d`), checked headless on prod (152 segments, no errors). **The kiosks were still on pre-today JS** (they were still requesting `/api/traffic/incidents`): `/map` doesn't reload itself on deploy, so they need a manual refresh. Until then they get blank traffic, and nothing breaks.
 
 ### 2026-09-29 · [home] · /livemap traffic is now TomTom VECTOR flow tiles (separate 200k allowance)
 - **What:** `/livemap`'s "Traffic congestion" layer draws TomTom **vector** flow lines instead of the stretched raster. Vector tiles have their own free 200k/month, separate from the raster allowance the `/map` kiosks use (MyTomTom shows it as "Traffic Flow & Incidents Vector Tiles API"). `/map` and the kiosks are unchanged and still raster.
