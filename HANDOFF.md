@@ -27,6 +27,10 @@ Machine tags: `[dev]` = Windows dev machine · `[home]` = home server (Windows b
 
 ## 1. Message board (newest first)
 
+### 2026-09-29 · [home] · /livemap basemap: tree + bush icons removed (v2034)
+
+Request: the UVA GES basemap's trees cluttered /livemap. `normalizeBase` in `scripts/livemap/core/basemap-style.js` now drops every layer on the `University_Trees`, `Large_University_Trees` and `Bushes` source-layers (`DROPPED_SOURCE_LAYERS`; Bushes also holds UVA's small/medium/large tree icons). This covers day + night, and /vandispatch2 too since it shares the basemap. The Forest / Planting Bed **area fills** are kept on purpose. Checked on the built style: 0 tree/bush layers in both themes. Open screens need a refresh.
+
 ### 2026-09-29 · [home] · /vandispatch incident pulse halos fixed (v2033)
 
 The red PulsePoint halos drifted 110px lower per extra incident because `.incident-halo-icon` had `position: relative`, which beat MapLibre's `.maplibregl-marker { position: absolute }`. The rule is removed (fd96ec6). Don't put `position` on any class used as a MapLibre marker element. Open dispatch screens need a refresh.
