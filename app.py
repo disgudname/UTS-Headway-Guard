@@ -18498,8 +18498,9 @@ async def traffic_tile(z: int, x: int, y: int):
     async with lock:  # several kiosks asking at once -> one TomTom request
         now = time.monotonic()
         cached = _tomtom_tiles.get(key)
-        last_attempt = _tomtom_tile_attempts.get(key, 0.0)
-        due = now - last_attempt >= TOMTOM_TILE_TTL_S
+        last_attempt = _tomtom_tile_attempts.get(key)
+        # monotonic() starts near 0 on a fresh machine, so "never" can't be 0.0
+        due = last_attempt is None or now - last_attempt >= TOMTOM_TILE_TTL_S
         if due and now >= _tomtom_paused_until and _tomtom_budget_left():
             _tomtom_tile_attempts[key] = now
             _tomtom_count_request()
