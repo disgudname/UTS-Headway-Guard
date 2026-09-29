@@ -98,6 +98,9 @@
   const TZ = 'America/New_York';
   const REFRESH_MS = 10 * 60 * 1000;
   const OBS_MAX_AGE_MS = 2 * 60 * 60 * 1000;
+  const RETRY_MS = 15 * 1000;             // after a failed fetch (player just booted, NWS 500s)
+  const CACHE_KEY = 'weather:' + LAT.toFixed(4) + ',' + LON.toFixed(4);
+  const CACHE_MAX_AGE_MS = 6 * 60 * 60 * 1000;
   const POP_MIN = 20; // only show chance of rain at or above this %
   if (qs.get('title')) document.getElementById('title').textContent = qs.get('title');
 
@@ -190,13 +193,18 @@
   };
 
   async function getJson(url) {
-    const r = await fetch(url, { headers: { Accept: 'application/geo+json' } });
-    if (!r.ok) throw new Error(`${r.status} ${url}`);
-    return r.json();
+    // A hung request would stall the refresh loop forever, so give up and retry.
+    const ac = new AbortController();
+    const t = setTimeout(() => ac.abort(), 20000);
+    try {
+      const r = await fetch(url, { headers: { Accept: 'application/geo+json' }, signal: ac.signal });
+      if (!r.ok) throw new Error(`${r.status} ${url}`);
+      return await r.json();
+    } finally { clearTimeout(t); }
   }
 
   let point = null;
-  async function load() {
+  async function fetchData() {
     if (!point) point = (await getJson(`https://api.weather.gov/points/${LAT.toFixed(4)},${LON.toFixed(4)}`)).properties;
     const [hourly, daily, obs] = await Promise.all([
       getJson(point.forecastHourly),
@@ -209,8 +217,10 @@
         } catch { return null; }
       })(),
     ]);
-    const hp = hourly.properties.periods;
-    const dp = daily.properties.periods;
+    return { hp: hourly.properties.periods, dp: daily.properties.periods, obs, at: Date.now() };
+  }
+
+  function render({ hp, dp, obs, at }) {
     const now = new Date();
     const today = ymd(now);
 
@@ -264,21 +274,32 @@
 
     const u = document.getElementById('updated');
     u.classList.remove('err');
-    u.textContent = 'Updated ' + new Intl.DateTimeFormat('en-US', { timeZone: TZ, hour: 'numeric', minute: '2-digit' }).format(now);
+    u.textContent = 'Updated ' + new Intl.DateTimeFormat('en-US', { timeZone: TZ, hour: 'numeric', minute: '2-digit' }).format(new Date(at));
   }
 
+  // Show the last good forecast right away on a fresh load; a blank box until NWS answers looks broken.
+  try {
+    const cached = JSON.parse(localStorage.getItem(CACHE_KEY));
+    if (cached && Date.now() - cached.at < CACHE_MAX_AGE_MS) render(cached);
+  } catch (e) { console.warn('[weather] cache', e); }
+
   async function tick() {
-    try { await load(); }
-    catch (e) {
+    let next = REFRESH_MS;
+    try {
+      const data = await fetchData();
+      render(data);
+      try { localStorage.setItem(CACHE_KEY, JSON.stringify(data)); } catch {}
+    } catch (e) {
       console.error('[weather]', e);
       point = null; // re-resolve the grid next time in case it moved
+      next = RETRY_MS;
       const u = document.getElementById('updated');
       u.classList.add('err');
       u.textContent = 'NWS unavailable — retrying';
     }
+    setTimeout(tick, next);
   }
   tick();
-  setInterval(tick, REFRESH_MS);
 })();
 </script>
 </body>
