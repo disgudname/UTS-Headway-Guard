@@ -27,6 +27,13 @@ Machine tags: `[dev]` = Windows dev machine · `[home]` = home server (Windows b
 
 ## 1. Message board (newest first)
 
+### 2026-09-29 · [home] · /livemap traffic is now TomTom VECTOR flow tiles (separate 200k allowance)
+- **What:** `/livemap`'s "Traffic congestion" layer draws TomTom **vector** flow lines instead of the stretched raster. Vector tiles have their own free 200k/month, separate from the raster allowance the `/map` kiosks use (MyTomTom shows it as "Traffic Flow & Incidents Vector Tiles API"). `/map` and the kiosks are unchanged and still raster.
+- **Backend:** `GET /api/traffic/vector/{z}/{x}/{y}.pbf`, only z11-13 over the service area (1+1+4 = 6 tiles), anything else is 204. Checked on real tiles: **z13 has every road class** (local/minor local included) and MapLibre overzooms it crisply; z12 drops local roads. Same on-demand cache as raster, now shared code (`_TomTomBucket`, `_tomtom_get_tile`): TTL `TOMTOM_VECTOR_TTL_S` (90 s), cap `TOMTOM_VECTOR_MONTHLY_CAP` (195000), 6 tiles / 90 s ~= 173k/month even if left open 24/7. `/data/tomtom_usage.json` now holds `{month, raster, vector}`; `/api/traffic/usage` returns both, and `/admin` shows both.
+- **Style (`safety-style.js`):** **only slowdowns are drawn** (`traffic_level` < 0.75 or `road_closure`), in **reds only** (light red < 0.75, red < 0.5, dark red < 0.25, near-black red = closed). Free-flow green and traffic orange were dropped on purpose because they read as the Green/Orange Line. One-direction segments are offset right of travel, so both directions show. Width scales with road class.
+- **Gotcha:** the vector tile URL must be **absolute** (`new URL(..., location.href)`). MapLibre fetches vector tiles in a web worker, which silently can't resolve `/api/...`: no request, no error. Raster and geojson load on the main thread, which is why the relative URL used to work.
+- **Testing gotcha:** Claude-in-Chrome tabs can be `visibilityState: hidden`, and then MapLibre never renders or requests tiles and sits on "Loading the map…". It looks broken and isn't. Render headless with Playwright + `channel="chrome"` instead. The traffic layer is dispatcher-only, so a logged-out test page re-hides it on every `applyVis`.
+
 ### 2026-09-29 · [home] · ⏰ REMINDER for the user, on or after 2026-10-02: check TomTom tile billing
 - **Any session running on or after Oct 2: bring this up with the user before other work.**
 - **Why:** the new traffic setup fetches 512 px tiles (see the TomTom entry below). TomTom's docs don't say whether one counts as 1 request or 4, and the budget math assumes 1.

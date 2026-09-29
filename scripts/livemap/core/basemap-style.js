@@ -49,7 +49,7 @@ import {
   TRAFFIC_FLOW_SOURCE_DEF,
   PULSEPOINT_SOURCE_ID,
   PULSEPOINT_SOURCE_DEF,
-  trafficFlowLayerDef,
+  trafficFlowLayerDefs,
   pulsePointLayerDefs,
 } from './layers/safety-style.js';
 
@@ -402,9 +402,9 @@ function addMicroTripLayers(style, theme) {
   for (const def of microTripLayerDefs(theme)) style.layers.push(clone(def));
 }
 
-/** TomTom congestion raster — just above the street basemap. */
-function addTrafficFlowLayer(style) {
-  style.layers.push(clone(trafficFlowLayerDef()));
+/** TomTom traffic flow lines — just above the street basemap. */
+function addTrafficFlowLayers(style, theme) {
+  for (const def of trafficFlowLayerDefs(theme)) style.layers.push(clone(def));
 }
 
 /** PulsePoint incident dots — on top of everything (safety info stays visible). */
@@ -448,7 +448,7 @@ function buildLight(raw) {
   ensureBackground(s, '#f3efe6');
   addStreetLayers(s, 'light');
   addSatelliteLayers(s);
-  addTrafficFlowLayer(s);
+  addTrafficFlowLayers(s, 'light');
   addMicroZoneLayers(s, 'light');
   addVandispatchOverlayLayers(s, 'light');
   addBuildingHighlightLayers(s);
@@ -763,7 +763,7 @@ function buildDark(raw) {
   // dark palette and must not be flattened by the generic category recolour.
   addStreetLayers(s, 'dark');
   addSatelliteLayers(s);
-  addTrafficFlowLayer(s);
+  addTrafficFlowLayers(s, 'dark');
   addMicroZoneLayers(s, 'dark');
   addVandispatchOverlayLayers(s, 'dark');
   addBuildingHighlightLayers(s);

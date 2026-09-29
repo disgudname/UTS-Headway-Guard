@@ -60,7 +60,7 @@ button{margin-top:12px;padding:10px 14px;border-radius:6px;border:1px solid #2a3
 </div>
 <div class="panel" id="trafficUsagePanel">
   <h2>TomTom Traffic Usage</h2>
-  <p>Traffic flow tiles fetched from TomTom this month (free tier resets on the 1st).</p>
+  <p>Traffic flow tiles fetched from TomTom this month. Raster and vector are separate 200k free allowances that reset on the 1st.</p>
   <div id="trafficUsage">Loading…</div>
 </div>
 <div class="panel" id="pushTestPanel">
@@ -207,11 +207,16 @@ async function loadTrafficUsage(){
     if(!resp.ok) throw new Error('HTTP '+resp.status);
     const u=await resp.json();
     if(!u.enabled){ root.textContent='TOMTOM_KEY is not set; traffic is off.'; return; }
-    const pct=Math.round(u.count/u.free_allowance*100);
-    let text=`${u.count.toLocaleString()} / ${u.free_allowance.toLocaleString()} (${pct}%) in ${u.month}. `
-      +`Stops at ${u.cap.toLocaleString()}. ${u.tiles} tiles, refreshed every ${Math.round(u.refresh_s/60)} min while someone is viewing.`;
-    if(u.paused) text+=' PAUSED: TomTom refused the last request (out of credit or bad key); retrying hourly.';
-    root.textContent=text;
+    root.innerHTML='';
+    for(const [label,b] of [['Raster tiles (/map, kiosks)',u.raster],['Vector tiles (/livemap)',u.vector]]){
+      const pct=Math.round(b.count/b.free_allowance*100);
+      let text=`${label}: ${b.count.toLocaleString()} / ${b.free_allowance.toLocaleString()} (${pct}%) in ${u.month}. `
+        +`Stops at ${b.cap.toLocaleString()}. ${b.tiles} tiles, refreshed every ${b.refresh_s} s while someone is viewing.`;
+      if(b.paused) text+=' PAUSED: TomTom refused the last request (out of credit or bad key); retrying hourly.';
+      const line=document.createElement('div');
+      line.textContent=text;
+      root.appendChild(line);
+    }
   }catch(err){
     console.error('Failed to load traffic usage',err);
     root.textContent='Unable to load traffic usage.';

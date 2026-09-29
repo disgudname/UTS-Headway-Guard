@@ -17,6 +17,7 @@ import {
   getPulsePoint,
 } from '../data/safety.js';
 import {
+  TRAFFIC_FLOW_CASING_LAYER,
   TRAFFIC_FLOW_LAYER,
   TRAFFIC_FLOW_SOURCE_ID,
   TRAFFIC_FLOW_TILE_URL,
@@ -38,8 +39,8 @@ let lastPulseFC = null;
 let pulse = [];
 let popup = null;
 let flowTimer = 0;
-// Matches the backend's TOMTOM_TILE_TTL_S; tiles don't refresh on their own.
-const FLOW_REFRESH_MS = 3 * 60 * 1000;
+// Matches the backend's TOMTOM_VECTOR_TTL_S; tiles don't refresh on their own.
+const FLOW_REFRESH_MS = 90 * 1000;
 let popupKey = null;
 let wired = false;
 
@@ -144,6 +145,7 @@ function applyVis() {
   // left behind in localStorage from an earlier authed session.
   const disp = isDispatcher();
   const flowOn = disp && isSafetyOn('trafficFlow');
+  set(TRAFFIC_FLOW_CASING_LAYER, flowOn);
   set(TRAFFIC_FLOW_LAYER, flowOn);
   if (flowOn && !flowTimer) {
     flowTimer = setInterval(() => {

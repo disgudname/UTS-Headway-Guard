@@ -161,14 +161,19 @@ GEOCODE_PROXY_URL = os.getenv("GEOCODE_PROXY_URL", "").strip() or None
 GEOCODE_HTTP_TIMEOUT_S = float(os.getenv("GEOCODE_HTTP_TIMEOUT_S", "3"))
 
 TOMTOM_KEY = os.getenv("TOMTOM_KEY", "").strip()
-# Free tier is 200k raster flow tiles/month. We only ever fetch ONE fixed set:
-# the 512px tiles at TOMTOM_TILE_ZOOM covering TOMTOM_SERVICE_BBOX (12 tiles),
-# and both maps scale those to every zoom. Each tile is refetched at most once
-# per TOMTOM_TILE_TTL_S and only when a client asks for it, so the kiosks
-# running 24/7 cost 12 tiles / 3 min ~= 173k/month.
+# Free tier: 200k raster flow tiles/month and a SEPARATE 200k vector flow
+# tiles/month. Only fixed tile sets over TOMTOM_SERVICE_BBOX are ever fetched,
+# each tile at most once per TTL and only when a client asks for it.
+# Raster (/map, the 24/7 kiosks): the 12 512px tiles at z14, scaled to every
+#   zoom by Leaflet; 12 tiles / 3 min ~= 173k/month.
+# Vector (/livemap): z11-13 (1 + 1 + 4 tiles); z13 has every road class and
+#   MapLibre overzooms it. 6 tiles / 90 s ~= 173k/month even if left open 24/7.
 TOMTOM_TILE_ZOOM = 14
 TOMTOM_TILE_TTL_S = float(os.getenv("TOMTOM_TILE_TTL_S", "180"))
 TOMTOM_MONTHLY_CAP = int(os.getenv("TOMTOM_MONTHLY_CAP", "195000"))
+TOMTOM_VECTOR_ZOOMS = (11, 12, 13)
+TOMTOM_VECTOR_TTL_S = float(os.getenv("TOMTOM_VECTOR_TTL_S", "90"))
+TOMTOM_VECTOR_MONTHLY_CAP = int(os.getenv("TOMTOM_VECTOR_MONTHLY_CAP", "195000"))
 TOMTOM_SERVICE_BBOX = {
     "lat_min": float(os.getenv("TOMTOM_LAT_MIN", "38.0081")),
     "lat_max": float(os.getenv("TOMTOM_LAT_MAX", "38.0582")),
@@ -14947,17 +14952,28 @@ def _make_transparent_png() -> bytes:
 
 _TRANSPARENT_PNG = _make_transparent_png()
 
-# (x, y) at TOMTOM_TILE_ZOOM -> (PNG bytes, monotonic fetch time)
-_tomtom_tiles: dict[tuple[int, int], tuple[bytes, float]] = {}
-# (x, y) -> monotonic time of the last fetch attempt (success or not)
-_tomtom_tile_attempts: dict[tuple[int, int], float] = {}
-_tomtom_tile_locks: dict[tuple[int, int], asyncio.Lock] = {}
-# Stop fetching until this monotonic time after TomTom refuses (out of credit, bad key)
-_tomtom_paused_until = 0.0
-_TOMTOM_PAUSE_S = 3600.0
+_TOMTOM_PAUSE_S = 3600.0  # after TomTom refuses (out of credit, bad key)
 # A stale tile is still served this long after a failed refresh, then dropped
 _TOMTOM_STALE_MAX_S = 600.0
 _TOMTOM_USAGE_FILE = PRIMARY_DATA_DIR / "tomtom_usage.json"
+
+
+@dataclass
+class _TomTomBucket:
+    """One TomTom free-tier allowance (raster or vector) and its tile cache."""
+    name: str
+    ttl_s: float
+    cap: int
+    # (z, x, y) -> (tile bytes, monotonic fetch time)
+    tiles: dict = field(default_factory=dict)
+    # (z, x, y) -> monotonic time of the last fetch attempt (success or not)
+    attempts: dict = field(default_factory=dict)
+    locks: dict = field(default_factory=dict)
+    paused_until: float = 0.0
+
+
+_tomtom_raster = _TomTomBucket("raster", TOMTOM_TILE_TTL_S, TOMTOM_MONTHLY_CAP)
+_tomtom_vector = _TomTomBucket("vector", TOMTOM_VECTOR_TTL_S, TOMTOM_VECTOR_MONTHLY_CAP)
 
 
 def _tomtom_month() -> str:
@@ -14965,35 +14981,68 @@ def _tomtom_month() -> str:
 
 
 def _load_tomtom_usage() -> dict:
+    usage = {"month": _tomtom_month(), "raster": 0, "vector": 0}
     try:
         data = json.loads(_TOMTOM_USAGE_FILE.read_text())
-        if data.get("month") == _tomtom_month():
-            return {"month": data["month"], "count": int(data.get("count", 0))}
+        if data.get("month") == usage["month"]:
+            usage["raster"] = int(data.get("raster", data.get("count", 0)))
+            usage["vector"] = int(data.get("vector", 0))
     except Exception:
         pass
-    return {"month": _tomtom_month(), "count": 0}
+    return usage
 
 
 # Tile requests sent to TomTom this calendar month (UTC), persisted across restarts
 _tomtom_usage = _load_tomtom_usage()
 
 
-def _tomtom_count_request() -> None:
+def _tomtom_used(bucket: _TomTomBucket) -> int:
     month = _tomtom_month()
     if _tomtom_usage["month"] != month:
-        _tomtom_usage["month"] = month
-        _tomtom_usage["count"] = 0
-    _tomtom_usage["count"] += 1
+        _tomtom_usage.update(month=month, raster=0, vector=0)
+    return _tomtom_usage[bucket.name]
+
+
+def _tomtom_count_request(bucket: _TomTomBucket) -> None:
+    _tomtom_usage[bucket.name] = _tomtom_used(bucket) + 1
     try:
         _atomic_write(_TOMTOM_USAGE_FILE, json.dumps(_tomtom_usage))
     except Exception as exc:
         print(f"[tomtom] usage save failed: {exc}")
 
 
-def _tomtom_budget_left() -> bool:
-    if _tomtom_usage["month"] != _tomtom_month():
-        return True
-    return _tomtom_usage["count"] < TOMTOM_MONTHLY_CAP
+async def _tomtom_get_tile(bucket: _TomTomBucket, z: int, x: int, y: int, url: str) -> Optional[bytes]:
+    """Cached tile bytes, refetched from `url` when due and within budget, or
+    None if there's nothing fresh enough to show."""
+    key = (z, x, y)
+    lock = bucket.locks.setdefault(key, asyncio.Lock())
+    async with lock:  # several clients asking at once -> one TomTom request
+        now = time.monotonic()
+        cached = bucket.tiles.get(key)
+        last_attempt = bucket.attempts.get(key)
+        # monotonic() starts near 0 on a fresh machine, so "never" can't be 0.0
+        due = last_attempt is None or now - last_attempt >= bucket.ttl_s
+        if due and now >= bucket.paused_until and _tomtom_used(bucket) < bucket.cap:
+            bucket.attempts[key] = now
+            _tomtom_count_request(bucket)
+            try:
+                async with httpx.AsyncClient(timeout=httpx.Timeout(10.0)) as client:
+                    resp = await client.get(url)
+                if resp.status_code == 200:
+                    cached = (resp.content, now)
+                    bucket.tiles[key] = cached
+                elif resp.status_code in (401, 403):
+                    bucket.paused_until = now + _TOMTOM_PAUSE_S
+                    print(f"[tomtom] {bucket.name} {resp.status_code}, pausing for 1h: {resp.text[:200]}")
+                else:
+                    print(f"[tomtom] {bucket.name} tile {z}/{x}/{y} HTTP {resp.status_code}")
+            except Exception as exc:
+                print(f"[tomtom] {bucket.name} tile {z}/{x}/{y} error: {exc}")
+
+    if cached and time.monotonic() - cached[1] < _TOMTOM_STALE_MAX_S:
+        return cached[0]
+    bucket.tiles.pop(key, None)
+    return None
 
 
 def _tomtom_lon_to_tile_x(lon: float, zoom: int) -> int:
@@ -18484,64 +18533,62 @@ async def ips_page():
 # ---------------------------
 @app.get("/api/traffic/tile/{z}/{x}/{y}.png")
 async def traffic_tile(z: int, x: int, y: int):
-    """Serve a 512px TomTom flow tile. Only TOMTOM_TILE_ZOOM inside the service
-    area is real; clients scale it to other zooms. Everything else gets a
-    transparent PNG without touching TomTom.
+    """Serve a 512px TomTom raster flow tile. Only TOMTOM_TILE_ZOOM inside the
+    service area is real; clients scale it to other zooms. Everything else gets
+    a transparent PNG without touching TomTom.
     """
-    global _tomtom_paused_until
-    transparent = Response(content=_TRANSPARENT_PNG, media_type="image/png")
-    if z != TOMTOM_TILE_ZOOM or not _tomtom_tile_in_service_bbox(z, x, y) or not TOMTOM_KEY:
-        return transparent
+    tile = None
+    if z == TOMTOM_TILE_ZOOM and _tomtom_tile_in_service_bbox(z, x, y) and TOMTOM_KEY:
+        tile = await _tomtom_get_tile(
+            _tomtom_raster, z, x, y,
+            f"https://api.tomtom.com/traffic/map/4/tile/flow/relative"
+            f"/{z}/{x}/{y}.png?tileSize=512&key={TOMTOM_KEY}",
+        )
+    if tile is None:
+        return Response(content=_TRANSPARENT_PNG, media_type="image/png")
+    return Response(content=tile, media_type="image/png", headers={"Cache-Control": "no-store"})
 
-    key = (x, y)
-    lock = _tomtom_tile_locks.setdefault(key, asyncio.Lock())
-    async with lock:  # several kiosks asking at once -> one TomTom request
-        now = time.monotonic()
-        cached = _tomtom_tiles.get(key)
-        last_attempt = _tomtom_tile_attempts.get(key)
-        # monotonic() starts near 0 on a fresh machine, so "never" can't be 0.0
-        due = last_attempt is None or now - last_attempt >= TOMTOM_TILE_TTL_S
-        if due and now >= _tomtom_paused_until and _tomtom_budget_left():
-            _tomtom_tile_attempts[key] = now
-            _tomtom_count_request()
-            url = (
-                f"https://api.tomtom.com/traffic/map/4/tile/flow/relative"
-                f"/{z}/{x}/{y}.png?tileSize=512&key={TOMTOM_KEY}"
-            )
-            try:
-                async with httpx.AsyncClient(timeout=httpx.Timeout(10.0)) as client:
-                    resp = await client.get(url)
-                if resp.status_code == 200:
-                    cached = (resp.content, now)
-                    _tomtom_tiles[key] = cached
-                elif resp.status_code in (401, 403):
-                    _tomtom_paused_until = now + _TOMTOM_PAUSE_S
-                    print(f"[tomtom] {resp.status_code}, pausing traffic tiles for 1h: {resp.text[:200]}")
-                else:
-                    print(f"[tomtom] tile {z}/{x}/{y} HTTP {resp.status_code}")
-            except Exception as exc:
-                print(f"[tomtom] tile {z}/{x}/{y} error: {exc}")
 
-    if cached and time.monotonic() - cached[1] < _TOMTOM_STALE_MAX_S:
-        return Response(content=cached[0], media_type="image/png",
-                        headers={"Cache-Control": "no-store"})
-    _tomtom_tiles.pop(key, None)
-    return transparent
+@app.get("/api/traffic/vector/{z}/{x}/{y}.pbf")
+async def traffic_vector_tile(z: int, x: int, y: int):
+    """Serve a TomTom vector flow tile (layer "Traffic flow", LineStrings with
+    road_type / traffic_level 0-1 relative to free flow / road_closure) for
+    /livemap. Only TOMTOM_VECTOR_ZOOMS inside the service area; anything else
+    is an empty tile.
+    """
+    tile = None
+    if z in TOMTOM_VECTOR_ZOOMS and _tomtom_tile_in_service_bbox(z, x, y) and TOMTOM_KEY:
+        tile = await _tomtom_get_tile(
+            _tomtom_vector, z, x, y,
+            f"https://api.tomtom.com/traffic/map/4/tile/flow/relative"
+            f"/{z}/{x}/{y}.pbf?key={TOMTOM_KEY}",
+        )
+    if tile is None:
+        return Response(status_code=204)
+    return Response(content=tile, media_type="application/x-protobuf",
+                    headers={"Cache-Control": "no-store"})
 
 
 @app.get("/api/traffic/usage")
 async def traffic_usage():
-    """TomTom tile requests this month against the free-tier budget."""
-    month = _tomtom_month()
+    """TomTom tile requests this month against each free-tier allowance."""
+    now = time.monotonic()
+
+    def bucket_info(bucket: _TomTomBucket, tiles: int) -> dict:
+        return {
+            "count": _tomtom_used(bucket),
+            "cap": bucket.cap,
+            "free_allowance": 200000,
+            "refresh_s": bucket.ttl_s,
+            "tiles": tiles,
+            "paused": now < bucket.paused_until,
+        }
+
     return {
-        "month": month,
-        "count": _tomtom_usage["count"] if _tomtom_usage["month"] == month else 0,
-        "cap": TOMTOM_MONTHLY_CAP,
-        "free_allowance": 200000,
-        "refresh_s": TOMTOM_TILE_TTL_S,
-        "tiles": len(_tomtom_tiles_for_zoom(TOMTOM_TILE_ZOOM)),
-        "paused": time.monotonic() < _tomtom_paused_until,
+        "month": _tomtom_month(),
         "enabled": bool(TOMTOM_KEY),
+        "raster": bucket_info(_tomtom_raster, len(_tomtom_tiles_for_zoom(TOMTOM_TILE_ZOOM))),
+        "vector": bucket_info(_tomtom_vector, sum(len(_tomtom_tiles_for_zoom(z)) for z in TOMTOM_VECTOR_ZOOMS)),
     }
 
 

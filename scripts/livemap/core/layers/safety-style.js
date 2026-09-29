@@ -1,7 +1,7 @@
 // livemap/core/layers/safety-style.js
 // -----------------------------------------------------------------------------
 // Static source + layer defs for the "Traffic & Incidents" overlay:
-//   * traffic-flow  — TomTom congestion raster (a tile source, toggled)
+//   * traffic-flow  — TomTom vector flow lines, coloured by speed vs free flow
 //   * pulsepoint    — emergency incidents as category-coloured dots + label
 // Baked into the basemap style doc; safety.js feeds the geojson sources and
 // toggles each layer independently. All ship visibility:'none'.
@@ -10,6 +10,7 @@
 import { API_BASE } from '../config.js';
 
 export const TRAFFIC_FLOW_SOURCE_ID = 'livemap-traffic-flow';
+export const TRAFFIC_FLOW_CASING_LAYER = 'livemap-traffic-flow-casing';
 export const TRAFFIC_FLOW_LAYER = 'livemap-traffic-flow';
 
 export const PULSEPOINT_SOURCE_ID = 'livemap-pulsepoint';
@@ -19,15 +20,18 @@ export const PULSEPOINT_SOURCE_ID = 'livemap-pulsepoint';
 export const PULSEPOINT_DOT_LAYER = 'livemap-pulsepoint-dot';
 export const PULSEPOINT_FALLBACK_IMAGE = 'livemap-pp-pin';
 
-export const TRAFFIC_FLOW_TILE_URL = `${API_BASE}/api/traffic/tile/{z}/{x}/{y}.png`;
-// The backend only has 512px tiles at z14 over the service area (TomTom
-// free-tier budget); MapLibre overzooms them past 14.
+// Absolute: vector tiles are fetched in a web worker, which can't resolve a
+// root-relative URL (the raster/geojson sources load on the main thread).
+export const TRAFFIC_FLOW_TILE_URL =
+  new URL(`${API_BASE}/api/traffic/vector/`, location.href).href + '{z}/{x}/{y}.pbf';
+// TomTom vector flow tiles, proxied + cached by the backend (free-tier budget):
+// only z11-13 over the service area exist. z13 carries every road class, so
+// MapLibre overzooms it crisply past 13.
 export const TRAFFIC_FLOW_SOURCE_DEF = {
-  type: 'raster',
+  type: 'vector',
   tiles: [TRAFFIC_FLOW_TILE_URL],
-  tileSize: 512,
-  minzoom: 14,
-  maxzoom: 14,
+  minzoom: 11,
+  maxzoom: 13,
   bounds: [-78.5419, 38.0081, -78.4872, 38.0582],
 };
 export const PULSEPOINT_SOURCE_DEF = {
@@ -37,19 +41,70 @@ export const PULSEPOINT_SOURCE_DEF = {
 
 /** Every safety layer id — safety.js toggles these individually. */
 export const SAFETY_LAYER_IDS = [
+  TRAFFIC_FLOW_CASING_LAYER,
   TRAFFIC_FLOW_LAYER,
   PULSEPOINT_DOT_LAYER,
 ];
 
-/** The traffic-flow raster. Sits just above the street basemap. */
-export function trafficFlowLayerDef() {
-  return {
-    id: TRAFFIC_FLOW_LAYER,
-    type: 'raster',
+// Features carry road_type, traffic_level (current speed / free-flow speed,
+// 0-1) and road_closure. One-direction segments are offset to the right of
+// travel so both directions of a two-way road show side by side.
+const FLOW_MAJOR = ['match', ['get', 'road_type'],
+  ['Motorway', 'International road', 'Major road'], 1,
+  ['Secondary road', 'Connecting road'], 0.75,
+  0.5];
+const flowWidth = (extra) => ['interpolate', ['exponential', 1.5], ['zoom'],
+  11, ['+', ['*', FLOW_MAJOR, 2], extra],
+  14, ['+', ['*', FLOW_MAJOR, 4.5], extra],
+  18, ['+', ['*', FLOW_MAJOR, 11], extra]];
+const FLOW_OFFSET = ['interpolate', ['exponential', 1.5], ['zoom'],
+  11, ['case', ['==', ['get', 'traffic_road_coverage'], 'one_side'], ['*', FLOW_MAJOR, 1], 0],
+  14, ['case', ['==', ['get', 'traffic_road_coverage'], 'one_side'], ['*', FLOW_MAJOR, 2.5], 0],
+  18, ['case', ['==', ['get', 'traffic_road_coverage'], 'one_side'], ['*', FLOW_MAJOR, 6], 0]];
+const FLOW_LEVEL = ['to-number', ['get', 'traffic_level'], 1];
+// Only slowdowns are drawn, in reds only: the route palette already uses
+// green / orange / yellow / purple / gray, so traffic green or orange would
+// read as a bus line.
+const FLOW_SLOW = ['any', ['to-boolean', ['get', 'road_closure']], ['<', FLOW_LEVEL, 0.75]];
+const FLOW_COLOR = ['case',
+  ['to-boolean', ['get', 'road_closure']], '#4a0d12',
+  ['<', FLOW_LEVEL, 0.25], '#8f1420',
+  ['<', FLOW_LEVEL, 0.5], '#d7263d',
+  '#f47c7c'];
+
+/** Traffic flow lines (casing + colour). Sit just above the street basemap,
+ *  under routes and stops. */
+export function trafficFlowLayerDefs(theme) {
+  const casing = theme === 'dark' ? '#0b0f18' : '#ffffff';
+  const common = {
+    type: 'line',
     source: TRAFFIC_FLOW_SOURCE_ID,
-    layout: { visibility: 'none' },
-    paint: { 'raster-opacity': 0.75 },
+    'source-layer': 'Traffic flow',
+    layout: { visibility: 'none', 'line-cap': 'round', 'line-join': 'round' },
   };
+  return [
+    {
+      ...common,
+      id: TRAFFIC_FLOW_CASING_LAYER,
+      filter: FLOW_SLOW,
+      paint: {
+        'line-color': casing,
+        'line-width': flowWidth(2),
+        'line-offset': FLOW_OFFSET,
+        'line-opacity': 0.8,
+      },
+    },
+    {
+      ...common,
+      id: TRAFFIC_FLOW_LAYER,
+      filter: FLOW_SLOW,
+      paint: {
+        'line-color': FLOW_COLOR,
+        'line-width': flowWidth(0),
+        'line-offset': FLOW_OFFSET,
+      },
+    },
+  ];
 }
 
 /** PulsePoint incidents as the standard "respond icon" pins (PNG teardrops, the
