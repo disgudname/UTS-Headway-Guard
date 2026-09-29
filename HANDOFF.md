@@ -27,6 +27,10 @@ Machine tags: `[dev]` = Windows dev machine · `[home]` = home server (Windows b
 
 ## 1. Message board (newest first)
 
+### 2026-09-29 · [home] · /vandispatch incident pulse halos fixed (v2033)
+
+The red PulsePoint halos drifted 110px lower per extra incident because `.incident-halo-icon` had `position: relative`, which beat MapLibre's `.maplibregl-marker { position: absolute }`. The rule is removed (fd96ec6). Don't put `position` on any class used as a MapLibre marker element. Open dispatch screens need a refresh.
+
 ### 2026-09-29 · [home] · /map (kiosks) traffic now also from the VECTOR tiles, via server-decoded GeoJSON
 - **What:** `GET /api/traffic/flow.geojson` gives slow/closed segments over the service area (`level` = speed / free flow 0-1, `closed`, `weight` 0.5-1 by road class; slowest last). It's built from the **same cached z13 vector tiles** `/livemap` uses, so /map + /livemap + all kiosks share one set of TomTom requests. Leaflet can't render vector tiles, so `app.py` has a small hand-written MVT decoder (`_pb_*`, `_mvt_lines`), checked against `mapbox_vector_tile` on real tiles: same features/props, coordinates exact to the 6-dp rounding.
 - **/map:** `setTrafficVisibility` now draws an `L.geoJSON` on a canvas renderer in `trafficPane`, refetched every 90 s, same reds-only palette + zoom widths as /livemap. **No per-direction offset** (Leaflet has none), so both directions overlap and the slowest draws on top.
