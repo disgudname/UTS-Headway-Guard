@@ -27,6 +27,14 @@ Machine tags: `[dev]` = Windows dev machine · `[home]` = home server (Windows b
 
 ## 1. Message board (newest first)
 
+### 2026-09-29 · [home] · ⏰ REMINDER for the user, on or after 2026-10-02: check TomTom tile billing
+- **Any session running on or after Oct 2: bring this up with the user before other work.**
+- **Why:** the new traffic setup fetches 512 px tiles (see the TomTom entry below). TomTom's docs don't say whether one counts as 1 request or 4, and the budget math assumes 1.
+- **How:** about a day after the Oct 1 reset, compare `/admin` → "TomTom Traffic Usage" (our own count, expect ~5,800/day with the 3 kiosks) with the MyTomTom dashboard (my.tomtom.com → Analytics → Traffic Flow & Incidents Raster Tiles). The user has to log in there.
+  - **About the same:** it's 1 per tile. Done, mark this resolved.
+  - **About 4x ours:** switch to 256 px z15 tiles (42 of them) with `TOMTOM_TILE_TTL_S` around 600, or the month runs out in about a week.
+- Also confirm the user rotated `TOMTOM_KEY` (the old one was exposed publicly until v2029).
+
 ### 2026-09-29 · [home] · TomTom: incidents removed, traffic tiles put on a free-tier budget
 - **Why:** TomTom's free tier (200k raster flow tiles + 2.5k incident-detail calls / month) ran out within ~4-5 days every month. The old seeder pulled 58 tiles (z13-15) every 120 s around the clock whether anyone looked or not (~42k/day), plus incidents every 120 s. After the allowance ran out it kept going: 3.19M requests in 30 days, **2.84M of them 403 `InsufficientFunds`**. Also `/api/traffic/incidents/debug` was public and **echoed the TomTom key in its response**, so the key needs rotating (`fly secrets set TOMTOM_KEY=...`).
 - **Incidents are gone** (user: "very useless"): poller, `/api/traffic/incidents(+/debug)`, the `/map` Traffic Incidents button/markers/popups/CSS, the `/livemap` checkbox/layers, and the `/tomtom-popup-demo` + `/incident-icon-preview` pages. Don't bring them back.
