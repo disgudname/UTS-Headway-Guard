@@ -72,6 +72,12 @@ const SOURCE_MAXZOOM = 16;
 // night treatments, so /livemap and /vandispatch2 (shared basemap) both get it.
 const BUILDING_MIN_ZOOM = 15.5;
 
+// UVA's per-tree / per-bush point icons (source-layers University_Trees,
+// Large_University_Trees and Bushes — the last also carries the small/medium/
+// large tree icons). They only clutter an operations map, so every layer drawn
+// from these is dropped. Area fills like Landscape_Maintained/Forest stay.
+const DROPPED_SOURCE_LAYERS = /^(university_trees|large_university_trees|bushes)$/i;
+
 /**
  * Raise the minzoom on every building/wall/structure layer to BUILDING_MIN_ZOOM
  * (never lowering one that UVA already sets higher, e.g. Structures at z18).
@@ -216,6 +222,9 @@ function normalizeBase(style) {
     maxzoom: 19,
   };
 
+  s.layers = (s.layers || []).filter(
+    (l) => !DROPPED_SOURCE_LAYERS.test(l['source-layer'] || ''),
+  );
   deferBuildingLayers(s);
 
   return s;
