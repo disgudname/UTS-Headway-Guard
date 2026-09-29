@@ -15076,6 +15076,118 @@ def _tomtom_tile_in_service_bbox(z: int, x: int, y: int) -> bool:
     return not (lat_max < bb["lat_min"] or lat_min > bb["lat_max"]
                 or lon_max < bb["lon_min"] or lon_min > bb["lon_max"])
 
+# --- Minimal Mapbox Vector Tile decoder (just what TomTom flow tiles need) ---
+# Tile.layers=3; Layer: name=1 features=2 keys=3 values=4 extent=5;
+# Feature: tags=2 (packed) type=3 geometry=4 (packed);
+# Value: string=1 float=2 double=3 int=4 uint=5 sint=6 bool=7.
+
+def _pb_varint(buf: bytes, i: int) -> tuple[int, int]:
+    shift = result = 0
+    while True:
+        b = buf[i]
+        i += 1
+        result |= (b & 0x7F) << shift
+        if not b & 0x80:
+            return result, i
+        shift += 7
+
+
+def _pb_fields(buf: bytes):
+    """Yield (field_number, wire_type, value) for one protobuf message."""
+    i, n = 0, len(buf)
+    while i < n:
+        key, i = _pb_varint(buf, i)
+        field_no, wire = key >> 3, key & 7
+        if wire == 0:
+            val, i = _pb_varint(buf, i)
+        elif wire == 1:
+            val, i = buf[i:i + 8], i + 8
+        elif wire == 2:
+            ln, i = _pb_varint(buf, i)
+            val, i = buf[i:i + ln], i + ln
+        elif wire == 5:
+            val, i = buf[i:i + 4], i + 4
+        else:
+            raise ValueError(f"unsupported wire type {wire}")
+        yield field_no, wire, val
+
+
+def _pb_packed(buf: bytes) -> list[int]:
+    out, i = [], 0
+    while i < len(buf):
+        v, i = _pb_varint(buf, i)
+        out.append(v)
+    return out
+
+
+def _mvt_value(buf: bytes):
+    import struct
+    for f, _, v in _pb_fields(buf):
+        if f == 1:
+            return v.decode("utf-8", "replace")
+        if f == 2:
+            return struct.unpack("<f", v)[0]
+        if f == 3:
+            return struct.unpack("<d", v)[0]
+        if f in (4, 5):
+            return v
+        if f == 6:
+            return (v >> 1) ^ -(v & 1)
+        if f == 7:
+            return bool(v)
+    return None
+
+
+def _mvt_lines(tile: bytes, z: int, x: int, y: int) -> list[dict]:
+    """LineString features of a vector tile as {"props", "lines": [[[lon, lat], ...]]}."""
+    out = []
+    n = 2 ** z
+    for f, _, layer_buf in _pb_fields(tile):
+        if f != 3:
+            continue
+        keys, values, feats, extent = [], [], [], 4096
+        for lf, _, lv in _pb_fields(layer_buf):
+            if lf == 2:
+                feats.append(lv)
+            elif lf == 3:
+                keys.append(lv.decode("utf-8", "replace"))
+            elif lf == 4:
+                values.append(_mvt_value(lv))
+            elif lf == 5:
+                extent = lv
+        for feat in feats:
+            tags, geom, gtype = [], [], 0
+            for ff, _, fv in _pb_fields(feat):
+                if ff == 2:
+                    tags = _pb_packed(fv)
+                elif ff == 3:
+                    gtype = fv
+                elif ff == 4:
+                    geom = _pb_packed(fv)
+            if gtype != 2:  # LINESTRING
+                continue
+            props = {keys[tags[k]]: values[tags[k + 1]] for k in range(0, len(tags) - 1, 2)}
+            lines, cur, px, py, i = [], None, 0, 0, 0
+            while i < len(geom):
+                cmd, count = geom[i] & 7, geom[i] >> 3
+                i += 1
+                if cmd in (1, 2):
+                    for _ in range(count):
+                        dx, dy = geom[i], geom[i + 1]
+                        i += 2
+                        px += (dx >> 1) ^ -(dx & 1)
+                        py += (dy >> 1) ^ -(dy & 1)
+                        lon = (x + px / extent) / n * 360.0 - 180.0
+                        lat = math.degrees(math.atan(math.sinh(math.pi * (1 - 2 * (y + py / extent) / n))))
+                        if cmd == 1:
+                            cur = []
+                            lines.append(cur)
+                        cur.append([round(lon, 6), round(lat, 6)])
+            lines = [ln for ln in lines if len(ln) > 1]
+            if lines:
+                out.append({"props": props, "lines": lines})
+    return out
+
 
 # Cache current CDN session info per camera: camera_id -> (server, base_path, token, timestamp)
 _ardot_camera_sessions: dict[str, tuple[str, str, str, float]] = {}
@@ -18567,6 +18679,62 @@ async def traffic_vector_tile(z: int, x: int, y: int):
         return Response(status_code=204)
     return Response(content=tile, media_type="application/x-protobuf",
                     headers={"Cache-Control": "no-store"})
+
+
+# Decoded slowdowns per z13 vector tile, keyed by the cached tile's bytes
+# object so a refetch invalidates it: (z, x, y) -> (tile bytes, features)
+_tomtom_flow_decoded: dict[tuple[int, int, int], tuple[bytes, list]] = {}
+_ROAD_WEIGHT = {"Motorway": 1.0, "International road": 1.0, "Major road": 1.0,
+                "Secondary road": 0.75, "Connecting road": 0.75}
+
+
+@app.get("/api/traffic/flow.geojson")
+async def traffic_flow_geojson():
+    """Slow / closed road segments over the service area as GeoJSON, for maps
+    that can't render vector tiles (/map is Leaflet). Built from the same cached
+    z13 vector tiles /livemap uses, so it costs no extra TomTom requests.
+    Properties: level (speed / free-flow speed, 0-1), closed, weight (road
+    class, 0.5-1). Slowest segments come last so they draw on top.
+    """
+    features = []
+    if TOMTOM_KEY:
+        for z, x, y in _tomtom_tiles_for_zoom(13):
+            tile = await _tomtom_get_tile(
+                _tomtom_vector, z, x, y,
+                f"https://api.tomtom.com/traffic/map/4/tile/flow/relative"
+                f"/{z}/{x}/{y}.pbf?key={TOMTOM_KEY}",
+            )
+            if tile is None:
+                continue
+            cached = _tomtom_flow_decoded.get((z, x, y))
+            if cached is None or cached[0] is not tile:
+                try:
+                    cached = (tile, _mvt_lines(tile, z, x, y))
+                except Exception as exc:
+                    print(f"[tomtom] flow decode {z}/{x}/{y} failed: {exc}")
+                    continue
+                _tomtom_flow_decoded[(z, x, y)] = cached
+            for feat in cached[1]:
+                p = feat["props"]
+                closed = bool(p.get("road_closure"))
+                level = p.get("traffic_level")
+                level = float(level) if isinstance(level, (int, float)) else 1.0
+                if not closed and level >= 0.75:
+                    continue
+                lines = feat["lines"]
+                features.append({
+                    "type": "Feature",
+                    "geometry": ({"type": "LineString", "coordinates": lines[0]} if len(lines) == 1
+                                 else {"type": "MultiLineString", "coordinates": lines}),
+                    "properties": {
+                        "level": round(level, 3),
+                        "closed": closed,
+                        "weight": _ROAD_WEIGHT.get(p.get("road_type"), 0.5),
+                    },
+                })
+    features.sort(key=lambda f: (f["properties"]["closed"], -f["properties"]["level"]))
+    return JSONResponse({"type": "FeatureCollection", "features": features},
+                        headers={"Cache-Control": "no-store"})
 
 
 @app.get("/api/traffic/usage")

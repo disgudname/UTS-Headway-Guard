@@ -183,7 +183,7 @@ QUICK_DEPARTURE_MIN_DURATION_S = 5.0          # Quick departure threshold
 - `TOMTOM_KEY` - API key (secret)
 - `TOMTOM_TILE_TTL_S=180` - min seconds between refetches of a tile; only the 12 z14 512px tiles over the service area are ever fetched, on demand
 - `TOMTOM_MONTHLY_CAP=195000` - stop fetching for the rest of the month (count in `/data/tomtom_usage.json`, shown at `/admin` via `GET /api/traffic/usage`)
-- `TOMTOM_VECTOR_TTL_S=90` / `TOMTOM_VECTOR_MONTHLY_CAP=195000` - same, for the separate 200k vector-tile allowance used only by `/livemap` (`/api/traffic/vector/{z}/{x}/{y}.pbf`, z11-13 over the service area, 6 tiles)
+- `TOMTOM_VECTOR_TTL_S=90` / `TOMTOM_VECTOR_MONTHLY_CAP=195000` - same, for the separate 200k vector-tile allowance. Both maps use vector: `/livemap` renders `/api/traffic/vector/{z}/{x}/{y}.pbf` (z11-13 over the service area, 6 tiles) directly, and `/map` (Leaflet) draws `/api/traffic/flow.geojson`, the same cached z13 tiles decoded server-side. The raster endpoint `/api/traffic/tile` is unused, kept as a fallback
 
 **Storage:**
 - `DATA_DIRS=/data` - Persistent storage location (colon-separated)

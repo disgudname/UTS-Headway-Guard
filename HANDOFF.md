@@ -27,6 +27,12 @@ Machine tags: `[dev]` = Windows dev machine · `[home]` = home server (Windows b
 
 ## 1. Message board (newest first)
 
+### 2026-09-29 · [home] · /map (kiosks) traffic now also from the VECTOR tiles, via server-decoded GeoJSON
+- **What:** `GET /api/traffic/flow.geojson` gives slow/closed segments over the service area (`level` = speed / free flow 0-1, `closed`, `weight` 0.5-1 by road class; slowest last). It's built from the **same cached z13 vector tiles** `/livemap` uses, so /map + /livemap + all kiosks share one set of TomTom requests. Leaflet can't render vector tiles, so `app.py` has a small hand-written MVT decoder (`_pb_*`, `_mvt_lines`), checked against `mapbox_vector_tile` on real tiles: same features/props, coordinates exact to the 6-dp rounding.
+- **/map:** `setTrafficVisibility` now draws an `L.geoJSON` on a canvas renderer in `trafficPane`, refetched every 90 s, same reds-only palette + zoom widths as /livemap. **No per-direction offset** (Leaflet has none), so both directions overlap and the slowest draws on top.
+- **Budget:** the kiosks now use the **vector** allowance: 4 z13 tiles / 90 s 24/7 ~= 115k/month, plus /livemap's z11/z12 when zoomed out. **Raster is now unused by any client**: `/api/traffic/tile` and its bucket are kept only as a fallback. That makes the "512 px raster = 1 or 4 requests?" question below moot.
+- Checked headless on `/map?adminKioskMode=true` at z13/15/17 with live data (155 segments from 4 TomTom requests).
+
 ### 2026-09-29 · [home] · /livemap traffic is now TomTom VECTOR flow tiles (separate 200k allowance)
 - **What:** `/livemap`'s "Traffic congestion" layer draws TomTom **vector** flow lines instead of the stretched raster. Vector tiles have their own free 200k/month, separate from the raster allowance the `/map` kiosks use (MyTomTom shows it as "Traffic Flow & Incidents Vector Tiles API"). `/map` and the kiosks are unchanged and still raster.
 - **Backend:** `GET /api/traffic/vector/{z}/{x}/{y}.pbf`, only z11-13 over the service area (1+1+4 = 6 tiles), anything else is 204. Checked on real tiles: **z13 has every road class** (local/minor local included) and MapLibre overzooms it crisply; z12 drops local roads. Same on-demand cache as raster, now shared code (`_TomTomBucket`, `_tomtom_get_tile`): TTL `TOMTOM_VECTOR_TTL_S` (90 s), cap `TOMTOM_VECTOR_MONTHLY_CAP` (195000), 6 tiles / 90 s ~= 173k/month even if left open 24/7. `/data/tomtom_usage.json` now holds `{month, raster, vector}`; `/api/traffic/usage` returns both, and `/admin` shows both.
@@ -42,6 +48,7 @@ Machine tags: `[dev]` = Windows dev machine · `[home]` = home server (Windows b
   - **About the same:** it's 1 per tile. Done, mark this resolved.
   - **About 4x ours:** switch to 256 px z15 tiles (42 of them) with `TOMTOM_TILE_TTL_S` around 600, or the month runs out in about a week.
 - Also confirm the user rotated `TOMTOM_KEY` (the old one was exposed publicly until v2029).
+- ↳ [home] 2026-09-29: **superseded:** /map now uses vector tiles too, so no client fetches raster any more. The Oct check is now just: after the reset, see that `/admin`'s vector count roughly matches MyTomTom's "Vector Tiles API" line (expect ~4k/day), and confirm the key was rotated.
 
 ### 2026-09-29 · [home] · TomTom: incidents removed, traffic tiles put on a free-tier budget
 - **Why:** TomTom's free tier (200k raster flow tiles + 2.5k incident-detail calls / month) ran out within ~4-5 days every month. The old seeder pulled 58 tiles (z13-15) every 120 s around the clock whether anyone looked or not (~42k/day), plus incidents every 120 s. After the allowance ran out it kept going: 3.19M requests in 30 days, **2.84M of them 403 `InsufficientFunds`**. Also `/api/traffic/incidents/debug` was public and **echoed the TomTom key in its response**, so the key needs rotating (`fly secrets set TOMTOM_KEY=...`).

@@ -935,7 +935,7 @@ TM.registerVisibilityResumeHandler(() => {
       let trafficVisible = false;
       let trafficLayer = null;
       let trafficRefreshIntervalId = null;
-      const TRAFFIC_REDRAW_INTERVAL_MS = 3 * 60 * 1000; // match backend TOMTOM_TILE_TTL_S
+      const TRAFFIC_REDRAW_INTERVAL_MS = 90 * 1000; // match backend TOMTOM_VECTOR_TTL_S
 
       let radarRefreshTimerId = null;
       let radarCacheBustKey = "";
@@ -1651,38 +1651,81 @@ TM.registerVisibilityResumeHandler(() => {
         return layer;
       }
 
+      // Slow / closed road segments from /api/traffic/flow.geojson (TomTom vector
+      // flow, decoded server-side). Reds only, matching /livemap: the route
+      // palette already uses green/orange/yellow/purple/gray.
+      function trafficFlowColor(p) {
+        if (p.closed) return '#4a0d12';
+        if (p.level < 0.25) return '#8f1420';
+        if (p.level < 0.5) return '#d7263d';
+        return '#f47c7c';
+      }
+
+      // Line width for a major road at this zoom (same stops as /livemap).
+      function trafficFlowBaseWidth(zoom) {
+        const stops = [[11, 2], [14, 4.5], [18, 11]];
+        if (zoom <= stops[0][0]) return stops[0][1];
+        for (let i = 1; i < stops.length; i++) {
+          const [z1, w1] = stops[i];
+          const [z0, w0] = stops[i - 1];
+          if (zoom <= z1) return w0 + (w1 - w0) * (zoom - z0) / (z1 - z0);
+        }
+        return stops[stops.length - 1][1];
+      }
+
+      function trafficFlowStyle(feature) {
+        const p = feature.properties || {};
+        const base = trafficFlowBaseWidth(map ? map.getZoom() : 14);
+        return {
+          color: trafficFlowColor(p),
+          weight: Math.max(1, base * (p.weight || 0.5)),
+          opacity: 1,
+          lineCap: 'round',
+          lineJoin: 'round',
+        };
+      }
+
+      async function refreshTrafficFlow() {
+        if (!trafficLayer || !map || !map.hasLayer(trafficLayer)) return;
+        try {
+          const resp = await fetch('/api/traffic/flow.geojson', { cache: 'no-store' });
+          if (!resp.ok) return;
+          const data = await resp.json();
+          trafficLayer.clearLayers();
+          trafficLayer.addData(data);
+        } catch (e) {
+          console.warn('[traffic] flow fetch failed', e);
+        }
+      }
+
+      function restyleTrafficFlow() {
+        if (trafficLayer) trafficLayer.setStyle(trafficFlowStyle);
+      }
+
       function setTrafficVisibility(visible) {
         trafficVisible = !!visible;
         if (trafficVisible) {
           if (!trafficLayer) {
-            // The backend only has 512px tiles at z14 over the service area (free-tier
-            // budget), so pin the native zoom there and let Leaflet scale for every
-            // other zoom; `bounds` keeps it from asking for tiles outside that area.
-            trafficLayer = L.tileLayer('/api/traffic/tile/{z}/{x}/{y}.png', {
-              attribution: '© <a href="https://www.tomtom.com" target="_blank">TomTom</a>',
+            trafficLayer = L.geoJSON(null, {
               pane: 'trafficPane',
-              opacity: 0.7,
-              tileSize: 512,
-              zoomOffset: -1,
-              minNativeZoom: 15,
-              maxNativeZoom: 15,
-              bounds: [[38.0081, -78.5419], [38.0582, -78.4872]],
-              errorTileUrl: 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg=='
+              renderer: L.canvas({ pane: 'trafficPane' }),
+              interactive: false,
+              style: trafficFlowStyle,
+              attribution: '© <a href="https://www.tomtom.com" target="_blank">TomTom</a>',
             });
           }
           if (map && !map.hasLayer(trafficLayer)) {
             trafficLayer.addTo(map);
+            map.on('zoomend', restyleTrafficFlow);
           }
+          refreshTrafficFlow();
           if (!trafficRefreshIntervalId) {
-            trafficRefreshIntervalId = setInterval(() => {
-              if (trafficLayer && map && map.hasLayer(trafficLayer)) {
-                trafficLayer.redraw();
-              }
-            }, TRAFFIC_REDRAW_INTERVAL_MS);
+            trafficRefreshIntervalId = setInterval(refreshTrafficFlow, TRAFFIC_REDRAW_INTERVAL_MS);
           }
         } else {
           if (trafficLayer && map && map.hasLayer(trafficLayer)) {
             map.removeLayer(trafficLayer);
+            map.off('zoomend', restyleTrafficFlow);
           }
           if (trafficRefreshIntervalId !== null) {
             clearInterval(trafficRefreshIntervalId);
