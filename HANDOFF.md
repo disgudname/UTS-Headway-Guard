@@ -31,6 +31,7 @@ Machine tags: `[dev]` = Windows dev machine · `[home]` = home server (Windows b
 - **What:** `html/weatherclock.html` is a copy of `/weather` (same fixed **1044×297** box, same `#24234b` left/bottom edges, same NWS fetch/retry/localStorage cache), with the right-side title block swapped for a clock: `HH:MM:SS` (24 h) + `MM/DD/YYYY` like `/clockdisplay`, always America/New_York. The condition text max-width dropped 360 → 290 px to make room. `?title=` is gone (no title); `?lat=&lon=`/`?station=` still work.
 - **It's a copy, not shared code:** a fix to `/weather`'s fetch/render logic has to be made in both files.
 - Checked headless at 1044×297 with live NWS data: fits, no overflow, seconds tick. Not seen on the real signage.
+- ↳ [home] 2026-09-29: user: clock too small. Now **88 px time / 44 px date**, same as `/clockdisplay`. Top row 128 → 140 px, card icons 58 → 50 px, "Updated" line moved under High/Low, condition max-width 250 px. Worst case (102°F + "Chance Showers And Thunderstorms" + rain %) still fits with ~65 px to spare.
 
 ### 2026-09-28 · [home] · UTS service-level calendar pulled via headless Chromium: DEPLOYED (`95476a2`, Fly v2025)
 - **What:** `service_schedule.py` loads `parking.virginia.edu/serviceschedule` in the image's Playwright Chromium (the page is behind a Cloudflare challenge that 403s httpx/curl; Chromium passes in ~1-2 s, **tested from the prod Fly machine too**). Hourly (`SERVICE_SCHEDULE_POLL_S=3600`), merged by date into `/data/service_schedule.json` (past days kept ~400 d as history).

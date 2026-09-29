@@ -27,7 +27,7 @@
   }
   #wx {
     width: 1044px; height: 297px; box-sizing: border-box; padding: 10px 12px 12px;
-    display: grid; grid-template-rows: 128px 1fr; gap: 10px;
+    display: grid; grid-template-rows: 140px 1fr; gap: 10px;
     /* Glow is confined to the top-right (ends 626px left / 267px down), so the
        left and bottom edges are pure --bg. */
     background: radial-gradient(60% 90% at 100% 0%, rgba(255,255,255,0.07), rgba(255,255,255,0) 100%), var(--bg);
@@ -41,7 +41,7 @@
   .now-temp { font-size: 96px; font-weight: 300; line-height: 1; letter-spacing: -2px; margin-left: 18px; }
   .now-temp sup { font-size: 40px; font-weight: 400; vertical-align: 42px; margin-left: 2px; }
   .now-info { margin-left: 26px; }
-  .now-cond { font-size: 28px; font-weight: 500; line-height: 1.1; max-width: 290px; }
+  .now-cond { font-size: 28px; font-weight: 500; line-height: 1.1; max-width: 250px; }
   .now-meta { margin-top: 8px; font-size: 17px; color: var(--muted); display: flex; gap: 16px; }
   .now-meta b { color: var(--text); font-weight: 500; }
   .pop { color: var(--rain); font-weight: 500; }
@@ -51,23 +51,24 @@
     border-right: 4px solid var(--accent); padding-right: 12px;
     font-variant-numeric: tabular-nums; /* digits don't shift as the seconds tick */
   }
-  .clock .time { font-size: 70px; font-weight: 300; line-height: 1; letter-spacing: -1px; }
-  .clock .date { margin-top: 4px; font-size: 24px; font-weight: 500; line-height: 1.1; }
-  .clock .updated { margin-top: 4px; font-size: 13px; color: var(--muted); }
+  /* Same sizes as /clockdisplay (88 / 44 px). */
+  .clock .time { font-size: 88px; font-weight: 300; line-height: 0.95; letter-spacing: -1px; }
+  .clock .date { margin-top: 2px; font-size: 44px; font-weight: 400; line-height: 1; }
+  .now-info .updated { margin-top: 6px; font-size: 13px; color: var(--muted); }
   .err { color: #ffb4b4 !important; }
 
   /* Bottom row: five forecast cards */
   .cells { display: grid; grid-template-columns: repeat(5, 1fr); gap: 10px; }
   .cell {
     background: var(--card); border: 1px solid var(--card-edge); border-radius: 14px;
-    padding: 10px 14px; display: flex; flex-direction: column; justify-content: space-between; min-width: 0;
+    padding: 8px 14px; display: flex; flex-direction: column; justify-content: space-between; min-width: 0;
   }
   .cell.day { background: rgba(245, 138, 46, 0.09); border-color: rgba(245, 138, 46, 0.28); }
   .cell .head { display: flex; align-items: baseline; justify-content: space-between; gap: 6px; }
   .cell .label { font-size: 14px; font-weight: 900; color: var(--accent); text-transform: uppercase; letter-spacing: .08em; white-space: nowrap; }
   .cell .sub { font-size: 14px; font-weight: 500; color: var(--muted); white-space: nowrap; }
   .cell .mid { display: flex; align-items: center; gap: 10px; }
-  .cell .icon svg { width: 58px; height: 58px; }
+  .cell .icon svg { width: 50px; height: 50px; }
   .cell .temp { font-size: 42px; font-weight: 400; line-height: 1; white-space: nowrap; }
   .cell .temp .lo { font-size: 22px; color: var(--muted); margin-left: 4px; }
   .cell .foot { display: flex; align-items: flex-end; justify-content: space-between; gap: 6px; }
@@ -86,11 +87,11 @@
     <div class="now-info">
       <div class="now-cond" id="now-cond">&nbsp;</div>
       <div class="now-meta" id="now-meta"></div>
+      <div class="updated" id="updated">Loading…</div>
     </div>
     <div class="clock">
       <div class="time" id="time">00:00:00</div>
       <div class="date" id="date">01/01/2026</div>
-      <div class="updated" id="updated">Loading…</div>
     </div>
   </div>
   <div class="cells" id="cells"></div>
