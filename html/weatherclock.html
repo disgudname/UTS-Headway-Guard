@@ -1,0 +1,325 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Weather Clock</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Roboto:wght@300;400;500;700;900&display=swap" rel="stylesheet">
+<style>
+  /* Designed for a fixed 1044x297 box. If the window is a different size the
+     whole widget is scaled to fit (see fit()). UVA navy + orange to sit next to
+     the rest of the signage. */
+  :root {
+    --bg: #24234b; /* exact match to /clockdisplay; left + bottom edges must stay this */
+    --card: rgba(255, 255, 255, 0.07);
+    --card-edge: rgba(255, 255, 255, 0.10);
+    --text: #ffffff;
+    --muted: #aeb6d0;
+    --accent: #f58a2e;
+    --rain: #62b6ff;
+  }
+  html, body {
+    margin: 0; padding: 0; overflow: hidden;
+    background: var(--bg); color: var(--text);
+    font-family: 'Roboto', system-ui, sans-serif;
+  }
+  #wx {
+    width: 1044px; height: 297px; box-sizing: border-box; padding: 10px 12px 12px;
+    display: grid; grid-template-rows: 128px 1fr; gap: 10px;
+    /* Glow is confined to the top-right (ends 626px left / 267px down), so the
+       left and bottom edges are pure --bg. */
+    background: radial-gradient(60% 90% at 100% 0%, rgba(255,255,255,0.07), rgba(255,255,255,0) 100%), var(--bg);
+    transform-origin: 0 0; position: absolute; top: 0; left: 0;
+  }
+  svg { display: block; overflow: visible; }
+
+  /* Top row: current conditions + title */
+  .top { display: flex; align-items: center; padding: 0 10px 0 6px; }
+  .now-icon svg { width: 118px; height: 118px; filter: drop-shadow(0 4px 10px rgba(0,0,0,.25)); }
+  .now-temp { font-size: 96px; font-weight: 300; line-height: 1; letter-spacing: -2px; margin-left: 18px; }
+  .now-temp sup { font-size: 40px; font-weight: 400; vertical-align: 42px; margin-left: 2px; }
+  .now-info { margin-left: 26px; }
+  .now-cond { font-size: 28px; font-weight: 500; line-height: 1.1; max-width: 290px; }
+  .now-meta { margin-top: 8px; font-size: 17px; color: var(--muted); display: flex; gap: 16px; }
+  .now-meta b { color: var(--text); font-weight: 500; }
+  .pop { color: var(--rain); font-weight: 500; }
+  /* Clock replaces /weather's title block: 24 h time + MM/DD/YYYY, like /clockdisplay. */
+  .clock {
+    margin-left: auto; text-align: right; white-space: nowrap;
+    border-right: 4px solid var(--accent); padding-right: 12px;
+    font-variant-numeric: tabular-nums; /* digits don't shift as the seconds tick */
+  }
+  .clock .time { font-size: 70px; font-weight: 300; line-height: 1; letter-spacing: -1px; }
+  .clock .date { margin-top: 4px; font-size: 24px; font-weight: 500; line-height: 1.1; }
+  .clock .updated { margin-top: 4px; font-size: 13px; color: var(--muted); }
+  .err { color: #ffb4b4 !important; }
+
+  /* Bottom row: five forecast cards */
+  .cells { display: grid; grid-template-columns: repeat(5, 1fr); gap: 10px; }
+  .cell {
+    background: var(--card); border: 1px solid var(--card-edge); border-radius: 14px;
+    padding: 10px 14px; display: flex; flex-direction: column; justify-content: space-between; min-width: 0;
+  }
+  .cell.day { background: rgba(245, 138, 46, 0.09); border-color: rgba(245, 138, 46, 0.28); }
+  .cell .head { display: flex; align-items: baseline; justify-content: space-between; gap: 6px; }
+  .cell .label { font-size: 14px; font-weight: 900; color: var(--accent); text-transform: uppercase; letter-spacing: .08em; white-space: nowrap; }
+  .cell .sub { font-size: 14px; font-weight: 500; color: var(--muted); white-space: nowrap; }
+  .cell .mid { display: flex; align-items: center; gap: 10px; }
+  .cell .icon svg { width: 58px; height: 58px; }
+  .cell .temp { font-size: 42px; font-weight: 400; line-height: 1; white-space: nowrap; }
+  .cell .temp .lo { font-size: 22px; color: var(--muted); margin-left: 4px; }
+  .cell .foot { display: flex; align-items: flex-end; justify-content: space-between; gap: 6px; }
+  .cell .cond {
+    font-size: 13px; font-weight: 500; color: #d6dbeb; line-height: 1.2;
+    display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;
+  }
+  .cell .pop { font-size: 13px; white-space: nowrap; }
+</style>
+</head>
+<body>
+<div id="wx">
+  <div class="top">
+    <div class="now-icon" id="now-icon"></div>
+    <div class="now-temp" id="now-temp">--</div>
+    <div class="now-info">
+      <div class="now-cond" id="now-cond">&nbsp;</div>
+      <div class="now-meta" id="now-meta"></div>
+    </div>
+    <div class="clock">
+      <div class="time" id="time">00:00:00</div>
+      <div class="date" id="date">01/01/2026</div>
+      <div class="updated" id="updated">Loading…</div>
+    </div>
+  </div>
+  <div class="cells" id="cells"></div>
+</div>
+<script>
+(() => {
+  // /weather plus a clock. Query params: ?lat=&lon= (default UTS base on Millmont St),
+  // ?station= (NWS obs station ID for current conditions, default: nearest to the point).
+  const qs = new URLSearchParams(location.search);
+  const LAT = parseFloat(qs.get('lat')) || 38.0452;
+  const LON = parseFloat(qs.get('lon')) || -78.5086;
+  const TZ = 'America/New_York';
+  const REFRESH_MS = 10 * 60 * 1000;
+  const OBS_MAX_AGE_MS = 2 * 60 * 60 * 1000;
+  const RETRY_MS = 15 * 1000;             // after a failed fetch (player just booted, NWS 500s)
+  const CACHE_KEY = 'weather:' + LAT.toFixed(4) + ',' + LON.toFixed(4);
+  const CACHE_MAX_AGE_MS = 6 * 60 * 60 * 1000;
+  const POP_MIN = 20; // only show chance of rain at or above this %
+
+  // ---- scale the fixed 1044x297 box to fit the window ----
+  const box = document.getElementById('wx');
+  function fit() {
+    const s = Math.min(innerWidth / 1044, innerHeight / 297);
+    box.style.transform = `scale(${s})`;
+  }
+  addEventListener('resize', fit); fit();
+
+  // ---- clock: HH:MM:SS (24 h) + MM/DD/YYYY, Eastern time regardless of the player's zone ----
+  const clockFmt = new Intl.DateTimeFormat('en-US', { timeZone: TZ, hourCycle: 'h23', year: 'numeric', month: '2-digit',
+    day: '2-digit', hour: '2-digit', minute: '2-digit', second: '2-digit' });
+  const timeEl = document.getElementById('time'), dateEl = document.getElementById('date');
+  function clockTick() {
+    const p = Object.fromEntries(clockFmt.formatToParts(new Date()).map(x => [x.type, x.value]));
+    timeEl.textContent = `${p.hour}:${p.minute}:${p.second}`;
+    dateEl.textContent = `${p.month}/${p.day}/${p.year}`;
+    // Re-arm just after the next whole second so the display never skips or doubles a second.
+    setTimeout(clockTick, 1000 - (Date.now() % 1000) + 20);
+  }
+  clockTick();
+
+  // ---- color icons (64x64 viewBox) ----
+  const C = { sun: '#ffc53d', ray: '#ffb020', moon: '#f4e6ad', cloud: '#eef2fa', cloudBack: '#a9b4cf',
+              rain: '#62b6ff', bolt: '#ffd43b', snow: '#ffffff', fog: '#c3cbe0' };
+  const CLOUD = 'M18 48 H47 A10 10 0 0 0 47 28 A14 14 0 0 0 21 24 A12 12 0 0 0 18 48 Z';
+  const cloud = (dx = 0, dy = 0, sc = 1, fill = C.cloud) =>
+    `<path transform="translate(${dx} ${dy}) scale(${sc})" d="${CLOUD}" fill="${fill}"/>`;
+  function sun(cx, cy, r) {
+    let rays = '';
+    for (let i = 0; i < 8; i++) {
+      const a = i * Math.PI / 4, c = Math.cos(a), s = Math.sin(a);
+      rays += `<line x1="${cx + c * (r + 4)}" y1="${cy + s * (r + 4)}" x2="${cx + c * (r + 9)}" y2="${cy + s * (r + 9)}"/>`;
+    }
+    return `<g stroke="${C.ray}" stroke-width="3.2" stroke-linecap="round">${rays}</g><circle cx="${cx}" cy="${cy}" r="${r}" fill="${C.sun}"/>`;
+  }
+  const moon = (cx, cy, r) =>
+    `<path fill="${C.moon}" d="M${cx + r * 0.3} ${cy - r} A${r} ${r} 0 1 0 ${cx + r} ${cy + r * 0.45} A${r * 0.8} ${r * 0.8} 0 0 1 ${cx + r * 0.3} ${cy - r} Z"/>`;
+  const lines = (color, body, w = 3.4) => `<g stroke="${color}" stroke-width="${w}" stroke-linecap="round" fill="none">${body}</g>`;
+  const drops = xs => lines(C.rain, xs.map(x => `<line x1="${x + 3}" y1="46" x2="${x - 1}" y2="56"/>`).join(''));
+  const flake = x => [90, 30, 150].map(a => {
+    const dx = 5 * Math.cos(a * Math.PI / 180), dy = 5 * Math.sin(a * Math.PI / 180);
+    return `<line x1="${x - dx}" y1="${52 - dy}" x2="${x + dx}" y2="${52 + dy}"/>`;
+  }).join('');
+
+  function iconSvg(kind, night) {
+    const up = cloud(0, -9);
+    const body = {
+      clear: () => night ? moon(32, 32, 17) : sun(32, 32, 12),
+      partly: () => (night ? moon(24, 22, 12) : sun(24, 22, 9)) + cloud(6, 6, 0.9),
+      cloudy: () => cloud(10, -10, 0.85, C.cloudBack) + cloud(-2, 2),
+      rain: () => up + drops([16, 28, 40]),
+      thunder: () => up + `<polygon fill="${C.bolt}" points="33,36 24,51 31,51 27,63 40,46 33,46 37,36"/>` + drops([16, 46]),
+      snow: () => up + lines(C.snow, flake(17) + flake(32) + flake(47), 2.4),
+      mix: () => up + drops([16, 40]) + lines(C.snow, flake(30), 2.4),
+      fog: () => up + lines(C.fog, '<line x1="10" y1="48" x2="54" y2="48"/><line x1="16" y1="56" x2="48" y2="56"/>'),
+      wind: () => lines(C.fog, '<path d="M8 24 H40 A7 7 0 1 0 33 17"/><path d="M8 34 H50 A7 7 0 1 1 43 41"/><path d="M8 44 H28"/>'),
+    }[kind] || (() => cloud());
+    return `<svg viewBox="0 0 64 64">${body()}</svg>`;
+  }
+
+  // NWS icon URL -> our icon kind. e.g. .../icons/land/night/rain_showers,40/bkn?size=small
+  function classify(url, text) {
+    const m = /\/icons\/land\/(day|night)\/([^/?]+)/.exec(url || '');
+    const night = m ? m[1] === 'night' : false;
+    let code = m ? m[2].split(',')[0] : '';
+    if (code.startsWith('wind_')) code = code.slice(5) === 'skc' || code.slice(5) === 'few' ? 'wind' : code.slice(5);
+    let kind;
+    if (/^(tsra|tornado|hurricane|tropical_storm)/.test(code)) kind = 'thunder';
+    else if (/^(snow|blizzard)$/.test(code)) kind = 'snow';
+    else if (/sleet|fzra|rain_snow/.test(code)) kind = 'mix';
+    else if (/^rain/.test(code)) kind = 'rain';
+    else if (/^(fog|haze|smoke|dust)$/.test(code)) kind = 'fog';
+    else if (code === 'wind') kind = 'wind';
+    else if (/^(skc|few|hot|cold)$/.test(code)) kind = 'clear';
+    else if (/^(sct|bkn)$/.test(code)) kind = 'partly';
+    else if (code === 'ovc') kind = 'cloudy';
+    else {
+      // No usable icon (obs sometimes has none): guess from the text.
+      const t = (text || '').toLowerCase();
+      kind = /thunder/.test(t) ? 'thunder' : /snow/.test(t) ? 'snow' : /rain|drizzle|shower/.test(t) ? 'rain'
+        : /fog|mist|haze/.test(t) ? 'fog' : /overcast|cloudy/.test(t) && !/partly|mostly clear/.test(t) ? 'cloudy'
+        : /partly|mostly|few|scattered/.test(t) ? 'partly' : /clear|sunny|fair/.test(t) ? 'clear' : 'cloudy';
+    }
+    return iconSvg(kind, night);
+  }
+
+  // ---- date helpers (all in America/New_York) ----
+  const ymd = d => new Intl.DateTimeFormat('en-CA', { timeZone: TZ, year: 'numeric', month: '2-digit', day: '2-digit' }).format(d);
+  function addDays(ymdStr, n) {
+    const [y, m, d] = ymdStr.split('-').map(Number);
+    return new Date(Date.UTC(y, m - 1, d + n)).toISOString().slice(0, 10);
+  }
+  const hourLabel = d => new Intl.DateTimeFormat('en-US', { timeZone: TZ, hour: 'numeric' }).format(d);
+  const weekday = s => new Intl.DateTimeFormat('en-US', { timeZone: 'UTC', weekday: 'long' }).format(new Date(s + 'T12:00:00Z'));
+  const esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+  const popOf = p => (p && p.probabilityOfPrecipitation && p.probabilityOfPrecipitation.value) || 0;
+  const popHtml = (...ps) => {
+    const v = Math.max(...ps.map(popOf));
+    return v >= POP_MIN ? `<span class="pop">${v}% rain</span>` : '';
+  };
+
+  async function getJson(url) {
+    // A hung request would stall the refresh loop forever, so give up and retry.
+    const ac = new AbortController();
+    const t = setTimeout(() => ac.abort(), 20000);
+    try {
+      const r = await fetch(url, { headers: { Accept: 'application/geo+json' }, signal: ac.signal });
+      if (!r.ok) throw new Error(`${r.status} ${url}`);
+      return await r.json();
+    } finally { clearTimeout(t); }
+  }
+
+  let point = null;
+  async function fetchData() {
+    if (!point) point = (await getJson(`https://api.weather.gov/points/${LAT.toFixed(4)},${LON.toFixed(4)}`)).properties;
+    const [hourly, daily, obs] = await Promise.all([
+      getJson(point.forecastHourly),
+      getJson(point.forecast),
+      (async () => {
+        try {
+          let st = qs.get('station');
+          if (!st) st = (await getJson(point.observationStations)).features[0].properties.stationIdentifier;
+          return (await getJson(`https://api.weather.gov/stations/${st}/observations/latest`)).properties;
+        } catch { return null; }
+      })(),
+    ]);
+    return { hp: hourly.properties.periods, dp: daily.properties.periods, obs, at: Date.now() };
+  }
+
+  function render({ hp, dp, obs, at }) {
+    const now = new Date();
+    const today = ymd(now);
+
+    // Current: latest station observation if fresh, else this hour's forecast.
+    const findHour = t => hp.find(p => new Date(p.startTime) <= t && t < new Date(p.endTime));
+    const thisHour = findHour(now) || hp[0];
+    let temp = thisHour.temperature, cond = thisHour.shortForecast, icon = thisHour.icon;
+    const obsOk = obs && obs.temperature && obs.temperature.value != null && now - new Date(obs.timestamp) < OBS_MAX_AGE_MS;
+    if (obsOk) {
+      temp = Math.round(obs.temperature.value * 9 / 5 + 32);
+      if (obs.textDescription) { cond = obs.textDescription; icon = obs.icon || (cond === thisHour.shortForecast ? thisHour.icon : ''); }
+    }
+    document.getElementById('now-icon').innerHTML = classify(icon, cond);
+    document.getElementById('now-temp').innerHTML = `${temp}<sup>°F</sup>`;
+    document.getElementById('now-cond').textContent = cond;
+
+    // Today's high/low (after ~6 PM NWS drops the "Today" period, leaving only tonight's low).
+    const tDay = dp.find(p => p.isDaytime && p.startTime.slice(0, 10) === today);
+    const tNight = dp.find(p => !p.isDaytime && p.startTime.slice(0, 10) === today);
+    const meta = [];
+    if (tDay) meta.push(`High <b>${tDay.temperature}°</b>`);
+    if (tNight) meta.push(`${tDay ? 'Low' : 'Tonight'} <b>${tNight.temperature}°</b>`);
+    const nowPop = popHtml(thisHour);
+    if (nowPop) meta.push(nowPop);
+    document.getElementById('now-meta').innerHTML = meta.map(m => `<span>${m}</span>`).join('');
+
+    const cells = [];
+    for (const h of [1, 6, 12]) {
+      // +30 min rounds to the hour starting nearest now+h, so "+1 hr" is 30-90 min out, never ~0.
+      const p = findHour(new Date(now.getTime() + h * 3600e3 + 1800e3));
+      cells.push(p
+        ? { label: `+${h} hr`, sub: hourLabel(new Date(p.startTime)), html: `${p.temperature}°`, cond: p.shortForecast, icon: classify(p.icon, p.shortForecast), pop: popHtml(p) }
+        : { label: `+${h} hr`, sub: '', html: '--', cond: '', icon: '', pop: '' });
+    }
+    for (const n of [1, 2]) {
+      const day = addDays(today, n);
+      const i = dp.findIndex(p => p.isDaytime && p.startTime.slice(0, 10) === day);
+      const hi = dp[i], lo = dp[i + 1] && !dp[i + 1].isDaytime ? dp[i + 1] : null;
+      cells.push({
+        day: true, label: n === 1 ? 'Tomorrow' : weekday(day), sub: '',
+        html: hi ? `${hi.temperature}°<span class="lo">${lo ? lo.temperature + '°' : ''}</span>` : '--',
+        cond: hi ? hi.shortForecast : '', icon: hi ? classify(hi.icon, hi.shortForecast) : '', pop: hi ? popHtml(hi) : '',
+      });
+    }
+    document.getElementById('cells').innerHTML = cells.map(c => `
+      <div class="cell${c.day ? ' day' : ''}">
+        <div class="head"><span class="label">${esc(c.label)}</span><span class="sub">${esc(c.sub)}</span></div>
+        <div class="mid"><div class="icon">${c.icon}</div><div class="temp">${c.html}</div></div>
+        <div class="foot"><div class="cond">${esc(c.cond)}</div>${c.pop}</div>
+      </div>`).join('');
+
+    const u = document.getElementById('updated');
+    u.classList.remove('err');
+    u.textContent = 'Updated ' + new Intl.DateTimeFormat('en-US', { timeZone: TZ, hour: 'numeric', minute: '2-digit' }).format(new Date(at));
+  }
+
+  // Show the last good forecast right away on a fresh load; a blank box until NWS answers looks broken.
+  try {
+    const cached = JSON.parse(localStorage.getItem(CACHE_KEY));
+    if (cached && Date.now() - cached.at < CACHE_MAX_AGE_MS) render(cached);
+  } catch (e) { console.warn('[weather] cache', e); }
+
+  async function tick() {
+    let next = REFRESH_MS;
+    try {
+      const data = await fetchData();
+      render(data);
+      try { localStorage.setItem(CACHE_KEY, JSON.stringify(data)); } catch {}
+    } catch (e) {
+      console.error('[weather]', e);
+      point = null; // re-resolve the grid next time in case it moved
+      next = RETRY_MS;
+      const u = document.getElementById('updated');
+      u.classList.add('err');
+      u.textContent = 'NWS unavailable — retrying';
+    }
+    setTimeout(tick, next);
+  }
+  tick();
+})();
+</script>
+</body>
+</html>
