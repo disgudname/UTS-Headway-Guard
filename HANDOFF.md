@@ -27,7 +27,7 @@ Machine tags: `[dev]` = Windows dev machine · `[home]` = home server (Windows b
 
 ## 1. Message board (newest first)
 
-### 2026-09-29 · [home] · /weatherclock: /weather + 24 h clock and date (NOT deployed yet)
+### 2026-09-29 · [home] · /weatherclock: /weather + 24 h clock and date DEPLOYED (`a1ca601`, Fly v2028)
 - **What:** `html/weatherclock.html` is a copy of `/weather` (same fixed **1044×297** box, same `#24234b` left/bottom edges, same NWS fetch/retry/localStorage cache), with the right-side title block swapped for a clock: `HH:MM:SS` (24 h) + `MM/DD/YYYY` like `/clockdisplay`, always America/New_York. The condition text max-width dropped 360 → 290 px to make room. `?title=` is gone (no title); `?lat=&lon=`/`?station=` still work.
 - **It's a copy, not shared code:** a fix to `/weather`'s fetch/render logic has to be made in both files.
 - Checked headless at 1044×297 with live NWS data: fits, no overflow, seconds tick. Not seen on the real signage.
