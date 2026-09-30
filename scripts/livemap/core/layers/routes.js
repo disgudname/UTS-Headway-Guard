@@ -26,19 +26,22 @@
 // -----------------------------------------------------------------------------
 
 import { getMap, onStyleReady } from '../map.js';
-import { lsGet, lsSet, emitter, debounce } from '../util.js';
+import { emitter, debounce } from '../util.js';
 import { startVehicleFeed, onRoutes, onVehicles, getRoutes } from '../data/transloc.js';
 import { ROUTE_SOURCE_ID as SRC } from './route-style.js';
 import { stripeRoutes, plainRouteFeatures } from './route-overlap.js';
 
-// v2: the v1 keys were written by the old name-grouped picker, which pinned
-// EVERY schedule variant of a line when you turned that line on. Read back into
-// the per-RouteID picker that reads as "Gold Line on 2×, Purple Line on 3×"
-// even when only one variant has buses. Start clean and drop the stale keys.
-const HIDDEN_KEY = 'livemap.routes.hidden.v2';
-const PINNED_KEY = 'livemap.routes.pinned.v2';
+// Every load starts on "Active" (exactly the routes with a bus on them), so
+// route picks are NOT remembered between loads any more (user asked
+// 2026-09-30). Drop the keys older versions saved.
 try {
-  for (const k of ['livemap.routes.hidden', 'livemap.routes.pinned', 'livemap.routes.offshown']) {
+  for (const k of [
+    'livemap.routes.hidden',
+    'livemap.routes.pinned',
+    'livemap.routes.offshown',
+    'livemap.routes.hidden.v2',
+    'livemap.routes.pinned.v2',
+  ]) {
     localStorage.removeItem(k);
   }
 } catch {
@@ -46,8 +49,8 @@ try {
 }
 
 const bus = emitter();
-const hidden = loadSet(HIDDEN_KEY); // RouteIDs the user explicitly turned OFF
-const pinned = loadSet(PINNED_KEY); // idle RouteIDs the user explicitly turned ON
+const hidden = new Set(); // RouteIDs the user explicitly turned OFF
+const pinned = new Set(); // idle RouteIDs the user explicitly turned ON
 let routes = []; // [{ id, name, color, coords, info }]
 // RouteIDs with a bus on them in the LATEST vehicle report. A route line is a
 // live diagnostic — "is this route's line drawn?" answers "are its buses tagged
@@ -150,7 +153,6 @@ export function setRouteHidden(id, hide) {
     hidden.delete(s);
     if (!routeActive(s)) pinned.add(s); // idle route -> pin so its line shows
   }
-  persist();
   syncSource();
   bus.emit('change', routeList());
 }
@@ -162,7 +164,6 @@ export function setAllHidden(hide) {
   } else {
     hidden.clear(); // reveal every active route; leave idle routes as they were
   }
-  persist();
   syncSource();
   bus.emit('change', routeList());
 }
@@ -178,7 +179,6 @@ export function setActiveOnly() {
   for (const r of routes) {
     if (!routeActive(r.id)) hidden.add(r.id);
   }
-  persist();
   syncSource();
   bus.emit('change', routeList());
 }
@@ -262,18 +262,4 @@ function pruneHidden() {
   const live = new Set(routes.map((r) => r.id));
   for (const id of [...hidden]) if (!live.has(id)) hidden.delete(id);
   for (const id of [...pinned]) if (!live.has(id)) pinned.delete(id);
-}
-
-function loadSet(key) {
-  try {
-    const arr = JSON.parse(lsGet(key, '[]'));
-    return new Set(Array.isArray(arr) ? arr.map(String) : []);
-  } catch {
-    return new Set();
-  }
-}
-
-function persist() {
-  lsSet(HIDDEN_KEY, JSON.stringify([...hidden]));
-  lsSet(PINNED_KEY, JSON.stringify([...pinned]));
 }
