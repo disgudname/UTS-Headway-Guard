@@ -1794,6 +1794,15 @@ HEADING_MISMATCH_PENALTY_M = 30.0
 # alone still flipped it to the outbound pass for a poll at Emmet St.
 CONTINUITY_JUMP_M = 500.0
 CONTINUITY_PENALTY_M = 25.0
+# A STOPPED bus (no heading passed) gets a much tighter limit. At a loop's seam the
+# end and start of the polyline are the same road, so "about to finish the loop" and
+# "just started it" are only a few hundred metres apart once wrapped -- inside
+# CONTINUITY_JUMP_M. Confirmed live 2026-09-30 12:54 (Purple 74, bus 50 stopped ~150 m
+# short of 400 Fontaine, the loop's end): both passes were ~6 m away, it flipped to
+# s=188 (just started) and its Fontaine ETA read 19-28 min for ~45 s while TransLoc
+# said under a minute. Same spot in 4 other runs 09-28..09-30. A parked bus doesn't
+# move 100 m between polls.
+STATIONARY_JUMP_M = 100.0
 
 
 def _heading_mismatch_penalty_m(diff_deg: float) -> float:
@@ -1816,7 +1825,8 @@ def project_vehicle_to_route(v: Vehicle, route: Route, prev_idx: Optional[int] =
     put the vehicle implausibly far from ``prev_s``, its arc-length position last
     poll (see CONTINUITY_PENALTY_M), so on overlapping bidirectional stretches the
     pass the vehicle is actually travelling wins instead of GPS noise picking one.
-    With no heading, near-equal candidates go to the one closest to ``prev_idx``.
+    With no heading (a stopped vehicle), the continuity limit tightens to
+    STATIONARY_JUMP_M and near-equal candidates go to the one closest to ``prev_idx``.
     """
     pts = route.poly; cum = route.cum
     route_len = cum[-1] if cum else 0.0
@@ -1845,7 +1855,7 @@ def project_vehicle_to_route(v: Vehicle, route: Route, prev_idx: Optional[int] =
         s = cum[i] + t * seg_len
         if prev_s is not None and route_len > 0:
             jump = abs(s - prev_s)
-            if min(jump, route_len - jump) > CONTINUITY_JUMP_M:
+            if min(jump, route_len - jump) > (STATIONARY_JUMP_M if heading is None else CONTINUITY_JUMP_M):
                 cost += CONTINUITY_PENALTY_M
         take = cost < best_cost - 0.5
         if not take and abs(cost - best_cost) <= 0.5 and heading is None and prev_idx is not None:

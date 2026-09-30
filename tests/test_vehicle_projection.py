@@ -83,3 +83,15 @@ def test_clear_opposite_heading_can_still_override_continuity():
     lat, lon = 0.0, 500.0 / 111_320.0
     s, _ = app.project_vehicle_to_route(_vehicle(lat, lon), r, None, 90.0, 1500.0)  # thinks it's on return, heading east
     assert abs(s - 500.0) < 5.0
+
+
+def test_stopped_bus_near_loop_seam_does_not_flip_to_just_started():
+    # A loop whose last stretch comes back along the road it left on (400 Fontaine,
+    # Purple 74, 2026-09-30): a bus stopped ~100 m before the loop's end sits between
+    # "about to finish" (s ~1910) and "just started" (s ~100). Those are only ~200 m
+    # apart once wrapped, inside CONTINUITY_JUMP_M, so without a tighter limit for a
+    # stopped bus a GPS reading a metre nearer the outbound side flips it a full lap.
+    r = _out_and_back_route(10.0)
+    lat, lon = 4.5 / 110_540.0, 100.0 / 111_320.0
+    s, _ = app.project_vehicle_to_route(_vehicle(lat, lon), r, None, None, 1880.0)
+    assert s > 1000.0
