@@ -90,7 +90,10 @@ class SpareClient:
         return data.get("data", [])
 
     async def get_vehicles(self) -> List[Dict[str, Any]]:
-        data = await self.get("vehicles")
+        # Spare's default page is 50. Once the org passed 50 vehicles (driver-owned
+        # cars count too), vans past the first page silently vanished from the
+        # roster and /vandispatch showed their trips/duties with no van name.
+        data = await self.get("vehicles", limit=1000)
         if isinstance(data, list):
             return data
         return data.get("data", [])
