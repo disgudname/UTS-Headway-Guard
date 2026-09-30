@@ -27,6 +27,10 @@ Machine tags: `[dev]` = Windows dev machine · `[home]` = home server (Windows b
 
 ## 1. Message board (newest first)
 
+### 2026-09-30 · [home] · /vandispatch: vans past Spare's 50-vehicle default page vanished (fixed, `97699c5`, v2036)
+
+Symptom: Van 7 + Van 13 had no name on Active Trips cards and the same fallback orange on the roster. Cause: Spare `/vehicles` defaults to `limit=50` and `SpareClient.get_vehicles()` never passed one. The Spare org now holds 56 vehicles: our 9 vans + 47 **Lyft drivers' cars** (4-seat, plate as identifier, created from 2026-08-24 on as Lyft handoff rides get taken), so vans fell off page 1. Now `limit=1000`. Verified live: every duty's van resolves. The Lyft car count will keep growing; if it ever nears 1000, paginate with `skip`.
+
 ### 2026-09-29 · [home] · /livemap basemap: tree + bush icons removed (v2034)
 
 Request: the UVA GES basemap's trees cluttered /livemap. `normalizeBase` in `scripts/livemap/core/basemap-style.js` now drops every layer on the `University_Trees`, `Large_University_Trees` and `Bushes` source-layers (`DROPPED_SOURCE_LAYERS`; Bushes also holds UVA's small/medium/large tree icons). This covers day + night, and /vandispatch2 too since it shares the basemap. The Forest / Planting Bed **area fills** are kept on purpose. Checked on the built style: 0 tree/bush layers in both themes. Open screens need a refresh.
