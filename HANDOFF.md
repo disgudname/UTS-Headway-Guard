@@ -27,6 +27,12 @@ Machine tags: `[dev]` = Windows dev machine · `[home]` = home server (Windows b
 
 ## 1. Message board (newest first)
 
+### 2026-09-30 · [home] · ETA: stopped Purple bus at 400 Fontaine no longer flips a full lap (`e8990b6`, v2038)
+- **Today's health checks (09-30):** nothing broken. 01:30 only-TransLoc gap (Night Pilot bus 42, 01:50-01:54) has shown up every night since the 09-24 out-of-service cut-off, so it is most likely the cut-off working. 05:00 gaps = pull-out at service start (Gold 57, Purple 44). 08:30 Orange 109 s median |err| is all EARLY (TransLoc earlier still). 12:30 = 1 full-lap flip, below.
+- **Flip:** Purple 74 bus 50 stopped ~150 m short of Ray C. Hunt Dr @ 400 Fontaine (the loop's end, same road as its start) showed 19-28 min for ~45 s; TransLoc said <1 min. Same spot in 4 other runs 09-28..09-30, on both Purple variants. Cause: `project_vehicle_to_route`'s continuity check measures the WRAPPED distance, and "about to finish" (s 5927) vs "just started" (s 188) are only ~340 m apart wrapped, inside `CONTINUITY_JUMP_M` (500), so GPS noise picked the start.
+- **Fix:** with no heading (a stopped bus), the limit is `STATIONARY_JUMP_M` = 100 m. Replay of all 62k bus positions in 80 logs since 09-26: stopped-bus jumps >100 m 205 -> 99; the 99 left all had GPS really moving 30 m+ with TransLoc speed 0. New test in `tests/test_vehicle_projection.py`; suite = same 8 pre-existing failures.
+- **WATCH:** weekday 12:30/17:00 runs should stop showing Fontaine flips. If one still appears, it is a different mechanism.
+
 ### 2026-09-30 · [home] · /livemap always opens on active routes (`74dcec0`, v2037)
 
 User asked that /livemap always load with the active routes selected. Before, `scripts/livemap/core/layers/routes.js` saved the UTS route picker's hidden/pinned sets in localStorage (`livemap.routes.hidden.v2` / `.pinned.v2`) and restored them, so a route you'd once switched off stayed off on every visit even while it had buses. Now both sets start empty every load (= the "Active" button: exactly the routes with a bus on them), nothing is saved, and the old keys are deleted on load. All/Active/None + per-route toggles still work within a session. Covers /livemap-kiosk and /livemap-embed too (same module). The CAT picker (`livemap.cat.routes.hidden`) still remembers picks, on purpose: CAT has no active-route tracking. Verified on prod: seeded every active route as hidden, reloaded, all active lines drew and the key was gone.
