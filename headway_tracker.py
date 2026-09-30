@@ -29,6 +29,24 @@ STOP_SPEED_THRESHOLD_MPS = 0.5
 # How long before we drop stale bubble tracking state
 BUBBLE_PROGRESS_STALE_SECONDS = 120.0
 
+# A "route_activation" arrival (bus found already stopped in a stop's final bubble
+# without having come through bubble #1) was meant for a bus that comes on-route while
+# already parked at a stop, and also catches real stops whose bubble #1 was missed. It
+# also fired for running buses parked inside the final bubble of a stop they were NOT
+# at: the stop across the street, or another approach set of the same merged stop.
+# Measured on prod 09-24..09-30: of 18,961 route_activation arrivals, 7,731 came within
+# 60 s of a real arrival at a stop <= 40 m away (every evening Gold arrival at UVA Chapel
+# doubled as one at Shannon Library; Copeley/Law School, Goodwin Bridge, Faulkner,
+# Wertland, West Complex/Pinn Hall, ...) and ~9,000 repeated an arrival the bus already
+# had at that stop. Those phantoms cut real visits apart in the ETA history and made
+# hops that don't exist (Library -> Garrett Hall). A route_activation arrival is now
+# skipped while the bus has an open arrival anywhere, or when it arrived within
+# ROUTE_ACTIVATION_QUIET_S at a stop within ROUTE_ACTIVATION_NEAR_M. Arrivals at the
+# NEXT stop (150-400 m on, e.g. Madison @ Preston -> Madison @ Grady) are real and kept:
+# dropping those too made replayed ETAs later. Only the nearest candidate is logged.
+ROUTE_ACTIVATION_QUIET_S = 60.0
+ROUTE_ACTIVATION_NEAR_M = 60.0
+
 # Distance from final bubble at which we abandon tracking (meters)
 # Allows buses to temporarily exit bubbles (GPS drift) and re-enter
 APPROACH_ABANDONMENT_DISTANCE_M = 400.0
@@ -180,6 +198,7 @@ class HeadwayTracker:
         self.last_arrival: Dict[Tuple[Optional[str], str], datetime] = {}  # (route_id, stop_id) -> time
         self.last_departure: Dict[Tuple[Optional[str], str], datetime] = {}
         self.last_vehicle_arrival: Dict[Tuple[str, str, Optional[str]], datetime] = {}  # (vid, stop_id, route_id) -> time
+        self.recent_arrival_points: Dict[str, List[Tuple[datetime, float, float]]] = {}  # vid -> [(time, stop lat, stop lon)]
         self.last_vehicle_departure: Dict[Tuple[str, str, Optional[str]], datetime] = {}
 
         # Diagnostics
@@ -460,6 +479,7 @@ class HeadwayTracker:
         # to prevent multiple approach sets from logging duplicates
         stops_with_arrival_this_cycle: Set[str] = set()
         stops_with_departure_this_cycle: Set[str] = set()
+        activation_candidates: List[Tuple[StopPoint, int, ApproachSet, int, Optional[ApproachBubble]]] = []
 
         for stop in self.stops:
             if not stop.approach_sets:
@@ -514,39 +534,12 @@ class HeadwayTracker:
                             self._log_bubble_activation(vid, snap, stop, set_idx, approach_set.name, 1, "entered")
                         elif (max_order in current_bubbles and
                               speed_mps is not None and
-                              speed_mps <= STOP_SPEED_THRESHOLD_MPS and
-                              stop.stop_id not in stops_with_arrival_this_cycle):
+                              speed_mps <= STOP_SPEED_THRESHOLD_MPS):
                             # Bus appeared in the final bubble already stopped without entering via bubble #1.
                             # This happens when a bus drives to a stop while OOS and then comes on-route
                             # while already parked there — log the route-activation moment as the arrival.
-                            progress = BubbleProgressState(
-                                stop_id=stop.stop_id,
-                                set_index=set_idx,
-                                set_name=approach_set.name,
-                                max_bubble_order=max_order,
-                                route_id=route_id,
-                                entered_at=timestamp,
-                                last_seen=timestamp,
-                                highest_bubble_reached=max_order,
-                                next_expected_order=max_order + 1,
-                                final_bubble_lat=final_bubble.lat if final_bubble else None,
-                                final_bubble_lon=final_bubble.lon if final_bubble else None,
-                                in_final_bubble=True,
-                                entered_final_at=timestamp,
-                                stopped_in_final=True,
-                                arrival_logged=True,
-                                arrival_time=timestamp,
-                            )
-                            stop_progress[set_idx] = progress
-                            stops_with_arrival_this_cycle.add(stop.stop_id)
-                            events.append(self._create_arrival_event(
-                                vid, snap, stop.stop_id, route_id, timestamp,
-                                arrival_type="route_activation"
-                            ))
-                            self._log_bubble_activation(
-                                vid, snap, stop, set_idx, approach_set.name,
-                                max_order, "arrival_route_activation"
-                            )
+                            # Decided after every stop has been checked (see ROUTE_ACTIVATION_NEAR_M).
+                            activation_candidates.append((stop, set_idx, approach_set, max_order, final_bubble))
                     else:
                         # Update existing tracking
                         progress.last_seen = timestamp
@@ -696,6 +689,64 @@ class HeadwayTracker:
                     vehicle_progress[stop.stop_id] = stop_progress
                 elif stop.stop_id in vehicle_progress:
                     vehicle_progress.pop(stop.stop_id, None)
+
+        # route_activation arrival, decided now that every stop has been checked (see ROUTE_ACTIVATION_NEAR_M)
+        recent = [
+            (t, lat, lon) for t, lat, lon in self.recent_arrival_points.get(vid, [])
+            if (timestamp - t).total_seconds() <= ROUTE_ACTIVATION_QUIET_S
+        ]
+        if activation_candidates and not stops_with_arrival_this_cycle:
+            has_open_arrival = any(
+                p.arrival_logged and not p.departure_logged
+                for set_progress in vehicle_progress.values()
+                for p in set_progress.values()
+            )
+
+            def _final_distance(candidate):
+                final = candidate[4]
+                return self._haversine(snap.lat, snap.lon, final.lat, final.lon) if final else float("inf")
+
+            stop, set_idx, approach_set, max_order, final_bubble = min(activation_candidates, key=_final_distance)
+            near_recent = any(
+                self._haversine(lat, lon, stop.lat, stop.lon) <= ROUTE_ACTIVATION_NEAR_M for _, lat, lon in recent
+            )
+            if not has_open_arrival and not near_recent:
+                progress = BubbleProgressState(
+                    stop_id=stop.stop_id,
+                    set_index=set_idx,
+                    set_name=approach_set.name,
+                    max_bubble_order=max_order,
+                    route_id=route_id,
+                    entered_at=timestamp,
+                    last_seen=timestamp,
+                    highest_bubble_reached=max_order,
+                    next_expected_order=max_order + 1,
+                    final_bubble_lat=final_bubble.lat if final_bubble else None,
+                    final_bubble_lon=final_bubble.lon if final_bubble else None,
+                    in_final_bubble=True,
+                    entered_final_at=timestamp,
+                    stopped_in_final=True,
+                    arrival_logged=True,
+                    arrival_time=timestamp,
+                )
+                vehicle_progress.setdefault(stop.stop_id, {})[set_idx] = progress
+                stops_with_arrival_this_cycle.add(stop.stop_id)
+                events.append(self._create_arrival_event(
+                    vid, snap, stop.stop_id, route_id, timestamp,
+                    arrival_type="route_activation"
+                ))
+                self._log_bubble_activation(
+                    vid, snap, stop, set_idx, approach_set.name,
+                    max_order, "arrival_route_activation"
+                )
+        for stop_id in stops_with_arrival_this_cycle:
+            arrived = self.stop_lookup.get(stop_id)
+            if arrived is not None:
+                recent.append((timestamp, arrived.lat, arrived.lon))
+        if recent:
+            self.recent_arrival_points[vid] = recent
+        else:
+            self.recent_arrival_points.pop(vid, None)
 
         # Update vehicle progress
         if vehicle_progress:

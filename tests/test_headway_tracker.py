@@ -364,3 +364,101 @@ def test_address_id_survives_build_and_tracker():
     stop = tracker.stops[0]
     assert stop.address_id == "555"
     assert stop.address_ids == {"555"}
+
+
+def _stop_at(stop_id, lon_final, lon_first, route="R1"):
+    return {
+        "StopID": stop_id,
+        "Latitude": 0.0,
+        "Longitude": lon_final,
+        "RouteID": route,
+        "AddressID": stop_id,
+        "ApproachSets": [
+            {
+                "name": f"{stop_id} approach",
+                "bubbles": [
+                    {"lat": 0.0, "lng": lon_first, "radius_m": 50.0, "order": 1},
+                    {"lat": 0.0, "lng": lon_final, "radius_m": 40.0, "order": 2},
+                ],
+            }
+        ],
+    }
+
+
+def _snap(lon, seconds, route="R1", base=datetime(2024, 1, 1, tzinfo=timezone.utc)):
+    return [VehicleSnapshot(vehicle_id="bus", vehicle_name=None, lat=0.0, lon=lon, route_id=route,
+                            timestamp=base + timedelta(seconds=seconds))]
+
+
+def test_stop_across_the_street_does_not_get_a_route_activation_arrival():
+    # NEAR is approached from the west; FACING (the stop across the street, 10 m away)
+    # from the east. A bus that properly arrives at NEAR is also parked inside FACING's
+    # final bubble -- that must not log a second, "route_activation" arrival at FACING.
+    storage = MemoryHeadwayStorage()
+    tracker = HeadwayTracker(storage=storage)
+    tracker.update_stops([_stop_at("NEAR", 0.0, -0.0006), _stop_at("FACING", 0.00009, 0.0007)])
+    tracker.process_snapshots(_snap(-0.0006, 0))
+    for t in (20, 40, 60, 80):
+        tracker.process_snapshots(_snap(0.0, t))
+    arrivals = [(e.stop_id, e.arrival_type) for e in storage.events if e.event_type == "arrival"]
+    assert arrivals == [("NEAR", "stopped")]
+
+
+def test_second_approach_set_of_same_stop_does_not_repeat_the_arrival():
+    stop = _stop_at("STOP", 0.0, -0.0006)
+    stop["ApproachSets"].append({
+        "name": "other direction",
+        "bubbles": [
+            {"lat": 0.0, "lng": 0.0007, "radius_m": 50.0, "order": 1},
+            {"lat": 0.0, "lng": 0.00005, "radius_m": 40.0, "order": 2},
+        ],
+    })
+    storage = MemoryHeadwayStorage()
+    tracker = HeadwayTracker(storage=storage)
+    tracker.update_stops([stop])
+    tracker.process_snapshots(_snap(-0.0006, 0))
+    for t in (20, 40, 60, 80, 100):
+        tracker.process_snapshots(_snap(0.0, t))
+    assert [e.event_type for e in storage.events] == ["arrival"]
+
+
+def test_bus_coming_on_route_while_parked_still_gets_a_route_activation_arrival():
+    storage = MemoryHeadwayStorage()
+    tracker = HeadwayTracker(storage=storage, tracked_route_ids={"R1"})  # like prod: off-route buses skipped
+    tracker.update_stops([_stop_at("NEAR", 0.0, -0.0006), _stop_at("FACING", 0.00009, 0.0007)])
+    tracker.process_snapshots(_snap(0.0, 0, route=None))   # parked, out of service
+    tracker.process_snapshots(_snap(0.0, 20, route=None))
+    tracker.process_snapshots(_snap(0.0, 40))              # comes on-route, still parked
+    tracker.process_snapshots(_snap(0.0, 60))              # (speed needs a second on-route poll)
+    arrivals = [(e.stop_id, e.arrival_type) for e in storage.events if e.event_type == "arrival"]
+    assert arrivals == [("NEAR", "route_activation")]  # only the nearer of the two final bubbles
+
+
+def test_isolated_stopped_bus_in_final_bubble_is_still_logged():
+    # A running bus found stopped in a final bubble it never came through bubble #1 for,
+    # with no other arrival open or recent (e.g. bubble #1 skipped between polls), is
+    # still worth an arrival.
+    storage = MemoryHeadwayStorage()
+    tracker = HeadwayTracker(storage=storage)
+    tracker.update_stops([_stop_at("STOP", 0.0, -0.0006)])
+    tracker.process_snapshots(_snap(-0.003, 0))
+    tracker.process_snapshots(_snap(0.0, 20))
+    tracker.process_snapshots(_snap(0.0, 40))
+    assert [(e.stop_id, e.arrival_type) for e in storage.events if e.event_type == "arrival"] == [("STOP", "route_activation")]
+
+
+def test_next_stop_200m_on_still_logged_when_its_first_bubble_was_missed():
+    # Stops 200 m apart, both reached within a minute. A real arrival at the second one
+    # that only shows up as route_activation (its bubble #1 missed between polls) is kept;
+    # only stops within ROUTE_ACTIVATION_NEAR_M of a recent arrival are treated as phantoms.
+    storage = MemoryHeadwayStorage()
+    tracker = HeadwayTracker(storage=storage)
+    tracker.update_stops([_stop_at("A", 0.0, -0.0006), _stop_at("B", 0.0018, 0.0026)])
+    tracker.process_snapshots(_snap(-0.0006, 0))
+    tracker.process_snapshots(_snap(0.0, 10))
+    tracker.process_snapshots(_snap(0.0, 20))
+    tracker.process_snapshots(_snap(0.0009, 30))    # left A, between the stops
+    tracker.process_snapshots(_snap(0.0018, 40))    # straight into B's final bubble
+    tracker.process_snapshots(_snap(0.0018, 50))
+    arrivals = [(e.stop_id, e.arrival_type) for e in storage.events if e.event_type == "arrival"]
+    assert arrivals == [("A", "stopped"), ("B", "route_activation")]
