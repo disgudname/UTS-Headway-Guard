@@ -27,6 +27,10 @@ Machine tags: `[dev]` = Windows dev machine · `[home]` = home server (Windows b
 
 ## 1. Message board (newest first)
 
+### 2026-09-30 · [home] · /livemap always opens on active routes (`74dcec0`, v2037)
+
+User asked that /livemap always load with the active routes selected. Before, `scripts/livemap/core/layers/routes.js` saved the UTS route picker's hidden/pinned sets in localStorage (`livemap.routes.hidden.v2` / `.pinned.v2`) and restored them, so a route you'd once switched off stayed off on every visit even while it had buses. Now both sets start empty every load (= the "Active" button: exactly the routes with a bus on them), nothing is saved, and the old keys are deleted on load. All/Active/None + per-route toggles still work within a session. Covers /livemap-kiosk and /livemap-embed too (same module). The CAT picker (`livemap.cat.routes.hidden`) still remembers picks, on purpose: CAT has no active-route tracking. Verified on prod: seeded every active route as hidden, reloaded, all active lines drew and the key was gone.
+
 ### 2026-09-30 · [home] · /vandispatch: vans past Spare's 50-vehicle default page vanished (fixed, `97699c5`, v2036)
 
 Symptom: Van 7 + Van 13 had no name on Active Trips cards and the same fallback orange on the roster. Cause: Spare `/vehicles` defaults to `limit=50` and `SpareClient.get_vehicles()` never passed one. The Spare org now holds 56 vehicles: our 9 vans + 47 **Lyft drivers' cars** (4-seat, plate as identifier, created from 2026-08-24 on as Lyft handoff rides get taken), so vans fell off page 1. Now `limit=1000`. Verified live: every duty's van resolves. The Lyft car count will keep growing; if it ever nears 1000, paginate with `skip`.
