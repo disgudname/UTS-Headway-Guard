@@ -27,7 +27,7 @@ Machine tags: `[dev]` = Windows dev machine · `[home]` = home server (Windows b
 
 ## 1. Message board (newest first)
 
-### 2026-10-01 · [home] · /vandispatch stop discs: stacking order, overlap picker, selection raises discs (UNCOMMITTED on [home], not deployed)
+### 2026-10-01 · [home] · /vandispatch stop discs: stacking order, overlap picker, selection raises discs (`5135001`, DEPLOYED v2041)
 
 User: stops at one physical spot stacked in no sensible order (stop 8 on top of stop 2), and asked for /livemap's fly-out picker on overlapping stops plus "click a van in the roster or a trip card -> its stop markers come to the top". All in `scripts/livemap/apps/vandispatch2/map-overlays.js` unless noted.
 
@@ -36,7 +36,7 @@ User: stops at one physical spot stacked in no sensible order (stop 8 on top of 
 - **Overlap picker.** `core/marker-menu.js` gained `openMarkerTargets(point, lngLat, targets)` + `closeMarkerMenu()` (its click handler only sees map LAYERS, these discs are DOM); the 1 / 2-7 / 8+ rule moved into `presentTargets()`, /livemap behaviour unchanged. A disc click gathers every disc within `STOP_OVERLAP_PX` (22) of it; one opens its popup as before, more fan out chips showing the stop number + van name in the van colour. /vandispatch does not load `livemap.css`, so the `.livemap-marker-menu` / `.lmm-*` rules are repeated in `css/vandispatch2.css` with bigger text.
 - **Fallback pickup/drop-off dots** (`addFallbackPin`) are now inserted UNDER the discs; on a trip click they used to land on top and hide the numbers until the next poll.
 - **Tested** on a local server (port 8097, throwaway `LOCALTEST_PASS`) in Chrome with a patched `fetch` faking `/api/ondemand` (two vans, piles of 3 discs): stacking, picker, chip -> popup + van select + raise, trip card -> raise, and /livemap's own picker all good. **NOT tested:** the Spare/FlexRide branch and a real Duty Roster card click (no Spare creds or roster locally; both go through the same `selectVan` path), and light theme.
-- Working tree on [home] only, waiting for the user to say commit/deploy.
+- Committed `5135001`, deployed v2041 on the user's "cpd"; `/v1/health` 200 and prod serves the new JS/CSS. **Still to eyeball on the live page:** a FlexRide pile and a Duty Roster card click.
 
 ### 2026-10-01 · [home] · Phantom-arrival history filter SHIPPED at the user's request (`af1830f`, v2040): WATCH late % from 10-02
 - The uncommitted WIP on [home] (`drop_phantom_route_activations` in `trip_planner_history.py`, `set_stop_coords` fed from `app.py`'s stop build, tests) was committed and deployed together with the direction fix above. User: "commit merge push deploy do it all". `data-local/` was NOT committed (standing rule).
