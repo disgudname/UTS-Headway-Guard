@@ -72,6 +72,17 @@ def test_far_off_route_keeps_previous_direction():
     assert tiebreak is False
 
 
+def test_far_off_route_does_not_hold_a_backward_reading():
+    # Green [01] (bus 15) turning off the Green Loop line toward Hereford @ Runk, 2026-09-30 17:47: one backward
+    # reading at the 100 m edge was held for the 9 min it was off route, and a backward bus gets no ETAs.
+    dir_sign, tiebreak = _resolve_dir_sign(mps=5.0, along_mps=-2.7, prev_sign=-1, off_route_m=250.0)
+    assert dir_sign == 0
+    assert tiebreak is False
+    # ...including while it sits at the off-route stop.
+    dir_sign, _ = _resolve_dir_sign(mps=0.0, along_mps=0.0, prev_sign=-1, off_route_m=271.0)
+    assert dir_sign == 0
+
+
 def test_near_route_still_detects_reversal():
     dir_sign, _ = _resolve_dir_sign(mps=5.0, along_mps=-4.0, prev_sign=1, off_route_m=30.0)
     assert dir_sign == -1

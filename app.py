@@ -1265,8 +1265,15 @@ def _resolve_dir_sign(
 
     Same reasoning for a vehicle `off_route_m` metres from the polyline (beyond
     DIR_SIGN_OFF_ROUTE_M): its projected position is not on the road it is on,
-    so the last direction stands."""
-    if mps <= stationary_mps or off_route_m > DIR_SIGN_OFF_ROUTE_M:
+    so the last direction stands -- unless that was "backward", which becomes
+    unknown (0). Seen live 2026-09-30 17:47: Green [01] (bus 15), ~7 min late to
+    its 17:45 route change at Hereford @ Runk, was flipped to Green Loop by
+    TransLoc while still on the loop's line at Stadium/Alderman. Turning off
+    toward Hereford it read backward at exactly 100 m off, and that -1 was then
+    held for the whole 9 min it was off route: no Green Loop ETAs until 17:56."""
+    if off_route_m > DIR_SIGN_OFF_ROUTE_M:
+        return max(prev_sign, 0), False
+    if mps <= stationary_mps:
         return prev_sign, False
     if along_mps > dir_eps:
         return 1, False
