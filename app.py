@@ -5979,6 +5979,18 @@ async def startup():
                                 approach_sets_config=getattr(app.state, "approach_sets_config", None),
                             )
                             state.stops = stops
+                            # Stop positions let the hop/dwell history drop phantom arrivals at the stop across
+                            # the street (trip_planner_history.PHANTOM_NEAR_M).
+                            stop_coords = {}
+                            for s in stops:
+                                lat, lon = s.get("Latitude"), s.get("Longitude")
+                                if lat is None or lon is None:
+                                    continue
+                                for key in ("StopID", "RouteStopID"):
+                                    if s.get(key) is not None:
+                                        stop_coords[str(s[key])] = (float(lat), float(lon))
+                            if stop_coords:
+                                trip_planner_history.set_stop_coords(stop_coords)
                             tracker_ref = getattr(app.state, "headway_tracker", None)
                             if tracker_ref is not None:
                                 if stops:

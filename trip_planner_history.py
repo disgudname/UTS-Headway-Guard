@@ -17,6 +17,7 @@ across all days would be misleading in exactly the cases where accuracy matters 
 from __future__ import annotations
 
 import json
+import math
 import os
 import statistics
 from collections import defaultdict
@@ -31,6 +32,105 @@ REFRESH_HOUR_LOCAL = 3
 LOOKBACK_DAYS = 60  # enough to smooth out noise without dragging in stale, pre-reroute data
 MIN_SAMPLES = 3  # a bucket with fewer real samples than this isn't trusted
 MAX_PLAUSIBLE_HOP_S = 3600.0  # guards against layovers/gaps being mistaken for one hop
+
+# Until 2026-09-30 headway_tracker logged a "route_activation" arrival for a bus parked
+# inside the final bubble of a stop it wasn't at: mostly the stop across the street
+# (every evening Gold arrival at UVA Chapel doubled as one at Shannon Library). ~27% of
+# all arrivals, every week back through at least August. A phantom sits between two real
+# visits, so it replaced the real hop A -> C with A -> phantom -> C (e.g. 273 "Library ->
+# Garrett Hall" samples) and starved the real hops. Both builders drop them: a
+# route_activation arrival is a phantom when the same run has a real arrival within
+# PHANTOM_WINDOW_S at a stop within PHANTOM_NEAR_M, or is mid-visit at another stop.
+# Arrivals at the next stop (150-400 m on) are real and kept: a time-only rule that also
+# dropped those made replayed ETAs later. Needs stop positions (set_stop_coords, fed by
+# app.py from the live route stop lists); a stop it has no position for is kept.
+# TransLoc only lists the routes running right now, and the rebuild runs at 03:00 when
+# almost nothing is, so positions are remembered (merged, saved to STOP_COORDS_PATH) rather
+# than replaced: daytime/evening/weekend route stops all stay known.
+PHANTOM_WINDOW_S = 60.0
+PHANTOM_NEAR_M = 60.0
+STOP_COORDS_PATH = Path(os.getenv("TRIP_PLANNER_STOP_COORDS", "/data/trip_planner_stop_coords.json"))
+_stop_coords: Optional[Dict[str, Tuple[float, float]]] = None  # None = not loaded from disk yet
+
+
+def _known_stop_coords() -> Dict[str, Tuple[float, float]]:
+    global _stop_coords
+    if _stop_coords is None:
+        try:
+            with STOP_COORDS_PATH.open("r", encoding="utf-8") as f:
+                _stop_coords = {k: (float(v[0]), float(v[1])) for k, v in json.load(f).items()}
+        except (OSError, ValueError, TypeError, IndexError):
+            _stop_coords = {}
+    return _stop_coords
+
+
+def set_stop_coords(coords: Dict[str, Tuple[float, float]]) -> None:
+    """Merge RouteStopID -> (lat, lon) into the known positions (for drop_phantom_route_activations);
+    saved to STOP_COORDS_PATH whenever something new or moved shows up."""
+    known = _known_stop_coords()
+    changed = {k: (float(v[0]), float(v[1])) for k, v in coords.items() if known.get(k) != (float(v[0]), float(v[1]))}
+    if not changed:
+        return
+    known.update(changed)
+    try:
+        STOP_COORDS_PATH.parent.mkdir(parents=True, exist_ok=True)
+        tmp_path = STOP_COORDS_PATH.with_suffix(".tmp")
+        with tmp_path.open("w", encoding="utf-8") as f:
+            json.dump(known, f)
+        tmp_path.replace(STOP_COORDS_PATH)
+    except OSError as exc:
+        print(f"[trip-planner-history] could not save stop positions: {exc}")
+
+
+def _distance_m(a: Tuple[float, float], b: Tuple[float, float]) -> float:
+    lat = math.radians((a[0] + b[0]) / 2)
+    return math.hypot((a[0] - b[0]) * 111_320.0, (a[1] - b[1]) * 111_320.0 * math.cos(lat))
+
+
+def drop_phantom_route_activations(
+    run_events: List[Any], coords: Optional[Dict[str, Tuple[float, float]]] = None,
+) -> List[Any]:
+    """One run's events (sorted by time) without phantom route_activation arrivals, or the
+    departure that closes each one. See PHANTOM_NEAR_M. Keyed by the recorded stop_id."""
+    coords = _known_stop_coords() if coords is None else coords
+    if not coords:
+        return run_events
+
+    def is_ra(ev) -> bool:
+        return ev.event_type == "arrival" and getattr(ev, "arrival_type", None) == "route_activation"
+
+    real = [(ev.timestamp, str(ev.stop_id)) for ev in run_events if ev.event_type == "arrival" and not is_ra(ev)]
+    visits = []  # (arrival, departure or None, stop) of real visits
+    pending: Dict[str, datetime] = {}
+    for ev in run_events:
+        stop = str(ev.stop_id)
+        if ev.event_type == "arrival" and not is_ra(ev):
+            pending.setdefault(stop, ev.timestamp)
+        elif ev.event_type == "departure" and stop in pending:
+            visits.append((pending.pop(stop), ev.timestamp, stop))
+    visits.extend((t, None, stop) for stop, t in pending.items())
+
+    out: List[Any] = []
+    phantom_stops: set = set()
+    for ev in run_events:
+        stop = str(ev.stop_id)
+        if is_ra(ev) and stop in coords:
+            t = ev.timestamp
+            near = any(
+                other != stop and other in coords
+                and abs((rt - t).total_seconds()) <= PHANTOM_WINDOW_S
+                and _distance_m(coords[stop], coords[other]) <= PHANTOM_NEAR_M
+                for rt, other in real
+            )
+            inside = any(other != stop and a <= t and (d is None or t <= d) for a, d, other in visits)
+            if near or inside:
+                phantom_stops.add(stop)
+                continue
+        elif ev.event_type == "departure" and stop in phantom_stops:
+            phantom_stops.discard(stop)
+            continue
+        out.append(ev)
+    return out
 CACHE_PATH = Path(os.getenv("TRIP_PLANNER_HOP_TIME_CACHE", "/data/trip_planner_hop_times.json"))
 
 
@@ -137,7 +237,7 @@ def build_hop_time_samples(
 
         runs: Dict[Tuple[str, str], List] = defaultdict(list)  # (block or vehicle, local_date) -> [events]
         for ev in day_events:
-            if ev.event_type != "arrival" or not ev.stop_id or not ev.route_id:
+            if ev.event_type not in ("arrival", "departure") or not ev.stop_id or not ev.route_id:
                 continue
             # A run is one vehicle's consecutive arrivals. Prefer the schedule block, but
             # fall back to the vehicle itself: `block` comes from a schedule-assignment
@@ -154,6 +254,8 @@ def build_hop_time_samples(
 
         for run_events in runs.values():
             run_events.sort(key=lambda e: e.timestamp)
+            # Departures are read only to spot phantom arrivals (see PHANTOM_NEAR_M).
+            run_events = [e for e in drop_phantom_route_activations(run_events) if e.event_type == "arrival"]
             for a, b in zip(run_events, run_events[1:]):
                 if a.route_id != b.route_id:
                     continue
@@ -237,6 +339,7 @@ def build_drive_and_dwell_samples(
 
         for run_events in runs.values():
             run_events.sort(key=lambda e: e.timestamp)
+            run_events = drop_phantom_route_activations(run_events)
             # One visit = every consecutive event at the same (route, stop). A bus staged at a
             # stop for minutes is logged as arrive/depart/arrive/depart... (GPS jitter in and out
             # of the final bubble, "route_activation" re-arrivals): ~13% of all arrivals on

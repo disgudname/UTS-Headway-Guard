@@ -374,3 +374,57 @@ def test_load_drive_dwell_models_builds_and_caches(tmp_path, monkeypatch):
     monkeypatch.setattr(tph, "_drive_dwell_memo", {})  # e.g. after a restart: read back from the file
     drive3, _ = tph.load_drive_dwell_models(FakeStorage([]), now=now)
     assert drive3.lookup("74", "A", "B", when) == 40.0
+
+
+# Stops on a line running east: LIB and CHP face each other (10 m apart), NEXT is 300 m on.
+_COORDS = {"PREV": (38.0, -78.004), "LIB": (38.0, -78.0), "CHP": (38.00009, -78.0), "NEXT": (38.0, -77.99658)}
+
+
+def _visit(t, stop, dwell_s=30, arrival_type="stopped"):
+    arr = _event(t, "57", stop, "run")
+    arr.arrival_type = arrival_type
+    return [arr, _event(t + timedelta(seconds=dwell_s), "57", stop, "run", event_type="departure")]
+
+
+def test_phantom_arrival_at_the_facing_stop_is_dropped(monkeypatch):
+    monkeypatch.setattr(tph, "_stop_coords", dict(_COORDS))
+    t = _wed_5pm(0)
+    events = (_visit(t, "PREV") + _visit(t + timedelta(seconds=120), "LIB")
+              + _visit(t + timedelta(seconds=120), "CHP", arrival_type="route_activation")
+              + _visit(t + timedelta(seconds=240), "NEXT"))
+    events.sort(key=lambda e: e.timestamp)
+    kept = [(e.stop_id, e.event_type) for e in tph.drop_phantom_route_activations(events)]
+    assert ("CHP", "arrival") not in kept and ("CHP", "departure") not in kept
+    assert [s for s, kind in kept if kind == "arrival"] == ["PREV", "LIB", "NEXT"]
+
+    samples = tph.build_hop_time_samples(FakeStorage(events), now=t + timedelta(hours=1))
+    assert tph._bucket_key("57", "PREV", "LIB", 2, 17) in samples
+    assert tph._bucket_key("57", "LIB", "NEXT", 2, 17) in samples
+    assert not any("|CHP|" in k for k in samples)
+
+
+def test_route_activation_at_the_next_stop_is_kept(monkeypatch):
+    # 300 m on and 40 s later: a real stop whose bubble #1 was missed, not a phantom.
+    monkeypatch.setattr(tph, "_stop_coords", dict(_COORDS))
+    t = _wed_5pm(0)
+    events = _visit(t, "LIB", dwell_s=20) + _visit(t + timedelta(seconds=40), "NEXT", arrival_type="route_activation")
+    assert tph.drop_phantom_route_activations(events) == events
+
+
+def test_without_stop_positions_nothing_is_dropped(monkeypatch):
+    monkeypatch.setattr(tph, "_stop_coords", {})
+    t = _wed_5pm(0)
+    events = _visit(t, "LIB") + _visit(t, "CHP", arrival_type="route_activation")
+    assert tph.drop_phantom_route_activations(events) == events
+
+
+def test_stop_positions_are_merged_and_saved_not_replaced(tmp_path, monkeypatch):
+    # TransLoc only lists running routes; the 03:00 rebuild must still know daytime stops.
+    path = tmp_path / "coords.json"
+    monkeypatch.setattr(tph, "STOP_COORDS_PATH", path)
+    monkeypatch.setattr(tph, "_stop_coords", None)
+    tph.set_stop_coords({"LIB": _COORDS["LIB"]})
+    tph.set_stop_coords({"CHP": _COORDS["CHP"]})
+    assert set(tph._known_stop_coords()) == {"LIB", "CHP"}
+    monkeypatch.setattr(tph, "_stop_coords", None)  # e.g. after a restart
+    assert set(tph._known_stop_coords()) == {"LIB", "CHP"}
