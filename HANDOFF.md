@@ -27,6 +27,10 @@ Machine tags: `[dev]` = Windows dev machine · `[home]` = home server (Windows b
 
 ## 1. Message board (newest first)
 
+### 2026-10-01 · [home] · /vandispatch: overlapping stop discs now stack lowest number on top (UNCOMMITTED on [home], not deployed, not browser-verified)
+
+User: stops at the same physical spot stacked in no sensible order (stop 8 sitting on top of stop 2). Cause: the numbered discs are DOM `maplibregl.Marker`s, so the last one added wins, and `renderStopMarkers()` in `scripts/livemap/apps/vandispatch2/map-overlays.js` added them ascending per van (Spare vans first, then OnDemand), so the LATER stop covered the sooner one and cross-van order followed object key order. Now every disc is collected into a `pending` list, sorted by stop number descending, then added, so the soonest stop is always the visible one. DOM order was used rather than `z-index` on purpose: markers live in the canvas container, which is not a stacking context, so a positive z-index would lift discs over popups and map controls. Only `node --check` was run; needs a look on the live page when a van has two stops at one address. The change is in the working tree on [home] only, waiting for the user to say commit/deploy.
+
 ### 2026-10-01 · [home] · Phantom-arrival history filter SHIPPED at the user's request (`af1830f`, v2040): WATCH late % from 10-02
 - The uncommitted WIP on [home] (`drop_phantom_route_activations` in `trip_planner_history.py`, `set_stop_coords` fed from `app.py`'s stop build, tests) was committed and deployed together with the direction fix above. User: "commit merge push deploy do it all". `data-local/` was NOT committed (standing rule).
 - This is the distance-based version (a `route_activation` arrival is dropped when the run has a real arrival within 60 s at a stop within 60 m, or the bus is mid-visit at another stop; next-stop arrivals 150-400 m on are kept), NOT the time-only one the 09-30 entry replayed and reverted. **No replay numbers exist for this version.**
