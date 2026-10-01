@@ -42,9 +42,33 @@ export function installMarkerMenu() {
   wired = true;
 
   map.on('click', onMapClick);
+  wireEscape();
+}
+
+let escWired = false;
+function wireEscape() {
+  if (escWired) return;
+  escWired = true;
   document.addEventListener('keydown', (e) => {
     if (e.key === 'Escape') closeMenu();
   });
+}
+
+/**
+ * Offer targets the caller found itself — for DOM markers, which the layer
+ * query in onMapClick can't see. Same 1 / 2–7 / 8+ rule as a map click.
+ * `point` is in map-container pixels. Works without installMarkerMenu(); the
+ * caller closes the menu on its own map clicks via closeMarkerMenu().
+ */
+export function openMarkerTargets(point, lngLat, targets) {
+  if (!getMap()) return;
+  wireEscape();
+  closeMenu();
+  presentTargets(point, lngLat, targets);
+}
+
+export function closeMarkerMenu() {
+  closeMenu();
 }
 
 function onMapClick(e) {
@@ -81,16 +105,20 @@ function onMapClick(e) {
     targets.push(t);
   }
 
+  presentTargets(e.point, e.lngLat, targets);
+}
+
+function presentTargets(point, lngLat, targets) {
   if (targets.length === 0) return;
   if (targets.length === 1) {
     targets[0].open();
     return;
   }
   if (targets.length > MENU_MAX) {
-    showZoomHint(e.point);
+    showZoomHint(point);
     return;
   }
-  showMenu(e.point, e.lngLat, targets);
+  showMenu(point, lngLat, targets);
 }
 
 /** Keep the open menu / hint pinned over its geographic anchor as the map moves,

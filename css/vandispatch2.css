@@ -629,6 +629,95 @@ header .subtitle {
   pointer-events: none;
 }
 
+/* --- overlapping stop discs: livemap's radial picker (core/marker-menu.js).
+   This page doesn't load livemap.css, so the rules are repeated here, with the
+   text sized up: a chip holds just a stop number and its van. --- */
+.livemap-marker-menu {
+  position: absolute;
+  z-index: 460;
+  pointer-events: none;
+  transform: translate(-50%, -50%) scale(0.94);
+  opacity: 0;
+  transition: opacity 0.12s ease, transform 0.12s ease;
+}
+.livemap-marker-menu.is-open {
+  opacity: 1;
+  transform: translate(-50%, -50%) scale(1);
+}
+.livemap-marker-menu.is-open .lmm-chip,
+.livemap-marker-menu.is-open .lmm-center {
+  pointer-events: auto;
+}
+.lmm-center {
+  position: absolute;
+  left: 0;
+  top: 0;
+  transform: translate(-50%, -50%);
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  border-radius: 50%;
+  border: 2px solid rgba(255, 255, 255, 0.92);
+  background: #232d4b;
+  color: #f8fafc;
+  font-weight: 700;
+  font-size: 14px;
+  line-height: 1;
+  cursor: pointer;
+  box-shadow: 0 6px 18px rgba(15, 23, 42, 0.38);
+}
+.lmm-chip {
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: 116px;
+  height: 116px;
+  padding: 13px;
+  border-radius: 50%;
+  border: 3px solid rgba(255, 255, 255, 0.92);
+  box-shadow: 0 6px 18px rgba(15, 23, 42, 0.38);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  overflow: hidden;
+  font-family: inherit;
+  /* The per-chip position is an inline `transform` set by marker-menu.js, so
+     hover feedback rides `filter` / `box-shadow`, never `transform`. */
+  transition: filter 0.12s ease, box-shadow 0.12s ease;
+}
+.lmm-chip:hover {
+  filter: brightness(1.1);
+  box-shadow: 0 8px 22px rgba(15, 23, 42, 0.46);
+  z-index: 1;
+}
+.lmm-text {
+  font-weight: 700;
+  font-size: 38px;
+  line-height: 1;
+}
+.lmm-sub {
+  display: block;
+  font-weight: 600;
+  font-size: 13px;
+  line-height: 1.15;
+  margin-top: 4px;
+}
+.livemap-marker-menu.lmm-hint {
+  pointer-events: none;
+  padding: 6px 12px;
+  border-radius: 999px;
+  background: #232d4b;
+  border: 2px solid rgba(255, 255, 255, 0.92);
+  box-shadow: 0 6px 18px rgba(15, 23, 42, 0.38);
+  color: #f8fafc;
+  font-weight: 700;
+  font-size: 12px;
+  line-height: 1;
+  white-space: nowrap;
+}
+
 /* --- ondemand-driver-popup: the numbered pickup/drop-off stop cards --- */
 .maplibregl-popup.vd-driver-popup .maplibregl-popup-content {
   background: #ffffff;

@@ -20,6 +20,7 @@ import { onStyleReady } from '../../core/map.js';
 import { onThemeChange, getEffectiveTheme } from '../../core/theme.js';
 import { API_BASE } from '../../core/config.js';
 import { debounce } from '../../core/util.js';
+import { openMarkerTargets, closeMarkerMenu } from '../../core/marker-menu.js';
 import {
   VD_AREA_SOURCE_ID,
   VD_AREA_FILL_LAYER,
@@ -78,6 +79,57 @@ function stopOrderMarkerEl(number, color) {
 // data.js's computeVehicleStopGroups() already merges same-spot Spare stops and
 // numbers them the way the trip cards do — this module just plots the result.
 let stopMarkers = []; // maplibregl.Marker[]
+let stopEntries = []; // what renderStopMarkers last plotted — for the overlap picker
+// A trip card's ride ({ kind:'spare'|'od', ref }): its discs are raised above
+// everyone else's, the way a selected van's are.
+let tripFocus = null;
+// Discs whose centres sit closer than this are treated as one pile: clicking it
+// fans out livemap's radial picker instead of opening whichever is on top.
+const STOP_OVERLAP_PX = 22;
+
+function odRideKey(s) {
+  const rec = (s.rides && s.rides[0]) || {};
+  return s.rideId || rec.rideId || `${s.vehicleId}|${(s.riders || []).join(',')}`;
+}
+
+/** 0 = nobody asked for this disc; higher = draw it above the rest. */
+function stopFocusRank(entry) {
+  if (tripFocus) {
+    return entry.source === tripFocus.kind && entry.tripKeys.includes(tripFocus.ref) ? 1 : 0;
+  }
+  const sel = getSelected();
+  if (!sel || !sel.id || entry.source !== sel.source || String(entry.vehicleId) !== sel.id) return 0;
+  // A van shared by several duties: the clicked duty's stops go above its others.
+  return sel.dutyId && entry.dutyIds.includes(sel.dutyId) ? 2 : 1;
+}
+
+function onStopDiscClick(ev, entry) {
+  // The DOM disc would otherwise pass the click on to the map, which clears
+  // the selection.
+  ev.stopPropagation();
+  const here = map.project(entry.lngLat);
+  const pile = stopEntries.filter((o) => {
+    const p = map.project(o.lngLat);
+    return Math.hypot(p.x - here.x, p.y - here.y) <= STOP_OVERLAP_PX;
+  });
+  if (pile.length < 2) {
+    closeMarkerMenu();
+    entry.open();
+    return;
+  }
+  pile.sort((a, b) => b.rank - a.rank || a.order - b.order || a.vanLabel.localeCompare(b.vanLabel));
+  openMarkerTargets(
+    here,
+    entry.lngLat,
+    pile.map((o, i) => ({
+      key: `vdstop:${i}`,
+      label: String(o.order),
+      sublabel: o.vanLabel,
+      color: o.color,
+      open: o.open,
+    })),
+  );
+}
 
 /** Select a van without triggering selectVan's toggle-off (used by the stop
  *  discs, which frequently overlap their own van). */
@@ -177,6 +229,7 @@ function openStopPopup(lngLat, html) {
 function renderStopMarkers() {
   if (!map) return;
   clearStopMarkers();
+  const pending = []; // one entry per disc — added to the map below, in stacking order
 
   // Spare — infer each van's ordered stop sequence (data.js already merges
   // same-spot stops and numbers them the way the trip cards do).
@@ -187,21 +240,25 @@ function renderStopMarkers() {
     const color = getVanColor(label, v.markerColor || '#E57200');
     byVehicle[vehicleId].forEach((group, idx) => {
       const order = idx + 1;
-      const el = stopOrderMarkerEl(order, color);
-      el.addEventListener('click', (e) => {
-        e.stopPropagation();
-        // Also select the van — a stop disc frequently sits right on top of its
-        // van (the van drives to its stops), and the DOM disc would otherwise
-        // swallow the click that would have selected the van + drawn its route.
-        // Guard against selectVan's toggle so clicking a stop of the already-
-        // selected van doesn't deselect it.
-        ensureVanSelected('spare', vehicleId);
-        openStopPopup(group.lngLat, spareStopPopupHTML(order, group.stops, label, color));
+      pending.push({
+        order,
+        lngLat: group.lngLat,
+        color,
+        vanLabel: label,
+        source: 'spare',
+        vehicleId,
+        tripKeys: group.stops.map((s) => s.requestId),
+        dutyIds: group.stops.map((s) => s.dutyId).filter(Boolean),
+        open: () => {
+          // Also select the van — a stop disc frequently sits right on top of
+          // its van (the van drives to its stops), and the DOM disc would
+          // otherwise swallow the click that would have selected the van +
+          // drawn its route. Guard against selectVan's toggle so clicking a
+          // stop of the already-selected van doesn't deselect it.
+          ensureVanSelected('spare', vehicleId);
+          openStopPopup(group.lngLat, spareStopPopupHTML(order, group.stops, label, color));
+        },
       });
-      const mk = new maplibregl.Marker({ element: el, anchor: 'center' })
-        .setLngLat(group.lngLat)
-        .addTo(map);
-      stopMarkers.push(mk);
     });
   }
 
@@ -219,18 +276,38 @@ function renderStopMarkers() {
     const color = entries[0].vehicleColor || '#ec4899';
     entries.forEach((s) => {
       if (!Number.isFinite(s.order)) return;
-      const el = stopOrderMarkerEl(s.order, color);
-      el.addEventListener('click', (e) => {
-        e.stopPropagation();
-        ensureVanSelected('od', vid); // see the spare branch — the disc covers its van
-        openStopPopup([s.lng, s.lat], odStopPopupHTML(s, color));
+      pending.push({
+        order: s.order,
+        lngLat: [s.lng, s.lat],
+        color,
+        vanLabel: s.vehicleName || 'Van',
+        source: 'od',
+        vehicleId: vid,
+        tripKeys: [odRideKey(s)],
+        dutyIds: [],
+        open: () => {
+          ensureVanSelected('od', vid); // see the spare branch — the disc covers its van
+          openStopPopup([s.lng, s.lat], odStopPopupHTML(s, color));
+        },
       });
-      const mk = new maplibregl.Marker({ element: el, anchor: 'center' })
-        .setLngLat([s.lng, s.lat])
-        .addTo(map);
-      stopMarkers.push(mk);
     });
   }
+
+  // These are DOM markers, so whichever is added last draws on top. The
+  // selected van's (or clicked trip's) discs go on last; within a tier the
+  // highest stop numbers go on first, so that where discs overlap (a van
+  // revisiting a spot, or two vans' stops at one address) the soonest stop is
+  // the one showing.
+  for (const p of pending) p.rank = stopFocusRank(p);
+  pending.sort((a, b) => a.rank - b.rank || b.order - a.order);
+  for (const p of pending) {
+    const el = stopOrderMarkerEl(p.order, p.color);
+    el.addEventListener('click', (e) => onStopDiscClick(e, p));
+    stopMarkers.push(
+      new maplibregl.Marker({ element: el, anchor: 'center' }).setLngLat(p.lngLat).addTo(map),
+    );
+  }
+  stopEntries = pending;
 }
 
 // ===========================================================================
@@ -662,6 +739,10 @@ function addFallbackPin(lngLat, isPickup) {
     isPickup ? '#4ade80' : '#f87171'
   }`;
   const m = new maplibregl.Marker({ element: el, anchor: 'center' }).setLngLat(lngLat).addTo(map);
+  // Slide it under the numbered stop discs (DOM order is draw order) — a dot
+  // on top of a disc hides the stop number it is pointing at.
+  const firstDisc = stopMarkers.length ? stopMarkers[0].getElement() : null;
+  if (firstDisc && firstDisc.parentNode === el.parentNode) el.parentNode.insertBefore(el, firstDisc);
   fallbackPins.push(m);
 }
 
@@ -814,9 +895,7 @@ function showOdRequestRoute(rideKey) {
   clearRequestRoute();
   const bounds = [];
   for (const s of getOdStops()) {
-    const rec = (s.rides && s.rides[0]) || {};
-    const key = s.rideId || rec.rideId || `${s.vehicleId}|${(s.riders || []).join(',')}`;
-    if (key !== rideKey) continue;
+    if (odRideKey(s) !== rideKey) continue;
     if (!Number.isFinite(s.lat) || !Number.isFinite(s.lng)) continue;
     addFallbackPin([s.lng, s.lat], s.stopType === 'pickup');
     bounds.push([s.lng, s.lat]);
@@ -941,6 +1020,8 @@ async function showOdVanRoute(vehicleId, opts) {
  *  over this one ride's route. */
 export function showTripRoute(kind, ref) {
   clearSelection();
+  tripFocus = { kind, ref };
+  renderStopMarkers(); // raise this ride's discs
   if (kind === 'spare') showRequestRoute(ref);
   else showOdRequestRoute(ref);
 }
@@ -1048,6 +1129,8 @@ export function startMapOverlays(theMap) {
   onChange(onPollSettled);
 
   onSelectionChange((sel) => {
+    if (sel) tripFocus = null;
+    renderStopMarkers(); // re-stack: the selected van's discs go on top
     resetRouteTracking();
     if (!sel || !sel.id) {
       clearRequestRoute();
@@ -1059,7 +1142,14 @@ export function startMapOverlays(theMap) {
 
   // A click on empty map clears a route drawn by a trip-card click too (those
   // don't set a selection, so onSelectionChange never fires for them).
-  onMapBackground(() => clearRequestRoute());
+  onMapBackground(() => {
+    clearRequestRoute();
+    if (tripFocus) {
+      tripFocus = null;
+      renderStopMarkers();
+    }
+  });
+  map.on('click', closeMarkerMenu);
 
   // Follow the selected van's live position (Spare SSE via microtransit.js) and
   // keep its route in step — same cadence as the marker, not the 10s panel poll.
