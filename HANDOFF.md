@@ -27,6 +27,12 @@ Machine tags: `[dev]` = Windows dev machine · `[home]` = home server (Windows b
 
 ## 1. Message board (newest first)
 
+### 2026-10-02 · [home] · User asked: anything odd on [02] 09-29 18:00-22:30? No (bus 27 / 17132, Green Loop 54)
+- **Sources:** eta_watch only covers 17:30-18:30 and 19:30-20:00 that evening; the rest came from prod's 5 s `/data/vehicle_logs/20260929_HH.jsonl` (HH = ET hour) and `/data/headway/2026-09-29.csv` (+ 09-30 before 04:00Z), pulled with a base64'd script over `fly ssh`. Those have positions and stop events, NOT our ETAs, so 18:30-19:30 and 20:00-22:30 have no ETA record.
+- **Clean:** all 13 timestop departures JPA/CHP 18:00..22:00 left 2 s before to 28 s after the scheduled minute (arrived 4-8.5 min early each time); never > 40 m off route 54; no GPS gaps or frozen timestamps. ETAs in the two logged windows: 0.0% / 0.3% >2 min late, median error -56 / -24 s.
+- **Only notable thing:** TransLoc took the bus off route 54 at 22:00:19, as it left JPA for the final trip. It still drove it (stopped at Cabell Hall and AFC, Chapel 22:11:19, garage 22:17), so that last JPA -> CHP trip had no ETAs from either engine. Matches the block package (leave JPA 22:00, carry to CHP, then lot); our out-of-service cut-off can't help once TransLoc lists no route.
+- Minor: no route 17:45:40-17:47:31 at the evening change (known); one 100 s stop 80 m past Chapel at 18:20:41; the headway CSV shows the pre-v2039 double/triple arrival+departure rows at West Complex and Madison @ Grady on every lap.
+
 ### 2026-10-02 · [home] · ETA morning check (00:00 / 01:30 / 05:00, first runs after the phantom-filter rebuild): 05:00 Gold 22.8% late is one bus, NOT the filter; route 63 was stealing a bus every 2 min
 - **Rebuild happened with the filter:** prod `/data/trip_planner_hop_times.json` + `drive_dwell.json` are dated 10-02 03:01 ET; `trip_planner_stop_coords.json` has 204 stops (incl. Gold detour 889/890, evening CHP/LIB 820/838, Night Pilot). `historical_pct` 82.9 (prior weekday 05:00 runs 85-87).
 - **05:00 breach: 22.8% >2 min late excl. Purple (09-28..10-01 05:00: 0.1 / 0.0 / 0.0 / 0.0), Gold detour bias +75 s.** All of it is Gold [09] bus 21, 05:02-05:10 while it sat at Barracks (889): 27.4% of its rows, 82% at 10-20 min out, 0% under 2 min. Gold [11] bus 2 0.0%. Remember late = bus came EARLY.
