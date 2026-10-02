@@ -16899,11 +16899,11 @@ async def _compute_bus_eta_arrivals() -> Dict[str, Any]:
     }
     # Driving-only history also backs every route's hop out of a timestop (bus_eta._post_hold_hop_cap_s), so it's
     # loaded whether or not a dwell-mode route is running.
-    drive_model = dwell_model = None
+    drive_model = dwell_model = timestop_drive_model = None
     if headway_storage is not None:
         try:
             # Daily rebuild scans 60 days of events: keep it off the event loop.
-            drive_model, dwell_model = await asyncio.to_thread(
+            drive_model, dwell_model, timestop_drive_model = await asyncio.to_thread(
                 trip_planner_history.load_drive_dwell_models,
                 headway_storage, datetime.now(ZoneInfo("America/New_York")),
             )
@@ -16986,7 +16986,7 @@ async def _compute_bus_eta_arrivals() -> Dict[str, Any]:
                         if uts_blocks.is_loaded() else None
                     ),
                     out_of_service_fn=uts_blocks.out_of_service_plan if uts_blocks.is_loaded() else None,
-                    timestop_drive_fn=drive_model.lookup if drive_model is not None else None,
+                    timestop_drive_fn=timestop_drive_model.lookup if timestop_drive_model is not None else None,
                 )
 
             # Evening route change (Gold/Green/Orange, ~17:45-18:00): a bus about to switch to its post-6PM route

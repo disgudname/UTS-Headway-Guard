@@ -133,6 +133,35 @@ def drop_phantom_route_activations(
     return out
 CACHE_PATH = Path(os.getenv("TRIP_PLANNER_HOP_TIME_CACHE", "/data/trip_planner_hop_times.json"))
 
+# A bucket is summarised a little BELOW its median. Hop times at one stop pair, weekday and
+# hour vary a lot (Orange Pinn Hall -> 14th St on Friday 5pm: 140-722 s over 21 visits) and a
+# bucket often holds 3-9 samples, so its median is too long about as often as too short --
+# and too long means an ETA after the bus has gone, the miss that costs a rider the bus. Until
+# the phantom filter above, much of that was hidden: the hops it starved had no bucket and fell
+# back to a fast distance/speed guess, which leaned every ETA early. The first day with real
+# buckets everywhere (2026-10-02) had 9.0% of predictions >2 min late (5.9% replayed without
+# the filter). Replay of 37 eta_watch logs, 2026-09-26..10-02 (history as of each morning,
+# real block ids, Purple left out), with TIMESTOP_DRIVE_QUANTILE below:
+#   median (filtered history):  >2 min late 5.9%, >2 min early 13.8%, median |error| 50 s
+#   this setting:               >2 min late 2.3%, >2 min early 19.3%, median |error| 51 s
+#   (what ran live, mostly before the filter: 4.1% / 19.2% / 54 s)
+# 0.40 gave 3.3% / 16.7%, 0.25 gave 1.6% / 22.2%.
+HOP_QUANTILE = 0.33
+# The same for the driving-only time that raises the cap on a hop leaving a timestop
+# (bus_eta._post_hold_hop_cap_s). Lower still: that hop is charged in full to every stop
+# beyond the timestop, and at its median Silver's Pinn Hall -> Madison Hall cap sat at
+# 350-400 s on Thursday/Friday evenings against a real 223-247 s (36% of Silver >2 min late).
+TIMESTOP_DRIVE_QUANTILE = 0.25
+
+
+def _quantile(values: List[float], q: float) -> float:
+    """q-th quantile with linear interpolation between order statistics (0.5 = the median)."""
+    ordered = sorted(values)
+    pos = q * (len(ordered) - 1)
+    lo = int(pos)
+    hi = min(lo + 1, len(ordered) - 1)
+    return ordered[lo] + (ordered[hi] - ordered[lo]) * (pos - lo)
+
 
 def _load_cache() -> Dict[str, Any]:
     if not CACHE_PATH.exists():
@@ -431,12 +460,21 @@ DWELL_QUANTILE = 0.40
 DRIVE_DWELL_CACHE_PATH = Path(os.getenv("TRIP_PLANNER_DRIVE_DWELL_CACHE", "/data/trip_planner_drive_dwell.json"))
 
 
+def _drive_dwell_quantiles() -> List[float]:
+    return [TIMESTOP_DRIVE_QUANTILE, DWELL_QUANTILE]
+
+
 def refresh_drive_dwell_cache(storage, now: Optional[datetime] = None) -> Dict[str, Any]:
     now = now or datetime.now(NY_TZ)
     drive, dwell = build_drive_and_dwell_samples(storage, now=now)
     payload = {
         "refreshed_at": now.isoformat(),
-        "drive": {k: {"seconds": statistics.median(v), "samples": len(v)} for k, v in drive.items() if len(v) >= MIN_SAMPLES},
+        "quantiles": _drive_dwell_quantiles(),
+        # "seconds" stays the median: dwell-mode routes (Purple) were tuned on it.
+        "drive": {
+            k: {"seconds": statistics.median(v), "low": _quantile(v, TIMESTOP_DRIVE_QUANTILE), "samples": len(v)}
+            for k, v in drive.items() if len(v) >= MIN_SAMPLES
+        },
         "dwell": DwellModel.from_samples(dwell, DWELL_QUANTILE)._buckets,
     }
     DRIVE_DWELL_CACHE_PATH.parent.mkdir(parents=True, exist_ok=True)
@@ -450,41 +488,48 @@ def refresh_drive_dwell_cache(storage, now: Optional[datetime] = None) -> Dict[s
 _drive_dwell_memo: Dict[str, Any] = {}  # last cache payload, so a fresh cache isn't re-read every ETA computation
 
 
-def load_drive_dwell_models(storage, now: Optional[datetime] = None) -> Tuple[HopTimeModel, DwellModel]:
-    """(driving-only hop model, dwell model), rebuilt at most once a day like the hop cache.
+def load_drive_dwell_models(storage, now: Optional[datetime] = None) -> Tuple[HopTimeModel, DwellModel, HopTimeModel]:
+    """(driving-only hop model, dwell model, low-side driving-only model for the timestop hop cap),
+    rebuilt at most once a day like the hop cache, or at once when a quantile setting has changed.
     The rebuild scans LOOKBACK_DAYS of events (~11 s locally): call it off the event loop."""
     global _drive_dwell_memo
+
+    def stale(c: Dict[str, Any]) -> bool:
+        return is_cache_stale(c, now=now) or c.get("quantiles") != _drive_dwell_quantiles()
+
     cache = _drive_dwell_memo
-    if is_cache_stale(cache, now=now) and DRIVE_DWELL_CACHE_PATH.exists():
+    if stale(cache) and DRIVE_DWELL_CACHE_PATH.exists():
         try:
             with DRIVE_DWELL_CACHE_PATH.open("r", encoding="utf-8") as f:
                 cache = json.load(f)
         except (OSError, json.JSONDecodeError):
             cache = {}
-    if is_cache_stale(cache, now=now):
+    if stale(cache):
         cache = refresh_drive_dwell_cache(storage, now=now)
     _drive_dwell_memo = cache
-    return HopTimeModel(cache.get("drive") or {}), DwellModel(cache.get("dwell") or {})
+    drive = cache.get("drive") or {}
+    return HopTimeModel(drive), DwellModel(cache.get("dwell") or {}), HopTimeModel(drive, field="low")
 
 
 def refresh_hop_time_cache(storage, now: Optional[datetime] = None) -> Dict[str, Any]:
     now = now or datetime.now(NY_TZ)
     samples = build_hop_time_samples(storage, now=now)
     buckets = {
-        key: {"seconds": statistics.median(values), "samples": len(values)}
+        key: {"seconds": _quantile(values, HOP_QUANTILE), "samples": len(values)}
         for key, values in samples.items()
         if len(values) >= MIN_SAMPLES
     }
-    payload = {"refreshed_at": now.isoformat(), "buckets": buckets}
+    payload = {"refreshed_at": now.isoformat(), "quantile": HOP_QUANTILE, "buckets": buckets}
     _write_cache(payload)
     return payload
 
 
 def ensure_hop_time_cache(storage, now: Optional[datetime] = None) -> Dict[str, Any]:
-    """Load the cached model, rebuilding it first if it's stale. Call this once per
-    request that needs a HopTimeModel (cheap when fresh -- just a JSON read)."""
+    """Load the cached model, rebuilding it first if it's stale (or was built with another
+    HOP_QUANTILE, so a changed setting takes effect at once instead of at the next 03:00).
+    Call this once per request that needs a HopTimeModel (cheap when fresh -- just a JSON read)."""
     cache = _load_cache()
-    if is_cache_stale(cache, now=now):
+    if is_cache_stale(cache, now=now) or cache.get("quantile") != HOP_QUANTILE:
         return refresh_hop_time_cache(storage, now=now)
     return cache
 
@@ -503,9 +548,12 @@ class HopTimeModel:
     accumulated MIN_SAMPLES for yet can still use real history further back, without
     that deeper (and occasionally stale) data ever overriding fresher live buckets."""
 
-    def __init__(self, buckets: Dict[str, Dict[str, Any]], fallback: Optional["HopTimeModel"] = None):
+    def __init__(
+        self, buckets: Dict[str, Dict[str, Any]], fallback: Optional["HopTimeModel"] = None, field: str = "seconds",
+    ):
         self._buckets = buckets
         self._fallback = fallback
+        self._field = field  # which value of a bucket to read (drive buckets also carry "low")
 
     def lookup(self, route_id: str, from_stop_id: str, to_stop_id: str, when: float) -> Optional[float]:
         local_dt = datetime.fromtimestamp(when, tz=NY_TZ)
@@ -513,7 +561,7 @@ class HopTimeModel:
         bucket = self._buckets.get(key)
         if bucket:
             try:
-                return float(bucket["seconds"])
+                return float(bucket[self._field])
             except (KeyError, TypeError, ValueError):
                 pass
         # No bucket for this exact weekday and hour. These routes run about once an hour
@@ -549,12 +597,12 @@ class HopTimeModel:
 
     def _median_over(self, route_id: str, from_stop_id: str, to_stop_id: str, weekdays, hours) -> Optional[float]:
         values = [
-            float(bucket["seconds"])
+            float(bucket[self._field])
             for wd in weekdays
             for hr in hours
             if 0 <= hr <= 23
             for bucket in [self._buckets.get(_bucket_key(route_id, from_stop_id, to_stop_id, wd, hr))]
-            if bucket and isinstance(bucket.get("seconds"), (int, float))
+            if bucket and isinstance(bucket.get(self._field), (int, float))
         ]
         return statistics.median(values) if values else None
 

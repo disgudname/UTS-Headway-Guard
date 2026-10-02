@@ -89,8 +89,33 @@ def test_refresh_hop_time_cache_keeps_bucket_with_enough_samples(tmp_path, monke
     storage = FakeStorage(events)
     cache = tph.refresh_hop_time_cache(storage, now=_wed_5pm(0) + timedelta(hours=1))
     key = tph._bucket_key("67", "A", "B", 2, 17)
-    assert cache["buckets"][key]["seconds"] == 310.0  # median of 300/310/320
+    assert cache["buckets"][key]["seconds"] == 306.6  # 33rd percentile of 300/310/320, just under the median
     assert cache["buckets"][key]["samples"] == 3
+
+
+def test_quantile_interpolates_and_half_is_the_median():
+    assert tph._quantile([320.0, 300.0, 310.0], 0.5) == 310.0
+    assert tph._quantile([100.0, 200.0], 0.5) == 150.0
+    assert tph._quantile([100.0, 200.0, 300.0, 400.0, 500.0], 0.25) == 200.0
+    assert tph._quantile([42.0], 0.4) == 42.0
+
+
+def test_hop_cache_built_with_another_quantile_is_rebuilt_at_once(tmp_path, monkeypatch):
+    monkeypatch.setattr(tph, "CACHE_PATH", tmp_path / "hop_times.json")
+    events = []
+    for i, gap in enumerate([300, 310, 320]):
+        start = _wed_5pm(i)
+        events.append(_event(start, "67", "A", "Gold_01"))
+        events.append(_event(start + timedelta(seconds=gap), "67", "B", "Gold_01"))
+    now = _wed_5pm(0) + timedelta(hours=1)
+    key = tph._bucket_key("67", "A", "B", 2, 17)
+    # A fresh cache from before the setting existed (or from another value) must not be reused until 03:00.
+    (tmp_path / "hop_times.json").write_text(
+        json.dumps({"refreshed_at": now.isoformat(), "buckets": {key: {"seconds": 310.0, "samples": 3}}})
+    )
+    assert tph.ensure_hop_time_cache(FakeStorage(events), now=now)["buckets"][key]["seconds"] == 306.6
+    # ...and once rebuilt it is reused as before (an empty store would otherwise empty it).
+    assert tph.ensure_hop_time_cache(FakeStorage([]), now=now)["buckets"][key]["seconds"] == 306.6
 
 
 def test_implausible_gap_is_excluded_as_a_layover_not_a_hop():
@@ -364,16 +389,46 @@ def test_load_drive_dwell_models_builds_and_caches(tmp_path, monkeypatch):
             _event(t0 + timedelta(seconds=100 * (week + 1) + 40), "74", "B", f"blk{week}"),
         ]
     now = _wed_5pm(0) + timedelta(hours=1)
-    drive, dwell = tph.load_drive_dwell_models(FakeStorage(events), now=now)
+    drive, dwell, _ = tph.load_drive_dwell_models(FakeStorage(events), now=now)
     when = _wed_5pm(0).timestamp()
     assert drive.lookup("74", "A", "B", when) == 40.0
     assert dwell.lookup("74", "A", when) == 200.0  # 40th percentile of 100/200/300
     assert (tmp_path / "dd.json").exists()
-    drive2, _ = tph.load_drive_dwell_models(FakeStorage([]), now=now)  # fresh cache: not rebuilt from the empty store
+    drive2, _, _ = tph.load_drive_dwell_models(FakeStorage([]), now=now)  # fresh cache: not rebuilt from the empty store
     assert drive2.lookup("74", "A", "B", when) == 40.0
     monkeypatch.setattr(tph, "_drive_dwell_memo", {})  # e.g. after a restart: read back from the file
-    drive3, _ = tph.load_drive_dwell_models(FakeStorage([]), now=now)
+    drive3, _, _ = tph.load_drive_dwell_models(FakeStorage([]), now=now)
     assert drive3.lookup("74", "A", "B", when) == 40.0
+
+
+def test_timestop_drive_model_reads_the_low_side_of_each_drive_bucket(tmp_path, monkeypatch):
+    monkeypatch.setattr(tph, "DRIVE_DWELL_CACHE_PATH", tmp_path / "dd.json")
+    monkeypatch.setattr(tph, "_drive_dwell_memo", {})
+    events = []
+    for week, drive_s in enumerate([200, 300, 400, 500, 600]):
+        t0 = _wed_5pm(week)
+        events += [
+            _event(t0, "58", "PIN", f"blk{week}"),
+            _event(t0 + timedelta(seconds=60), "58", "PIN", f"blk{week}", event_type="departure"),
+            _event(t0 + timedelta(seconds=60 + drive_s), "58", "MAD", f"blk{week}"),
+        ]
+    now = _wed_5pm(0) + timedelta(hours=1)
+    drive, _, timestop_drive = tph.load_drive_dwell_models(FakeStorage(events), now=now)
+    when = _wed_5pm(0).timestamp()
+    assert drive.lookup("58", "PIN", "MAD", when) == 400.0  # median, as dwell-mode routes use it
+    assert timestop_drive.lookup("58", "PIN", "MAD", when) == 300.0  # 25th percentile, for the hop cap
+
+
+def test_drive_dwell_cache_without_the_low_side_is_rebuilt(tmp_path, monkeypatch):
+    monkeypatch.setattr(tph, "DRIVE_DWELL_CACHE_PATH", tmp_path / "dd.json")
+    monkeypatch.setattr(tph, "_drive_dwell_memo", {})
+    now = _wed_5pm(0) + timedelta(hours=1)
+    key = tph._bucket_key("58", "PIN", "MAD", 2, 17)
+    (tmp_path / "dd.json").write_text(json.dumps(
+        {"refreshed_at": now.isoformat(), "drive": {key: {"seconds": 400.0, "samples": 5}}, "dwell": {}}
+    ))
+    tph.load_drive_dwell_models(FakeStorage([]), now=now)
+    assert json.loads((tmp_path / "dd.json").read_text())["quantiles"] == [tph.TIMESTOP_DRIVE_QUANTILE, tph.DWELL_QUANTILE]
 
 
 # Stops on a line running east: LIB and CHP face each other (10 m apart), NEXT is 300 m on.
