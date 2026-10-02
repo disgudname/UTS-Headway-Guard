@@ -27,6 +27,12 @@ Machine tags: `[dev]` = Windows dev machine · `[home]` = home server (Windows b
 
 ## 1. Message board (newest first)
 
+### 2026-10-01 · [home] · ETA day check (8 runs, v2040, last day BEFORE the phantom filter): baseline for the 10-02 WATCH; 17:30 run 11.0% late
+- 00:00-08:30 and 19:30 quiet (00:00's 11.9% late is Night Pilot, n=1244; 19:30's only breach is 12 only-TransLoc rows). Breaches at 12:30 (3.5% late, Silver median |err| 126 s, 221 only-TransLoc), 17:00 (Orange Pre-6PM 117 s, all EARLY: median err -117, 0.0% late) and 17:30.
+- **17:30 route-change run: 11.0% >2 min late excl. Purple, the worst weekday 17:30 since 09-24** (09-28..09-30 were 1.6 / 2.7 / 2.2). Four buses carry it: Green Loop bus 28 (44% of its rows, 17:45-18:17), Gold post-6PM bus 2 (29%, 17:51-18:21), Silver 12 and 32 (22% / 24%, 17:30-18:02); Purple 48 at 26%. Under 5 min out all of them are 3-5% late (Purple 14%); the misses are 10+ min out (Green 28: 50% at 10-20 min, 69% at 20+), i.e. buses losing time over a lap, not wrong near-term ETAs. TransLoc was 0.9% late but a median 3.6 min pessimistic. Cause NOT traced (traffic vs dwell vs caps).
+- The 3 full-lap flips are one poll (17:53) of Orange Loop bus 33 at stops 711-713. Only-TransLoc: Green detour bus 22 lacked ONE stop for 62 polls straight, 17:30-17:45 (not the [01]/Hereford shape v2040 fixed, which was all stops; not traced); the rest are 1-2 poll holes at the route change.
+- **Per-route >2 min late on 10-01, for the 10-02 comparison** (08:30 / 12:30 / 17:00 / 17:30): Gold detour 0.8 / 0.1 / 0.1 / 3.8; Green detour 5.8 / 8.1 / 0.0 / 1.7; Orange Pre-6PM 0.0 / 1.0 / 0.0 / 0.0; Silver 0.4 / 19.3 / 0.0 / 22.9; post-6PM in the 17:30 run: Green Loop 25.8, Gold 8.7, Orange Loop 0.2. **So a bad Silver or evening Green Loop number on 10-02 is not by itself the filter's doing.**
+
 ### 2026-10-01 · [home] · /vandispatch stop discs: stacking order, overlap picker, selection raises discs (`5135001`, DEPLOYED v2041)
 
 User: stops at one physical spot stacked in no sensible order (stop 8 on top of stop 2), and asked for /livemap's fly-out picker on overlapping stops plus "click a van in the roster or a trip card -> its stop markers come to the top". All in `scripts/livemap/apps/vandispatch2/map-overlays.js` unless noted.
