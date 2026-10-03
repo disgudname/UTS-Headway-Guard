@@ -483,3 +483,103 @@ def test_stop_positions_are_merged_and_saved_not_replaced(tmp_path, monkeypatch)
     assert set(tph._known_stop_coords()) == {"LIB", "CHP"}
     monkeypatch.setattr(tph, "_stop_coords", None)  # e.g. after a restart
     assert set(tph._known_stop_coords()) == {"LIB", "CHP"}
+
+
+# --- shared (AddressID) history: routes borrow hops other routes drove over the same stops ---
+
+def _shared_run(t0, route, stops, gaps, block, dwell_s=20):
+    """One run over (route_stop_id, address_id) pairs: arrive, dwell, leave, `gaps` seconds arrival to arrival."""
+    events, t = [], t0
+    for (stop, addr), gap in zip(stops, gaps + [0]):
+        events.append(_event(t, route, stop, block, address_id=addr))
+        events.append(_event(t + timedelta(seconds=dwell_s), route, stop, block, event_type="departure", address_id=addr))
+        t += timedelta(seconds=gap)
+    return events
+
+
+def _old_route_history(gaps=(100, 110, 120), dwell_s=20):
+    # Route 57 drove stop 820 (address 7) -> 821 (address 8) on three Wednesdays at 5 pm.
+    events = []
+    for week, gap in enumerate(gaps):
+        events += _shared_run(_wed_5pm(week), "57", [("820", "7"), ("821", "8")], [gap], f"b{week}", dwell_s)
+    return events
+
+
+def test_new_route_borrows_the_shared_hop_for_the_same_stops(monkeypatch):
+    monkeypatch.setattr(tph, "_stop_addresses", {})
+    samples = tph.build_hop_time_samples(FakeStorage(_old_route_history()), now=_wed_5pm(0) + timedelta(hours=1))
+    buckets = {k: {"seconds": tph._quantile(v, 0.5), "samples": len(v)} for k, v in samples.items() if len(v) >= 3}
+    assert buckets[tph._shared_key("7", "8", 2, 17)]["seconds"] == 110.0
+    # Route 67 is brand new: different RouteStopIDs (901/902) for the same two stops.
+    model = tph.HopTimeModel(buckets, addresses={"67|901": "7", "67|902": "8"})
+    assert model.lookup("67", "901", "902", _wed_5pm(0).timestamp()) == 110.0
+    assert tph.HopTimeModel(buckets).lookup("67", "901", "902", _wed_5pm(0).timestamp()) is None  # no table, no borrowing
+
+
+def test_a_layover_stays_out_of_the_shared_pool(monkeypatch):
+    monkeypatch.setattr(tph, "_stop_addresses", {})
+    events = _old_route_history(gaps=(300, 310, 320), dwell_s=tph.SHARED_MAX_DWELL_S + 60)
+    samples = tph.build_hop_time_samples(FakeStorage(events), now=_wed_5pm(0) + timedelta(hours=1))
+    assert len(samples[tph._bucket_key("57", "820", "821", 2, 17)]) == 3  # the route keeps its own
+    assert tph._shared_key("7", "8", 2, 17) not in samples
+
+
+def test_shared_address_resolves_a_two_stop_address_list(monkeypatch):
+    monkeypatch.setattr(tph, "_stop_addresses", {"57|821": "8"})  # from TransLoc's route stop list
+    events = _old_route_history()
+    for ev in events:
+        if ev.stop_id == "821" and ev.timestamp.date() == _wed_5pm(0).date():
+            ev.address_id = "8,15"  # the tracker sometimes adds a neighbouring stop
+    samples = tph.build_hop_time_samples(FakeStorage(events), now=_wed_5pm(0) + timedelta(hours=1))
+    assert len(samples[tph._shared_key("7", "8", 2, 17)]) == 3
+
+
+def test_own_route_history_wins_within_a_time_window():
+    when = _wed_5pm(0).timestamp()
+    buckets = {
+        tph._bucket_key("67", "901", "902", 2, 17): {"seconds": 90.0, "samples": 3},
+        tph._shared_key("7", "8", 2, 17): {"seconds": 150.0, "samples": 30},
+    }
+    model = tph.HopTimeModel(buckets, addresses={"67|901": "7", "67|902": "8"})
+    assert model.lookup("67", "901", "902", when) == 90.0
+
+
+def test_time_of_day_beats_route_specific_history():
+    # The route only has 4 pm; the shared road history has this exact weekday and hour: use the hour.
+    when = _wed_5pm(0).timestamp()
+    buckets = {
+        tph._bucket_key("67", "901", "902", 2, 16): {"seconds": 90.0, "samples": 3},
+        tph._shared_key("7", "8", 2, 17): {"seconds": 150.0, "samples": 30},
+    }
+    model = tph.HopTimeModel(buckets, addresses={"67|901": "7", "67|902": "8"})
+    assert model.lookup("67", "901", "902", when) == 150.0
+
+
+def test_shared_drive_samples_back_the_timestop_cap(tmp_path, monkeypatch):
+    monkeypatch.setattr(tph, "DRIVE_DWELL_CACHE_PATH", tmp_path / "dd.json")
+    monkeypatch.setattr(tph, "_drive_dwell_memo", {})
+    monkeypatch.setattr(tph, "_stop_addresses", {"67|901": "7", "67|902": "8"})
+    now = _wed_5pm(0) + timedelta(hours=1)
+    drive, _, cap = tph.load_drive_dwell_models(FakeStorage(_old_route_history()), now=now)
+    # drive = arrival gap - 20 s dwell: 80/90/100
+    assert drive.lookup("67", "901", "902", _wed_5pm(0).timestamp()) == 90.0
+    assert cap.lookup("67", "901", "902", _wed_5pm(0).timestamp()) == 85.0
+
+
+def test_stop_addresses_are_merged_and_saved(tmp_path, monkeypatch):
+    path = tmp_path / "addr.json"
+    monkeypatch.setattr(tph, "STOP_ADDRESSES_PATH", path)
+    monkeypatch.setattr(tph, "_stop_addresses", None)
+    tph.set_stop_addresses({"57|820": 7})
+    tph.set_stop_addresses({"67|901": "7"})
+    assert json.loads(path.read_text()) == {"57|820": "7", "67|901": "7"}
+
+
+def test_shared_history_never_crosses_weekday_and_weekend():
+    when = _wed_5pm(0).timestamp()
+    sunday_5pm = {tph._shared_key("7", "8", 6, 17): {"seconds": 60.0, "samples": 30}}
+    model = tph.HopTimeModel(sunday_5pm, addresses={"67|901": "7", "67|902": "8"})
+    assert model.lookup("67", "901", "902", when) is None
+    # ...while the route's OWN weekend history is still a last resort, as before.
+    own_sunday = {tph._bucket_key("67", "901", "902", 6, 17): {"seconds": 60.0, "samples": 3}}
+    assert tph.HopTimeModel(own_sunday).lookup("67", "901", "902", when) == 60.0

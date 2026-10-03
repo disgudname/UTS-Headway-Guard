@@ -82,6 +82,90 @@ def set_stop_coords(coords: Dict[str, Tuple[float, float]]) -> None:
         print(f"[trip-planner-history] could not save stop positions: {exc}")
 
 
+# ---------------------------------------------------------------------------
+# Shared (physical-stop) history. TransLoc gives every stop one global AddressID plus one
+# RouteStopID per route serving it, and every route variant (detour, evening, recess, a
+# semester's new pattern) is its own RouteID with its own RouteStopIDs -- so per-route history
+# starts from nothing whenever a variant is new or hasn't run since logging began, even when it
+# drives the same road as a route with weeks of data. Hops are therefore ALSO filed under the
+# pair of AddressIDs (route "*"), pooled across every route, still by weekday and hour, and
+# HopTimeModel falls back to them where the route's own history has nothing for a time window.
+# Headway events carry the AddressID (address_id) next to the RouteStopID; for ~10% of them the
+# tracker lists a neighbouring stop too ("113,40"), resolved via that route stop's usual address.
+SHARED_ROUTE = "*"
+# A layover is a property of one route's schedule, not of the road: a sample whose bus sat at
+# the first stop longer than this (a hold, staging, a driver change) is kept out of the shared
+# pool, so it can't leak into another route's hop. Normal dwell is ~20 s (DEFAULT_DWELL_S).
+SHARED_MAX_DWELL_S = 90.0
+SHARED_VERSION = 1  # recorded in the caches; a cache built without shared buckets is rebuilt at once
+STOP_ADDRESSES_PATH = Path(os.getenv("TRIP_PLANNER_STOP_ADDRESSES", "/data/trip_planner_stop_addresses.json"))
+_stop_addresses: Optional[Dict[str, str]] = None  # "route|route_stop_id" -> AddressID; None = not loaded yet
+
+
+def _route_stop_key(route_id: Any, stop_id: Any) -> str:
+    return f"{route_id}|{stop_id}"
+
+
+def _known_stop_addresses() -> Dict[str, str]:
+    global _stop_addresses
+    if _stop_addresses is None:
+        try:
+            with STOP_ADDRESSES_PATH.open("r", encoding="utf-8") as f:
+                _stop_addresses = {str(k): str(v) for k, v in json.load(f).items()}
+        except (OSError, ValueError, TypeError, AttributeError):
+            _stop_addresses = {}
+    return _stop_addresses
+
+
+def set_stop_addresses(addresses: Dict[str, Any]) -> None:
+    """Merge "route|route_stop_id" -> AddressID (from TransLoc's route stop lists) into the known
+    table, saved to STOP_ADDRESSES_PATH when something changes. Remembered, not replaced, like
+    set_stop_coords: a route that isn't running right now keeps its mapping."""
+    known = _known_stop_addresses()
+    changed = {str(k): str(v) for k, v in addresses.items() if v is not None and known.get(str(k)) != str(v)}
+    if not changed:
+        return
+    known.update(changed)
+    try:
+        STOP_ADDRESSES_PATH.parent.mkdir(parents=True, exist_ok=True)
+        tmp_path = STOP_ADDRESSES_PATH.with_suffix(".tmp")
+        with tmp_path.open("w", encoding="utf-8") as f:
+            json.dump(known, f)
+        tmp_path.replace(STOP_ADDRESSES_PATH)
+    except OSError as exc:
+        print(f"[trip-planner-history] could not save stop addresses: {exc}")
+
+
+def _single_address(raw: Any) -> Optional[str]:
+    parts = [p.strip() for p in str(raw or "").split(",") if p.strip()]
+    return parts[0] if len(parts) == 1 and not parts[0].startswith("loc_") else None
+
+
+def learn_stop_addresses(events: List[Any]) -> Dict[str, str]:
+    """"route|stop_id" -> its most common single AddressID in these events."""
+    counts: Dict[str, Dict[str, int]] = defaultdict(lambda: defaultdict(int))
+    for ev in events:
+        addr = _single_address(getattr(ev, "address_id", None))
+        if addr and ev.route_id and ev.stop_id:
+            counts[_route_stop_key(ev.route_id, ev.stop_id)][addr] += 1
+    return {k: max(c, key=c.get) for k, c in counts.items()}
+
+
+def _event_address(ev: Any, addresses: Dict[str, str]) -> Optional[str]:
+    """The AddressID of the stop this event happened at, or None if it can't be told."""
+    raw = getattr(ev, "address_id", None)
+    single = _single_address(raw)
+    if single:
+        return single
+    usual = addresses.get(_route_stop_key(ev.route_id, ev.stop_id))
+    parts = [p.strip() for p in str(raw or "").split(",")]
+    return usual if usual and usual in parts else None
+
+
+def _shared_key(addr_a: str, addr_b: str, weekday: int, hour: int) -> str:
+    return _bucket_key(SHARED_ROUTE, addr_a, addr_b, weekday, hour)
+
+
 def _distance_m(a: Tuple[float, float], b: Tuple[float, float]) -> float:
     lat = math.radians((a[0] + b[0]) / 2)
     return math.hypot((a[0] - b[0]) * 111_320.0, (a[1] - b[1]) * 111_320.0 * math.cos(lat))
@@ -221,10 +305,13 @@ def build_hop_time_samples(
     now: Optional[datetime] = None,
     lookback_days: Optional[int] = None,
     resolve_stop_id: Optional[Callable[[Any], str]] = None,
+    shared: bool = True,
 ) -> Dict[str, List[float]]:
     """Read the last `lookback_days` (default LOOKBACK_DAYS) of headway events and
     bucket real stop-to-stop travel-time samples by (route_id, from_stop_id,
-    to_stop_id, weekday, hour).
+    to_stop_id, weekday, hour). With `shared`, each sample is also filed under the
+    stops' AddressIDs for route SHARED_ROUTE (see SHARED_ROUTE), unless the bus sat
+    at the first stop longer than SHARED_MAX_DWELL_S.
 
     Two consecutive "arrival" events sharing the same `block` (one physical vehicle's
     run) at two different stops are one real historical sample of how long that hop
@@ -281,10 +368,14 @@ def build_hop_time_samples(
             local_date = ev.timestamp.astimezone(NY_TZ).date().isoformat()
             runs[(run_id, local_date)].append(ev)
 
+        addresses = {**learn_stop_addresses(day_events), **_known_stop_addresses()} if shared else {}
         for run_events in runs.values():
             run_events.sort(key=lambda e: e.timestamp)
-            # Departures are read only to spot phantom arrivals (see PHANTOM_NEAR_M).
-            run_events = [e for e in drop_phantom_route_activations(run_events) if e.event_type == "arrival"]
+            # Departures are read to spot phantom arrivals (see PHANTOM_NEAR_M) and to time the
+            # dwell that keeps layovers out of the shared pool (SHARED_MAX_DWELL_S).
+            kept = drop_phantom_route_activations(run_events)
+            dwell_at = _visit_dwells(kept) if shared else {}
+            run_events = [e for e in kept if e.event_type == "arrival"]
             for a, b in zip(run_events, run_events[1:]):
                 if a.route_id != b.route_id:
                     continue
@@ -297,7 +388,36 @@ def build_hop_time_samples(
                 local_dt = a.timestamp.astimezone(NY_TZ)
                 key = _bucket_key(a.route_id, a_stop, b_stop, local_dt.weekday(), local_dt.hour)
                 samples[key].append(duration)
+                if shared and (dwell_at.get(id(a)) or 0.0) <= SHARED_MAX_DWELL_S:
+                    addr_a, addr_b = _event_address(a, addresses), _event_address(b, addresses)
+                    if addr_a and addr_b and addr_a != addr_b:
+                        samples[_shared_key(addr_a, addr_b, local_dt.weekday(), local_dt.hour)].append(duration)
     return samples
+
+
+def _visit_dwells(run_events: List[Any]) -> Dict[int, float]:
+    """id(arrival event) -> seconds the bus spent at that stop on that visit (its first arrival
+    to its last departure; consecutive events at one route stop are one visit). Arrivals of a
+    visit with no departure on record are left out."""
+    out: Dict[int, float] = {}
+    visit: List[Any] = []
+
+    def close() -> None:
+        arrivals = [e for e in visit if e.event_type == "arrival"]
+        departures = [e for e in visit if e.event_type == "departure"]
+        if arrivals and departures:
+            held = (departures[-1].timestamp - arrivals[0].timestamp).total_seconds()
+            for e in arrivals:
+                out[id(e)] = held
+
+    for ev in run_events:
+        if visit and (visit[-1].route_id, visit[-1].stop_id) != (ev.route_id, ev.stop_id):
+            close()
+            visit = []
+        visit.append(ev)
+    if visit:
+        close()
+    return out
 
 
 # ---------------------------------------------------------------------------
@@ -340,9 +460,12 @@ def build_drive_and_dwell_samples(
     now: Optional[datetime] = None,
     lookback_days: Optional[int] = None,
     resolve_stop_id: Optional[Callable[[Any], str]] = None,
+    shared: bool = True,
 ) -> Tuple[Dict[str, List[float]], Dict[str, List[float]]]:
     """(drive_samples, dwell_samples), same bucket keys as build_hop_time_samples.
-    Dwell buckets use to_stop_id == DWELL_KEY and are keyed by the departure's weekday/hour."""
+    Dwell buckets use to_stop_id == DWELL_KEY and are keyed by the departure's weekday/hour.
+    With `shared`, drive samples are also filed under the stops' AddressIDs (SHARED_ROUTE);
+    driving time has no layover in it, so every sample qualifies. Dwell is never shared."""
     now = now or datetime.now(NY_TZ)
     lookback_days = LOOKBACK_DAYS if lookback_days is None else lookback_days
     resolve_stop_id = resolve_stop_id or (lambda ev: ev.stop_id)
@@ -366,6 +489,7 @@ def build_drive_and_dwell_samples(
                 continue
             runs[(run_id, ev.timestamp.astimezone(NY_TZ).date().isoformat())].append(ev)
 
+        addresses = {**learn_stop_addresses(day_events), **_known_stop_addresses()} if shared else {}
         for run_events in runs.values():
             run_events.sort(key=lambda e: e.timestamp)
             run_events = drop_phantom_route_activations(run_events)
@@ -379,8 +503,10 @@ def build_drive_and_dwell_samples(
             for ev in run_events:
                 stop = resolve_stop_id(ev)
                 if not visits or (visits[-1]["route"], visits[-1]["stop"]) != (ev.route_id, stop):
-                    visits.append({"route": ev.route_id, "stop": stop, "arr": None, "dep": None})
+                    visits.append({"route": ev.route_id, "stop": stop, "arr": None, "dep": None, "addr": None})
                 v = visits[-1]
+                if shared and v["addr"] is None:
+                    v["addr"] = _event_address(ev, addresses)
                 if ev.event_type == "arrival" and v["arr"] is None:
                     v["arr"] = ev.timestamp
                 elif ev.event_type == "departure":
@@ -399,6 +525,8 @@ def build_drive_and_dwell_samples(
                 if duration <= 0 or duration > MAX_PLAUSIBLE_HOP_S:
                     continue
                 drive[_bucket_key(v["route"], v["stop"], nxt["stop"], local_dt.weekday(), local_dt.hour)].append(duration)
+                if v["addr"] and nxt["addr"] and v["addr"] != nxt["addr"]:
+                    drive[_shared_key(v["addr"], nxt["addr"], local_dt.weekday(), local_dt.hour)].append(duration)
     return drive, dwell
 
 
@@ -470,6 +598,7 @@ def refresh_drive_dwell_cache(storage, now: Optional[datetime] = None) -> Dict[s
     payload = {
         "refreshed_at": now.isoformat(),
         "quantiles": _drive_dwell_quantiles(),
+        "shared": SHARED_VERSION,
         # "seconds" stays the median: dwell-mode routes (Purple) were tuned on it.
         "drive": {
             k: {"seconds": statistics.median(v), "low": _quantile(v, TIMESTOP_DRIVE_QUANTILE), "samples": len(v)}
@@ -495,7 +624,8 @@ def load_drive_dwell_models(storage, now: Optional[datetime] = None) -> Tuple[Ho
     global _drive_dwell_memo
 
     def stale(c: Dict[str, Any]) -> bool:
-        return is_cache_stale(c, now=now) or c.get("quantiles") != _drive_dwell_quantiles()
+        return (is_cache_stale(c, now=now) or c.get("quantiles") != _drive_dwell_quantiles()
+                or c.get("shared") != SHARED_VERSION)
 
     cache = _drive_dwell_memo
     if stale(cache) and DRIVE_DWELL_CACHE_PATH.exists():
@@ -508,7 +638,9 @@ def load_drive_dwell_models(storage, now: Optional[datetime] = None) -> Tuple[Ho
         cache = refresh_drive_dwell_cache(storage, now=now)
     _drive_dwell_memo = cache
     drive = cache.get("drive") or {}
-    return HopTimeModel(drive), DwellModel(cache.get("dwell") or {}), HopTimeModel(drive, field="low")
+    addresses = _known_stop_addresses()
+    return (HopTimeModel(drive, addresses=addresses), DwellModel(cache.get("dwell") or {}),
+            HopTimeModel(drive, field="low", addresses=addresses))
 
 
 def refresh_hop_time_cache(storage, now: Optional[datetime] = None) -> Dict[str, Any]:
@@ -519,7 +651,7 @@ def refresh_hop_time_cache(storage, now: Optional[datetime] = None) -> Dict[str,
         for key, values in samples.items()
         if len(values) >= MIN_SAMPLES
     }
-    payload = {"refreshed_at": now.isoformat(), "quantile": HOP_QUANTILE, "buckets": buckets}
+    payload = {"refreshed_at": now.isoformat(), "quantile": HOP_QUANTILE, "shared": SHARED_VERSION, "buckets": buckets}
     _write_cache(payload)
     return payload
 
@@ -529,7 +661,7 @@ def ensure_hop_time_cache(storage, now: Optional[datetime] = None) -> Dict[str, 
     HOP_QUANTILE, so a changed setting takes effect at once instead of at the next 03:00).
     Call this once per request that needs a HopTimeModel (cheap when fresh -- just a JSON read)."""
     cache = _load_cache()
-    if is_cache_stale(cache, now=now) or cache.get("quantile") != HOP_QUANTILE:
+    if is_cache_stale(cache, now=now) or cache.get("quantile") != HOP_QUANTILE or cache.get("shared") != SHARED_VERSION:
         return refresh_hop_time_cache(storage, now=now)
     return cache
 
@@ -550,13 +682,26 @@ class HopTimeModel:
 
     def __init__(
         self, buckets: Dict[str, Dict[str, Any]], fallback: Optional["HopTimeModel"] = None, field: str = "seconds",
+        addresses: Optional[Dict[str, str]] = None,
     ):
         self._buckets = buckets
         self._fallback = fallback
         self._field = field  # which value of a bucket to read (drive buckets also carry "low")
+        # "route|route_stop_id" -> AddressID, for the shared (all-route) buckets; None = don't use them
+        self._addresses = addresses
 
     def lookup(self, route_id: str, from_stop_id: str, to_stop_id: str, when: float) -> Optional[float]:
         local_dt = datetime.fromtimestamp(when, tz=NY_TZ)
+        # Shared buckets for the same physical hop (see SHARED_ROUTE), if both stops' AddressIDs are known.
+        addr_a = addr_b = None
+        if self._addresses:
+            addr_a = self._addresses.get(_route_stop_key(route_id, from_stop_id))
+            addr_b = self._addresses.get(_route_stop_key(route_id, to_stop_id))
+        shared = addr_a is not None and addr_b is not None and addr_a != addr_b
+        # Time window first, route second: in every window below, this route's own history wins,
+        # and the shared history for the same road is used only when the route has none IN THAT
+        # WINDOW -- never a wider time window of this route over a narrower one of the road's.
+        # Weekday and hour matter more than which route variant drove it (user, 2026-10-02).
         key = _bucket_key(route_id, from_stop_id, to_stop_id, local_dt.weekday(), local_dt.hour)
         bucket = self._buckets.get(key)
         if bucket:
@@ -564,6 +709,10 @@ class HopTimeModel:
                 return float(bucket[self._field])
             except (KeyError, TypeError, ValueError):
                 pass
+        if shared:
+            exact = self._median_over(SHARED_ROUTE, addr_a, addr_b, (local_dt.weekday(),), (local_dt.hour,))
+            if exact is not None:
+                return exact
         # No bucket for this exact weekday and hour. These routes run about once an hour
         # in the evening/weekend, so 3 samples for one specific weekday+hour is often out
         # of reach even with 60 days of data (checked 2026-09-19: only ~25% of hops on the
@@ -589,6 +738,12 @@ class HopTimeModel:
             (other_group, (hour,)), (other_group, (hour - 1, hour + 1)), (other_group, (hour - 2, hour + 2)),
         ):
             pooled = self._median_over(route_id, from_stop_id, to_stop_id, weekdays, hours)
+            # The shared history never crosses into the other day group: on a weekday the routes
+            # that share a road with a daytime route are often only the evening/weekend ones, and
+            # their weekend times are minutes faster (replay, a "new" Orange 53 at weekday noon
+            # borrowing weekend Orange/Green Loop: loop 1909 s -> 1521 s, median |error| 69 -> 93 s).
+            if pooled is None and shared and weekdays is not other_group:
+                pooled = self._median_over(SHARED_ROUTE, addr_a, addr_b, weekdays, hours)
             if pooled is not None:
                 return pooled
         if self._fallback is not None:
@@ -607,9 +762,11 @@ class HopTimeModel:
         return statistics.median(values) if values else None
 
     @classmethod
-    def from_cache(cls, cache: Dict[str, Any], fallback: Optional["HopTimeModel"] = None) -> "HopTimeModel":
+    def from_cache(
+        cls, cache: Dict[str, Any], fallback: Optional["HopTimeModel"] = None, addresses: Optional[Dict[str, str]] = None,
+    ) -> "HopTimeModel":
         buckets = cache.get("buckets") if isinstance(cache, dict) else None
-        return cls(buckets if isinstance(buckets, dict) else {}, fallback=fallback)
+        return cls(buckets if isinstance(buckets, dict) else {}, fallback=fallback, addresses=addresses)
 
 
 # Written only by the occasional, manually-run build_eta_model.py -- never by this
@@ -634,4 +791,4 @@ def load_model(storage, now: Optional[datetime] = None) -> HopTimeModel:
     cache = ensure_hop_time_cache(storage, now=now)
     deep_cache = _load_deep_cache()
     deep_model = HopTimeModel.from_cache(deep_cache) if deep_cache.get("buckets") else None
-    return HopTimeModel.from_cache(cache, fallback=deep_model)
+    return HopTimeModel.from_cache(cache, fallback=deep_model, addresses=_known_stop_addresses())

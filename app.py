@@ -5991,6 +5991,19 @@ async def startup():
                                         stop_coords[str(s[key])] = (float(lat), float(lon))
                             if stop_coords:
                                 trip_planner_history.set_stop_coords(stop_coords)
+                            # Each route stop's global AddressID, so a route with little history of its own
+                            # can borrow the history other routes have for the same physical hop
+                            # (trip_planner_history.SHARED_ROUTE).
+                            stop_addresses = {
+                                f"{r.get('RouteID')}|{st.get('RouteStopID')}": st.get("AddressID")
+                                for r in list(routes_raw or []) + list(routes_catalog or [])
+                                if isinstance(r, dict)
+                                for st in (r.get("Stops") or [])
+                                if isinstance(st, dict) and st.get("RouteStopID") is not None
+                                and st.get("AddressID") is not None
+                            }
+                            if stop_addresses:
+                                trip_planner_history.set_stop_addresses(stop_addresses)
                             tracker_ref = getattr(app.state, "headway_tracker", None)
                             if tracker_ref is not None:
                                 if stops:
