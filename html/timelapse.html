@@ -903,7 +903,7 @@ const D = {"dem":"XQOIA50DhQNmAzEDRQOIA6UDvAPfA/kD6wPQA7EDkwOFA3sDgQONA2oDMwMtAz
         m.drawImage(lightMap, EX0, EY0, EX1 - EX0, EY1 - EY0);
         screen(m); m.globalCompositeOperation = 'source-over';
       }
-      if (s.day > 0.02 && wx.cloud > 0.01) {
+      if (s.day > 0.02) {   // always drawn in daylight: cloud can sit over one edge of the map while Grounds is clear
         // cloud shadow: the satellite field says where and how much; because it is only about
         // 2 km sharp, a drifting texture breaks the edges up when the sky is not solid
         const c2 = skyLayer.getContext('2d');
