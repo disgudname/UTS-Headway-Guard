@@ -431,3 +431,57 @@ def test_route_change_plan_falls_back_to_an_evening_out_of_service_leave_at_abou
     # a late-night out-of-service leave (22:00) is not an evening route change
     blocks["[06]"]["weekday_groups"][0]["out_of_service"]["leave_s"] = 22 * 3600
     assert uts_blocks.route_change_plan("67", "[06]", _epoch(2026, 9, 14, 21, 45)) is None
+
+
+# --- Recess Service days (fall break etc.) ---
+
+def _recess_blocks():
+    return {
+        "[09]": {"route_ids": ["57"], "has_recess": True, "weekday_groups": [
+            {"weekdays": [0, 1, 2, 3, 4], "stops": [[69300, "CHP"]]},                     # regular: CHP 19:15
+            {"weekdays": [0, 1], "service": "recess", "stops": [[69600, "CHP"]]},          # recess: CHP 19:20
+        ]},
+        "[10]": {"route_ids": ["57"], "has_recess": True, "weekday_groups": [
+            {"weekdays": [0, 1, 2, 3, 4], "stops": [[68400, "CHP"]]},                     # doesn't run in recess
+        ]},
+        "[13]": {"route_ids": ["58"], "weekday_groups": [                                  # route with no recess sheet
+            {"weekdays": [0, 1, 2, 3, 4], "stops": [[69300, "PIN"]]},
+        ]},
+    }
+
+
+def _recess_setup(monkeypatch, recess_dates):
+    monkeypatch.setattr(uts_blocks, "_blocks", _recess_blocks())
+    monkeypatch.setattr(uts_blocks, "_stop_id_to_code", {("57", "820"): "CHP", ("58", "726"): "PIN"})
+    monkeypatch.setattr(uts_blocks, "_service_level_fn", lambda d: "recess" if d.isoformat() in recess_dates else None)
+
+
+def _mon(h, m):
+    return datetime(2026, 10, 5, h, m, tzinfo=uts_blocks.NY_TZ).timestamp()  # Monday 2026-10-05
+
+
+def test_recess_day_uses_only_the_recess_schedule(monkeypatch):
+    _recess_setup(monkeypatch, {"2026-10-05"})
+    assert uts_blocks.scheduled_hold_epoch("57", "820", "[09]", _mon(19, 12)) == _mon(19, 20)
+    assert uts_blocks.scheduled_hold_epoch("57", "820", "[10]", _mon(18, 55)) is None  # not running in recess
+
+
+def test_regular_day_ignores_the_recess_schedule(monkeypatch):
+    _recess_setup(monkeypatch, set())
+    assert uts_blocks.scheduled_hold_epoch("57", "820", "[09]", _mon(19, 12)) == _mon(19, 15)
+    assert uts_blocks.scheduled_hold_epoch("57", "820", "[10]", _mon(18, 55)) == _mon(19, 0)
+
+
+def test_route_without_a_recess_schedule_keeps_its_regular_one_in_recess(monkeypatch):
+    _recess_setup(monkeypatch, {"2026-10-05"})
+    assert uts_blocks.scheduled_hold_epoch("58", "726", "[13]", _mon(19, 10)) == _mon(19, 15)
+
+
+def test_a_broken_service_calendar_falls_back_to_the_regular_schedule(monkeypatch):
+    _recess_setup(monkeypatch, set())
+
+    def boom(_d):
+        raise RuntimeError("calendar unavailable")
+
+    monkeypatch.setattr(uts_blocks, "_service_level_fn", boom)
+    assert uts_blocks.scheduled_hold_epoch("57", "820", "[09]", _mon(19, 12)) == _mon(19, 15)

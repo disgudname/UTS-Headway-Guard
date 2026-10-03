@@ -35,10 +35,15 @@ separate weekday-group entry per sheet, not a collision.
 Each sheet's own header text (row 2, e.g. "MONDAY through FRIDAY", "SATURDAY
 and SUNDAY", "SUNDAY THRU WEDNESDAY") declares which weekdays it applies to --
 parsed here rather than hand-curated, since Block Packages carry no GTFS-style
-calendar.txt with real date ranges. There is no service-exception handling
-(exam periods, breaks) -- config/uts_active_sheets.json's hand-picked "current
-sheet" is the only calendar this system has; keep it pointed at the right
-sheet for the time of year.
+calendar.txt with real date ranges. The only service exception handled is
+"Recess Service" (fall break etc.): a route's optional "recess_sheets" in
+config/uts_active_sheets.json are built into weekday groups tagged
+"service": "recess", and every block of such a route gets "has_recess": true.
+uts_blocks.py uses those groups -- and only those -- on dates the UTS service
+calendar (service_schedule.py) lists as Recess Service, so a block with no
+recess schedule (it doesn't run) gets no holds that day. Otherwise
+config/uts_active_sheets.json's hand-picked "current sheet" is the only
+calendar; keep it pointed at the right sheet for the time of year.
 """
 
 from __future__ import annotations
@@ -57,6 +62,15 @@ ROOT_DIR = Path(__file__).resolve().parent
 ACTIVE_SHEETS_PATH = ROOT_DIR / "config" / "uts_active_sheets.json"
 ROUTE_IDS_PATH = ROOT_DIR / "config" / "uts_route_ids.json"
 OUTPUT_PATH = ROOT_DIR / "config" / "uts_blocks.json"
+
+# Old names for a timestop that the workbooks still use in places. "WHD" is Carl Smith Way @ Scott Stadium (CSW):
+# Orange's Spring Recess 2025 sheet starts [07] at WHD 07:30 where the identical Fall Break 2025 sheet says CSW, and
+# the Fall Break 2025 route-change note "[05] AFTER LEAVING WHD AT 1750" is "CSW 17:50" on the 2026 paddle.
+CODE_ALIASES = {"WHD": "CSW"}
+
+
+def _alias(code: Optional[str]) -> Optional[str]:
+    return CODE_ALIASES.get(code, code) if code else code
 
 # A real timestop code is 2-8 uppercase letters, no digits (digits are reserved
 # for [NN] block labels) -- see the earlier hand-verification pass in this
@@ -366,7 +380,9 @@ def build(blocks_dir: Path) -> Dict[str, Any]:
             continue
         source_files[route_name] = fn
         wb = openpyxl.load_workbook(path, data_only=True)
-        for sheet_name in cfg["sheets"]:
+        recess_sheets = list(cfg.get("recess_sheets") or [])
+        for sheet_name in list(cfg["sheets"]) + recess_sheets:
+            recess = sheet_name in recess_sheets
             if sheet_name not in wb.sheetnames:
                 print(f"[build_uts_blocks] WARNING: sheet {sheet_name!r} not found in {fn}, skipping")
                 continue
@@ -396,15 +412,21 @@ def build(blocks_dir: Path) -> Dict[str, Any]:
                 entry = blocks.setdefault(
                     block_id, {"route_ids": route_ids_by_name.get(route_name, []), "weekday_groups": []}
                 )
-                group = {"weekdays": weekdays, "stops": [list(t) for t in seq]}
+                if recess_sheets:
+                    entry["has_recess"] = True
+                group = {"weekdays": weekdays, "stops": [[t, _alias(code)] for t, code in seq]}
+                if recess:
+                    group["service"] = "recess"
                 note = oos_notes.get(block_id)
                 if note:
-                    note = dict(note)
+                    note = {k: (_alias(v) if k.endswith("_code") else v) for k, v in note.items()}
                     if note["leave_s"] < seq[0][0]:
                         note["leave_s"] += 86400  # e.g. Night Pilot "0200": the block's day started at 22:00
                     group["out_of_service"] = note
                 if block_id in route_change_notes:
-                    group["route_change"] = dict(route_change_notes[block_id])
+                    rc = dict(route_change_notes[block_id])
+                    rc["leave_code"] = _alias(rc.get("leave_code"))
+                    group["route_change"] = rc
                 entry["weekday_groups"].append(group)
 
     return {

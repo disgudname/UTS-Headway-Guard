@@ -6852,6 +6852,14 @@ async def startup():
 
     asyncio.create_task(service_schedule_poller())
 
+    def _uts_service_level(d):
+        # "Recess Service" days (fall break etc.) run the Block Package's recess sheets (see uts_blocks._groups_for_day).
+        entry = service_schedule.day(d) or {}
+        level = str((entry.get("services") or {}).get("UVA Transit") or "").lower()
+        return "recess" if "recess" in level else None
+
+    uts_blocks.set_service_level_fn(_uts_service_level)
+
 # ---------------------------
 # REST: Routes
 # ---------------------------

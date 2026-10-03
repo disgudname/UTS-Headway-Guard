@@ -1,11 +1,13 @@
 {
   "Gold Line": {
     "file": "Gold Line 08.11.2026.xlsx",
-    "sheets": ["Gold Fall 2026 Wkday", "Gold Fall 2026 Wknd"]
+    "sheets": ["Gold Fall 2026 Wkday", "Gold Fall 2026 Wknd"],
+    "recess_sheets": ["Gold Fall Break 2025"]
   },
   "Green Line": {
     "file": "Green Line 08.10.2026.xlsx",
-    "sheets": ["GRN Fall 2026 Wkday", "GRN Fall 2026 Wknd"]
+    "sheets": ["GRN Fall 2026 Wkday", "GRN Fall 2026 Wknd"],
+    "recess_sheets": ["GRN Fall BRK 2025"]
   },
   "Night Pilot": {
     "file": "Night Pilot 08.10.2026.xlsx",
@@ -13,7 +15,8 @@
   },
   "Orange Line": {
     "file": "Orange Line 08.10.2026.xlsx",
-    "sheets": ["OR Fall 2026 Wkday", "OR Fall 2026 Wknd"]
+    "sheets": ["OR Fall 2026 Wkday", "OR Fall 2026 Wknd"],
+    "recess_sheets": ["Orange Fall BRK 2025"]
   },
   "Silver Line": {
     "file": "Silver Line 01.05.2026.xlsx",

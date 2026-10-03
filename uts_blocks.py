@@ -53,10 +53,10 @@ from __future__ import annotations
 
 import json
 from bisect import bisect_left
-from datetime import datetime, timedelta
+from datetime import date, datetime, timedelta
 from datetime import time as dtime
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple
+from typing import Callable, Dict, List, Optional, Tuple
 
 from zoneinfo import ZoneInfo
 
@@ -116,8 +116,36 @@ def timestop_code_for_stop(route_id: str, stop_id: str) -> Optional[str]:
     return _stop_id_to_code.get((str(route_id), str(stop_id)))
 
 
-def _weekday_groups_matching(block: Dict, weekday: int) -> List[Dict]:
-    return [g for g in block.get("weekday_groups", []) if weekday in (g.get("weekdays") or [])]
+# date -> "recess" on a Recess Service day (fall break etc.), else None. Set by app.py from the UTS service calendar
+# (service_schedule.py); unset (tests, offline tools) every day is a regular day.
+_service_level_fn: Optional[Callable[[date], Optional[str]]] = None
+
+
+def set_service_level_fn(fn: Optional[Callable[[date], Optional[str]]]) -> None:
+    global _service_level_fn
+    _service_level_fn = fn
+
+
+def _is_recess_day(d: date) -> bool:
+    if _service_level_fn is None:
+        return False
+    try:
+        return _service_level_fn(d) == "recess"
+    except Exception:
+        return False  # a calendar problem must never take the regular schedule away
+
+
+def _groups_for_day(block: Dict, d: date) -> List[Dict]:
+    """The block's schedule groups that apply on date d. On a Recess Service day a block of a route that has a recess
+    schedule (build_uts_blocks.py tags it "has_recess") follows ONLY its recess groups -- none at all if it doesn't run
+    during recess (Gold [10]/[12], Orange [06]/[08]); every other day, and every block of a route without one (Silver,
+    Night Pilot), follows its regular groups."""
+    weekday = d.weekday()
+    recess = bool(block.get("has_recess")) and _is_recess_day(d)
+    return [
+        g for g in block.get("weekday_groups", [])
+        if weekday in (g.get("weekdays") or []) and (g.get("service") == "recess") == recess
+    ]
 
 
 def _block_serves_route(block: Dict, route_id: str) -> bool:
@@ -163,7 +191,7 @@ def scheduled_hold_epoch(
     for day_offset in (0, -1):
         d = (local_dt + timedelta(days=day_offset)).date()
         midnight_ts = datetime.combine(d, dtime.min, tzinfo=NY_TZ).timestamp()
-        for group in _weekday_groups_matching(block, d.weekday()):
+        for group in _groups_for_day(block, d):
             for time_s, entry_code in group.get("stops", []):
                 if entry_code != code:
                     continue
@@ -201,7 +229,7 @@ def next_scheduled_arrival_epoch(route_id: str, stop_id: str, after_ts: float) -
         for block in _blocks.values():
             if not _block_serves_route(block, route_id):
                 continue
-            for group in _weekday_groups_matching(block, d.weekday()):
+            for group in _groups_for_day(block, d):
                 for time_s, entry_code in group.get("stops", []):
                     if entry_code != code:
                         continue
@@ -230,11 +258,10 @@ def best_matching_block(route_id: str, stop_id: str, reference_ts: float) -> Opt
     for day_offset in (0, -1):
         d = (local_dt + timedelta(days=day_offset)).date()
         midnight_ts = datetime.combine(d, dtime.min, tzinfo=NY_TZ).timestamp()
-        weekday = d.weekday()
         for block_id, block in _blocks.items():
             if not _block_serves_route(block, route_id):
                 continue
-            for group in _weekday_groups_matching(block, weekday):
+            for group in _groups_for_day(block, d):
                 for time_s, entry_code in group.get("stops", []):
                     if entry_code != code:
                         continue
@@ -282,6 +309,8 @@ def _visit_index() -> Dict[Tuple[str, str], Dict[int, List[int]]]:
         for block in _blocks.values():
             routes = [str(r) for r in (block.get("route_ids") or [])] or ["*"]
             for group in block.get("weekday_groups", []):
+                if group.get("service") == "recess":
+                    continue  # regular days only (is_timestop_at is not wired into the live ETA)
                 for weekday in group.get("weekdays") or []:
                     for time_s, code in group.get("stops", []):
                         for route in routes:
@@ -352,7 +381,7 @@ def out_of_service_plan(
     for day_offset in (0, -1):
         d = (local_dt + timedelta(days=day_offset)).date()
         midnight_ts = datetime.combine(d, dtime.min, tzinfo=NY_TZ).timestamp()
-        for group in _weekday_groups_matching(block, d.weekday()):
+        for group in _groups_for_day(block, d):
             note = group.get("out_of_service")
             if not note:
                 continue
@@ -398,7 +427,7 @@ def route_change_plan(
         return None
     local_dt = datetime.fromtimestamp(when, tz=NY_TZ)
     midnight_ts = datetime.combine(local_dt.date(), dtime.min, tzinfo=NY_TZ).timestamp()
-    for group in _weekday_groups_matching(block, local_dt.weekday()):
+    for group in _groups_for_day(block, local_dt.date()):
         note = group.get("route_change")
         if not note:
             oos = group.get("out_of_service")
