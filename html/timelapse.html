@@ -144,6 +144,12 @@ body {
 }
 .still { color: var(--muted); font-size: 12px; margin: 0; }
 
+@media (min-width: 761px) and (max-height: 780px) {
+  .clock { font-size: 60px; margin-top: 6px; }
+  .note { display: none; }
+  .roster ul { gap: 4px; }
+  .roster li { font-size: 16px; }
+}
 @media (max-width: 760px) {
   .poster {
     height: auto;
@@ -396,7 +402,7 @@ const D = {"dem":"XQOIA50DhQNmAzEDRQOIA6UDvAPfA/kD6wPQA7EDkwOFA3sDgQONA2oDMwMtAz
       const sun = [1.35 - 0.35 * t, 0.95 + 0.05 * t, 0.6 + 0.4 * t].map(grey);       // low sun is orange, high sun white
       const lit = [1.1 - 0.1 * t, 0.97 + 0.03 * t, 0.82 + 0.18 * t].map(grey);     // skylight on open ground
       const shade = [0.74 + 0.2 * t, 0.86 + 0.1 * t, 1.1 - 0.08 * t].map(grey)     // skylight in shadow: cooler
-        .map((c, i) => [0.96, 0.96, 1.02][i] * (1 - up) + c * up);                  // twilight: even, nearly neutral
+        .map((c, i) => { const u2 = ss(0.3, 3, el); return [0.98, 0.98, 1.02][i] * (1 - u2) + c * u2; });   // twilight: even, nearly neutral
       // a low sun is weak: its light has crossed a lot of air
       const Dd = (1 - 0.85 * cloud) * (0.35 + 0.65 * ss(0, 15, el)), A = 0.5 + 0.22 * cloud, norm = A + Dd * Math.max(se, 0.14);
       const out = new Uint8ClampedArray(GW * GH * 4);
@@ -920,8 +926,12 @@ const D = {"dem":"XQOIA50DhQNmAzEDRQOIA6UDvAPfA/kD6wPQA7EDkwOFA3sDgQONA2oDMwMtAz
             for (let tx = Math.floor((x0 - sxp) / CLOUD_TILE); tx * CLOUD_TILE + sxp < x1; tx++)
               c2.drawImage(cloudTiles[0], tx * CLOUD_TILE + sxp, ty * CLOUD_TILE + syp, CLOUD_TILE + 1, CLOUD_TILE + 1);
         }
-        m.globalAlpha = 0.6 * s.day; m.drawImage(skyLayer, 0, 0, W, H);
-        m.globalAlpha = 0.28 * s.day * ss(0.7, 1, wx.cloud); m.fillStyle = 'rgb(34,40,54)'; m.fillRect(0, 0, W, H);
+        // A cloud shadow is only as dark as the sun it blocks is strong: deep at midday, slight
+        // when the sun is low. How dark the whole scene is comes from the lux figure (s.day), so
+        // overcast is not darkened a second time here beyond a light flattening.
+        const sunPower = 0.3 + 0.7 * ss(2, 28, s.el);
+        m.globalAlpha = 0.5 * s.day * sunPower; m.drawImage(skyLayer, 0, 0, W, H);
+        m.globalAlpha = 0.12 * s.day * sunPower * ss(0.7, 1, wx.cloud); m.fillStyle = 'rgb(34,40,54)'; m.fillRect(0, 0, W, H);
         m.globalAlpha = 1;
       }
     }
@@ -944,7 +954,7 @@ const D = {"dem":"XQOIA50DhQNmAzEDRQOIA6UDvAPfA/kD6wPQA7EDkwOFA3sDgQONA2oDMwMtAz
     } else if (onN > 0) {
       // dusk or dawn: draw just the lamps that are on, each at full strength
       for (let i = 0; i < onN; i++) {
-        m.globalAlpha = lit.a[i]; m.fillStyle = LAMP_COLOURS[lit.col[i]];
+        m.globalAlpha = lit.a[i] * 0.74; m.fillStyle = LAMP_COLOURS[lit.col[i]];
         m.beginPath(); m.arc(lit.px[i], lit.py[i], lit.rad[i], 0, 7); m.fill();
       }
     }
