@@ -740,6 +740,12 @@ repo root; always use a relative path. Poll `/v1/health`, then tear down by the 
 **Purpose:** catch regressions and drift in ETA accuracy over time — *not* to tune. The engine is tuned; the user
 chose to stop (see §2). **Status: automated on the home server (below); you can still run one by hand.**
 
+**WATCH (2026-10-02 → 10-07), Fall Break — read before judging a run:**
+- **Sat 10-03 + Sun 10-04: No UTS Service.** Every run those days should be `inconclusive` (no buses). That is expected, say ALL CLEAR / no service; only real breaches with real buses matter.
+- **Mon 10-05 + Tue 10-06: Recess Service** (Gold [09]/[11], Green [01]/[02], Orange [05]/[07], Silver as usual; no Night Pilot, so the 00:00/01:30 runs on Tue/Wed morning will be inconclusive). Holds now follow the recess timetable (`0524fb4`). Fewer buses and lighter traffic: some extra early/late noise is normal; flag only big or one-route breaches, and say it's a recess day.
+- **Wed 10-07: first normal weekday since the 10-02 changes** (33rd-percentile history `6775277`, shared stop history `34a5a4a`). This is the real test: >2 min late should be under ~3% on daytime runs. If it isn't, say so plainly.
+- Before 10-07 a Friday-style early timestop departure (Gold [10] CHP / [09] LIB leaving 2-4 min early) is a driver, not the engine.
+
 ### Run one check (~35 min, read-only against production)
 Any machine with Python 3 and internet, from the repo root:
 ```
