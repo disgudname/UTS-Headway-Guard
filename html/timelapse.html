@@ -345,7 +345,9 @@ const D = {"dem":"XQOIA50DhQNmAzEDRQOIA6UDvAPfA/kD6wPQA7EDkwOFA3sDgQONA2oDMwMtAz
   const GW = D.demW, GH = D.demH;
   const lightMap = document.createElement('canvas'); lightMap.width = GW; lightMap.height = GH;
   const lightCtx = lightMap.getContext('2d');
-  let lightReady = false, lightBusy = false, lightKey = '', worker = null, onLight = null;
+  const lightNext = document.createElement('canvas'); lightNext.width = GW; lightNext.height = GH;   // latest result from the worker
+  const lightNextCtx = lightNext.getContext('2d');
+  let lightReady = false, lightBusy = false, lightKey = '', worker = null, onLight = null, snapLight = false;
   function terrainWorker() {
     let H, GW, GH, cx, cy, nE, nN, nZ, relief = 0;
     const ss = (a, b, x) => { const t = Math.min(1, Math.max(0, (x - a) / (b - a))); return t * t * (3 - 2 * t); };
@@ -367,6 +369,7 @@ const D = {"dem":"XQOIA50DhQNmAzEDRQOIA6UDvAPfA/kD6wPQA7EDkwOFA3sDgQONA2oDMwMtAz
         return;
       }
       const el = m.el, az = m.az, cloud = m.cloud, er = el * Math.PI / 180, ar = az * Math.PI / 180;
+      const up = ss(-1, 1.5, el);                 // 0 with the sun below the horizon, 1 once it is clearly up
       const se = Math.sin(er), ce = Math.cos(er), sE = Math.sin(ar) * ce, sN = Math.cos(ar) * ce;
       let vis = new Float32Array(GW * GH);
       if (el > 0.3) {
@@ -392,14 +395,15 @@ const D = {"dem":"XQOIA50DhQNmAzEDRQOIA6UDvAPfA/kD6wPQA7EDkwOFA3sDgQONA2oDMwMtAz
       const t = ss(0, 30, el), g = 0.8 * cloud, grey = c => c + (1 - c) * g;
       const sun = [1.35 - 0.35 * t, 0.95 + 0.05 * t, 0.6 + 0.4 * t].map(grey);       // low sun is orange, high sun white
       const lit = [1.1 - 0.1 * t, 0.97 + 0.03 * t, 0.82 + 0.18 * t].map(grey);     // skylight on open ground
-      const shade = [0.74 + 0.2 * t, 0.86 + 0.1 * t, 1.1 - 0.08 * t].map(grey);    // skylight in shadow: cooler
+      const shade = [0.74 + 0.2 * t, 0.86 + 0.1 * t, 1.1 - 0.08 * t].map(grey)     // skylight in shadow: cooler
+        .map((c, i) => [0.96, 0.96, 1.02][i] * (1 - up) + c * up);                  // twilight: even, nearly neutral
       // a low sun is weak: its light has crossed a lot of air
       const Dd = (1 - 0.85 * cloud) * (0.35 + 0.65 * ss(0, 15, el)), A = 0.5 + 0.22 * cloud, norm = A + Dd * Math.max(se, 0.14);
       const out = new Uint8ClampedArray(GW * GH * 4);
       for (let i = 0; i < GW * GH; i++) {
         const v = vis[i], dot = Math.max(0, nE[i] * sE + nN[i] * sN + nZ[i] * se);
         for (let c = 0; c < 3; c++) {
-          let val = (A * (shade[c] + (lit[c] - shade[c]) * v) + Dd * sun[c] * dot * v) / norm;
+          let val = (A * (shade[c] + (lit[c] - shade[c]) * v) + Dd * sun[c] * dot * v) / (A + (norm - A) * up);
           val = Math.min(1.5, Math.max(0.35, val));
           out[4 * i + c] = 255 * (val <= 1 ? 0.5 * val : 0.5 + 0.5 * (val - 1) / 1.6);
         }
@@ -414,7 +418,8 @@ const D = {"dem":"XQOIA50DhQNmAzEDRQOIA6UDvAPfA/kD6wPQA7EDkwOFA3sDgQONA2oDMwMtAz
     worker = new Worker(URL.createObjectURL(new Blob(['(' + terrainWorker.toString() + ')()'], { type: 'text/javascript' })));
     worker.postMessage({ H: Hm, GW, GH, cx: (D.extent[2] - D.extent[0]) / GW, cy: (D.extent[1] - D.extent[3]) / GH });
     worker.onmessage = e => {
-      lightCtx.putImageData(new ImageData(e.data, GW, GH), 0, 0);
+      lightNextCtx.putImageData(new ImageData(e.data, GW, GH), 0, 0);
+      if (!lightReady || snapLight) lightCtx.drawImage(lightNext, 0, 0);   // first result, or a still frame: use it as is
       lightReady = true; lightBusy = false;
       if (onLight) onLight();
     };
@@ -422,7 +427,7 @@ const D = {"dem":"XQOIA50DhQNmAzEDRQOIA6UDvAPfA/kD6wPQA7EDkwOFA3sDgQONA2oDMwMtAz
   } catch (e) { worker = null; }
   function requestLight(s, cloud) {
     if (!worker || lightBusy) return;
-    const key = s.el.toFixed(1) + '|' + s.az.toFixed(0) + '|' + cloud.toFixed(2);
+    const key = s.el.toFixed(2) + '|' + s.az.toFixed(1) + '|' + cloud.toFixed(2);
     if (key === lightKey) return;
     lightKey = key; lightBusy = true;
     worker.postMessage({ el: s.el, az: s.az, cloud });
@@ -800,7 +805,12 @@ const D = {"dem":"XQOIA50DhQNmAzEDRQOIA6UDvAPfA/kD6wPQA7EDkwOFA3sDgQONA2oDMwMtAz
   }
   function frame(f, wall) {
     const s = sunAt(f), wx = wxAt(f);
-    const logLux = Math.log10(Math.max(outdoorLux(s.el, wx.cloud, wx.rain), 1e-3));
+    const realLux = Math.log10(Math.max(outdoorLux(s.el, wx.cloud, wx.rain), 1e-3));
+    // How light the scene looks follows the same brightness the photocells see, so the ground
+    // has visibly lightened by the time lamps go out (about 1 lux reads as night, 1000+ as day).
+    s.day = ss(0, 3.1, realLux);
+    // photocells switch off at a somewhat higher level than they switch on, so lamps linger at dawn
+    const logLux = realLux - (s.az < 180 ? 0.22 : 0);
     s.lamps = 1 - ss(1.0, 1.78, logLux);   // overall share of photocell lights that are on
     paintSky(s);
     requestLight(s, Math.pow(wx.cloud, 1.4));
@@ -887,6 +897,8 @@ const D = {"dem":"XQOIA50DhQNmAzEDRQOIA6UDvAPfA/kD6wPQA7EDkwOFA3sDgQONA2oDMwMtAz
       if (s.day > 0.003) { m.globalAlpha = s.day; m.drawImage(aerialDay, 0, 0, W, H); }
       const str = ss(-7, -1, s.el);
       if (lightReady && str > 0.01) {
+        // move a fifth of the way toward the newest result each frame, so shadows glide
+        if (!snapLight) { lightCtx.globalAlpha = 0.2; lightCtx.drawImage(lightNext, 0, 0); lightCtx.globalAlpha = 1; }
         world(m); m.globalCompositeOperation = 'hard-light'; m.globalAlpha = str;
         m.drawImage(lightMap, EX0, EY0, EX1 - EX0, EY1 - EY0);
         screen(m); m.globalCompositeOperation = 'source-over';
@@ -933,7 +945,7 @@ const D = {"dem":"XQOIA50DhQNmAzEDRQOIA6UDvAPfA/kD6wPQA7EDkwOFA3sDgQONA2oDMwMtAz
       // dusk or dawn: draw just the lamps that are on, each at full strength
       for (let i = 0; i < onN; i++) {
         m.globalAlpha = lit.a[i]; m.fillStyle = LAMP_COLOURS[lit.col[i]];
-        const r = lit.rad[i]; m.fillRect(lit.px[i] - r, lit.py[i] - r, 2 * r, 2 * r);
+        m.beginPath(); m.arc(lit.px[i], lit.py[i], lit.rad[i], 0, 7); m.fill();
       }
     }
     const glow = (1 - 0.7 * s.day) * (1 + 0.3 * wx.rain);   // wet streets bloom
@@ -1006,6 +1018,7 @@ const D = {"dem":"XQOIA50DhQNmAzEDRQOIA6UDvAPfA/kD6wPQA7EDkwOFA3sDgQONA2oDMwMtAz
   layout();
   if (window.ResizeObserver) { const ro = new ResizeObserver(relayout); ro.observe(map); ro.observe($('slot')); } else window.addEventListener('resize', relayout);
   if (document.fonts && document.fonts.ready) document.fonts.ready.then(relayout);
+  snapLight = !!still;
   onLight = () => { if (still) frame(STILL_F, 0); };
   if (still) { $('still').hidden = !reduced || !!pin; frame(STILL_F, 0); } else requestAnimationFrame(tick);
 })();
