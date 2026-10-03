@@ -16121,25 +16121,34 @@ async def _block_groups_for_date(target_date: date) -> List[Dict[str, Any]]:
     return await cache.get(fetch)
 
 
-def _night_pilot_route_ids() -> set:
+def _calendar_columns_by_route_id() -> Dict[str, str]:
+    """RouteID -> the service-calendar column that governs it: "Night Pilot" for Night Pilot, "UVA Transit" for the
+    other block-package routes (Gold/Green/Orange/Silver, config/uts_route_ids.json). Purple is deliberately absent:
+    the calendar has no Purple column and Purple runs on days academic service doesn't (user, 2026-10-02: Christmas
+    Eve yes, Christmas Day no), so TransLoc's own schedule keeps deciding for it -- as for anything else unlisted."""
     try:
-        return {str(r) for r in json.loads((Path(__file__).resolve().parent / "config" / "uts_route_ids.json")
-                                           .read_text(encoding="utf-8")).get("Night Pilot", [])}
-    except (OSError, ValueError, AttributeError):
-        return {"59"}
+        families = json.loads((Path(__file__).resolve().parent / "config" / "uts_route_ids.json").read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        families = {}
+    return {
+        str(r): ("Night Pilot" if name == "Night Pilot" else "UVA Transit")
+        for name, ids in (families.items() if isinstance(families, dict) else [])
+        for r in ids
+    }
 
 
-_NIGHT_PILOT_ROUTE_IDS = _night_pilot_route_ids()
+_CALENDAR_COLUMN_BY_ROUTE_ID = _calendar_columns_by_route_id()
 
 
 def _uts_route_runs_on(route_id: str, service_day: date) -> bool:
-    """False if UVA's service calendar (service_schedule.py) says this route's service is off that day: "No Service"
-    under "UVA Transit" for every UTS route, under "Night Pilot" for Night Pilot. Unknown day or no calendar: True
+    """False if UVA's service calendar (service_schedule.py) says this route's service is off that day ("No Service"
+    in its column, see _calendar_columns_by_route_id). A route with no column, an unknown day or no calendar: True
     (TransLoc's own schedule decides, as before)."""
+    column = _CALENDAR_COLUMN_BY_ROUTE_ID.get(str(route_id))
     sched = getattr(app.state, "service_schedule", None)
-    entry = sched.day(service_day) if sched is not None else None
-    services = (entry or {}).get("services") or {}
-    column = "Night Pilot" if str(route_id) in _NIGHT_PILOT_ROUTE_IDS else "UVA Transit"
+    if column is None or sched is None:
+        return True
+    services = (sched.day(service_day) or {}).get("services") or {}
     return "no service" not in str(services.get(column) or "").lower()
 
 
