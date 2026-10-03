@@ -27,7 +27,7 @@ Machine tags: `[dev]` = Windows dev machine · `[home]` = home server (Windows b
 
 ## 1. Message board (newest first)
 
-### 2026-10-03 · [home] · `/timelapse`: baked timelapse of Fri 10-02 fixed-route service, now hosted on the dashboard
+### 2026-10-03 · [home] · `/timelapse`: baked timelapse of Fri 10-02 fixed-route service, now hosted on the dashboard (`aee740f`, DEPLOYED v2044)
 
 User then asked to host it. `html/timelapse.html` (1.8 MB, all data baked in, makes no API calls) is served at `/timelapse`, public, linked from `/sitemap`. Its five aerial photos are `media/timelapse_aerial_{nw,ne,sw,se,core}.jpg`, added to `_MEDIA_ASSETS`.
 - It is a fixed snapshot of ONE day. It does not update, and there is no generator in the repo: the build scripts lived in a session temp folder. To make another day, redo the recipe below.
