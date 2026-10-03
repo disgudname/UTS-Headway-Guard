@@ -25,8 +25,9 @@ import re
 import statistics
 import time
 from dataclasses import dataclass, field
-from datetime import datetime, timedelta
+from datetime import date, datetime, timedelta
 from typing import Callable, Dict, List, Optional, Tuple
+from zoneinfo import ZoneInfo
 
 import httpx
 
@@ -403,6 +404,29 @@ def build_route_service(
                     chain_next[a.route_id] = b.route_id
 
     return RouteService(windows=windows, chain_next=chain_next)
+
+
+# A service window starting before this local hour belongs to the previous evening's service day (Night Pilot's
+# 00:00-02:00 tail is the end of the night before).
+SERVICE_DAY_ROLLOVER_HOUR = 4
+
+
+def filter_route_service(
+    service: RouteService, runs_on: Callable[[str, date], bool], tz: ZoneInfo,
+) -> RouteService:
+    """`service` without the windows of routes that aren't running on the service day each window belongs to
+    (runs_on(route_id, service_day) False). TransLoc's dispatch schedule is not always updated for breaks
+    (confirmed 2026-10-02: it still listed normal weekend and weekday service for Fall Break, when UVA's service
+    calendar said No Service Sat/Sun and no Night Pilot Mon/Tue), and a route with a window is offered to riders."""
+    windows: Dict[str, List[Tuple[float, float]]] = {}
+    for route_id, route_windows in service.windows.items():
+        kept = [
+            (start, end) for start, end in route_windows
+            if runs_on(route_id, (datetime.fromtimestamp(start, tz) - timedelta(hours=SERVICE_DAY_ROLLOVER_HOUR)).date())
+        ]
+        if kept:
+            windows[route_id] = kept
+    return RouteService(windows=windows, chain_next=dict(service.chain_next))
 
 
 # --- trip finding -------------------------------------------------------------------

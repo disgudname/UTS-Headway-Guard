@@ -912,3 +912,29 @@ def test_live_wait_follows_the_interline_chain_when_the_boarding_line_has_none()
     assert result is not None
     leg, _alight_time = result
     assert leg.wait_s == 300.0
+
+
+def test_filter_route_service_drops_routes_on_days_they_do_not_run():
+    from datetime import date
+    from zoneinfo import ZoneInfo
+
+    ny = ZoneInfo("America/New_York")
+    ts = lambda d, h: datetime(2026, 10, d, h, 0, tzinfo=ny).timestamp()
+    service = tp.RouteService(
+        windows={
+            "57": [(ts(3, 7), ts(3, 22))],                  # Saturday 10-03: no UTS service
+            "59": [(ts(3, 0), ts(3, 2)), (ts(3, 22), ts(3, 23))],  # Fri night's tail + Sat night
+            "58": [(ts(2, 6), ts(2, 20))],                  # Friday: running
+        },
+        chain_next={"67": "57"},
+    )
+    off = {("UVA Transit", date(2026, 10, 3)), ("Night Pilot", date(2026, 10, 3))}
+
+    def runs_on(route_id, day):
+        return (("Night Pilot" if route_id == "59" else "UVA Transit"), day) not in off
+
+    out = tp.filter_route_service(service, runs_on, ny)
+    assert "57" not in out.windows
+    assert out.windows["59"] == [(ts(3, 0), ts(3, 2))]  # 00:00-02:00 belongs to Friday night, which ran
+    assert out.windows["58"] == service.windows["58"]
+    assert out.chain_next == {"67": "57"}

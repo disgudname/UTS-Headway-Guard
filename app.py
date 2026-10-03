@@ -16121,6 +16121,28 @@ async def _block_groups_for_date(target_date: date) -> List[Dict[str, Any]]:
     return await cache.get(fetch)
 
 
+def _night_pilot_route_ids() -> set:
+    try:
+        return {str(r) for r in json.loads((Path(__file__).resolve().parent / "config" / "uts_route_ids.json")
+                                           .read_text(encoding="utf-8")).get("Night Pilot", [])}
+    except (OSError, ValueError, AttributeError):
+        return {"59"}
+
+
+_NIGHT_PILOT_ROUTE_IDS = _night_pilot_route_ids()
+
+
+def _uts_route_runs_on(route_id: str, service_day: date) -> bool:
+    """False if UVA's service calendar (service_schedule.py) says this route's service is off that day: "No Service"
+    under "UVA Transit" for every UTS route, under "Night Pilot" for Night Pilot. Unknown day or no calendar: True
+    (TransLoc's own schedule decides, as before)."""
+    sched = getattr(app.state, "service_schedule", None)
+    entry = sched.day(service_day) if sched is not None else None
+    services = (entry or {}).get("services") or {}
+    column = "Night Pilot" if str(route_id) in _NIGHT_PILOT_ROUTE_IDS else "UVA Transit"
+    return "no service" not in str(services.get(column) or "").lower()
+
+
 async def _uts_route_service_for_date(target_date: date) -> trip_planner.RouteService:
     """Same windows/chain-table computation _uts_lines_for_trip_planner does, but for
     an arbitrary date rather than always "today" -- see that function for why
@@ -16651,6 +16673,7 @@ async def trip_planner_plan(
     uts_lines_raw, route_service = await _uts_lines_for_trip_planner()
     if target_date != today_ny:
         route_service = await _uts_route_service_for_date(target_date)
+    route_service = trip_planner.filter_route_service(route_service, _uts_route_runs_on, ny_tz)
     uts_lines = [_trip_planner_line_from_graph(entry, source="uts", loop=True) for entry in uts_lines_raw]
 
     origin = (from_lat, from_lon)
