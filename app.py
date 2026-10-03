@@ -2090,6 +2090,7 @@ STOP_APPROACH_HTML = _load_html("stop-approach.html")
 COUNTDOWN_HTML = _load_html("countdown.html")
 WEATHER_HTML = _load_html("weather.html")
 WEATHERCLOCK_HTML = _load_html("weatherclock.html")
+TIMELAPSE_HTML = _load_html("timelapse.html")
 DUCK_CONFIG_HTML = _load_html("duck-config.html")
 DOWNED_HTML = _load_html("downed.html")
 IPS_HTML = _load_html("ips.html")
@@ -13656,6 +13657,11 @@ _MEDIA_ASSETS: dict[str, str] = {
     "ridership.svg": "image/svg+xml",
     "headway.svg": "image/svg+xml",
     "replay.svg": "image/svg+xml",
+    "timelapse_aerial_nw.jpg": "image/jpeg",
+    "timelapse_aerial_ne.jpg": "image/jpeg",
+    "timelapse_aerial_sw.jpg": "image/jpeg",
+    "timelapse_aerial_se.jpg": "image/jpeg",
+    "timelapse_aerial_core.jpg": "image/jpeg",
     "downed.svg": "image/svg+xml",
     "testmap.svg": "image/svg+xml",
     "transloc.svg": "image/svg+xml",
@@ -14530,6 +14536,10 @@ async def weather_page():
 @app.get("/weatherclock")
 async def weatherclock_page():
     return HTMLResponse(WEATHERCLOCK_HTML)
+
+@app.get("/timelapse")
+async def timelapse_page():
+    return HTMLResponse(TIMELAPSE_HTML)
 
 @app.get("/vdot-cams")
 async def vdot_cams_page():

@@ -27,6 +27,15 @@ Machine tags: `[dev]` = Windows dev machine · `[home]` = home server (Windows b
 
 ## 1. Message board (newest first)
 
+### 2026-10-03 · [home] · `/timelapse`: baked timelapse of Fri 10-02 fixed-route service, now hosted on the dashboard
+
+User then asked to host it. `html/timelapse.html` (1.8 MB, all data baked in, makes no API calls) is served at `/timelapse`, public, linked from `/sitemap`. Its five aerial photos are `media/timelapse_aerial_{nw,ne,sw,se,core}.jpg`, added to `_MEDIA_ASSETS`.
+- It is a fixed snapshot of ONE day. It does not update, and there is no generator in the repo: the build scripts lived in a session temp folder. To make another day, redo the recipe below.
+- Sources baked in: replay log (buses), USDA NAIP aerial via USGS ImageServer (request `size` must match the bbox proportions in degrees or the server returns a taller area), USGS 3DEP elevation for terrain shadows, UVA GES buildings + Lighted Pathways (server is now `fm-atlas.eservices.virginia.edu/server/rest/services/Public`; old `atlas.fm.virginia.edu` is dead), city `OpenData_1/MapServer/59` buildings, GOES-East infrared from NASA GIBS for cloud, IEM NEXRAD n0q for rain, NASA Black Marble for streetlight density, OSM streets.
+- User asked for the blue-light phone layer to be left out. Stadium/JPJ are left dark (assumed no event that night).
+
+Original artifact entry follows.
+
 ### 2026-10-03 · [home] · One-off: timelapse artifact of Fri 10-02 fixed-route service (no repo changes)
 
 User asked for a looping, non-interactive timelapse of yesterday's public fixed-route service. Published as a private claude.ai artifact (https://claude.ai/artifact/VykuxpycELVXvWR6pcAw2w); nothing in the repo changed. Recipe if it is asked for again:

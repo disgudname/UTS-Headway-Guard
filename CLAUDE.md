@@ -386,6 +386,7 @@ Admin-managed alerts (`/v1/system-notices` CRUD, edited at `/system-notices`). `
 - `GET /repairs` - Maintenance ticket UI
 - `GET /repairsscreen` - Shop floor signage
 - `GET /replay` - Historical replay
+- `GET /timelapse` - Baked timelapse of one service day (Fri 2026-10-02); static snapshot, no API calls, see HANDOFF.md
 - `GET /headway` - Headway visualization
 - `GET /headway-diagnostics` - Diagnostic view
 - `GET /arrivalsdisplay` - Arrivals board
