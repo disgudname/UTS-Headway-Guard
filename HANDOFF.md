@@ -27,6 +27,13 @@ Machine tags: `[dev]` = Windows dev machine · `[home]` = home server (Windows b
 
 ## 1. Message board (newest first)
 
+### 2026-10-03 · [home] · One-off: timelapse artifact of Fri 10-02 fixed-route service (no repo changes)
+
+User asked for a looping, non-interactive timelapse of yesterday's public fixed-route service. Published as a private claude.ai artifact (https://claude.ai/artifact/VykuxpycELVXvWR6pcAw2w); nothing in the repo changed. Recipe if it is asked for again:
+- Data: `GET /vehicle_log/YYYYMMDD_HH.jsonl` (hour files are named in ET) plus `/vehicle_log/YYYYMMDD_routes.json` for names, colours and polylines. A service day runs past midnight, so also pull 00-02 of the next date.
+- "Public fixed route" filter used: RouteIDs 53/55 Orange, 54/68 Green, 57/67 Gold, 58 Silver, 59 Night Pilot, 72/73/74 Purple. Dropped: no RouteID (out of service), 11 Training, 2 Charter, lot and fan shuttles (60-63, which were only stale log-ons parked overnight after Thursday's game), anything within 120 m of the yard, GPS fixes older than 90 s.
+- The vehicle `Timestamp` field in the log is 6 h ahead of the entry `ts` (subtract 21600000 ms before comparing).
+
 ### 2026-10-02 · [home] · Fall Break: recess block schedule switches on by date (COMMITTED, NOT deployed; deploy before Mon 10-05 05:00)
 - **Calendar (service_schedule):** Sat 10-03 + Sun 10-04 No Service; **Mon 10-05 + Tue 10-06 "Recess Service"**; Wed 10-07 Full. Night Pilot off Mon/Tue. Weekend health runs will be inconclusive.
 - **Source:** the user dropped the 2026 paddles in `~/Documents/Block Packages/Fall Break 2026/` (six .docx: Green [01] [02], Orange [05] [07], Gold [09] [11]). They match the workbooks' `Gold Fall Break 2025` / `GRN Fall BRK 2025` / `Orange Fall BRK 2025` sheets entry for entry (those also equal the Spring Recess 2026 sheets), except typos: [05] 19:40 "LIN" = LIB, [09] 05:00 "CHEM" vs "CSW" (unmapped for Gold either way), and [05]'s evening change is "after leaving CSW 17:50" where the 2025 note says WHD. User: routings stay as they are now (detour 67/68 by day). **Silver has no recess sheet and runs its normal schedule (user confirmed).**
