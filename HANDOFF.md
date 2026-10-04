@@ -27,6 +27,18 @@ Machine tags: `[dev]` = Windows dev machine · `[home]` = home server (Windows b
 
 ## 1. Message board (newest first)
 
+### 2026-10-04 · [home] · Inventory of what prod has logged in `/data` (read-only look, no code changed)
+
+User asked what fun things could be built from the logged data. Nothing built yet. What is there (volume 7.2 of 9.9 GB used):
+
+- **`vehicle_logs/` 6.8 GB**: `YYYYMMDD_HH.jsonl`, one line per ~5 s with every bus position/speed/heading/RouteID, the OnDemand vans (with driver names, PII) and the block map. 28 days only (oldest `20260906_05`). `YYYYMMDD_routes.json` is never pruned: 328 days back to 2025-11-11.
+- **`headway/` 372 MB**: one CSV per day, 271 days back to 2025-12-11, about 15k rows on a weekday. Every arrival/departure per bus per stop (stopped vs passthrough, dwell seconds, headway seconds). The longest detailed history we have.
+- **`mileage.json`**: miles per bus per day with the blocks it ran, back to 2025-09-06.
+- **`fullbus_events/`**: 176 daily CSVs back to 2026-02-12: bus, route, stop, lat/lon, capacity, load, start/end of each "bus is full" spell.
+- **`w2w_schedule_changes.jsonl`**: 1250 shift changes since the 2026-09-25 baseline (added/removed/reassigned/retimed, with notes like "OFF PULL").
+- **`vehicle_log.jsonl`** (18 MB, 1891 lines): an orphan from 2025-09-08/09, the old single-file logger. Nothing reads it.
+- Also `trip_planner_hop_times.json` / `_drive_dwell.json` (learned stop-to-stop times), `user_presence.json` (page visit counts), `tomtom_usage.json`.
+
 ### 2026-10-04 · [home] · VM `valhalla-server` cut from 3 GB to 2 GB; replay log retention is 28 days; timelapse shuttle-line fix
 
 - **VM memory 3072 -> 2048 MB** (`VBoxManage modifyvm valhalla-server --memory 2048`, VM restarted 10:12 ET, about 1 minute of outage). Inside it Valhalla + Nominatim use about 600 MB. Routing (8002) and geocoding (8003, and prod `/v1/search/geocode`) checked afterwards. **Raise it back before a tile rebuild or a Nominatim re-import with a bigger area.** It did not free host RAM right away: VirtualBox only backs memory the guest has touched, so this caps growth rather than returning 1 GB.
