@@ -27,6 +27,12 @@ Machine tags: `[dev]` = Windows dev machine · `[home]` = home server (Windows b
 
 ## 1. Message board (newest first)
 
+### 2026-10-04 · [home] · VM `valhalla-server` cut from 3 GB to 2 GB; replay log retention is 28 days; timelapse shuttle-line fix
+
+- **VM memory 3072 -> 2048 MB** (`VBoxManage modifyvm valhalla-server --memory 2048`, VM restarted 10:12 ET, about 1 minute of outage). Inside it Valhalla + Nominatim use about 600 MB. Routing (8002) and geocoding (8003, and prod `/v1/search/geocode`) checked afterwards. **Raise it back before a tile rebuild or a Nominatim re-import with a bigger area.** It did not free host RAM right away: VirtualBox only backs memory the guest has touched, so this caps growth rather than returning 1 GB.
+- **Replay log retention on prod is 28 days** (`VEH_LOG_RETENTION_MS` in `fly.toml`, since 2026-07-22), not "a week or two". Oldest hour on prod today: `20260906_07`. `_routes.json` files are never pruned. HEAD on `/vehicle_log/...` returns 405; probe with a ranged GET.
+- **UTS-Timelapse (uncommitted there):** on a `--events` build the shuttle route lines were drawn faintly all week (pink line on Alderman north of McCormick). They now draw only during a real event. The built 9/21-9/27 page in `dist/` was patched in place, not rebuilt. `/timelapse` (10-02) was never affected.
+
 ### 2026-10-03 · [home] · `/timelapse`: baked timelapse of Fri 10-02 fixed-route service, now hosted on the dashboard (`aee740f`, DEPLOYED v2044)
 
 User then asked to host it. `html/timelapse.html` (1.8 MB, all data baked in, makes no API calls) is served at `/timelapse`, public, linked from `/sitemap`. Its five aerial photos are `media/timelapse_aerial_{nw,ne,sw,se,core}.jpg`, added to `_MEDIA_ASSETS`.
