@@ -27,6 +27,18 @@ Machine tags: `[dev]` = Windows dev machine · `[home]` = home server (Windows b
 
 ## 1. Message board (newest first)
 
+### 2026-10-04 · [home] · New `/onboard` page (on-board bus sign) + `GET /v1/onboard`. NOT committed, NOT deployed
+
+Code is in the working tree on [home] only (`app.py`, `uts_blocks.py`, `html/onboard.html`, `html/sitemap.html`); the user has not asked for a commit or deploy yet.
+
+- **What it is:** a screen for a tablet riding on a bus. `/onboard?bus=18432` shows the route, NOW AT / NEXT STOP / ARRIVING AT, the next 6 stops with minutes, "Departs h:mm" while holding at a timestop, and a system-notice bar.
+- **Position sources:** the tablet's own GPS (browser geolocation, sent as `lat/lon/heading/speed`) is primary; TransLoc's position is the fallback, and also what tells the server which route, block and pass of the line the bus is on. A device fix more than 500 m (+20 m per second of TransLoc age) from TransLoc's is ignored (wrong `?bus=`).
+- **Replay:** `?replay=2026-09-29T10:20&speed=4` (local time or epoch ms). The server reads the bus out of the vehicle logs at that moment (`at=` epoch ms), rebuilds the route from that day's `_routes.json` (nearest day if missing) and walks the last 120 s of log to get direction and speed the way `updater()` does. Logs are indexed by their first entry's `ts`, not the file name, so prod logs copied to another timezone still work.
+- **ETAs:** `bus_eta.estimate_stop_eta_s` with the same arguments as `/v1/eta/uts_stop_arrivals`, but WITHOUT that feed's median-of-3 smoothing, out-of-service cut-off and evening-route-change stop hiding. So a bus on its last run still lists stops it will not serve.
+- **Tested:** replay only (no service today): Orange, Gold, Silver, Purple from `20260929_10.jsonl`, 228 polls each over 38 min, stop sequence and list order correct. **Device-GPS path has never run on a real bus.** Geolocation needs HTTPS (prod is fine).
+- **Local run:** `DATA_DIRS=data-local`, `VEH_LOG_DIRS=data-local/vehicle_logs:data-local/vehicle_logs_pull` (relative, colon-split), uvicorn on 8097.
+- Suite: same 8 pre-existing failures + `test_vehicle_drivers.py` import error. No tests added for this.
+
 ### 2026-10-04 · [home] · Inventory of what prod has logged in `/data` (read-only look, no code changed)
 
 User asked what fun things could be built from the logged data. Nothing built yet. What is there (volume 7.2 of 9.9 GB used):
