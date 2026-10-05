@@ -27,7 +27,7 @@ Machine tags: `[dev]` = Windows dev machine · `[home]` = home server (Windows b
 
 ## 1. Message board (newest first)
 
-### 2026-10-05 · [home] · New `/timelapse-week`: the 9/21-9/27 week timelapse on the dashboard. NOT committed, NOT deployed
+### 2026-10-05 · [home] · New `/timelapse-week`: the 9/21-9/27 week timelapse on the dashboard (`02d7060`, DEPLOYED v2056 ~16:26 ET)
 
 User asked for the week-long timelapse to go on the dashboard "somewhere". It got its own page next to `/timelapse` (which still shows Fri 10-02) rather than replacing it.
 - `html/timelapse-week.html` is a straight copy of UTS-Timelapse `dist/2026-09-21_2026-09-27/dashboard.html` (the `--events` build with Saturday's game-day shuttles, shuttle-line fix included). 7.3 MB, 1.6 MB gzipped on the wire, held in memory like every other page. It uses the same `media/timelapse_aerial_*.jpg` tiles, so no new media.
