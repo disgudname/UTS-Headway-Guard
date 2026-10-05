@@ -27,6 +27,14 @@ Machine tags: `[dev]` = Windows dev machine · `[home]` = home server (Windows b
 
 ## 1. Message board (newest first)
 
+### 2026-10-05 · [home] · /livemap vehicle popup laid out like /map's bus popup (UNCOMMITTED on home, not deployed)
+
+User: the /livemap bus popup was a wall of text, /map's looks better. Same data, new layout; `popupHTML` in `scripts/livemap/core/layers/vehicles.js` and the `.lv-*` block in `css/livemap.css`.
+- Top card with the route colour on its left edge (route, block • bus number, speed/fix), then labelled sections split by hairlines: Driver(s) as cards ("On at / Off at", OB shift in amber), Occupancy, Next stops (ETA in orange), then the Follow button. Vans go through the same function, so they get the card and section labels too.
+- Occupancy bar is now one colour by load, same bands as /map (green, orange from 62%, red when full). The old green-to-red gradient ran across the filled part only, so a 40% bus showed red.
+- Gone: `.lv-name`, `.lv-swatch`, `.lv-open`, `.lv-eta-h`, `.lv-manifest-h` (nothing else used them).
+- **Tested** in Chrome on a local server with `?mock=1&dispatcher=1`: real popup on a mock bus (card + occupancy + follow), and the driver / OB / next-stops sections with the same markup injected by hand. **NOT tested:** a real van popup with a manifest, a live bus with real ETAs, the non-dispatcher view, light theme.
+
 ### 2026-10-05 · [home] · Backward-reading fix + service levels logged, recess days get their own ETA history (`47961f3`, DEPLOYED v2054 ~12:57 ET)
 
 Asked for by the user after the morning check below; shipped on the user's "cpd". **The same commit and deploy carry the `/onboard` work from the 10-04 entry** (page, `GET /v1/onboard`, `media/ava/`), so that is now committed and live too.
