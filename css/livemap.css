@@ -392,32 +392,74 @@ body {
   padding-right: 22px;
 }
 
-.lv-route {
+/* Vehicle popup body, laid out like /map's bus popup: a route-coloured info
+   card, then labelled sections (driver, occupancy, next stops) split by
+   hairlines. */
+.lv-pop {
+  min-width: 200px;
+}
+
+.lv-section {
   display: flex;
-  align-items: center;
-  gap: 6px;
+  flex-direction: column;
+  gap: 5px;
+}
+
+.lv-label {
+  font-size: var(--fs-micro);
   font-weight: 700;
-  font-size: var(--fs-md);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--pop-muted);
 }
 
-.lv-swatch {
-  width: 10px;
-  height: 10px;
-  border-radius: 3px;
-  flex: 0 0 auto;
-  box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.35) inset;
+.lv-label-tag {
+  text-transform: none;
+  letter-spacing: normal;
+  font-weight: 600;
+  opacity: 0.8;
+  margin-left: 4px;
 }
 
-.lv-name {
+.lv-divider {
+  height: 1px;
+  background: var(--pop-hairline);
+  margin: 9px 0;
+}
+
+/* Tinted block with a coloured left edge: the route colour on the info card,
+   green on a driver, amber on a shift nobody is assigned to. */
+.lv-card {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 8px 10px;
+  border-radius: var(--radius-sm);
+  background: rgba(255, 255, 255, 0.07);
+  border: 1px solid var(--pop-hairline);
+  border-left: 4px solid var(--pop-muted);
+}
+
+.lv-route {
+  font-weight: 700;
   font-size: var(--fs-lg);
+  line-height: 1.25;
+}
+
+.lv-unit {
+  font-size: var(--fs-md);
+  font-weight: 600;
+  color: var(--pop-muted);
+}
+
+.lv-unit strong {
+  color: var(--pop-fg);
   font-weight: 700;
-  margin-top: 3px;
 }
 
 .lv-meta {
   font-size: var(--fs-sm);
-  opacity: 0.75;
-  margin-top: 2px;
+  color: var(--pop-muted);
 }
 
 .lv-shift {
@@ -425,30 +467,27 @@ body {
   font-variant-numeric: tabular-nums;
 }
 
+.lv-driver {
+  border-left-color: #7bd95f;
+}
+
+.lv-driver-name {
+  font-size: var(--fs-md);
+  font-weight: 700;
+}
+
 /* A shift nobody is assigned to (W2W "OPEN"): shown in place of a driver name */
-.lv-open {
-  color: var(--warn, #d97706);
-  font-weight: 600;
+.lv-driver.is-open {
+  border-left-color: var(--warn);
+}
+
+.lv-driver.is-open .lv-driver-name {
+  color: var(--warn);
   letter-spacing: 0.02em;
 }
 
 .lv-access {
   font-style: italic;
-}
-
-.lv-manifest {
-  margin-top: 8px;
-  border-top: 1px solid var(--pop-hairline);
-  padding-top: 6px;
-}
-
-.lv-manifest-h {
-  font-size: var(--fs-micro);
-  font-weight: 700;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
-  opacity: 0.6;
-  margin-bottom: 3px;
 }
 
 .lv-manifest-row {
@@ -485,37 +524,19 @@ body {
 }
 
 /* This vehicle's own upcoming-stops ETA (see bus_eta.py) -- our second opinion,
-   shown in the vehicle popup itself rather than only a stop's popup. Same
-   header/hairline treatment as .lv-manifest above for visual consistency. */
-.lv-eta {
-  margin-top: 8px;
-  border-top: 1px solid var(--pop-hairline);
-  padding-top: 6px;
-}
-
-.lv-eta-h {
-  font-size: var(--fs-micro);
-  font-weight: 700;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
-  opacity: 0.6;
-  margin-bottom: 3px;
-}
-
-.lv-eta-h-tag {
-  text-transform: none;
-  letter-spacing: normal;
-  font-weight: 600;
-  opacity: 0.75;
-}
-
+   shown in the vehicle popup itself rather than only a stop's popup. */
 .lv-eta-row {
   display: flex;
   align-items: baseline;
   justify-content: space-between;
-  gap: 8px;
-  font-size: var(--fs-sm);
-  padding: 2px 0;
+  gap: 12px;
+  font-size: var(--fs-md);
+  font-weight: 600;
+  padding: 4px 0;
+}
+
+.lv-eta-row + .lv-eta-row {
+  border-top: 1px solid var(--pop-hairline);
 }
 
 .lv-eta-stop {
@@ -527,36 +548,44 @@ body {
 
 .lv-eta-time {
   flex: 0 0 auto;
+  font-size: var(--fs-sm);
   font-weight: 700;
+  color: var(--accent-bright);
   font-variant-numeric: tabular-nums;
 }
 
 .lv-eta-time.is-est {
-  font-weight: 600;
   opacity: 0.8;
 }
 
-.lv-occ {
-  margin-top: 8px;
-}
-
 .lv-occ-bar {
-  height: 6px;
-  border-radius: 3px;
-  background: rgba(127, 127, 127, 0.25);
+  height: 12px;
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.12);
+  border: 1px solid var(--pop-hairline);
   overflow: hidden;
 }
 
 .lv-occ-bar span {
   display: block;
   height: 100%;
-  background: linear-gradient(90deg, var(--ok), var(--warn) 70%, var(--bad));
+  border-radius: 6px;
+  background: var(--ok);
+}
+
+.lv-occ-bar span.is-busy {
+  background: var(--accent-bright);
+}
+
+.lv-occ-bar span.is-full {
+  background: var(--bad);
 }
 
 .lv-occ-label {
-  font-size: var(--fs-xs);
-  opacity: 0.7;
-  margin-top: 3px;
+  font-size: var(--fs-sm);
+  font-weight: 600;
+  color: var(--pop-muted);
+  text-align: center;
 }
 
 .lv-follow {

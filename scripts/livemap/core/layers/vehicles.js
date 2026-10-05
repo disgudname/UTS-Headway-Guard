@@ -1263,46 +1263,11 @@ function popupHTML(id) {
         ? `${Math.round(p.ageS)}s ago`
         : `${Math.round(p.ageS / 60)} min ago`;
 
-  let occ = '';
-  if (typeof p.occupancy === 'number') {
-    const pct = clamp(Math.round(p.occupancy * 100), 0, 100);
-    const label =
-      p.onboard != null && p.capacity
-        ? `${p.onboard} / ${p.capacity}`
-        : `${pct}%`;
-    occ = `
-      <div class="lv-occ">
-        <div class="lv-occ-bar"><span style="width:${pct}%"></span></div>
-        <div class="lv-occ-label">${label} aboard</div>
-      </div>`;
-  }
-
-  const metaBits = [p.stopped ? 'Stopped' : speed];
-  if (age) metaBits.push(`fix ${age}${p.dim ? ' · stale' : ''}`);
-
-  // This vehicle's own upcoming stops, our second-opinion ETA (see bus_eta.py)
-  // -- UTS only, CAT/vans have no hop-time model to predict from. Shows the
-  // next couple of stops it's headed to, soonest first.
-  let etaBlock = '';
-  if (p.agency === 'uts') {
-    const rawId = id.startsWith(UTS_PREFIX) ? id.slice(UTS_PREFIX.length) : id;
-    const upcoming = getBusEtaForVehicle(p.routeId, rawId).slice(0, 3);
-    if (upcoming.length) {
-      etaBlock = `
-      <div class="lv-eta">
-        <div class="lv-eta-h">Next stops <span class="lv-eta-h-tag">our estimate</span></div>
-        ${upcoming
-          .map(
-            (t) => `
-          <div class="lv-eta-row">
-            <span class="lv-eta-stop">${escapeHTML(t.stopName || 'stop')}</span>
-            <span class="lv-eta-time${t.source === 'live' ? '' : ' is-est'}">${vehicleEtaLabel(t.seconds)}</span>
-          </div>`,
-          )
-          .join('')}
-      </div>`;
-    }
-  }
+  // Laid out like /map's bus popup: a route-coloured info card on top, then
+  // labelled sections (driver, occupancy, next stops) split by hairlines.
+  const sections = [];
+  const section = (label, body) =>
+    `<div class="lv-section"><div class="lv-label">${label}</div>${body}</div>`;
 
   const tag =
     p.agency === 'cat' ? 'CAT'
@@ -1310,34 +1275,12 @@ function popupHTML(id) {
     : p.agency === 'ondemand' ? 'UVA RIDE'
     : '';
 
-  // Dispatchers lead with the block; everyone else leads with the route. The
-  // block is shown verbatim — brackets already mean "block" in UTS-speak.
+  // Dispatchers get the block next to the unit number, shown verbatim —
+  // brackets already mean "block" in UTS-speak.
   const dispatch = isDispatcher();
-  const blockLine = dispatch && p.block ? `<div class="lv-name">${escapeHTML(p.block)}</div>` : '';
-  const unitLine = `<div class="${blockLine ? 'lv-meta' : 'lv-name'}">${unitNoun(p.agency)} ${escapeHTML(p.label)}</div>`;
-  // Driver line(s). UTS buses: from getDrivers(); vans: from the merged
-  // On-Demand driver name + a name-matched W2W shift.
-  const driverBits = [];
-  if (dispatch) {
-    for (const d of p.drivers) {
-      // An OPEN shift (nobody assigned) reads as a warning, not as a person's name.
-      driverBits.push(
-        (d.unassigned ? `<span class="lv-open">${escapeHTML(d.name)}</span>` : escapeHTML(d.name)) +
-          (d.start || d.end
-            ? ` <span class="lv-shift">${escapeHTML(`${d.start}–${d.end}`)}</span>`
-            : ''),
-      );
-    }
-    if (p.driver) {
-      driverBits.push(
-        escapeHTML(p.driver) +
-          (p.driverShift ? ` <span class="lv-shift">${escapeHTML(p.driverShift)}</span>` : ''),
-      );
-    }
-  }
-  const driverLine = driverBits.length
-    ? `<div class="lv-meta">${driverBits.join(', ')}</div>`
-    : '';
+  const unitBits = [];
+  if (dispatch && p.block) unitBits.push(`<strong>${escapeHTML(p.block)}</strong>`);
+  unitBits.push(`${unitNoun(p.agency)} ${escapeHTML(p.label)}`);
 
   // Van blurb: "White Karsan eJest" (On-Demand) or "Gray Hyundai Sonata · 4 seats" (Spare).
   const vanBits = [];
@@ -1350,41 +1293,107 @@ function popupHTML(id) {
       ? `<div class="lv-meta lv-access">${escapeHTML(p.access.join(', '))}</div>`
       : '';
 
+  const metaBits = [p.stopped ? 'Stopped' : speed];
+  if (age) metaBits.push(`fix ${age}${p.dim ? ' · stale' : ''}`);
+
+  sections.push(`
+      <div class="lv-card lv-head" style="border-left-color:${p.routeColor}">
+        <div class="lv-route">${escapeHTML(p.routeName)}${tag ? ` <span class="ls-tag">${tag}</span>` : ''}</div>
+        <div class="lv-unit">${unitBits.join(' • ')}</div>
+        ${vanLine}
+        ${accessLine}
+        <div class="lv-meta">${metaBits.join(' · ')}</div>
+      </div>`);
+
+  // Driver card(s). UTS buses: from getDrivers(); vans: from the merged
+  // On-Demand driver name + a name-matched W2W shift.
+  if (dispatch) {
+    const cards = [];
+    for (const d of p.drivers) {
+      const shift = [d.start && `On at ${escapeHTML(d.start)}`, d.end && `Off at ${escapeHTML(d.end)}`]
+        .filter(Boolean)
+        .join(' • ');
+      // An OPEN shift (nobody assigned) reads as a warning, not as a person's name.
+      cards.push(`
+        <div class="lv-card lv-driver${d.unassigned ? ' is-open' : ''}">
+          <div class="lv-driver-name">${escapeHTML(d.name)}</div>
+          ${shift ? `<div class="lv-meta">${shift}</div>` : ''}
+        </div>`);
+    }
+    if (p.driver) {
+      cards.push(`
+        <div class="lv-card lv-driver">
+          <div class="lv-driver-name">${escapeHTML(p.driver)}</div>
+          ${p.driverShift ? `<div class="lv-meta">${escapeHTML(p.driverShift)}</div>` : ''}
+        </div>`);
+    }
+    if (cards.length) sections.push(section(cards.length > 1 ? 'Drivers' : 'Driver', cards.join('')));
+  }
+
+  if (typeof p.occupancy === 'number') {
+    const pct = clamp(Math.round(p.occupancy * 100), 0, 100);
+    const label =
+      p.onboard != null && p.capacity
+        ? `${p.onboard} / ${p.capacity}`
+        : `${pct}%`;
+    // Same bands as /map: green, orange from 62%, red when full.
+    const occClass = pct >= 100 ? 'is-full' : pct >= 62 ? 'is-busy' : '';
+    sections.push(
+      section(
+        'Occupancy (approximate)',
+        `<div class="lv-occ-bar"><span class="${occClass}" style="width:${pct}%"></span></div>
+        <div class="lv-occ-label">${label} aboard</div>`,
+      ),
+    );
+  }
+
+  // This vehicle's own upcoming stops, our second-opinion ETA (see bus_eta.py)
+  // -- UTS only, CAT/vans have no hop-time model to predict from. Shows the
+  // next couple of stops it's headed to, soonest first.
+  if (p.agency === 'uts') {
+    const rawId = id.startsWith(UTS_PREFIX) ? id.slice(UTS_PREFIX.length) : id;
+    const upcoming = getBusEtaForVehicle(p.routeId, rawId).slice(0, 3);
+    if (upcoming.length) {
+      sections.push(
+        section(
+          'Next stops <span class="lv-label-tag">our estimate</span>',
+          upcoming
+            .map(
+              (t) => `
+          <div class="lv-eta-row">
+            <span class="lv-eta-stop">${escapeHTML(t.stopName || 'stop')}</span>
+            <span class="lv-eta-time${t.source === 'live' ? '' : ' is-est'}">${vehicleEtaLabel(t.seconds)}</span>
+          </div>`,
+            )
+            .join(''),
+        ),
+      );
+    }
+  }
+
   // A van's ordered destination list (vandispatch-style) — no route lines.
-  let manifestBlock = '';
   if (p.agency === 'spare' || p.agency === 'ondemand') {
     const rows = vanManifest(p.agency === 'spare' ? 'spare' : 'ride', p.agency === 'spare' ? p.spareId : p.label);
     if (rows.length) {
-      manifestBlock = `
-      <div class="lv-manifest">
-        <div class="lv-manifest-h">Stops</div>
-        ${rows
-          .slice(0, 8)
-          .map((s) => {
-            const who = s.rider ? ` — ${escapeHTML(s.rider)}` : '';
-            const when = s.time ? ` <span class="lv-shift">${escapeHTML(s.time)}</span>` : '';
-            return `<div class="lv-manifest-row"><span class="lv-manifest-n">${s.n || '·'}</span><span class="lv-manifest-k lv-manifest-k--${s.kind === 'Pickup' ? 'p' : 'd'}">${s.kind}</span>${who}${when}${s.addr ? `<div class="lv-manifest-addr">${escapeHTML(s.addr)}</div>` : ''}</div>`;
-          })
-          .join('')}
-      </div>`;
+      sections.push(
+        section(
+          'Stops',
+          rows
+            .slice(0, 8)
+            .map((s) => {
+              const who = s.rider ? ` — ${escapeHTML(s.rider)}` : '';
+              const when = s.time ? ` <span class="lv-shift">${escapeHTML(s.time)}</span>` : '';
+              return `<div class="lv-manifest-row"><span class="lv-manifest-n">${s.n || '·'}</span><span class="lv-manifest-k lv-manifest-k--${s.kind === 'Pickup' ? 'p' : 'd'}">${s.kind}</span>${who}${when}${s.addr ? `<div class="lv-manifest-addr">${escapeHTML(s.addr)}</div>` : ''}</div>`;
+            })
+            .join(''),
+        ),
+      );
     }
   }
 
   return `
     <div class="lv-pop">
-      <div class="lv-route">
-        <span class="lv-swatch" style="background:${p.routeColor}"></span>
-        ${escapeHTML(p.routeName)}${tag ? ` <span class="ls-tag">${tag}</span>` : ''}
-      </div>
-      ${blockLine}
-      ${unitLine}
-      ${driverLine}
-      ${vanLine}
-      ${accessLine}
-      <div class="lv-meta">${metaBits.join(' · ')}</div>
-      ${etaBlock}
-      ${manifestBlock}
-      ${occ}
+      ${sections.join('<div class="lv-divider" aria-hidden="true"></div>')}
       <button type="button" class="lv-follow${following ? ' is-on' : ''}" data-action="follow">
         ${following ? 'Following — tap to release' : `Follow this ${unitNoun(p.agency).toLowerCase()}`}
       </button>
