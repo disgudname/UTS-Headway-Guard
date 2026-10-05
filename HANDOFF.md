@@ -27,7 +27,7 @@ Machine tags: `[dev]` = Windows dev machine · `[home]` = home server (Windows b
 
 ## 1. Message board (newest first)
 
-### 2026-10-05 · [home] · Evening Gold (57): Goodwin Bridge (Southbound) was pinned to the NORTHBOUND pass. Fixed in `app.py`, UNCOMMITTED on home, NOT deployed
+### 2026-10-05 · [home] · Evening Gold (57): Goodwin Bridge (Southbound) was pinned to the NORTHBOUND pass. Fixed (`f378c6d`, DEPLOYED v2057 ~18:14 ET)
 
 User at 18:00: "2 minutes" for Emmet @ Goodwin Bridge Southbound, bus on the other side of the street with Barracks still to do.
 - **Seen in** `data-local/eta_watch/20261005-1730.jsonl`: from 17:56 route 57 served stop 835 (Southbound) and 823 (Northbound) with the same ETA one second apart, both `projected`; 18:00:00 said 188 s for bus 2 [11], which reached the bridge northbound at 18:03 and then showed 2,368 s. The real southbound arrival is about 10 minutes after the northbound one.
@@ -35,6 +35,7 @@ User at 18:00: "2 minutes" for Emmet @ Goodwin Bridge Southbound, bus on the oth
 - **Fix:** the side is now judged against the direction of travel from 20 m behind the candidate to 20 m ahead (`_travel_chord`, `_point_at_arc`, `STOP_SIDE_HEADING_WINDOW_M`); the single segment is only used when that chord has no length.
 - **Checked:** re-projected all 333 stops on the 22 distinct route shapes in the live graph and every saved `*.graph.json` since 09-20: exactly one stop moves, 835 on 57 (3125 -> 7561, between JPJ South Lot 7089 and Emmet/Ivy Southbound 7812). `tests/test_project_onto_polyline.py` +1, built from the real shape points; it fails with the window set to 0. Suite: same 8 pre-existing failures + the `test_vehicle_drivers.py` import error.
 - **NOT checked:** the ETA at 835 after the fix against real arrivals (needs a deploy and an evening run). Hops into 835 were `projected` because the wrong order gave pairs with no history (Emmet/Ivy NB -> Goodwin SB); with the right order they should read `historical` like the neighbours.
+  ↳ [home] deployed 2026-10-05 18:14 on the user's "cpd and check". Live graph: 835 at arc 7561, order 20, between 834 and 836; all route 57 ETAs back to `historical`. One real pass timed: bus 2 [11] predicted at 835 for 18:16:10-18:16:22 over the 90 s before, reached it 18:16:05-18:16:16 (10 s polls), then the stop rolled to the next lap (2,251 s). Emmet/Ivy Southbound (836) right after read 10-20 s early (predicted 18:16:25-18:16:40, there 18:16:46); one pass, not chased.
 
 ### 2026-10-05 · [home] · New `/timelapse-week`: the 9/21-9/27 week timelapse on the dashboard (`02d7060`, DEPLOYED v2056 ~16:26 ET)
 
