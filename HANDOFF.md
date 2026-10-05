@@ -27,6 +27,14 @@ Machine tags: `[dev]` = Windows dev machine · `[home]` = home server (Windows b
 
 ## 1. Message board (newest first)
 
+### 2026-10-05 · [home] · New `/timelapse-week`: the 9/21-9/27 week timelapse on the dashboard. NOT committed, NOT deployed
+
+User asked for the week-long timelapse to go on the dashboard "somewhere". It got its own page next to `/timelapse` (which still shows Fri 10-02) rather than replacing it.
+- `html/timelapse-week.html` is a straight copy of UTS-Timelapse `dist/2026-09-21_2026-09-27/dashboard.html` (the `--events` build with Saturday's game-day shuttles, shuttle-line fix included). 7.3 MB, 1.6 MB gzipped on the wire, held in memory like every other page. It uses the same `media/timelapse_aerial_*.jpg` tiles, so no new media.
+- `app.py`: `TIMELAPSE_WEEK_HTML` + `GET /timelapse-week` (public). Linked from `/sitemap`; one line in CLAUDE.md.
+- **Tested** locally in Chrome: page loads, no console errors, aerial + routes + week strip draw at one frozen frame (Sat 13:50). **NOT tested:** the full 17.5-minute loop, a phone.
+- To swap the week it shows, copy another `dist/<first>_<last>/dashboard.html` over that file.
+
 ### 2026-10-05 · [home] · /livemap vehicle popup laid out like /map's bus popup (`64f6248`, DEPLOYED v2055 ~16:04 ET)
 
 User: the /livemap bus popup was a wall of text, /map's looks better. Same data, new layout; `popupHTML` in `scripts/livemap/core/layers/vehicles.js` and the `.lv-*` block in `css/livemap.css`.
