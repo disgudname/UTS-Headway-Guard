@@ -2115,6 +2115,7 @@ ONBOARD_HTML = _load_html("onboard.html")
 WEATHER_HTML = _load_html("weather.html")
 WEATHERCLOCK_HTML = _load_html("weatherclock.html")
 TIMELAPSE_HTML = _load_html("timelapse.html")
+TIMELAPSE_WEEK_HTML = _load_html("timelapse-week.html")
 DUCK_CONFIG_HTML = _load_html("duck-config.html")
 DOWNED_HTML = _load_html("downed.html")
 IPS_HTML = _load_html("ips.html")
@@ -14610,6 +14611,10 @@ async def weatherclock_page():
 @app.get("/timelapse")
 async def timelapse_page():
     return HTMLResponse(TIMELAPSE_HTML)
+
+@app.get("/timelapse-week")
+async def timelapse_week_page():
+    return HTMLResponse(TIMELAPSE_WEEK_HTML)
 
 @app.get("/vdot-cams")
 async def vdot_cams_page():
