@@ -27,6 +27,15 @@ Machine tags: `[dev]` = Windows dev machine · `[home]` = home server (Windows b
 
 ## 1. Message board (newest first)
 
+### 2026-10-05 · [home] · 17:30 route-change run (60 min, recess): 3 breaches, 2 are the Goodwin bug + the 18:14 deploy, 1 is Green bus 22 leaving Gooch/Dillard ~3-4 min before we expected
+
+`20261005-1730.jsonl`, re-scored with the graph saved at 18:30 (so stop 835 is scored at its right place for the whole hour).
+- **68 full-lap flips: all Gold 57 at Goodwin Bridge (Southbound)**, bus 15 17:52:15-17:58:30 (26) and bus 2 18:03:45-18:14:00 (42). None after the 18:14 deploy. The 6 `flips_just_passed` are Purple, one poll each.
+- **256 TransLoc-only visits, 4 gaps:** (a) 18:14:15, one poll with our feed empty = the deploy restart, every bus. (b) Green bus 22 [01] 17:49-17:56: after finishing route 68 at Lambeth it sat 17:43-17:49, flipped to 54 at 17:47, then drove the loop BACKWARD (Chapel, Garrett, Chemistry, AFC) to Gooch/Dillard. We dropped it, TransLoc kept predicting and was 6-20 min wrong (tl_err -343..-1250 s at West Complex). Working as meant.
+- **4.2% >2 min late outside Purple (limit 3%):** 592 rows. ~475 are Green bus 22 [01] at 10 stops (Lambeth to West Complex) for 46 polls, 17:56-18:07: it held at Gooch/Dillard 17:56-18:03 and our ETAs downstream ran +170..+250 s long (West Complex: 1,485 s at 17:56:30, real 1,240 s), i.e. we expected it to leave about 3-4 min later than it did. TransLoc was within 2 min from 17:58 on. 68 more are the Goodwin rows. Without those two: about 49 of 14,508 = 0.3%. After the deploy: Gold 1.3%, Green 0.9%, Orange 0.0%, Silver 0.0% (the Gold 1.3% is still Goodwin, 18:12-18:14).
+- **Not looked into:** why we expected bus 22 to leave Gooch/Dillard later (timetable departure for [01] on a recess evening vs what the driver did; one bus, one evening). Compare Tue 10-06's 17:30 run before touching anything.
+- Medians fine: Gold 57 43 s, Orange 43 s, Silver 68 s, Green 82 s.
+
 ### 2026-10-05 · [home] · Evening Gold (57): Goodwin Bridge (Southbound) was pinned to the NORTHBOUND pass. Fixed (`f378c6d`, DEPLOYED v2057 ~18:14 ET)
 
 User at 18:00: "2 minutes" for Emmet @ Goodwin Bridge Southbound, bus on the other side of the street with Barracks still to do.
