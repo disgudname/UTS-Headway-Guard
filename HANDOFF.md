@@ -27,6 +27,15 @@ Machine tags: `[dev]` = Windows dev machine · `[home]` = home server (Windows b
 
 ## 1. Message board (newest first)
 
+### 2026-10-05 · [home] · Evening Gold (57): Goodwin Bridge (Southbound) was pinned to the NORTHBOUND pass. Fixed in `app.py`, UNCOMMITTED on home, NOT deployed
+
+User at 18:00: "2 minutes" for Emmet @ Goodwin Bridge Southbound, bus on the other side of the street with Barracks still to do.
+- **Seen in** `data-local/eta_watch/20261005-1730.jsonl`: from 17:56 route 57 served stop 835 (Southbound) and 823 (Northbound) with the same ETA one second apart, both `projected`; 18:00:00 said 188 s for bus 2 [11], which reached the bridge northbound at 18:03 and then showed 2,368 s. The real southbound arrival is about 10 minutes after the northbound one.
+- **Cause:** `_project_onto_polyline` breaks a tie between two passes of a street by which side of the road the stop is on, judged against the ONE polyline segment the candidate fell on. Route 57's shape has a 4 m jog on the northbound pass at the vertex both passes share (38.04327, -78.50548 -> 38.04325, -78.50544, pointing south-east). The southbound stop is on the right of that jog, at the same 8.2 m as the real southbound candidate, and the lower arc won: `arc_pos` 3125 instead of 7561 (of 10,700 m), stop order 8 instead of 21. The 10-02 19:30 graph has the same 3125, so this has been wrong every evening and weekend on the regular (non-detour) Gold 57. The detour shape (stops 874-901) was right.
+- **Fix:** the side is now judged against the direction of travel from 20 m behind the candidate to 20 m ahead (`_travel_chord`, `_point_at_arc`, `STOP_SIDE_HEADING_WINDOW_M`); the single segment is only used when that chord has no length.
+- **Checked:** re-projected all 333 stops on the 22 distinct route shapes in the live graph and every saved `*.graph.json` since 09-20: exactly one stop moves, 835 on 57 (3125 -> 7561, between JPJ South Lot 7089 and Emmet/Ivy Southbound 7812). `tests/test_project_onto_polyline.py` +1, built from the real shape points; it fails with the window set to 0. Suite: same 8 pre-existing failures + the `test_vehicle_drivers.py` import error.
+- **NOT checked:** the ETA at 835 after the fix against real arrivals (needs a deploy and an evening run). Hops into 835 were `projected` because the wrong order gave pairs with no history (Emmet/Ivy NB -> Goodwin SB); with the right order they should read `historical` like the neighbours.
+
 ### 2026-10-05 · [home] · New `/timelapse-week`: the 9/21-9/27 week timelapse on the dashboard (`02d7060`, DEPLOYED v2056 ~16:26 ET)
 
 User asked for the week-long timelapse to go on the dashboard "somewhere". It got its own page next to `/timelapse` (which still shows Fri 10-02) rather than replacing it.
