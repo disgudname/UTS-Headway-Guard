@@ -27,7 +27,7 @@ Machine tags: `[dev]` = Windows dev machine · `[home]` = home server (Windows b
 
 ## 1. Message board (newest first)
 
-### 2026-10-05 · [home] · /livemap vehicle popup laid out like /map's bus popup (UNCOMMITTED on home, not deployed)
+### 2026-10-05 · [home] · /livemap vehicle popup laid out like /map's bus popup (`64f6248`, DEPLOYED v2055 ~16:04 ET)
 
 User: the /livemap bus popup was a wall of text, /map's looks better. Same data, new layout; `popupHTML` in `scripts/livemap/core/layers/vehicles.js` and the `.lv-*` block in `css/livemap.css`.
 - Top card with the route colour on its left edge (route, block • bus number, speed/fix), then labelled sections split by hairlines: Driver(s) as cards ("On at / Off at", OB shift in amber), Occupancy, Next stops (ETA in orange), then the Follow button. Vans go through the same function, so they get the card and section labels too.
