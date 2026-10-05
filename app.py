@@ -16044,6 +16044,15 @@ async def metromap_page():
 # actually on instead of an arbitrary iteration-order tie-break.
 STOP_SIDE_TIE_TOLERANCE_M = 15.0
 
+# The side of the road is judged against the direction of travel over this many
+# metres either side of the candidate, not against the single polyline segment it
+# fell on. TransLoc's shapes have kinks a few metres long: on evening Gold (57) a
+# 4 m jog on the NORTHBOUND pass at Goodwin Bridge pointed south-east, so the
+# southbound stop read as right-hand side of it and was pinned to the northbound
+# pass, 4.4 km of route early (seen 2026-10-05: "2 min" for a bus that still had
+# to go to Barracks and back).
+STOP_SIDE_HEADING_WINDOW_M = 20.0
+
 
 def _side_of_travel(a: Tuple[float, float], b: Tuple[float, float], p: Tuple[float, float]) -> float:
     """Cross-product sign of point p relative to the direction from a to b, in
@@ -16097,9 +16106,31 @@ def _project_onto_polyline(lat: float, lon: float, poly: List[Tuple[float, float
     tied = [c for c in candidates if c[0] - best_dist <= STOP_SIDE_TIE_TOLERANCE_M]
     if len(tied) <= 1:
         return candidates[0][1]
-    right_side = [c for c in tied if _side_of_travel(poly[c[2]], poly[c[2] + 1], (lat, lon)) < 0]
+    right_side = [c for c in tied if _side_of_travel(*_travel_chord(poly, cum, c[1], c[2]), (lat, lon)) < 0]
     pick = min(right_side, key=lambda c: c[0]) if right_side else candidates[0]
     return pick[1]
+
+
+def _point_at_arc(poly: List[Tuple[float, float]], cum: List[float], s: float) -> Tuple[float, float]:
+    """The point on poly at arc-length s (metres), clamped to the ends."""
+    s = max(cum[0], min(cum[-1], s))
+    i = max(0, min(len(poly) - 2, bisect.bisect_right(cum, s) - 1))
+    span = cum[i + 1] - cum[i]
+    t = 0.0 if span <= 0 else (s - cum[i]) / span
+    return (poly[i][0] + t * (poly[i + 1][0] - poly[i][0]), poly[i][1] + t * (poly[i + 1][1] - poly[i][1]))
+
+
+def _travel_chord(
+    poly: List[Tuple[float, float]], cum: List[float], arc_s: float, seg_idx: int
+) -> Tuple[Tuple[float, float], Tuple[float, float]]:
+    """Direction of travel around arc_s, as the chord from STOP_SIDE_HEADING_WINDOW_M
+    behind it to the same distance ahead; the candidate's own segment when that chord
+    has no length (a turnaround)."""
+    a = _point_at_arc(poly, cum, arc_s - STOP_SIDE_HEADING_WINDOW_M)
+    b = _point_at_arc(poly, cum, arc_s + STOP_SIDE_HEADING_WINDOW_M)
+    if math.hypot(*ll_to_xy(b[0], b[1], a[0], a[1])) < 1.0:
+        return poly[seg_idx], poly[seg_idx + 1]
+    return a, b
 
 
 async def _snapshot_uts_stop_topology():

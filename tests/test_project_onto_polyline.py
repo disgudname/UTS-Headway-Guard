@@ -1,3 +1,4 @@
+import math
 import sys
 from pathlib import Path
 
@@ -5,7 +6,7 @@ ROOT_DIR = Path(__file__).resolve().parents[1]
 if str(ROOT_DIR) not in sys.path:
     sys.path.insert(0, str(ROOT_DIR))
 
-from app import _project_onto_polyline
+from app import _project_onto_polyline, ll_to_xy
 
 
 def test_project_onto_polyline_prefers_right_side_on_a_tied_bidirectional_street():
@@ -51,3 +52,29 @@ def test_project_onto_polyline_falls_back_to_nearest_when_no_tied_candidate_is_o
     cum = [0.0, 500.0, 1000.0, 1500.0, 2000.0]
     arc = _project_onto_polyline(0.0025, 0.0, poly, cum)
     assert arc is not None  # doesn't error; some deterministic answer comes back
+
+
+def test_project_onto_polyline_ignores_a_short_kink_when_judging_the_side():
+    # Regression, seen live 2026-10-05 on evening Gold (57): the real shape around
+    # Goodwin Bridge. The northbound pass has a 4 m jog pointing south-east at the
+    # vertex both passes share, and the southbound stop is on the right of that
+    # jog, so it was pinned to the northbound pass and its ETA came 4.4 km of
+    # route early.
+    northbound = [
+        (38.04239, -78.50576), (38.0426, -78.50568), (38.04266, -78.50566), (38.04303, -78.50551),
+        (38.04323, -78.50547), (38.04327, -78.50548), (38.04325, -78.50544), (38.04336, -78.50541),
+        (38.04339, -78.5054), (38.04342, -78.50539), (38.04372, -78.50529), (38.04373, -78.50529),
+    ]
+    southbound = [
+        (38.04363, -78.50543), (38.04345, -78.50546), (38.04341, -78.50547), (38.04339, -78.50547),
+        (38.04337, -78.50547), (38.04335, -78.50546), (38.04327, -78.50548), (38.04326, -78.50546),
+        (38.04323, -78.50547), (38.04303, -78.50551), (38.04266, -78.50566), (38.0426, -78.50568),
+    ]
+    poly = northbound + southbound
+    cum = [0.0]
+    for a, b in zip(poly, poly[1:]):
+        cum.append(cum[-1] + math.hypot(*ll_to_xy(b[0], b[1], a[0], a[1])))
+    turn = cum[len(northbound)]  # where the southbound pass starts
+
+    assert _project_onto_polyline(38.043279, -78.505573, poly, cum) > turn  # Goodwin Bridge (Southbound)
+    assert _project_onto_polyline(38.043246, -78.505373, poly, cum) < turn  # Goodwin Bridge (Northbound)
