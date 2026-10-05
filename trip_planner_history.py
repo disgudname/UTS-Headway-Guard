@@ -21,7 +21,7 @@ import math
 import os
 import statistics
 from collections import defaultdict
-from datetime import datetime, timedelta
+from datetime import date, datetime, timedelta
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
@@ -295,6 +295,35 @@ def is_cache_stale(cache: Dict[str, Any], now: Optional[datetime] = None) -> boo
 _WEEKDAYS = (0, 1, 2, 3, 4)
 _WEEKEND = (5, 6)
 
+# Recess-like days (fall break, Thanksgiving, summer service: service_levels.history_class) are
+# filed apart from Full Service days, under the same bucket keys with this prefix. Fewer buses,
+# a different timetable and empty roads: on the first Fall Break day (Mon 2026-10-05, 08:30) buses
+# beat class-day history by 2-4 min a stretch and 7.7% of predictions were >2 min late. On a
+# recess day the recess buckets are read first and the regular ones are the fallback (load_model);
+# a regular day never reads them. With no service-class function set, every day is regular.
+RECESS_PREFIX = "recess:"
+SERVICE_SPLIT_VERSION = 1  # recorded in the caches; one built before the split is rebuilt at once
+# Events before this local hour belong to the service day before (Night Pilot runs to 02:00).
+SERVICE_DAY_START_HOUR = 4
+_service_class_fn: Optional[Callable[[date], Optional[str]]] = None
+
+
+def set_service_class_fn(fn: Optional[Callable[[date], Optional[str]]]) -> None:
+    """fn(service date) -> "recess" for a recess-like day, else None. Set by app.py from service_levels."""
+    global _service_class_fn
+    _service_class_fn = fn
+
+
+def _service_prefix(local_dt: datetime) -> str:
+    """RECESS_PREFIX if local_dt falls on a recess-like service day, else "" (also on any error)."""
+    if _service_class_fn is None:
+        return ""
+    try:
+        service_day = (local_dt.astimezone(NY_TZ) - timedelta(hours=SERVICE_DAY_START_HOUR)).date()
+        return RECESS_PREFIX if _service_class_fn(service_day) == "recess" else ""
+    except Exception:
+        return ""
+
 
 def _bucket_key(route_id: str, from_stop_id: str, to_stop_id: str, weekday: int, hour: int) -> str:
     return f"{route_id}|{from_stop_id}|{to_stop_id}|{weekday}|{hour}"
@@ -386,12 +415,13 @@ def build_hop_time_samples(
                 if duration <= 0 or duration > MAX_PLAUSIBLE_HOP_S:
                     continue
                 local_dt = a.timestamp.astimezone(NY_TZ)
-                key = _bucket_key(a.route_id, a_stop, b_stop, local_dt.weekday(), local_dt.hour)
+                pre = _service_prefix(local_dt)
+                key = pre + _bucket_key(a.route_id, a_stop, b_stop, local_dt.weekday(), local_dt.hour)
                 samples[key].append(duration)
                 if shared and (dwell_at.get(id(a)) or 0.0) <= SHARED_MAX_DWELL_S:
                     addr_a, addr_b = _event_address(a, addresses), _event_address(b, addresses)
                     if addr_a and addr_b and addr_a != addr_b:
-                        samples[_shared_key(addr_a, addr_b, local_dt.weekday(), local_dt.hour)].append(duration)
+                        samples[pre + _shared_key(addr_a, addr_b, local_dt.weekday(), local_dt.hour)].append(duration)
     return samples
 
 
@@ -515,18 +545,19 @@ def build_drive_and_dwell_samples(
                 if v["dep"] is None:
                     continue
                 local_dt = v["dep"].astimezone(NY_TZ)
+                pre = _service_prefix(local_dt)
                 if v["arr"] is not None:
                     held = (v["dep"] - v["arr"]).total_seconds()
                     if 0 <= held <= MAX_PLAUSIBLE_DWELL_S:
-                        dwell[_bucket_key(v["route"], v["stop"], DWELL_KEY, local_dt.weekday(), local_dt.hour)].append(held)
+                        dwell[pre + _bucket_key(v["route"], v["stop"], DWELL_KEY, local_dt.weekday(), local_dt.hour)].append(held)
                 if nxt is None or nxt["arr"] is None or nxt["route"] != v["route"]:
                     continue
                 duration = (nxt["arr"] - v["dep"]).total_seconds()
                 if duration <= 0 or duration > MAX_PLAUSIBLE_HOP_S:
                     continue
-                drive[_bucket_key(v["route"], v["stop"], nxt["stop"], local_dt.weekday(), local_dt.hour)].append(duration)
+                drive[pre + _bucket_key(v["route"], v["stop"], nxt["stop"], local_dt.weekday(), local_dt.hour)].append(duration)
                 if v["addr"] and nxt["addr"] and v["addr"] != nxt["addr"]:
-                    drive[_shared_key(v["addr"], nxt["addr"], local_dt.weekday(), local_dt.hour)].append(duration)
+                    drive[pre + _shared_key(v["addr"], nxt["addr"], local_dt.weekday(), local_dt.hour)].append(duration)
     return drive, dwell
 
 
@@ -535,18 +566,26 @@ class DwellModel:
     NEVER pools across day groups: a stop that is a 7-minute layover on weekdays but a
     normal 20 s stop on weekends must not lend its weekday dwell to a weekend ETA. Widens
     only within the same day group (other days, then hour +/-1, +/-2), then falls back to
-    DEFAULT_DWELL_S -- "no evidence of a layover here at this time" means a normal stop."""
+    DEFAULT_DWELL_S -- "no evidence of a layover here at this time" means a normal stop.
 
-    def __init__(self, buckets: Dict[str, Dict[str, Any]], default_s: float = DEFAULT_DWELL_S):
+    `prefix` reads another service class's buckets (RECESS_PREFIX); `fallback` is asked before
+    the default when those have nothing (the regular model, on a recess day)."""
+
+    def __init__(
+        self, buckets: Dict[str, Dict[str, Any]], default_s: float = DEFAULT_DWELL_S,
+        prefix: str = "", fallback: Optional["DwellModel"] = None,
+    ):
         self._buckets = buckets
         self._default = default_s
+        self._prefix = prefix
+        self._fallback = fallback
 
     def _vals(self, route_id: str, stop_id: str, weekdays, hours) -> List[float]:
         out = []
         for wd in weekdays:
             for hr in hours:
                 if 0 <= hr <= 23:
-                    bucket = self._buckets.get(_bucket_key(route_id, stop_id, DWELL_KEY, wd, hr))
+                    bucket = self._buckets.get(self._prefix + _bucket_key(route_id, stop_id, DWELL_KEY, wd, hr))
                     if bucket and isinstance(bucket.get("seconds"), (int, float)):
                         out.append(float(bucket["seconds"]))
         return out
@@ -563,6 +602,8 @@ class DwellModel:
             vals = self._vals(route_id, stop_id, weekdays, hours)
             if vals:
                 return statistics.median(vals)
+        if self._fallback is not None:
+            return self._fallback.lookup(route_id, stop_id, when)
         return self._default
 
     @classmethod
@@ -599,6 +640,7 @@ def refresh_drive_dwell_cache(storage, now: Optional[datetime] = None) -> Dict[s
         "refreshed_at": now.isoformat(),
         "quantiles": _drive_dwell_quantiles(),
         "shared": SHARED_VERSION,
+        "service_split": SERVICE_SPLIT_VERSION,
         # "seconds" stays the median: dwell-mode routes (Purple) were tuned on it.
         "drive": {
             k: {"seconds": statistics.median(v), "low": _quantile(v, TIMESTOP_DRIVE_QUANTILE), "samples": len(v)}
@@ -625,7 +667,7 @@ def load_drive_dwell_models(storage, now: Optional[datetime] = None) -> Tuple[Ho
 
     def stale(c: Dict[str, Any]) -> bool:
         return (is_cache_stale(c, now=now) or c.get("quantiles") != _drive_dwell_quantiles()
-                or c.get("shared") != SHARED_VERSION)
+                or c.get("shared") != SHARED_VERSION or c.get("service_split") != SERVICE_SPLIT_VERSION)
 
     cache = _drive_dwell_memo
     if stale(cache) and DRIVE_DWELL_CACHE_PATH.exists():
@@ -638,9 +680,18 @@ def load_drive_dwell_models(storage, now: Optional[datetime] = None) -> Tuple[Ho
         cache = refresh_drive_dwell_cache(storage, now=now)
     _drive_dwell_memo = cache
     drive = cache.get("drive") or {}
+    dwell = cache.get("dwell") or {}
     addresses = _known_stop_addresses()
-    return (HopTimeModel(drive, addresses=addresses), DwellModel(cache.get("dwell") or {}),
-            HopTimeModel(drive, field="low", addresses=addresses))
+    models = (HopTimeModel(drive, addresses=addresses), DwellModel(dwell),
+              HopTimeModel(drive, field="low", addresses=addresses))
+    if not _service_prefix(now or datetime.now(NY_TZ)):
+        return models
+    # Recess day: recess history first, the regular models above behind it (see RECESS_PREFIX).
+    return (
+        HopTimeModel(drive, fallback=models[0], addresses=addresses, prefix=RECESS_PREFIX, cross_group=False),
+        DwellModel(dwell, prefix=RECESS_PREFIX, fallback=models[1]),
+        HopTimeModel(drive, fallback=models[2], field="low", addresses=addresses, prefix=RECESS_PREFIX, cross_group=False),
+    )
 
 
 def refresh_hop_time_cache(storage, now: Optional[datetime] = None) -> Dict[str, Any]:
@@ -651,7 +702,10 @@ def refresh_hop_time_cache(storage, now: Optional[datetime] = None) -> Dict[str,
         for key, values in samples.items()
         if len(values) >= MIN_SAMPLES
     }
-    payload = {"refreshed_at": now.isoformat(), "quantile": HOP_QUANTILE, "shared": SHARED_VERSION, "buckets": buckets}
+    payload = {
+        "refreshed_at": now.isoformat(), "quantile": HOP_QUANTILE, "shared": SHARED_VERSION,
+        "service_split": SERVICE_SPLIT_VERSION, "buckets": buckets,
+    }
     _write_cache(payload)
     return payload
 
@@ -661,7 +715,8 @@ def ensure_hop_time_cache(storage, now: Optional[datetime] = None) -> Dict[str, 
     HOP_QUANTILE, so a changed setting takes effect at once instead of at the next 03:00).
     Call this once per request that needs a HopTimeModel (cheap when fresh -- just a JSON read)."""
     cache = _load_cache()
-    if is_cache_stale(cache, now=now) or cache.get("quantile") != HOP_QUANTILE or cache.get("shared") != SHARED_VERSION:
+    if (is_cache_stale(cache, now=now) or cache.get("quantile") != HOP_QUANTILE or cache.get("shared") != SHARED_VERSION
+            or cache.get("service_split") != SERVICE_SPLIT_VERSION):
         return refresh_hop_time_cache(storage, now=now)
     return cache
 
@@ -678,14 +733,21 @@ class HopTimeModel:
     wires the occasionally-run build_eta_model.py's DEEP_CACHE_PATH in as the live
     60-day model's fallback, so a route/stop/time combo the last 60 days haven't
     accumulated MIN_SAMPLES for yet can still use real history further back, without
-    that deeper (and occasionally stale) data ever overriding fresher live buckets."""
+    that deeper (and occasionally stale) data ever overriding fresher live buckets.
+
+    `prefix` reads another service class's buckets (RECESS_PREFIX, with the regular model as
+    `fallback`). `cross_group=False` stops the widening at the same day group (+/- 2 hours)
+    before handing over to `fallback`, so thin recess history gives way to the regular model's
+    own weekday and hour instead of reaching for a recess weekend."""
 
     def __init__(
         self, buckets: Dict[str, Dict[str, Any]], fallback: Optional["HopTimeModel"] = None, field: str = "seconds",
-        addresses: Optional[Dict[str, str]] = None,
+        addresses: Optional[Dict[str, str]] = None, prefix: str = "", cross_group: bool = True,
     ):
         self._buckets = buckets
         self._fallback = fallback
+        self._prefix = prefix
+        self._cross_group = cross_group
         self._field = field  # which value of a bucket to read (drive buckets also carry "low")
         # "route|route_stop_id" -> AddressID, for the shared (all-route) buckets; None = don't use them
         self._addresses = addresses
@@ -702,7 +764,7 @@ class HopTimeModel:
         # and the shared history for the same road is used only when the route has none IN THAT
         # WINDOW -- never a wider time window of this route over a narrower one of the road's.
         # Weekday and hour matter more than which route variant drove it (user, 2026-10-02).
-        key = _bucket_key(route_id, from_stop_id, to_stop_id, local_dt.weekday(), local_dt.hour)
+        key = self._prefix + _bucket_key(route_id, from_stop_id, to_stop_id, local_dt.weekday(), local_dt.hour)
         bucket = self._buckets.get(key)
         if bucket:
             try:
@@ -737,6 +799,8 @@ class HopTimeModel:
             (others, (hour,)), (group, (hour - 1, hour + 1)), (group, (hour - 2, hour + 2)),
             (other_group, (hour,)), (other_group, (hour - 1, hour + 1)), (other_group, (hour - 2, hour + 2)),
         ):
+            if weekdays is other_group and not self._cross_group:
+                break
             pooled = self._median_over(route_id, from_stop_id, to_stop_id, weekdays, hours)
             # The shared history never crosses into the other day group: on a weekday the routes
             # that share a road with a daytime route are often only the evening/weekend ones, and
@@ -756,7 +820,7 @@ class HopTimeModel:
             for wd in weekdays
             for hr in hours
             if 0 <= hr <= 23
-            for bucket in [self._buckets.get(_bucket_key(route_id, from_stop_id, to_stop_id, wd, hr))]
+            for bucket in [self._buckets.get(self._prefix + _bucket_key(route_id, from_stop_id, to_stop_id, wd, hr))]
             if bucket and isinstance(bucket.get(self._field), (int, float))
         ]
         return statistics.median(values) if values else None
@@ -791,4 +855,9 @@ def load_model(storage, now: Optional[datetime] = None) -> HopTimeModel:
     cache = ensure_hop_time_cache(storage, now=now)
     deep_cache = _load_deep_cache()
     deep_model = HopTimeModel.from_cache(deep_cache) if deep_cache.get("buckets") else None
-    return HopTimeModel.from_cache(cache, fallback=deep_model, addresses=_known_stop_addresses())
+    addresses = _known_stop_addresses()
+    model = HopTimeModel.from_cache(cache, fallback=deep_model, addresses=addresses)
+    if not _service_prefix(now or datetime.now(NY_TZ)):
+        return model
+    # Recess day: recess history first, the regular model behind it (see RECESS_PREFIX).
+    return HopTimeModel(model._buckets, fallback=model, addresses=addresses, prefix=RECESS_PREFIX, cross_group=False)

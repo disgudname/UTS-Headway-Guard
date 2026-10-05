@@ -5,7 +5,7 @@ ROOT_DIR = Path(__file__).resolve().parents[1]
 if str(ROOT_DIR) not in sys.path:
     sys.path.insert(0, str(ROOT_DIR))
 
-from app import _resolve_dir_sign
+from app import _backward_polls, _resolve_dir_sign
 
 
 def test_stationary_transloc_speed_ignores_noisy_negative_along_mps():
@@ -86,3 +86,30 @@ def test_far_off_route_does_not_hold_a_backward_reading():
 def test_near_route_still_detects_reversal():
     dir_sign, _ = _resolve_dir_sign(mps=5.0, along_mps=-4.0, prev_sign=1, off_route_m=30.0)
     assert dir_sign == -1
+
+
+def test_single_backward_reading_does_not_survive_standing_still():
+    # Silver [14] (bus 32) pulling into Pinn Hall, 2026-10-05 08:37: one fix snapped back 12 m at 6 mph, the next was
+    # 0 mph, and the -1 was held for the 8 min hold, so the bus had no ETAs at its next 9 stops.
+    sign, _ = _resolve_dir_sign(mps=2.7, along_mps=-2.4, prev_sign=1, off_route_m=11.0, backward_polls=0)
+    assert sign == -1
+    polls = _backward_polls(0, sign, 2.7, -2.4)
+    assert polls == 1
+    sign, tiebreak = _resolve_dir_sign(mps=0.0, along_mps=-0.7, prev_sign=sign, off_route_m=11.0, backward_polls=polls)
+    assert sign == 0
+    assert tiebreak is False
+    assert _backward_polls(polls, sign, 0.0, -0.7) == 0
+
+
+def test_confirmed_backward_reading_is_kept_while_stopped():
+    # A bus really running against the shape (two moving polls in a row) that stops at a light stays backward.
+    polls = _backward_polls(_backward_polls(0, -1, 5.0, -4.0), -1, 5.0, -4.0)
+    assert polls == 2
+    sign, _ = _resolve_dir_sign(mps=0.0, along_mps=0.0, prev_sign=-1, backward_polls=polls)
+    assert sign == -1
+    assert _backward_polls(polls, sign, 0.0, 0.0) == 2
+
+
+def test_repeated_fix_does_not_confirm_a_backward_reading():
+    # Moving, but the same GPS fix as last poll (along_mps 0): the sign carries over without counting.
+    assert _backward_polls(1, -1, 5.0, 0.0) == 1

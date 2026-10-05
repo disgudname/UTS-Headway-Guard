@@ -28,6 +28,7 @@ from __future__ import annotations
 from typing import List, Dict, Optional, Tuple, Any, Iterable, Union, Sequence, Set, Mapping, Awaitable
 from dataclasses import dataclass, field
 import asyncio, time, math, os, json, re, base64, binascii, hashlib, secrets, csv, io, uuid
+import bisect
 from datetime import date, datetime, timedelta, time as dtime, timezone
 from email.utils import parsedate_to_datetime
 from zoneinfo import ZoneInfo
@@ -41,6 +42,7 @@ from fullbus_storage import FullBusStorage
 from w2w_schedule import W2WScheduleLog
 from slides_mirror import SlidesMirror
 from service_schedule import ServiceSchedule, fetch_tables as fetch_service_schedule_tables
+import service_levels
 from fullbus_tracker import FullBusTracker
 from headway_tracker import (
     HeadwayTracker,
@@ -1228,11 +1230,16 @@ DIR_SIGN_STATIONARY_MPS = 0.5
 # nearest-point projection hopped between unrelated passes of the loop, read as "backward", and blanked all 20 of its
 # ETAs for about a minute. On-route buses sit within ~40 m (p99 over three logged runs), so 100 m only trips off-route.
 DIR_SIGN_OFF_ROUTE_M = 100.0
+# A backward reading has to show on this many moving polls in a row before a bus that then stops keeps it.
+# Seen live 2026-10-05 08:37: Silver [14] (bus 32) pulled into Pinn Hall, one GPS fix snapped back 12 m at 6 mph
+# (read backward), the next was 0 mph, and the -1 was held for the whole 8 min hold: no ETAs at its next 9 stops.
+DIR_SIGN_BACKWARD_CONFIRM_POLLS = 2
 
 
 def _resolve_dir_sign(
     mps: float, along_mps: float, prev_sign: int, dir_eps: float = 0.3,
     stationary_mps: float = DIR_SIGN_STATIONARY_MPS, off_route_m: float = 0.0,
+    backward_polls: int = DIR_SIGN_BACKWARD_CONFIRM_POLLS,
 ) -> Tuple[int, bool]:
     """Which way (+1 forward, -1 backward, 0 unknown) a vehicle is moving along
     its route right now. Returns (dir_sign, needs_heading_tiebreak) -- the
@@ -1270,16 +1277,31 @@ def _resolve_dir_sign(
     its 17:45 route change at Hereford @ Runk, was flipped to Green Loop by
     TransLoc while still on the loop's line at Stadium/Alderman. Turning off
     toward Hereford it read backward at exactly 100 m off, and that -1 was then
-    held for the whole 9 min it was off route: no Green Loop ETAs until 17:56."""
+    held for the whole 9 min it was off route: no Green Loop ETAs until 17:56.
+
+    `backward_polls` is how many moving polls in a row the bus has read backward
+    (see _backward_polls). A stopped bus only keeps a backward reading that was
+    confirmed (DIR_SIGN_BACKWARD_CONFIRM_POLLS); a single one is GPS settling as
+    it pulls in, and becomes unknown (0)."""
     if off_route_m > DIR_SIGN_OFF_ROUTE_M:
         return max(prev_sign, 0), False
     if mps <= stationary_mps:
+        if prev_sign < 0 and backward_polls < DIR_SIGN_BACKWARD_CONFIRM_POLLS:
+            return 0, False
         return prev_sign, False
     if along_mps > dir_eps:
         return 1, False
     if along_mps < -dir_eps:
         return -1, False
     return prev_sign, prev_sign == 0
+
+def _backward_polls(prev_count: int, dir_sign: int, mps: float, along_mps: float, dir_eps: float = 0.3) -> int:
+    """Moving polls in a row this vehicle has read backward, after this poll. A stopped poll, or one that only
+    carried the last sign over (a repeated GPS fix), neither counts nor resets."""
+    if dir_sign >= 0:
+        return 0
+    return prev_count + 1 if (mps > DIR_SIGN_STATIONARY_MPS and along_mps < -dir_eps) else prev_count
+
 
 def cumulative_distance(poly: List[Tuple[float,float]]) -> Tuple[List[float], float]:
     cum = [0.0]
@@ -1376,6 +1398,7 @@ class Vehicle:
     dir_sign: int = 0  # +1 forward, -1 reverse, 0 unknown
     seg_idx: int = 0
     along_mps: float = 0.0
+    backward_polls: int = 0  # see _backward_polls
 
 @dataclass
 class Route:
@@ -2088,6 +2111,7 @@ RADAR_HTML = _load_html("radar.html")
 EINK_BLOCK_HTML = _load_html("eink-block.html")
 STOP_APPROACH_HTML = _load_html("stop-approach.html")
 COUNTDOWN_HTML = _load_html("countdown.html")
+ONBOARD_HTML = _load_html("onboard.html")
 WEATHER_HTML = _load_html("weather.html")
 WEATHERCLOCK_HTML = _load_html("weatherclock.html")
 TIMELAPSE_HTML = _load_html("timelapse.html")
@@ -6220,6 +6244,7 @@ async def startup():
                             )
                             dir_sign, needs_heading_tiebreak = _resolve_dir_sign(
                                 mps, along_mps, prev_sign, DIR_EPS, off_route_m=off_route_m,
+                                backward_polls=prev.backward_polls if prev else 0,
                             )
                             if needs_heading_tiebreak and seg_idx is not None:
                                 seg_heading = bearing_between(
@@ -6233,6 +6258,7 @@ async def startup():
                             ema = max(MIN_SPEED_FLOOR, min(MAX_SPEED_CEIL, ema))
                             veh.s_pos = s_pos; veh.ema_mps = ema; veh.dir_sign = dir_sign
                             veh.seg_idx = seg_idx; veh.along_mps = along_mps
+                            veh.backward_polls = _backward_polls(prev.backward_polls if prev else 0, dir_sign, mps, along_mps)
                             new_map[rid][vid] = veh
                             state.last_dir_sign[vid] = dir_sign
                         state.vehicles_by_route = new_map
@@ -6835,6 +6861,25 @@ async def startup():
     # UTS service level calendar (parking.virginia.edu/serviceschedule)
     service_schedule = ServiceSchedule(PRIMARY_DATA_DIR)
     app.state.service_schedule = service_schedule
+    # Permanent per-day record of the level that actually applied (service_levels.py); the ETA history is split on it.
+    service_level_log = service_levels.ServiceLevelLog(PRIMARY_DATA_DIR)
+    app.state.service_level_log = service_level_log
+
+    def _log_service_levels():
+        # Every day the calendar knows up to today; a later day can still change, so it is logged when it arrives.
+        today = datetime.now(ZoneInfo("America/New_York")).date()
+        for iso in list(service_schedule.days):
+            try:
+                d = date.fromisoformat(iso)
+            except ValueError:
+                continue
+            if d <= today:
+                service_level_log.record_calendar_day(d, service_schedule.day(d))
+
+    try:
+        _log_service_levels()
+    except Exception as exc:
+        print(f"[service-levels] could not log: {exc!r}")
 
     async def service_schedule_poller():
         await asyncio.sleep(30)
@@ -6846,6 +6891,7 @@ async def startup():
                     print(f"[service-schedule] bad pull, keeping the last good copy: {service_schedule.last_error}")
                 elif changed:
                     print(f"[service-schedule] {len(changed)} day(s) changed")
+                _log_service_levels()
             except Exception as exc:
                 service_schedule.last_error = f"{exc!r}"[:300]
                 print(f"[service-schedule] pull failed: {service_schedule.last_error}")
@@ -6860,6 +6906,15 @@ async def startup():
         return "recess" if "recess" in level else None
 
     uts_blocks.set_service_level_fn(_uts_service_level)
+
+    def _uts_history_class(d):
+        # Recess-like days (recess, summer) keep their own hop/dwell history (trip_planner_history.RECESS_PREFIX).
+        # Today and later come from the calendar, which the log only receives once the day has arrived.
+        entry = service_schedule.day(d) or {}
+        level = service_levels.level_from_calendar((entry.get("services") or {}).get("UVA Transit"))
+        return service_levels.history_class(level or service_level_log.level(d))
+
+    trip_planner_history.set_service_class_fn(_uts_history_class)
 
 # ---------------------------
 # REST: Routes
@@ -14529,6 +14584,21 @@ async def eink_block_page():
 async def countdown_page():
     return HTMLResponse(COUNTDOWN_HTML)
 
+@app.get("/onboard")
+async def onboard_page():
+    return HTMLResponse(ONBOARD_HTML)
+
+
+@app.get("/media/ava/{clip}", include_in_schema=False)
+async def onboard_ava_clip(clip: str):
+    """Pre-rendered stop announcements for /onboard (scripts/build_ava_clips.py)."""
+    if not re.fullmatch(r"_?[a-z0-9-]+\.mp3", clip):
+        raise HTTPException(status_code=404, detail="Media asset not found")
+    path = MEDIA_DIR / "ava" / clip
+    if not path.exists():
+        raise HTTPException(status_code=404, detail="Media asset not found")
+    return FileResponse(path, media_type="audio/mpeg", headers={"Cache-Control": "public, max-age=86400"})
+
 @app.get("/weather")
 async def weather_page():
     return HTMLResponse(WEATHER_HTML)
@@ -17105,6 +17175,418 @@ async def _compute_bus_eta_arrivals() -> Dict[str, Any]:
     return {"arrivals": list(out.values()), "generated_at": datetime.now(timezone.utc).isoformat()}
 
 
+# ---------------------------
+# ON-BOARD SIGN (/onboard)
+# ---------------------------
+# One bus's own next stops + ETAs, for a screen riding on that bus. The page names its bus (?bus=) and
+# hands over a position: the tablet's own GPS when it has one, else TransLoc's. Replay (?at=) reads the
+# position out of the vehicle logs instead, so the page can be tested on a day with no buses out.
+# Same engine as /v1/eta/uts_stop_arrivals (bus_eta.estimate_stop_eta_s), minus that feed's median-of-3
+# smoothing and its out-of-service / evening-route-change stop hiding.
+ONBOARD_REPLAY_LOOKBACK_S = 120.0   # log history walked to settle a replayed bus's direction and speed
+ONBOARD_REPLAY_MAX_GAP_S = 60.0     # newest log sample older than this: no position for that moment
+ONBOARD_DEVICE_MAX_OFFSET_M = 500.0  # tablet GPS further than this from TransLoc's fix: wrong ?bus=, ignore it
+ONBOARD_AT_STOP_ARC_M = 150.0       # a stop within the dwell radius but this far along the line is the other pass
+ONBOARD_STOPPED_MPS = 1.0           # at a stop and no faster than this: the bus has stopped there, not driven past
+_onboard_lines_cache = TTLCache(60.0)
+_onboard_models_cache = TTLCache(60.0)
+_onboard_log_first_ts: Dict[str, int] = {}
+_onboard_log_entries_cache: "OrderedDict[Tuple[str, float, int], List[Dict[str, Any]]]" = OrderedDict()
+_onboard_snapshot_lines_cache: Dict[Tuple[str, float], Dict[str, Tuple[trip_planner.Line, Route]]] = {}
+
+
+async def _onboard_models() -> Tuple[Any, Any, Any, Any]:
+    """(hop model, driving-only model, dwell model, timestop driving model); None for any that won't load."""
+    async def build():
+        storage = getattr(app.state, "headway_storage", None)
+        hop = drive = dwell = timestop_drive = None
+        if storage is not None:
+            now = datetime.now(ZoneInfo("America/New_York"))
+            try:
+                hop = trip_planner_history.load_model(storage, now=now)
+            except Exception as exc:
+                print(f"[onboard] hop-time model unavailable, using flat estimate: {exc}")
+            try:
+                drive, dwell, timestop_drive = await asyncio.to_thread(
+                    trip_planner_history.load_drive_dwell_models, storage, now,
+                )
+            except Exception as exc:
+                print(f"[onboard] drive/dwell model unavailable: {exc}")
+        return hop, drive, dwell, timestop_drive
+
+    return await _onboard_models_cache.get(build)
+
+
+async def _onboard_live_lines() -> Dict[str, trip_planner.Line]:
+    async def build():
+        uts_lines_raw, _service = await _uts_lines_for_trip_planner()
+        return {e["id"]: _trip_planner_line_from_graph(e, source="uts", loop=True) for e in uts_lines_raw}
+
+    return await _onboard_lines_cache.get(build)
+
+
+def _onboard_snapshot_lines(path: Path) -> Dict[str, Tuple[trip_planner.Line, Route]]:
+    """route id -> (Line, Route) for every route with a shape in one day's vehicle-log routes snapshot."""
+    key = (os.fspath(path), path.stat().st_mtime)
+    cached = _onboard_snapshot_lines_cache.get(key)
+    if cached is not None:
+        return cached
+    data = json.loads(path.read_text(encoding="utf-8"))
+    routes_raw = data.get("routes") if isinstance(data, dict) else data
+    stops_raw = data.get("stops") if isinstance(data, dict) else []
+    routes_obj: Dict[Any, Route] = {}
+    for r in routes_raw or []:
+        rid = r.get("RouteID")
+        poly = decode_polyline(r.get("EncodedPolyline") or "")
+        if rid is None or len(poly) < 2:
+            continue
+        cum, length = cumulative_distance(poly)
+        desc = r.get("Description") or f"Route {rid}"
+        info = (r.get("InfoText") or "").strip()
+        routes_obj[rid] = Route(
+            id=rid, name=f"{desc} — {info}" if info else desc, encoded=r["EncodedPolyline"],
+            poly=poly, cum=cum, length_m=length, color=r.get("MapLineColor"),
+        )
+    stop_info: Dict[str, Dict[str, Any]] = {}
+    stops_for_route: Dict[str, List[str]] = {}
+    for s in stops_raw or []:
+        sid, lat, lon = s.get("StopID"), s.get("Latitude"), s.get("Longitude")
+        if sid is None or lat is None or lon is None:
+            continue
+        stop_info[str(sid)] = {
+            "id": str(sid), "name": str(s.get("Name") or s.get("Description") or sid),
+            "lat": float(lat), "lon": float(lon),
+        }
+        for rid_val in s.get("RouteIds") or []:
+            stops_for_route.setdefault(str(rid_val), []).append(str(sid))
+    out: Dict[str, Tuple[trip_planner.Line, Route]] = {}
+    for rid, route in routes_obj.items():
+        stops = _ordered_route_stops_with_coords(rid, routes_obj, stop_info, stops_for_route)
+        if len(stops) < 2:
+            continue
+        entry = {
+            "id": str(rid), "name": route.name, "color": (route.color or "888888").lstrip("#"),
+            "stops": stops, "poly": route.poly, "cum": route.cum,
+        }
+        out[str(rid)] = (_trip_planner_line_from_graph(entry, source="uts", loop=True), route)
+    _onboard_snapshot_lines_cache.clear()  # one day's snapshot at a time is plenty
+    _onboard_snapshot_lines_cache[key] = out
+    return out
+
+
+def _onboard_log_files() -> List[Tuple[int, Path]]:
+    """(first entry's ts, path) for every hourly vehicle log, oldest first. Files are named for the hour on
+    the clock of the machine that wrote them, so a log copied from elsewhere need not match this machine's:
+    index them by what is inside."""
+    seen: Dict[str, Path] = {}
+    for log_dir in VEH_LOG_DIRS:
+        if log_dir.is_dir():
+            for p in log_dir.glob("*_*.jsonl"):
+                seen.setdefault(p.name, p)
+    out: List[Tuple[int, Path]] = []
+    for p in seen.values():
+        key = os.fspath(p)
+        first_ts = _onboard_log_first_ts.get(key)
+        if first_ts is None:
+            try:
+                with p.open("r", encoding="utf-8") as f:
+                    first_ts = int(json.loads(f.readline())["ts"])
+            except (OSError, ValueError, KeyError, TypeError):
+                continue
+            _onboard_log_first_ts[key] = first_ts
+        out.append((first_ts, p))
+    out.sort(key=lambda item: item[0])
+    return out
+
+
+def _onboard_log_entries(path: Path) -> List[Dict[str, Any]]:
+    st = path.stat()
+    key = (os.fspath(path), st.st_mtime, st.st_size)
+    cached = _onboard_log_entries_cache.get(key)
+    if cached is not None:
+        _onboard_log_entries_cache.move_to_end(key)
+        return cached
+    entries: List[Dict[str, Any]] = []
+    with path.open("r", encoding="utf-8") as f:
+        for raw in f:
+            try:
+                entries.append(json.loads(raw))
+            except ValueError:
+                continue
+    _onboard_log_entries_cache[key] = entries
+    while len(_onboard_log_entries_cache) > 4:
+        _onboard_log_entries_cache.popitem(last=False)
+    return entries
+
+
+def _onboard_routes_snapshot_for(log_path: Path) -> Optional[Path]:
+    """The routes snapshot of the log's own day, else the nearest day that has one."""
+    day = log_path.name[:8]
+    best: Optional[Tuple[int, Path]] = None
+    for log_dir in VEH_LOG_DIRS:
+        if not log_dir.is_dir():
+            continue
+        for p in log_dir.glob("*_routes.json"):
+            try:
+                gap = abs((datetime.strptime(p.name[:8], "%Y%m%d") - datetime.strptime(day, "%Y%m%d")).days)
+            except ValueError:
+                continue
+            if best is None or gap < best[0]:
+                best = (gap, p)
+    return best[1] if best else None
+
+
+def _onboard_replay_state(bus: str, at_ms: int) -> Dict[str, Any]:
+    """Where the logs put this bus at at_ms: {"status", ...} plus, when it was on a route, the same
+    position/speed/direction the live updater would have derived by then (see updater())."""
+    files = _onboard_log_files()
+    idx = bisect.bisect_right([f[0] for f in files], at_ms) - 1
+    if idx < 0:
+        return {"status": "no_data"}
+    since_ms = at_ms - int(ONBOARD_REPLAY_LOOKBACK_S * 1000)
+    entries: List[Dict[str, Any]] = []
+    if idx > 0 and files[idx][0] > since_ms:
+        entries.extend(_onboard_log_entries(files[idx - 1][1]))
+    entries.extend(_onboard_log_entries(files[idx][1]))
+    window = [e for e in entries if since_ms <= int(e.get("ts") or 0) <= at_ms]
+    if not window or at_ms - int(window[-1]["ts"]) > ONBOARD_REPLAY_MAX_GAP_S * 1000:
+        return {"status": "no_data"}
+
+    track: List[Tuple[int, Dict[str, Any]]] = []
+    for e in window:
+        v = next((v for v in e.get("vehicles") or [] if str(v.get("Name")) == bus), None)
+        if v is not None:
+            track.append((int(e["ts"]), v))
+    if not track or track[-1][0] != int(window[-1]["ts"]):
+        return {"status": "unknown_bus"}
+    last = track[-1][1]
+    state_out: Dict[str, Any] = {
+        "status": "not_in_service", "vehicle_id": last.get("VehicleID"),
+        "lat": last["Latitude"], "lon": last["Longitude"],
+    }
+    rid = last.get("RouteID")
+    if rid is None:
+        return state_out
+    snapshot = _onboard_routes_snapshot_for(files[idx][1])
+    pair = _onboard_snapshot_lines(snapshot).get(str(rid)) if snapshot is not None else None
+    if pair is None:
+        return state_out
+    line, route = pair
+    track = [t for t in track if t[1].get("RouteID") == rid]
+
+    prev: Optional[Vehicle] = None
+    prev_sign = 0
+    for ts, v in track:
+        lat, lon = float(v["Latitude"]), float(v["Longitude"])
+        mps = float(v.get("GroundSpeed") or 0.0) * MPH_TO_MPS
+        heading: Optional[float] = None
+        if prev is not None:
+            heading = (
+                bearing_between((prev.lat, prev.lon), (lat, lon))
+                if haversine((prev.lat, prev.lon), (lat, lon)) >= HEADING_JITTER_M else prev.heading
+            )
+        veh = Vehicle(id=v.get("VehicleID"), name=bus, lat=lat, lon=lon, ts_ms=ts, ground_mps=mps, age_s=0.0,
+                      heading=heading if heading is not None else 0.0)
+        # No heading for the first sample (the log's own is unreliable) or a stopped bus: see updater().
+        match_heading = heading if (prev is not None and mps > DIR_SIGN_STATIONARY_MPS) else None
+        s_pos, seg_idx = project_vehicle_to_route(
+            veh, route, prev.seg_idx if prev else None, match_heading, prev.s_pos if prev else None,
+        )
+        ema = prev.ema_mps if prev else (mps if mps > 0 else 6.0)
+        dt = (ts - prev.ts_ms) / 1000.0 if prev else 0.0
+        along_mps = 0.0
+        if prev and dt > 0:
+            length = route.length_m
+            along_mps = (((s_pos - prev.s_pos) + length / 2) % length - length / 2) / dt
+        dir_sign, needs_tiebreak = _resolve_dir_sign(
+            mps, along_mps, prev_sign, off_route_m=distance_to_segment_m(lat, lon, route, seg_idx),
+            backward_polls=prev.backward_polls if prev else 0,
+        )
+        if needs_tiebreak:
+            seg_heading = bearing_between(route.poly[seg_idx], route.poly[seg_idx + 1])
+            dir_sign = +1 if heading_diff(veh.heading, seg_heading) <= 90 else -1
+        measured = 0.5 * mps + 0.5 * abs(along_mps) if mps > 0 else (abs(along_mps) if prev else mps)
+        ema = max(MIN_SPEED_FLOOR, min(MAX_SPEED_CEIL, EMA_ALPHA * measured + (1 - EMA_ALPHA) * ema))
+        veh.s_pos = s_pos; veh.seg_idx = seg_idx; veh.ema_mps = ema; veh.dir_sign = dir_sign
+        veh.backward_polls = _backward_polls(prev.backward_polls if prev else 0, dir_sign, mps, along_mps)
+        prev, prev_sign = veh, dir_sign
+
+    # How long it has sat at the stop it is at now (for dwell-mode routes, see _bus_eta_stop_zone_elapsed).
+    at_stop = bus_eta.stop_zone_at(line, prev.lat, prev.lon)
+    since_ts = track[-1][0]
+    if at_stop is not None:
+        for ts, v in reversed(track):
+            if bus_eta.stop_zone_at(line, float(v["Latitude"]), float(v["Longitude"])) != at_stop:
+                break
+            since_ts = ts
+
+    # The log keeps the dispatch group ("[05]/[03]"); the schedule wants the one block on this route.
+    group = (window[-1].get("blocks") or {}).get(str(last.get("VehicleID"))) or ""
+    numbers = re.findall(r"\[\d+\]", group)
+    block_id = next((b for b in numbers if uts_blocks.block_runs_route(b, str(rid))), None)
+    if block_id is None and len(numbers) == 1:
+        block_id = numbers[0]
+    state_out.update({
+        "status": "in_service", "line": line, "route_id": str(rid), "vehicle": prev,
+        "block_id": block_id, "dwell_elapsed_s": (track[-1][0] - since_ts) / 1000.0,
+    })
+    return state_out
+
+
+def _onboard_stop_rows(
+    line: trip_planner.Line, route_id: str, veh_s_pos: float, ema_mps: float, dir_sign: int,
+    lat: float, lon: float, block_id: Optional[str], when_ts: float, models: Tuple[Any, Any, Any, Any],
+    dwell_elapsed_s: float, ground_mps: float,
+) -> Tuple[Optional[Dict[str, Any]], List[Dict[str, Any]]]:
+    """(the stop the bus is at, if any; every other stop in the order the bus reaches them, with ETAs)."""
+    hop_model, drive_model, dwell_model, timestop_drive_model = models
+    if ema_mps >= MAX_SPEED_CEIL:
+        ema_mps = bus_eta.TYPICAL_BUS_SPEED_MPS  # pegged EMA, see _compute_bus_eta_arrivals
+    hop_fn = hop_model.lookup if hop_model is not None else None
+    dwell_fn = None
+    dwell_mode = BUS_ETA_DWELL_MODE_ROUTE_PREFIXES and (line.name or "").startswith(BUS_ETA_DWELL_MODE_ROUTE_PREFIXES)
+    if dwell_mode and drive_model is not None and dwell_model is not None:
+        hop_fn = drive_model.lookup
+        dwell_fn = bus_eta.elapsed_dwell_fn(
+            dwell_model.lookup, bus_eta.stop_zone_at(line, lat, lon), dwell_elapsed_s, when_ts,
+        )
+    blocks_loaded = uts_blocks.is_loaded()
+    length = line.shape_cum[-1]
+
+    def arc_gap(stop) -> float:
+        gap = abs(stop.arc_pos - veh_s_pos)
+        return min(gap, length - gap)
+
+    # The stop the bus is standing at. Where the line passes a stop twice (or a stop sits across the
+    # street from its twin), only the one on the stretch the bus is actually on counts.
+    here = [
+        s for s in line.stops
+        if s.arc_pos is not None and arc_gap(s) <= ONBOARD_AT_STOP_ARC_M
+        and bus_eta.haversine_m(lat, lon, s.lat, s.lon) <= bus_eta.DWELL_DETECTION_RADIUS_M
+    ]
+    at = min(here, key=arc_gap) if here else None
+
+    def describe(stop, seconds: Optional[float]) -> Dict[str, Any]:
+        row: Dict[str, Any] = {"id": str(stop.id), "name": stop.name, "seconds": seconds, "timestop": False}
+        if blocks_loaded and uts_blocks.timestop_code_for_stop(route_id, str(stop.id)) is not None:
+            row["timestop"] = True
+            if block_id:
+                row["scheduled"] = uts_blocks.scheduled_hold_epoch(
+                    route_id, str(stop.id), block_id, when_ts + (seconds or 0.0),
+                )
+        return row
+
+    rows: List[Tuple[float, Dict[str, Any]]] = []
+    for stop in line.stops:
+        if stop.arc_pos is None or stop is at:
+            continue
+        est = bus_eta.estimate_stop_eta_s(
+            line, veh_s_pos, ema_mps, stop, hop_fn, when_ts,
+            dwell_fn=dwell_fn, vehicle_lat=lat, vehicle_lon=lon, vehicle_dir_sign=dir_sign,
+            vehicle_block_id=block_id,
+            scheduled_timestop_fn=uts_blocks.scheduled_hold_epoch if blocks_loaded else None,
+            # Day/time-independent on purpose, as in _compute_bus_eta_arrivals.
+            is_timestop_fn=(
+                (lambda r, s, when: uts_blocks.timestop_code_for_stop(r, s) is not None) if blocks_loaded else None
+            ),
+            out_of_service_fn=uts_blocks.out_of_service_plan if blocks_loaded else None,
+            timestop_drive_fn=timestop_drive_model.lookup if timestop_drive_model is not None else None,
+        )
+        seconds = round(est.seconds, 1) if est is not None else None
+        ahead_m = (stop.arc_pos - veh_s_pos) % length
+        # Just behind the bus and still inside the engine's "arriving" radius: it was served, and is a lap away.
+        if seconds is not None and seconds < 60.0 and length - ahead_m <= bus_eta.ARRIVING_RADIUS_M:
+            seconds = None
+        rows.append((ahead_m, describe(stop, seconds)))
+    rows.sort(key=lambda r: r[0])
+    ordered = [r[1] for r in rows]
+    # A stop barely ahead that the engine already counts as served (a lap away, not next) goes to the back.
+    while len(ordered) > 1 and None not in (ordered[0]["seconds"], ordered[1]["seconds"]) \
+            and ordered[0]["seconds"] > ordered[1]["seconds"] + 300.0:
+        ordered.append(ordered.pop(0))
+    at_row = describe(at, 0.0) if at is not None else None
+    if at_row is not None:
+        # The sign announces "This is ..." only for a stop the bus really stops at.
+        at_row["stopped"] = ground_mps <= ONBOARD_STOPPED_MPS
+    return at_row, ordered
+
+
+@app.get("/v1/onboard")
+async def onboard_state(
+    bus: str = Query(..., min_length=1, max_length=16, description="Bus number, e.g. 18432"),
+    at: Optional[int] = Query(None, description="Replay: epoch ms to read the bus's position from the vehicle logs"),
+    lat: Optional[float] = Query(None, ge=-90, le=90, description="The on-board device's own GPS fix"),
+    lon: Optional[float] = Query(None, ge=-180, le=180),
+    heading: Optional[float] = Query(None, description="Device heading in degrees, if moving"),
+    speed: Optional[float] = Query(None, description="Device speed in m/s"),
+):
+    """What an on-board sign shows for one bus: its route, the stop it is at, and its upcoming stops with
+    ETAs. Position comes from the device (lat/lon), else TransLoc, or from the vehicle logs when `at` is
+    given. `status` is in_service / not_in_service (bus known, no route) / unknown_bus / no_data."""
+    bus = bus.strip()
+    models = await _onboard_models()
+    out: Dict[str, Any] = {
+        "bus": bus, "mode": "replay" if at is not None else "live", "status": "unknown_bus",
+        "route": None, "block": None, "at_stop": None, "stops": [], "alert": None, "position": None,
+    }
+    dwell_elapsed_s = 0.0
+    if at is not None:
+        when_ts = at / 1000.0
+        found = await asyncio.to_thread(_onboard_replay_state, bus, at)
+        out["status"] = found["status"]
+        line, veh, route_id, block_id = found.get("line"), found.get("vehicle"), found.get("route_id"), found.get("block_id")
+        dwell_elapsed_s = found.get("dwell_elapsed_s", 0.0)
+        if "lat" in found:
+            out["position"] = {"lat": found["lat"], "lon": found["lon"], "source": "replay"}
+        pos_lat, pos_lon = found.get("lat"), found.get("lon")
+        s_pos = veh.s_pos if veh is not None else 0.0
+    else:
+        when_ts = time.time()
+        veh = route = route_id = line = block_id = None
+        async with state.lock:
+            for rid, vehs in state.vehicles_by_route.items():
+                veh = next((v for v in vehs.values() if str(v.name) == bus), None)
+                if veh is not None:
+                    route_id, route = str(rid), state.routes.get(rid)
+                    break
+        if veh is not None:
+            out["status"] = "not_in_service"
+            pos_lat, pos_lon, s_pos, source = veh.lat, veh.lon, veh.s_pos, "transloc"
+            offset_m = haversine((lat, lon), (veh.lat, veh.lon)) if lat is not None and lon is not None else None
+            line = (await _onboard_live_lines()).get(route_id)
+            if line is not None and route is not None and line.shape_cum and len(line.stops) >= 2:
+                out["status"] = "in_service"
+                block_id = _current_block_id_for_vehicle(_vehicle_block_windows(), veh.id, when_ts)
+                if offset_m is not None and offset_m <= ONBOARD_DEVICE_MAX_OFFSET_M + 20.0 * float(veh.age_s or 0.0):
+                    # The tablet's fix is fresher than TransLoc's; TransLoc's says which pass of the line it is on.
+                    moving = heading is not None and (speed or 0.0) > 1.0
+                    match_heading = heading if moving else (veh.heading if veh.ground_mps > DIR_SIGN_STATIONARY_MPS else None)
+                    device = Vehicle(id=veh.id, name=bus, lat=lat, lon=lon, ts_ms=int(when_ts * 1000),
+                                     ground_mps=veh.ground_mps, age_s=0.0)
+                    s_pos, _seg = project_vehicle_to_route(device, route, veh.seg_idx, match_heading, veh.s_pos)
+                    pos_lat, pos_lon, source = lat, lon, "device"
+                at_stop_id = bus_eta.stop_zone_at(line, pos_lat, pos_lon)
+                dwell_elapsed_s = _bus_eta_stop_zone_elapsed(f"onboard|{veh.id}|{route_id}", at_stop_id, when_ts)
+            out["position"] = {"lat": pos_lat, "lon": pos_lon, "source": source}
+            if source == "transloc" and offset_m is not None:
+                out["position"]["device_offset_m"] = round(offset_m)
+
+    out["time"] = int(when_ts * 1000)
+    if out["status"] != "in_service":
+        return out
+    desc, _, info = (line.name or "").partition(" — ")
+    out["route"] = {"id": route_id, "name": desc.strip(), "info": info.strip(), "color": f"#{line.color.lstrip('#')}"}
+    out["block"] = block_id
+    out["at_stop"], out["stops"] = _onboard_stop_rows(
+        line, route_id, s_pos, veh.ema_mps, getattr(veh, "dir_sign", 0), pos_lat, pos_lon,
+        block_id, when_ts, models, dwell_elapsed_s,
+        speed if speed is not None and out["position"]["source"] == "device" else veh.ground_mps,
+    )
+    notices = _active_notice_texts([str(s.id) for s in line.stops])
+    out["alert"] = " ".join(text for _id, text in notices) if notices else None
+    return out
+
+
 @app.get("/v1/metromap/debug")
 async def metromap_debug():
     """Temporary diagnostic: shows what state data is available for the metro map."""
@@ -18714,6 +19196,38 @@ async def service_schedule_status(start: Optional[str] = None, days: int = 14):
     except ValueError:
         raise HTTPException(400, "start must be YYYY-MM-DD")
     return JSONResponse(sched.status(service_day, first, min(max(days, 1), 120)), headers={"Cache-Control": "no-store"})
+
+
+# The level each past day actually ran at (service_levels.py), kept for good next to the ETA history it explains.
+@app.get("/v1/service-levels")
+async def service_levels_log(start: Optional[str] = None, days: int = 14):
+    log = getattr(app.state, "service_level_log", None)
+    if log is None:
+        raise HTTPException(503, "service level log not started")
+    now = datetime.now(ZoneInfo("America/New_York"))
+    service_day = (now - timedelta(hours=2, minutes=30)).date()
+    days = min(max(days, 1), 400)
+    try:
+        first = date.fromisoformat(start) if start else service_day - timedelta(days=days - 1)
+    except ValueError:
+        raise HTTPException(400, "start must be YYYY-MM-DD")
+
+    sched = getattr(app.state, "service_schedule", None)
+
+    def entry(d: date) -> Dict[str, Any]:
+        e = log.entry(d)
+        cal = (sched.day(d) if sched is not None else None) or {}
+        label = str((cal.get("services") or {}).get("UVA Transit") or "")
+        if e["source"] == "default" and service_levels.level_from_calendar(label):
+            # Not logged yet (a day still to come): what the calendar says today, which can change.
+            e = {"date": d.isoformat(), "level": service_levels.level_from_calendar(label), "label": label,
+                 "notes": str(cal.get("notes") or ""), "source": "calendar, not logged yet"}
+        return {**e, "history_class": service_levels.history_class(e["level"]) or "regular"}
+
+    return JSONResponse(
+        {"today": entry(service_day), "days": [entry(first + timedelta(days=i)) for i in range(days)]},
+        headers={"Cache-Control": "no-store"},
+    )
 
 
 # ---------------------------

@@ -583,3 +583,76 @@ def test_shared_history_never_crosses_weekday_and_weekend():
     # ...while the route's OWN weekend history is still a last resort, as before.
     own_sunday = {tph._bucket_key("67", "901", "902", 6, 17): {"seconds": 60.0, "samples": 3}}
     assert tph.HopTimeModel(own_sunday).lookup("67", "901", "902", when) == 60.0
+
+
+def _recess_on(*days):
+    return lambda d: "recess" if d in days else None
+
+
+def test_recess_day_samples_are_filed_apart(monkeypatch):
+    # Three Wednesdays of the same hop; the newest one was a recess day.
+    monkeypatch.setattr(tph, "_service_class_fn", _recess_on(_wed_5pm(0).date()))
+    events = []
+    for week, hop_s in ((0, 200), (1, 300), (2, 310)):
+        t = _wed_5pm(week)
+        events += [_event(t, "67", "901", "B1"), _event(t + timedelta(seconds=hop_s), "67", "902", "B1")]
+    samples = tph.build_hop_time_samples(FakeStorage(events), now=_wed_5pm(0) + timedelta(hours=1), shared=False)
+    key = tph._bucket_key("67", "901", "902", 2, 17)
+    assert sorted(samples[key]) == [300, 310]
+    assert samples[tph.RECESS_PREFIX + key] == [200]
+
+
+def test_after_midnight_belongs_to_the_service_day_before(monkeypatch):
+    # 01:00 Thursday is still Wednesday's (recess) service day; the bucket keeps its own weekday and hour.
+    monkeypatch.setattr(tph, "_service_class_fn", _recess_on(_wed_5pm(0).date()))
+    t = _wed_5pm(0) + timedelta(hours=8)
+    events = [_event(t, "59", "1", "B1"), _event(t + timedelta(seconds=120), "59", "2", "B1")]
+    samples = tph.build_hop_time_samples(FakeStorage(events), now=t + timedelta(hours=1), shared=False)
+    assert list(samples) == [tph.RECESS_PREFIX + tph._bucket_key("59", "1", "2", 3, 1)]
+
+
+def test_recess_model_reads_recess_history_then_the_regular_model():
+    when = _wed_5pm(0).timestamp()
+    regular_key = tph._bucket_key("67", "901", "902", 2, 17)
+    buckets = {
+        regular_key: {"seconds": 300.0, "samples": 9},
+        tph.RECESS_PREFIX + tph._bucket_key("67", "901", "902", 1, 17): {"seconds": 200.0, "samples": 3},  # Tuesday
+        tph._bucket_key("67", "902", "903", 2, 17): {"seconds": 80.0, "samples": 9},
+        tph.RECESS_PREFIX + tph._bucket_key("67", "902", "903", 6, 17): {"seconds": 40.0, "samples": 3},  # Sunday
+    }
+    regular = tph.HopTimeModel(buckets)
+    recess = tph.HopTimeModel(buckets, fallback=regular, prefix=tph.RECESS_PREFIX, cross_group=False)
+    assert regular.lookup("67", "901", "902", when) == 300.0  # a regular day never reads recess history
+    assert recess.lookup("67", "901", "902", when) == 200.0   # yesterday's recess day, same hour
+    assert recess.lookup("67", "902", "903", when) == 80.0    # only a recess weekend: the regular model's own hour wins
+
+
+def test_load_model_layers_recess_history_on_a_recess_day(tmp_path, monkeypatch):
+    monkeypatch.setattr(tph, "CACHE_PATH", tmp_path / "cache.json")
+    monkeypatch.setattr(tph, "DEEP_CACHE_PATH", tmp_path / "deep.json")
+    tuesday = (_wed_5pm(0) - timedelta(days=1)).date()
+    monkeypatch.setattr(tph, "_service_class_fn", _recess_on(tuesday, _wed_5pm(0).date()))
+    events = []
+    for week in (1, 2, 3):  # regular Wednesdays: 300 s
+        t = _wed_5pm(week)
+        events += [_event(t, "67", "901", "B1"), _event(t + timedelta(seconds=300), "67", "902", "B1")]
+    for i in range(3):  # recess Tuesday, same hour: 200 s
+        t = _wed_5pm(0) - timedelta(days=1) + timedelta(minutes=15 * i)
+        events += [_event(t, "67", "901", f"T{i}"), _event(t + timedelta(seconds=200), "67", "902", f"T{i}")]
+    storage = FakeStorage(events)
+    recess_day = tph.load_model(storage, now=_wed_5pm(0))
+    assert recess_day.lookup("67", "901", "902", _wed_5pm(0).timestamp()) == 200.0
+    monkeypatch.setattr(tph, "_service_class_fn", _recess_on(tuesday))  # same cache, Wednesday now a regular day
+    assert tph.load_model(storage, now=_wed_5pm(0)).lookup("67", "901", "902", _wed_5pm(0).timestamp()) == 300.0
+
+
+def test_recess_dwell_falls_back_to_the_regular_dwell():
+    when = _wed_5pm(0).timestamp()
+    buckets = {
+        tph._bucket_key("67", "901", tph.DWELL_KEY, 2, 17): {"seconds": 240.0, "samples": 9},
+        tph._bucket_key("67", "902", tph.DWELL_KEY, 2, 17): {"seconds": 240.0, "samples": 9},
+        tph.RECESS_PREFIX + tph._bucket_key("67", "902", tph.DWELL_KEY, 1, 17): {"seconds": 420.0, "samples": 3},
+    }
+    recess = tph.DwellModel(buckets, prefix=tph.RECESS_PREFIX, fallback=tph.DwellModel(buckets))
+    assert recess.lookup("67", "901", when) == 240.0
+    assert recess.lookup("67", "902", when) == 420.0

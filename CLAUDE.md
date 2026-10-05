@@ -390,6 +390,7 @@ Admin-managed alerts (`/v1/system-notices` CRUD, edited at `/system-notices`). `
 - `GET /headway` - Headway visualization
 - `GET /headway-diagnostics` - Diagnostic view
 - `GET /arrivalsdisplay` - Arrivals board
+- `GET /onboard?bus=` - On-board sign for a screen on a bus (next stop + upcoming stops with ETAs); `?replay=&speed=` plays a logged day, data from `GET /v1/onboard`; stop announcements are pre-rendered MP3s in `media/ava/` built by `scripts/build_ava_clips.py` (rerun when a stop is added or renamed); see HANDOFF.md 2026-10-04
 - `GET /vdot-cams` - Multi-state traffic camera viewer
 - `GET /sitemap` - Full page list
 - `GET /feeds` - RSS/CAP arrival feed documentation
@@ -401,6 +402,7 @@ Admin-managed alerts (`/v1/system-notices` CRUD, edited at `/system-notices`). `
 - `GET /api/pulsepoint` - Emergency incidents
 - `GET /api/amtrak` - Train positions
 - `GET /v1/service-schedule?start=&days=` - UTS service level per day (Full/Recess/No Service, per UVA Transit / UVA Ride / Night Pilot / UVA FlexRide + notes), scraped hourly from parking.virginia.edu/serviceschedule via headless Chromium past Cloudflare (`service_schedule.py`)
+- `GET /v1/service-levels?start=&days=` - the level each day actually ran at (`full` / `exam` / `recess` / `summer` / `none`) and which ETA history it feeds (`history_class`), from the permanent log `service_levels.py` keeps; see [Service Levels and Recess History](#service-levels-and-recess-history)
 - `GET /api/rss/stop_arrivals/{code}` / `GET /api/cap/stop_arrivals/{code}` - RSS 2.0 / CAP 1.2 arrival feeds for signage, keyed by a feed code managed at `/feed-codes`
 - `GET /api/rss/stop_arrivals?stopID=` / `GET /api/cap/stop_arrivals?stopID=` - same feeds, legacy raw-stop-ID form
 - `GET /v1/transloc/stop_arrivals/{code}` - raw TransLoc-shaped JSON arrivals (same shape as `/v1/transloc/stop_arrivals`), keyed by a feed code instead of raw stop IDs; used by `/countdown` and the standalone Countdown Clock Pi driver so a code repoint at `/feed-codes` takes effect without redeploying the client
@@ -776,6 +778,27 @@ feed (`W2W_ICAL_URL`) lists every shift, unassigned ones with an empty employee 
   (vehicle popup + status panel), vandispatch2 duty roster (OnDemand/FlexRide), `/statussignage`, and the legacy `/map` status panel
   (its bus popup shows the OPEN entry as the driver name). `vehicle_drivers/uva.py` is an unused parallel implementation and was left alone.
 - `scripts/w2w_ics.py` parses an exported .ics by hand; `scripts/ridership_pull.py` / `block8_ridership.py` are the analysis scripts.
+
+### Service Levels and Recess History
+
+`service_levels.py` keeps a permanent per-day record of the service level in `/data/service_levels.json` (never
+pruned; the scraped calendar in `service_schedule.py` only remembers the days it was shown). `app.py` logs every
+calendar day up to today at startup and after each calendar pull. Levels: `full`, `exam`, `recess`, `summer`, `none`.
+Days nobody logged fall back to `KNOWN_RANGES` in that file (exam service 2026-04-29..05-08, summer service
+2026-05-11..08-19) and to Full Service from 2026-08-20 on.
+
+The level name is for the record. The ETA engine only asks whether a day was recess-like (`history_class`: `recess`
+and `summer` are, everything else is regular):
+
+- `trip_planner_history` files hop, drive and dwell samples from recess-like service days under the same bucket keys
+  with the prefix `recess:` (`RECESS_PREFIX`). A service day runs to 04:00, so Night Pilot's after-midnight trips
+  stay with the evening before.
+- On a recess-like day `load_model` / `load_drive_dwell_models` return a model that reads the `recess:` buckets first
+  (same day group, up to +/- 2 hours) and falls back to the regular model. A regular day never reads recess buckets.
+- With no calendar and no log entry a day is regular, which is the behaviour from before this existed.
+- For the next kind of service level, add it to `service_levels.py` (`level_from_calendar`, and `RECESS_LIKE` if its
+  traffic and timetable look like a break). The block timetable for recess days is separate: see `recess_sheets` in
+  `config/uts_active_sheets.json`.
 
 ### Adding External API Integration
 

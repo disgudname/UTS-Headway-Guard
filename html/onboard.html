@@ -1,0 +1,499 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <link rel="icon" type="image/png" href="/media/favicon.ico" />
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>UVATransit On-Board Sign</title>
+  <style>
+    :root {
+      --route: #5f6367;
+      --route-ink: #fff;
+      --bg: #0b0f17;
+      --panel: #131a26;
+      --ink: #f4f6fa;
+      --dim: #93a0b4;
+      --u: 1vh;
+    }
+    * { box-sizing: border-box; }
+    html, body {
+      margin: 0;
+      width: 100%;
+      height: 100%;
+      overflow: hidden;
+      background: var(--bg);
+      color: var(--ink);
+      font-family: "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+      font-weight: 600;
+      cursor: none;
+      user-select: none;
+    }
+    body {
+      display: grid;
+      grid-template-rows: calc(15 * var(--u)) 1fr auto;
+    }
+
+    header {
+      display: flex;
+      align-items: center;
+      background: var(--route);
+      color: var(--route-ink);
+      padding: 0 calc(4 * var(--u));
+      gap: calc(3 * var(--u));
+    }
+    #routeName { font-size: calc(8 * var(--u)); font-weight: 800; white-space: nowrap; }
+    #routeInfo {
+      font-size: calc(3.6 * var(--u));
+      opacity: 0.85;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      flex: 1;
+    }
+    #clock { font-size: calc(7 * var(--u)); font-variant-numeric: tabular-nums; white-space: nowrap; margin-left: auto; }
+
+    main {
+      display: grid;
+      grid-template-columns: 53fr 47fr;
+      min-height: 0;
+    }
+    #now {
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+      padding: calc(4 * var(--u)) calc(5 * var(--u));
+      min-width: 0;
+      min-height: 0;
+    }
+    #nowLabel {
+      font-size: calc(5 * var(--u));
+      letter-spacing: 0.12em;
+      color: var(--dim);
+    }
+    #nowLabel.live { color: #ffd23f; }
+    #nowNameBox { flex: 0 0 auto; margin: calc(1.5 * var(--u)) 0; }
+    #nowName { font-size: calc(13 * var(--u)); font-weight: 800; line-height: 1.08; text-wrap: balance; }
+    #nowSub { font-size: calc(5 * var(--u)); color: var(--dim); min-height: 1.3em; }
+    #nowSub b { color: var(--ink); font-weight: 800; }
+
+    #list {
+      background: var(--panel);
+      padding: calc(3 * var(--u)) calc(4 * var(--u)) calc(3 * var(--u)) calc(3 * var(--u));
+      display: grid;
+      grid-auto-rows: 1fr;
+      min-height: 0;
+      overflow: hidden;
+    }
+    .row {
+      display: grid;
+      grid-template-columns: calc(6 * var(--u)) 1fr auto;
+      align-items: center;
+      min-height: 0;
+      position: relative;
+    }
+    /* The line the bus travels down, with a dot per stop. */
+    .row::before {
+      content: "";
+      position: absolute;
+      left: calc(2.6 * var(--u));
+      top: 0;
+      bottom: 0;
+      width: calc(0.8 * var(--u));
+      background: var(--route);
+    }
+    .row:first-child::before { top: 50%; }
+    .row:last-child::before { bottom: 0; opacity: 0.55; }
+    .dot {
+      width: calc(3 * var(--u));
+      height: calc(3 * var(--u));
+      border-radius: 50%;
+      background: var(--panel);
+      border: calc(0.7 * var(--u)) solid var(--route);
+      margin-left: calc(1.5 * var(--u));
+      position: relative;
+    }
+    .row.timestop .dot { background: var(--ink); }
+    /* Stop names are long ("Emmet St @ Central Grounds Garage"): wrap to two lines rather than cut them off. */
+    .name {
+      font-size: calc(4.2 * var(--u));
+      line-height: 1.12;
+      display: -webkit-box;
+      -webkit-box-orient: vertical;
+      -webkit-line-clamp: 2;
+      overflow: hidden;
+      padding: 0 calc(2 * var(--u));
+    }
+    .eta { font-size: calc(4.6 * var(--u)); font-weight: 800; font-variant-numeric: tabular-nums; white-space: nowrap; }
+    .eta small { font-size: 0.62em; font-weight: 600; color: var(--dim); margin-left: 0.25em; }
+
+    #alert {
+      display: none;
+      background: #ffd23f;
+      color: #1a1400;
+      font-size: calc(5 * var(--u));
+      line-height: calc(9 * var(--u));
+      height: calc(9 * var(--u));
+      overflow: hidden;
+      white-space: nowrap;
+    }
+    #alert.on { display: block; }
+    #alertText { display: inline-block; padding: 0 calc(4 * var(--u)); }
+    #alertText.scroll { padding-left: 100vw; animation: scroll linear infinite; }
+    @keyframes scroll { to { transform: translateX(-100%); } }
+
+    #overlay {
+      position: fixed;
+      inset: 0;
+      display: none;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      text-align: center;
+      background: var(--bg);
+      padding: 6vw;
+    }
+    #overlay.on { display: flex; }
+    #overlayTitle { font-size: calc(11 * var(--u)); font-weight: 800; }
+    #overlaySub { font-size: calc(5 * var(--u)); color: var(--dim); margin-top: calc(3 * var(--u)); }
+    #overlayClock { font-size: calc(7 * var(--u)); color: var(--dim); margin-top: calc(6 * var(--u)); font-variant-numeric: tabular-nums; }
+
+    #badge {
+      position: fixed;
+      left: calc(1.5 * var(--u));
+      bottom: calc(1.5 * var(--u));
+      display: none;
+      background: rgba(0, 0, 0, 0.78);
+      color: #fff;
+      font-size: calc(2.6 * var(--u));
+      font-weight: 600;
+      padding: 0.3em 0.9em;
+      border-radius: 999px;
+      white-space: nowrap;
+      z-index: 5;
+    }
+    #badge.on { display: block; }
+
+    @media (orientation: portrait) {
+      :root { --u: 0.62vh; }
+      main { grid-template-columns: 1fr; grid-template-rows: 42fr 58fr; }
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <div id="routeName"></div>
+    <div id="routeInfo"></div>
+    <div id="clock"></div>
+  </header>
+  <main>
+    <section id="now">
+      <div id="nowLabel"></div>
+      <div id="nowNameBox"><div id="nowName"></div></div>
+      <div id="nowSub"></div>
+    </section>
+    <section id="list"></section>
+  </main>
+  <div id="alert"><span id="alertText"></span></div>
+  <div id="overlay">
+    <div id="overlayTitle"></div>
+    <div id="overlaySub"></div>
+    <div id="overlayClock"></div>
+  </div>
+  <div id="badge"></div>
+
+  <script>
+  (() => {
+    const params = new URLSearchParams(location.search);
+    const BUS = (params.get('bus') || '').trim();
+    const DEBUG = params.has('debug');
+    // ?replay= is a local date-time (2026-09-29T10:15) or epoch ms; ?speed= multiplies the replay clock.
+    const replayRaw = params.get('replay');
+    const REPLAY_START = replayRaw ? (/^\d+$/.test(replayRaw) ? Number(replayRaw) : new Date(replayRaw).getTime()) : null;
+    const REPLAY = REPLAY_START !== null && Number.isFinite(REPLAY_START);
+    const SPEED = REPLAY ? Math.max(0.1, Number(params.get('speed')) || 1) : 1;
+    const POLL_MS = Math.max(1000, Number(params.get('poll')) || (REPLAY ? 3000 : 5000));
+    const AVA = params.get('ava') !== '0';   // stop announcements; ?ava=0 mutes
+    const MAX_ROWS = 6;
+    const ARRIVING_S = 30;       // next stop this close: "Arriving"
+    const HOLD_ANNOUNCE_MIN_MS = 120000;   // a scheduled hold at least this long is announced
+    const HOLD_ANNOUNCE_MAX_MIN = 20;      // longest hold there is a clip for (scripts/build_ava_clips.py)
+    const GPS_MAX_AGE_MS = 15000;
+    const GPS_MAX_ACCURACY_M = 100;
+    const STALE_BADGE_MS = 20000;
+    const STALE_BLANK_MS = 90000;
+    const TZ = 'America/New_York';
+
+    const $ = (id) => document.getElementById(id);
+    const startedAt = performance.now();
+    let data = null;        // last /v1/onboard response
+    let dataAt = 0;         // performance.now() when it arrived
+    let lastOkAt = 0;
+    let fix = null;         // last device GPS fix
+    let renderedKey = '';
+
+    const signNow = () => REPLAY ? REPLAY_START + (performance.now() - startedAt) * SPEED : Date.now();
+    const clockText = (ms, seconds) => new Date(ms).toLocaleTimeString('en-US', {
+      timeZone: TZ, hour: 'numeric', minute: '2-digit', second: seconds ? '2-digit' : undefined,
+    });
+
+    function inkFor(hex) {
+      const m = /^#?([0-9a-f]{6})$/i.exec(hex || '');
+      if (!m) return '#fff';
+      const n = parseInt(m[1], 16);
+      const lum = (0.299 * (n >> 16) + 0.587 * ((n >> 8) & 255) + 0.114 * (n & 255)) / 255;
+      return lum > 0.6 ? '#111' : '#fff';
+    }
+
+    function minutes(seconds) {
+      if (seconds === null || seconds === undefined) return '';
+      if (seconds <= ARRIVING_S) return 'Arriving';
+      return `${Math.max(1, Math.round(seconds / 60))}<small>min</small>`;
+    }
+
+    // Shrink the big stop name until it fits its box (long names wrap to two or three lines).
+    function fitName() {
+      const box = $('nowNameBox'), el = $('nowName');
+      const unit = parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--u')) * innerHeight / 100;
+      let size = 13;
+      el.style.fontSize = `${size * unit}px`;
+      // offsetHeight, not scrollHeight: the tight line-height makes glyphs overhang their own line box.
+      while (size > 5 && (el.offsetHeight > 42 * unit || el.scrollWidth > box.clientWidth + 1)) {
+        size -= 0.5;
+        el.style.fontSize = `${size * unit}px`;
+      }
+    }
+
+    // ---- AVA: stop announcements, from clips pre-rendered by scripts/build_ava_clips.py
+    // (lead-in phrases and one clip per stop name). No browser text-to-speech.
+    const clipSlug = (name) => String(name).toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '');
+    const clips = new Map();   // url -> Audio, kept so a clip is already downloaded when it is needed
+    let playing = null;
+    let thisSaid = null;     // stop id last announced as "This is ..."
+    let nextSaid = null;     // stop id last announced as "The next stop is ..."
+    let lastAt = null;       // stop the bus was last at, stopped or not
+    let audioBlocked = false;
+
+    function clip(file) {
+      const url = `/media/ava/${file}.mp3`;
+      if (!clips.has(url)) {
+        const audio = new Audio(url);
+        audio.preload = 'auto';
+        clips.set(url, audio);
+      }
+      return clips.get(url);
+    }
+
+    // Plays clips back to back; each part is a clip file name or a stop (its name's clip).
+    function say(parts) {
+      console.info('[onboard] AVA: ' + parts.map((p) => (typeof p === 'string' ? p : p.name)).join(' | '));
+      if (!AVA) return;
+      if (playing) playing.pause();
+      const queue = parts.map((p) => clip(typeof p === 'string' ? p : clipSlug(p.name)));
+      const step = () => {
+        const audio = queue.shift();
+        if (!audio) { playing = null; return; }
+        playing = audio;
+        audio.currentTime = 0;
+        audio.onended = step;
+        audio.onerror = () => { console.warn('[onboard] AVA clip missing', audio.src); playing = null; };
+        audio.play().then(() => { audioBlocked = false; }, (err) => {
+          // Browsers refuse to play sound until the page has been touched once.
+          if (err.name === 'NotAllowedError') audioBlocked = true;
+          playing = null;
+        });
+      };
+      step();
+    }
+
+    // NYC-subway style. Stopped at a stop: "This is X. The next stop is Y.", with "To maintain even
+    // spacing of buses, this bus will be held at this stop for approximately N minutes." in between
+    // when the schedule holds it there two minutes or more. A stop the bus drives past
+    // gets no "This is"; once it is behind, just "The next stop is Y." Nothing is said twice: the next
+    // stop is not repeated on pulling out, and GPS wobble back into a stop already left stays quiet.
+    // Whole minutes a bus reaching `stop` at arriveMs is scheduled to hold there, when that is long
+    // enough to be worth telling riders about (and there is a clip for it); else null.
+    function holdMinutes(stop, arriveMs) {
+      if (!stop || !stop.timestop || !stop.scheduled) return null;
+      const ms = stop.scheduled * 1000 - arriveMs;
+      const mins = Math.round(ms / 60000);
+      return ms >= HOLD_ANNOUNCE_MIN_MS && mins <= HOLD_ANNOUNCE_MAX_MIN ? mins : null;
+    }
+
+    function announce(at, next) {
+      if (at) {
+        lastAt = at.id;
+        if (at.stopped && at.id !== thisSaid) {
+          thisSaid = at.id;
+          const parts = ['_this-is', at];
+          const hold = holdMinutes(at, signNow());
+          if (hold !== null) parts.push(`_hold-${hold}`);
+          if (next && next.id !== nextSaid) {
+            nextSaid = next.id;
+            parts.push('_the-next-stop-is', next);
+          }
+          say(parts);
+        }
+      } else if (next && next.id !== nextSaid && next.id !== lastAt) {
+        nextSaid = next.id;
+        say(['_the-next-stop-is', next]);
+      }
+    }
+
+    function overlay(title, sub) {
+      $('overlayTitle').textContent = title;
+      $('overlaySub').textContent = sub || '';
+      $('overlay').classList.add('on');
+    }
+
+    function setAlert(text) {
+      const bar = $('alert'), span = $('alertText');
+      if (span.dataset.text === (text || '')) return;
+      span.dataset.text = text || '';
+      span.textContent = text || '';
+      span.classList.remove('scroll');
+      bar.classList.toggle('on', !!text);
+      if (text && span.scrollWidth > bar.clientWidth) {
+        span.classList.add('scroll');
+        span.style.animationDuration = `${Math.max(12, span.scrollWidth / 90)}s`;
+      }
+    }
+
+    function render() {
+      const now = signNow();
+      $('clock').textContent = clockText(now);
+      $('overlayClock').textContent = clockText(now);
+
+      const badge = [];
+      if (REPLAY) badge.push(`REPLAY ${new Date(now).toLocaleDateString('en-US', { timeZone: TZ, weekday: 'short', month: 'short', day: 'numeric' })} ${clockText(now, true)}${SPEED !== 1 ? ` x${SPEED}` : ''}`);
+      const sinceOk = performance.now() - lastOkAt;
+      if (lastOkAt && sinceOk > STALE_BADGE_MS) badge.push('Reconnecting...');
+      // Browsers hold sound until the page has been touched once (or the kiosk is started with autoplay allowed).
+      if (AVA && audioBlocked) badge.push('Tap the screen to turn on announcements');
+      if (DEBUG && data) {
+        const p = data.position || {};
+        badge.push(`bus ${BUS} ${data.status} pos:${p.source || '-'} block:${data.block || '-'}` +
+          (fix ? ` gps:${Math.round(fix.accuracy)}m` : ' gps:none') +
+          (p.device_offset_m !== undefined ? ` offset:${p.device_offset_m}m` : ''));
+      }
+      $('badge').textContent = badge.join('  |  ');
+      $('badge').classList.toggle('on', badge.length > 0);
+
+      if (!BUS) return overlay('No bus set', 'Add ?bus= and the bus number to the address, e.g. /onboard?bus=18432');
+      if (!data) return overlay('UVA Transit', lastOkAt ? '' : 'Connecting...');
+      if (sinceOk > STALE_BLANK_MS) return overlay('UVA Transit', 'No connection');
+      if (data.status === 'unknown_bus') return overlay('UVA Transit', DEBUG || REPLAY ? `Bus ${BUS} not found` : '');
+      if (data.status === 'no_data') return overlay('UVA Transit', 'No logged positions for this time');
+      if (data.status !== 'in_service') return overlay('Not in service', '');
+      $('overlay').classList.remove('on');
+
+      // Count the ETAs down between polls rather than freezing them.
+      const elapsed = (performance.now() - dataAt) / 1000 * SPEED;
+      const left = (s) => (s.seconds === null || s.seconds === undefined ? null : Math.max(0, s.seconds - elapsed));
+      const route = data.route;
+      const stops = data.stops || [];
+      const at = data.at_stop;
+      const next = stops[0];
+
+      document.documentElement.style.setProperty('--route', route.color);
+      document.documentElement.style.setProperty('--route-ink', inkFor(route.color));
+      $('routeName').textContent = route.name;
+      $('routeInfo').textContent = route.info || '';
+
+      let label, name, sub = '', listed;
+      if (at) {
+        label = 'NOW AT';
+        name = at.name;
+        const departs = at.timestop && at.scheduled && at.scheduled * 1000 > now + 30000 ? clockText(at.scheduled * 1000) : null;
+        if (departs) sub = `Departs <b>${departs}</b>`;
+        else if (next) sub = `Next: <b>${escapeHtml(next.name)}</b>`;
+        listed = stops;
+      } else if (next) {
+        const s = left(next);
+        const arriving = s !== null && s <= ARRIVING_S;
+        label = arriving ? 'ARRIVING AT' : 'NEXT STOP';
+        name = next.name;
+        if (!arriving && s !== null) sub = `in <b>${Math.max(1, Math.round(s / 60))} min</b>`;
+        listed = stops.slice(1);
+      } else {
+        label = '';
+        name = '';
+        listed = [];
+      }
+      announce(at, next);
+      $('nowLabel').textContent = label;
+      $('nowLabel').classList.toggle('live', label !== 'NEXT STOP');
+      $('nowSub').innerHTML = sub;
+
+      const rows = listed.slice(0, MAX_ROWS);
+      const key = [route.id, name, rows.map((r) => r.id).join(',')].join('|');
+      if (key !== renderedKey) {
+        renderedKey = key;
+        $('nowName').textContent = name;
+        fitName();
+        $('list').innerHTML = rows.map((r) =>
+          `<div class="row${r.timestop ? ' timestop' : ''}"><span class="dot"></span>` +
+          `<span class="name">${escapeHtml(r.name)}</span><span class="eta"></span></div>`).join('');
+      }
+      const etaCells = $('list').querySelectorAll('.eta');
+      rows.forEach((r, i) => { etaCells[i].innerHTML = minutes(left(r)); });
+      // Fetch the clips for the stops coming up while there is a connection to fetch them over.
+      if (AVA) {
+        [at, ...stops.slice(0, 3)].forEach((s) => s && clip(clipSlug(s.name)));
+        const hold = at ? holdMinutes(at, now) : holdMinutes(next, now + (left(next) || 0) * 1000);
+        if (hold !== null) clip(`_hold-${hold}`);
+      }
+      setAlert(data.alert);
+    }
+
+    function escapeHtml(text) {
+      return String(text).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+    }
+
+    async function poll() {
+      if (!BUS) return;
+      const q = new URLSearchParams({ bus: BUS });
+      if (REPLAY) {
+        q.set('at', String(Math.round(signNow())));
+      } else if (fix && Date.now() - fix.at < GPS_MAX_AGE_MS && fix.accuracy <= GPS_MAX_ACCURACY_M) {
+        q.set('lat', fix.lat.toFixed(6));
+        q.set('lon', fix.lon.toFixed(6));
+        if (fix.heading !== null && !Number.isNaN(fix.heading)) q.set('heading', fix.heading.toFixed(1));
+        if (fix.speed !== null && !Number.isNaN(fix.speed)) q.set('speed', fix.speed.toFixed(2));
+      }
+      try {
+        const resp = await fetch(`/v1/onboard?${q}`, { cache: 'no-store' });
+        if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+        data = await resp.json();
+        dataAt = lastOkAt = performance.now();
+      } catch (err) {
+        console.warn('[onboard] poll failed', err);
+      }
+      render();
+    }
+
+    // The tablet's own GPS is the primary position; the server falls back to TransLoc's without it.
+    if (!REPLAY && navigator.geolocation) {
+      navigator.geolocation.watchPosition((pos) => {
+        fix = {
+          lat: pos.coords.latitude, lon: pos.coords.longitude, accuracy: pos.coords.accuracy,
+          heading: pos.coords.heading, speed: pos.coords.speed, at: Date.now(),
+        };
+      }, (err) => console.warn('[onboard] geolocation', err.message), { enableHighAccuracy: true, maximumAge: 2000 });
+    }
+
+    // Keep the screen awake where the browser allows it.
+    const keepAwake = () => navigator.wakeLock && navigator.wakeLock.request('screen').catch(() => {});
+    keepAwake();
+    document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') keepAwake(); });
+    addEventListener('pointerdown', () => { audioBlocked = false; });
+    if (AVA) { clip('_this-is'); clip('_the-next-stop-is'); }
+    addEventListener('resize', () => { renderedKey = ''; render(); });
+
+    render();
+    poll();
+    setInterval(poll, POLL_MS);
+    setInterval(render, 1000);
+  })();
+  </script>
+</body>
+</html>

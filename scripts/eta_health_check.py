@@ -75,6 +75,21 @@ def watch(minutes, every, log):
     return seen_routes
 
 
+def service_level():
+    """Today's service level from prod's log ("full", "exam", "recess", "summer", "none"), or None if it can't be read."""
+    try:
+        return (eta_watch.fetch("/v1/service-levels?days=1").get("today") or {}).get("level")
+    except Exception:
+        pass
+    try:  # a prod build from before /v1/service-levels: read the calendar's own wording
+        label = ((eta_watch.fetch("/v1/service-schedule?days=1").get("today") or {}).get("services") or {}).get("UVA Transit")
+        label = str(label or "").lower()
+        return next((lvl for word, lvl in (("summer", "summer"), ("exam", "exam"), ("recess", "recess"),
+                                           ("no service", "none"), ("full", "full")) if word in label), None)
+    except Exception:
+        return None
+
+
 def route_names():
     try:
         return {str(l["id"]): l["name"] for l in eta_watch.fetch("/v1/trip-planner/uts-graph")["lines"]}
@@ -241,6 +256,7 @@ def main():
         "log": str(log),
     }
     try:
+        summary["service_level"] = service_level()
         names = route_names()
         seen = watch(minutes, every, log)
         summary["purple_in_service"] = any(names.get(r, "").lower().startswith("purple") for r in seen)

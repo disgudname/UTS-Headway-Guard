@@ -460,5 +460,11 @@ def block_mismatches_route(block_id: Optional[str], route_id: str) -> bool:
     return any(str(route_id) in (b.get("route_ids") or []) for b in _blocks.values())
 
 
+def block_runs_route(block_id: Optional[str], route_id: str) -> bool:
+    """True if this block has a schedule and its route family lists route_id."""
+    block = _blocks.get(block_id) if block_id else None
+    return bool(block) and str(route_id) in [str(r) for r in (block.get("route_ids") or [])]
+
+
 def is_loaded() -> bool:
     return bool(_blocks)
