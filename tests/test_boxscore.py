@@ -60,10 +60,39 @@ class BoxScoreTests(unittest.TestCase):
         self.assertEqual(gold["09"]["miles"], 150)
         self.assertEqual(gold["11"]["miles"], 150)
 
-    def test_shuttle_riders_land_in_other(self):
-        rows = [row("9/30/2026 10:00:00 AM", "900", "Purple Lots Shuttle", 30)]
-        box = boxscore.build(DAY, rows, {DAY: {}}, GROUPS)
-        self.assertEqual({r["family"]: r["riders"] for r in box["routes"] if r["riders"]}, {"Other": 30})
+    def test_lot_shuttles_get_their_own_lines_and_make_an_event_day(self):
+        rows = [row("9/30/2026 5:00:00 PM", "900", "Purple Lots Shuttle", 400), row("9/30/2026 10:30:00 PM", "901", "Post-Game Fan Shuttle", 300),
+                row("9/30/2026 10:00:00 AM", "902", "Charter", 9), row("9/30/2026 10:00:00 AM", "903", "Training - Please Ignore", 50)]
+        box = boxscore.build(DAY, rows, {DAY: {}}, GROUPS, game={"opponent": "Delaware", "kickoff": "19:00"})
+        riders = {r["family"]: (r["kind"], r["riders"], r["before_kickoff"]) for r in box["routes"]}
+        self.assertEqual(riders, {"Purple Lots Shuttle": ("shuttle", 400, 400), "Post-Game Fan Shuttle": ("shuttle", 300, 0),
+                                  "Other": ("other", 9, 9)})
+        self.assertEqual(box["event"], {"kind": "football", "name": None, "opponent": "Delaware", "kickoff": "19:00",
+                                        "shuttle_riders": 700, "regular_riders": 0})
+        self.assertEqual(box["totals"]["riders"], 709)  # training riders are not service
+        # No game on the books, but the shuttles ran: still an event day.
+        self.assertEqual(boxscore.build(DAY, rows, {DAY: {}}, GROUPS)["event"]["kind"], "event")
+        self.assertIsNone(boxscore.build(DAY, rows[2:], {DAY: {}}, GROUPS)["event"])
+        concert = boxscore.build(DAY, rows, {DAY: {}}, GROUPS, game={"name": "Luke Combs at Scott Stadium", "kickoff": None})["event"]
+        self.assertEqual((concert["kind"], concert["name"]), ("event", "Luke Combs at Scott Stadium"))
+
+    def test_game_log_keeps_home_football_only(self):
+        import tempfile
+        with tempfile.TemporaryDirectory() as tmp:
+            log = boxscore.GameLog(tmp)
+            self.assertEqual(log.game(date(2026, 9, 26))["opponent"], "Delaware")
+            self.assertEqual(log.game(date(2026, 8, 29))["opponent"], "NC State")
+            changed = log.record([
+                {"sport": "Football -  Virginia Cavaliers", "opponent": "Syracuse", "start_time": "2026-10-10T19:30:00-04:00", "is_home": True},
+                {"sport": "Football -  Virginia Cavaliers", "opponent": "Cal", "start_time": "2026-11-14T00:00:00-05:00", "is_home": True},
+                {"sport": "Football -  Virginia Cavaliers", "opponent": "Florida State", "start_time": "2026-10-17T12:00:00-04:00", "is_home": False},
+                {"sport": "Men's Soccer -  Virginia Cavaliers", "opponent": "Queens", "start_time": "2026-10-06T18:00:00-04:00", "is_home": True},
+            ])
+            self.assertEqual(changed, 2)
+            self.assertEqual(log.game(date(2026, 10, 10)), {"opponent": "Syracuse", "kickoff": "19:30"})
+            self.assertEqual(log.game(date(2026, 11, 14)), {"opponent": "Cal", "kickoff": None})
+            self.assertIsNone(log.game(date(2026, 10, 17)))
+            self.assertEqual(boxscore.GameLog(tmp).game(date(2026, 10, 10))["opponent"], "Syracuse")
 
     def test_notes_rank_against_the_same_kind_of_day(self):
         history = [{"date": f"2026-09-{d:02d}", "level": "full", "riders": 1000 + d, "routes": {"Gold": 400}} for d in (1, 2, 3, 8, 9)]
@@ -73,6 +102,15 @@ class BoxScoreTests(unittest.TestCase):
         self.assertIn("1st of 6", notes[0])
         self.assertTrue(any("Gold Line had its best weekday" in n for n in notes))
         self.assertEqual(boxscore.notes(box, history[:2]), [])
+
+    def test_event_days_are_ranked_only_against_each_other(self):
+        history = [{"date": f"2026-09-{d:02d}", "level": "full", "riders": 1000 + d, "routes": {"Gold": 400}} for d in (1, 2, 3, 8, 9)]
+        history += [{"date": "2026-08-29", "level": "full", "riders": 9000, "routes": {}, "event": True, "shuttle_riders": 8900}]
+        game = {"date": "2026-09-26", "level": "full", "totals": {"riders": 8000}, "routes": [],
+                "event": {"kind": "football", "shuttle_riders": 6269}}
+        self.assertEqual(boxscore.notes(game, history), ["6,269 riders on the lot and fan shuttles, 2nd of 2 event days on record."])
+        plain = {"date": "2026-09-16", "level": "full", "totals": {"riders": 2000}, "routes": []}
+        self.assertIn("1st of 6", boxscore.notes(plain, history)[0])  # the event day is not a peer
 
 
 if __name__ == "__main__":

@@ -58,6 +58,10 @@ TIMESTOP_NAMES = {"BAR": "Barracks", "CHP": "Chapel", "CSW": "Carl Smith Way", "
 DAY_TYPES = ("wkd", "sat", "sun")
 CANARY_BLOCK = "06"
 CANARY_MIN_RIDERS = 100  # a normal day is ~700; well clear of a stray boarding on a bus that was only labelled [06]
+# A home football game or other big event turns a day upside down (lot shuttles carry most of the riders, blocks end
+# early or run late), so those days are left out of the typical-day numbers. The lot and fan shuttles only run on such
+# days: this many riders on them marks one (2026-08-29, 09-11 and 09-26 each had 6,000+). Same rule as boxscore.py.
+EVENT_MIN_SHUTTLE_RIDERS = 500
 SERVICE_DAY_START_S = 4 * 3600  # a service day runs to 04:00, so Night Pilot's after-midnight trips stay with the evening
 
 
@@ -175,20 +179,21 @@ def parse_time(text):
 
 
 def full_service_days(since):
-    """The days in data-local/ridership/ that ran Full Service, going by block [06] (see the module docstring)."""
-    canary = {}
+    """The ordinary Full Service days in data-local/ridership/: Full Service going by block [06] (see the module
+    docstring), minus game and event days."""
+    canary, shuttle = {}, collections.Counter()
     for path in sorted(RIDERSHIP.glob("*.json.gz")):
         day = datetime.date.fromisoformat(path.name[:10])
         blocks_path = RIDERSHIP / f"{day}.blocks.json"
         if day < since or not blocks_path.exists():
             continue
         canary[day] = 0
-        if day.weekday() >= 5:
-            continue
         buses = {b for b, v in json.loads(blocks_path.read_text())["buses"].items()
                  if any(CANARY_BLOCK in group_numbers(g) for g in v.get("blocks") or [])}
         for row in json.loads(gzip.decompress(path.read_bytes())):
-            if row.get("Vehicle") in buses and family_of(row.get("Route")) == BLOCK_FAMILY[CANARY_BLOCK]:
+            if "shuttle" in (row.get("Route") or "").lower():
+                shuttle[day] += row.get("Entries") or 0
+            if day.weekday() < 5 and row.get("Vehicle") in buses and family_of(row.get("Route")) == BLOCK_FAMILY[CANARY_BLOCK]:
                 when = parse_time(row["ClientTime"])
                 if when.date() == day and 9 <= when.hour < 17:  # the bus is Purple [19] before 08:25
                     canary[day] += row.get("Entries") or 0
@@ -199,7 +204,10 @@ def full_service_days(since):
             monday = day + datetime.timedelta(days=7 - day.weekday())
             if friday in full and (monday in full or monday not in canary):
                 full.add(day)
-    return full
+    events = sorted(d for d in full if shuttle[d] >= EVENT_MIN_SHUTTLE_RIDERS)
+    if events:
+        print("left out as game/event days:", ", ".join(f"{d} ({shuttle[d]:,} shuttle riders)" for d in events))
+    return full - set(events)
 
 
 def date_ranges(days):

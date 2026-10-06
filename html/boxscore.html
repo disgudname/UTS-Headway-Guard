@@ -38,6 +38,11 @@
   .line td.r, .line th.r { font-weight: 700; border-left: 2px solid var(--rule); }
   .line td.hot { background: rgba(179, 38, 30, .13); font-weight: 700; }
   tr.total td { border-top: 2px solid var(--rule); border-bottom: 0; font-weight: 700; }
+  tr.first-shuttle td { border-top: 2px solid var(--rule); }
+  .dateline .game { color: var(--accent); }
+  .gameday { border: 2px solid var(--rule); padding: 4px 12px 10px; margin-top: 18px; background: rgba(255,255,255,.35); }
+  .gameday h3 { margin-top: 8px; }
+  .gameday p { margin: 8px 0 0; font-size: 15px; line-height: 1.4; }
   .scroll { overflow-x: auto; }
 
   .stars { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin-top: 8px; }
@@ -84,6 +89,14 @@ const esc = s => String(s).replace(/[&<>"]/g, c => ({'&': '&amp;', '<': '&lt;', 
 const longDate = s => new Date(s + 'T12:00:00').toLocaleDateString('en-US', {weekday: 'long', month: 'long', day: 'numeric', year: 'numeric'});
 const LEVELS = {full: 'Full Service', exam: 'Exam Service', recess: 'Recess Service', summer: 'Summer Service', none: 'No Service'};
 const dot = color => `<i style="background:${color}"></i>`;
+const kindOf = r => r.kind || (r.family === 'Other' ? 'other' : 'route');  // days stored before shuttles had lines
+// "Game day vs Delaware" for a home football game, "Event day" when the lot shuttles ran with no game on the books.
+function eventLabel(box) {
+  const e = box.event;
+  if (!e) return '';
+  if (e.kind !== 'football') return e.name ? 'Event day: ' + e.name : 'Event day';
+  return 'Game day' + (e.opponent ? ' vs ' + e.opponent : '') + (e.kickoff ? ', ' + e.kickoff + ' kick' : '');
+}
 const link = (d, text) => d ? `<a href="?date=${d}">${text}</a>` : `<span class="off">${text}</span>`;
 
 function renderBar(box) {
@@ -94,7 +107,12 @@ function renderBar(box) {
 }
 
 function headline(box) {
-  const routes = box.routes.filter(r => r.family !== 'Other' && r.riders);
+  const routes = box.routes.filter(r => kindOf(r) === 'route' && r.riders);
+  if (box.event && box.event.shuttle_riders) {
+    const e = box.event, what = e.kind === 'football' ? (e.opponent ? `${e.opponent} comes to town` : 'Football at Scott Stadium') : (e.name || 'A big day on Grounds');
+    const deck = (box.notes && box.notes[0] ? box.notes[0] + ' ' : '') + `The six regular routes carried ${num(e.regular_riders)} more.`;
+    return [`${what}: ${num(e.shuttle_riders)} ride the shuttles`, deck];
+  }
   if (!routes.length) return ['No riders counted', 'The door counters reported nothing for this day.'];
   const top = routes.slice().sort((a, b) => b.riders - a.riders), lead = top[0], gap = top[1] ? lead.riders - top[1].riders : 0;
   const head = top[1] && gap < lead.riders * 0.03
@@ -107,10 +125,11 @@ function headline(box) {
 
 function lineScore(box) {
   const max = Math.max(...box.routes.flatMap(r => r.innings));
+  const firstShuttle = box.routes.find(r => kindOf(r) !== 'route');
   const rows = box.routes.map(r => {
     const peak = Math.max(...r.innings);
-    return `<tr><td class="name">${dot(r.color)}${esc(r.name)}</td>${r.innings.map(v => `<td${v && v === peak ? ' class="hot"' : ''}>${v ? num(v) : '&middot;'}</td>`).join('')}
-      <td class="r">${num(r.riders)}</td><td>${r.family === 'Other' ? '&ndash;' : (r.buses || '&ndash;')}</td><td>${num(r.miles)}</td></tr>`;
+    return `<tr${r === firstShuttle ? ' class="first-shuttle"' : ''}><td class="name">${dot(r.color)}${esc(r.name)}</td>${r.innings.map(v => `<td${v && v === peak ? ' class="hot"' : ''}>${v ? num(v) : '&middot;'}</td>`).join('')}
+      <td class="r">${num(r.riders)}</td><td>${kindOf(r) === 'other' ? '&ndash;' : (r.buses || '&ndash;')}</td><td>${num(r.miles)}</td></tr>`;
   }).join('');
   return `<h3>Line score: riders by time of day</h3><div class="scroll"><table class="line">
     <tr><th>Route</th>${box.innings.map(l => `<th>${l}</th>`).join('')}<th class="r">Riders</th><th>Buses</th><th>Miles</th></tr>
@@ -125,6 +144,21 @@ function stars(box) {
   return `<h3>Three stars</h3><div class="stars">${box.stars.map((s, i) => `<div class="star">
     <div class="n">${'&#9733;'.repeat(3 - i)}</div><div class="t">${esc(s.title)}</div>
     <div class="b">${dot(color(s.family))}Block ${s.block}</div><div class="w">${esc(s.why)}</div></div>`).join('')}</div>`;
+}
+
+// The game-day box: what each lot and fan shuttle carried, and how much of it was before kickoff.
+function gameDay(box) {
+  const e = box.event, shuttles = box.routes.filter(r => kindOf(r) === 'shuttle');
+  if (!e || !shuttles.length) return '';
+  const split = e.kickoff && shuttles.some(r => r.before_kickoff != null);
+  const peak = r => box.innings[r.innings.indexOf(Math.max(...r.innings))];
+  const rows = shuttles.map(r => `<tr><td class="name">${dot(r.color)}${esc(r.name)}</td><td>${num(r.riders)}</td><td>${r.buses}</td>
+    ${split ? `<td>${num(r.before_kickoff)}</td><td>${num(r.riders - r.before_kickoff)}</td>` : ''}<td>${peak(r)}</td></tr>`).join('');
+  const share = Math.round(100 * e.shuttle_riders / Math.max(1, box.totals.riders));
+  return `<div class="gameday"><h3>${esc(eventLabel(box))}: the shuttles</h3><table>
+    <tr><th>Shuttle</th><th>Riders</th><th>Buses</th>${split ? '<th>Before kick</th><th>After</th>' : ''}<th>Busiest</th></tr>${rows}
+    <tr class="total"><td>All shuttles</td><td>${num(e.shuttle_riders)}</td><td></td>${split ? `<td>${num(shuttles.reduce((n, r) => n + r.before_kickoff, 0))}</td><td>${num(shuttles.reduce((n, r) => n + r.riders - r.before_kickoff, 0))}</td>` : ''}<td></td></tr></table>
+    <p>The shuttles carried ${share}% of the day's ${num(box.totals.riders)} riders. ${e.kind === 'football' || e.name ? '' : 'Nothing is on the books for this date, but the lot shuttles ran, so it is filed as an event day.'}</p></div>`;
 }
 
 function routeBox(r) {
@@ -147,12 +181,13 @@ function hours(box) {
 
 function gameNotes(box) {
   const t = box.totals, out = (box.notes || []).slice(1);
+  if (box.event && !(box.notes || []).length) out.unshift('Game and event days are ranked against each other, not against ordinary days.');
   if (t.peak_hour != null) out.push(`Busiest hour: ${String(t.peak_hour).padStart(2, '0')}:00, with ${num(t.peak_riders)} boardings.`);
   if (t.first_boarding) out.push(`First rider aboard at ${t.first_boarding}; last one at ${t.last_boarding}.`);
   if (box.top_bus) out.push(`Bus ${esc(box.top_bus.bus)} carried the most of any bus: ${num(box.top_bus.riders)}.`);
   out.push(`${t.buses} buses went out and covered ${num(t.miles)} miles; ${t.blocks} blocks carried riders.`);
-  const other = box.routes.find(r => r.family === 'Other');
-  if (other && other.riders) out.push(`${num(other.riders)} riders were on shuttles, charters and other runs outside the six routes.`);
+  const other = box.routes.find(r => kindOf(r) === 'other');
+  if (other && other.riders) out.push(`${num(other.riders)} riders were on charters and other runs outside the six routes.`);
   return `<h3>Notes</h3><ul class="notes">${out.map(n => `<li>${esc(n)}</li>`).join('')}</ul>`;
 }
 
@@ -166,17 +201,19 @@ function render(box) {
   document.title = 'UTS Box Score, ' + box.date;
   const [head, deck] = headline(box);
   page.innerHTML = `
-    <div class="dateline"><span>${longDate(box.date)}</span><span>${LEVELS[box.level] || ''}</span>
+    <div class="dateline"><span>${longDate(box.date)}</span><span>${LEVELS[box.level] || ''}${box.event ? ` &bull; <span class="game">${esc(eventLabel(box))}</span>` : ''}</span>
       <span${box.final ? '' : ' class="early"'}>${box.final ? 'Final edition' : 'Early edition: counts still coming in'}</span></div>
     <h2 class="head">${esc(head)}</h2><p class="deck">${esc(deck)}</p>
     ${lineScore(box)}
+    ${gameDay(box)}
     ${stars(box)}
     <div class="cols">${box.routes.map(routeBox).join('')}</div>
     <div class="two"><div>${hours(box)}${gameNotes(box)}</div><div>${stops(box)}</div></div>
     <p class="fine">Riders are door-counter boardings from TransLoc for the service day (04:00 to 04:00, so Night Pilot's last trips count with the evening before).
       Each boarding goes to the block its bus was on; when dispatch had one bus listed on two blocks of a route, it is placed by the schedule and the timetable,
       so block numbers are close rather than exact. Miles are from GPS, split between a bus's blocks. A bus with a dead counter shows no riders.
-      R/Hr is riders per scheduled hour. Game-day lot shuttles are counted under "Shuttles &amp; other".</p>`;
+      R/Hr is riders per scheduled hour. On a home football game or other event day the lot and fan shuttles get lines of their own, and the day is ranked only against other such days.
+      Driver training and test runs are left out.</p>`;
 }
 
 function wait(title, text, box) {

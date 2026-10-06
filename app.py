@@ -6907,6 +6907,7 @@ async def startup():
 
     # Box score (/boxscore): yesterday written up each morning, plus a slow backfill of the days before it.
     app.state.boxscore_store = boxscore.BoxScoreStore(PRIMARY_DATA_DIR)
+    app.state.boxscore_games = boxscore.GameLog(PRIMARY_DATA_DIR)
     asyncio.create_task(_boxscore_loop())
 
     def _uts_service_level(d):
@@ -11936,7 +11937,8 @@ async def _build_box_score(day: date) -> Optional[Dict[str, Any]]:
             }
         level = app.state.service_level_log.level(day)
         box = await asyncio.to_thread(
-            boxscore.build, day, rows, bus_days, groups, _BOXSCORE_PACKAGES, _BOXSCORE_TIMESTOPS, level
+            boxscore.build, day, rows, bus_days, groups, _BOXSCORE_PACKAGES, _BOXSCORE_TIMESTOPS, level,
+            app.state.boxscore_games.game(day),
         )
         now = datetime.now(tz)
         box["generated_at"] = now.isoformat(timespec="seconds")
@@ -11965,7 +11967,7 @@ def _boxscore_next_to_build(now: datetime) -> Optional[date]:
         if waiting(d):
             continue
         summary = have.get(d.isoformat())
-        if summary is None:
+        if summary is None or summary.get("v", 1) < boxscore.VERSION:
             return d
         if not summary["final"]:
             box = store.load(d) or {}
@@ -11977,10 +11979,21 @@ def _boxscore_next_to_build(now: datetime) -> Optional[date]:
                 return d
     d = latest - timedelta(days=3)
     while d >= BOXSCORE_BACKFILL_FROM:
-        if d.isoformat() not in have and not waiting(d):
+        # Missing, or written by an older boxscore.py whose output this one has outgrown.
+        if (d.isoformat() not in have or have[d.isoformat()].get("v", 1) < boxscore.VERSION) and not waiting(d):
             return d
         d -= timedelta(days=1)
     return None
+
+
+def _boxscore_note_games() -> None:
+    """Home football games are only on the athletics feed until they are played; write down the ones on it now."""
+    try:
+        changed = app.state.boxscore_games.record(load_cached_events())
+        if changed:
+            print(f"[boxscore] {changed} home football game(s) noted")
+    except Exception as exc:
+        print(f"[boxscore] could not read the athletics feed: {exc!r}"[:300])
 
 
 async def _boxscore_loop():
@@ -11988,6 +12001,7 @@ async def _boxscore_loop():
     while True:
         built = None
         try:
+            await asyncio.to_thread(_boxscore_note_games)
             todo = _boxscore_next_to_build(datetime.now(ZoneInfo("America/New_York")))
             if todo:
                 built = await _build_box_score(todo)
