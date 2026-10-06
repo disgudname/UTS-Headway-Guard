@@ -69,6 +69,8 @@ def get_json(path, **params):
 
 
 def family_of(route_name):
+    if "shuttle" in (route_name or "").lower():  # "Purple Lots Shuttle" is a game-day lot shuttle, not the Purple Line
+        return None
     for fam in FAMILY_COLOR:
         if fam.lower() in (route_name or "").lower():
             return fam

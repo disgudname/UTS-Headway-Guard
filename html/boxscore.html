@@ -1,0 +1,207 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>UTS Box Score</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@700;900&family=Roboto+Condensed:wght@400;500;700&family=UnifrakturCook:wght@700&display=swap" rel="stylesheet">
+<style>
+  /* One service day of UTS as a newspaper box score. Data: GET /v1/boxscore?date= (boxscore.py builds a day each
+     morning and keeps it; this page only lays it out). ?date=YYYY-MM-DD picks the day, default is the last one. */
+  :root { --paper: #f4efe3; --ink: #1d1b18; --soft: #6a645a; --rule: #1d1b18; --hair: #cfc6b3; --accent: #b3261e; }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; background: #d9d2c2; }
+  body { font-family: 'Roboto Condensed', system-ui, sans-serif; color: var(--ink); }
+  .sheet { max-width: 1060px; margin: 0 auto; background: var(--paper); padding: 14px 26px 30px; min-height: 100vh; box-shadow: 0 0 30px rgba(0,0,0,.25); }
+  a { color: inherit; }
+
+  .bar { display: flex; align-items: center; justify-content: space-between; gap: 10px; font-size: 13px; letter-spacing: 1px; text-transform: uppercase; font-weight: 700; color: var(--soft); }
+  .bar a, .bar span.off { text-decoration: none; padding: 4px 2px; }
+  .bar span.off { opacity: .3; }
+  .bar input { font: inherit; letter-spacing: 0; text-transform: none; background: none; border: 1px solid var(--hair); border-radius: 3px; padding: 2px 5px; color: var(--ink); }
+  .mast { text-align: center; border-top: 4px double var(--rule); border-bottom: 4px double var(--rule); margin-top: 8px; padding: 6px 0 8px; }
+  .mast h1 { font-family: 'UnifrakturCook', 'Playfair Display', serif; font-weight: 700; font-size: 60px; line-height: 1; margin: 0; }
+  .dateline { display: flex; justify-content: space-between; gap: 10px; flex-wrap: wrap; font-size: 13px; letter-spacing: 1.2px; text-transform: uppercase; font-weight: 700; padding: 5px 2px; border-bottom: 1px solid var(--rule); }
+  .dateline .early { color: var(--accent); }
+  h2.head { font-family: 'Playfair Display', serif; font-weight: 900; font-size: 40px; line-height: 1.05; margin: 16px 0 6px; text-align: center; }
+  .deck { text-align: center; font-size: 18px; color: var(--soft); margin: 0 auto 14px; max-width: 760px; line-height: 1.3; }
+
+  h3 { font-size: 13px; letter-spacing: 2px; text-transform: uppercase; margin: 20px 0 5px; border-bottom: 2px solid var(--rule); padding-bottom: 3px; }
+  table { width: 100%; border-collapse: collapse; font-variant-numeric: tabular-nums; font-size: 14px; }
+  th { font-size: 11px; letter-spacing: 1px; text-transform: uppercase; text-align: right; padding: 3px 5px; border-bottom: 1px solid var(--rule); color: var(--soft); font-weight: 700; }
+  td { text-align: right; padding: 4px 5px; border-bottom: 1px solid var(--hair); }
+  th:first-child, td:first-child { text-align: left; }
+  td.name { font-weight: 700; white-space: nowrap; }
+  td.name i { display: inline-block; width: 11px; height: 11px; border-radius: 50%; margin-right: 6px; border: 1px solid rgba(0,0,0,.45); vertical-align: -1px; }
+  .line td.r, .line th.r { font-weight: 700; border-left: 2px solid var(--rule); }
+  .line td.hot { background: rgba(179, 38, 30, .13); font-weight: 700; }
+  tr.total td { border-top: 2px solid var(--rule); border-bottom: 0; font-weight: 700; }
+  .scroll { overflow-x: auto; }
+
+  .stars { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin-top: 8px; }
+  .star { border: 1px solid var(--rule); padding: 9px 11px 10px; position: relative; background: rgba(255,255,255,.35); }
+  .star .t { font-size: 11px; letter-spacing: 1.6px; text-transform: uppercase; font-weight: 700; color: var(--soft); }
+  .star .b { font-family: 'Playfair Display', serif; font-weight: 900; font-size: 30px; line-height: 1.1; }
+  .star .b i { display: inline-block; width: 14px; height: 14px; border-radius: 50%; border: 1px solid rgba(0,0,0,.45); margin-right: 7px; }
+  .star .w { font-size: 14px; }
+  .star .n { position: absolute; top: 6px; right: 9px; font-size: 13px; color: var(--accent); letter-spacing: 1px; }
+
+  .cols { display: grid; grid-template-columns: 1fr 1fr; gap: 0 26px; }
+  .route h3 span { float: right; letter-spacing: 1px; color: var(--soft); }
+  .route td.dnp { color: var(--soft); font-style: italic; text-align: left; }
+  .two { display: grid; grid-template-columns: 1.1fr .9fr; gap: 0 26px; }
+  .hours svg { display: block; width: 100%; height: 90px; margin-top: 8px; }
+  .hours .ax { display: flex; justify-content: space-between; font-size: 11px; color: var(--soft); }
+  ul.notes { margin: 6px 0 0; padding-left: 18px; font-size: 15px; line-height: 1.4; }
+  ul.notes li { margin-bottom: 3px; }
+  .fine { margin-top: 22px; border-top: 1px solid var(--rule); padding-top: 8px; font-size: 12.5px; color: var(--soft); line-height: 1.45; }
+  .wait { text-align: center; padding: 70px 10px 90px; }
+  .wait .big { font-family: 'Playfair Display', serif; font-weight: 900; font-size: 34px; }
+  .wait p { color: var(--soft); font-size: 17px; }
+
+  @media (max-width: 760px) {
+    .sheet { padding: 10px 12px 24px; }
+    .mast h1 { font-size: 40px; } h2.head { font-size: 27px; } .deck { font-size: 16px; }
+    .cols, .two, .stars { grid-template-columns: 1fr; }
+  }
+  @media print { html, body { background: #fff; } .sheet { box-shadow: none; } .bar { display: none; } }
+</style>
+</head>
+<body>
+<div class="sheet">
+  <div class="bar" id="bar"></div>
+  <div class="mast"><h1>The UTS Box Score</h1></div>
+  <div id="page"></div>
+</div>
+
+<script>
+const page = document.getElementById('page'), bar = document.getElementById('bar');
+const wanted = new URLSearchParams(location.search).get('date');
+const num = v => v == null ? '&ndash;' : Number(v).toLocaleString('en-US');
+const esc = s => String(s).replace(/[&<>"]/g, c => ({'&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;'}[c]));
+const longDate = s => new Date(s + 'T12:00:00').toLocaleDateString('en-US', {weekday: 'long', month: 'long', day: 'numeric', year: 'numeric'});
+const LEVELS = {full: 'Full Service', exam: 'Exam Service', recess: 'Recess Service', summer: 'Summer Service', none: 'No Service'};
+const dot = color => `<i style="background:${color}"></i>`;
+const link = (d, text) => d ? `<a href="?date=${d}">${text}</a>` : `<span class="off">${text}</span>`;
+
+function renderBar(box) {
+  bar.innerHTML = `${link(box.prev, '&larr; Day before')}
+    <label>Edition of <input type="date" id="pick" value="${box.date}" max="${box.latest || ''}"></label>
+    ${link(box.next, 'Day after &rarr;')}`;
+  document.getElementById('pick').addEventListener('change', e => { if (e.target.value) location.search = '?date=' + e.target.value; });
+}
+
+function headline(box) {
+  const routes = box.routes.filter(r => r.family !== 'Other' && r.riders);
+  if (!routes.length) return ['No riders counted', 'The door counters reported nothing for this day.'];
+  const top = routes.slice().sort((a, b) => b.riders - a.riders), lead = top[0], gap = top[1] ? lead.riders - top[1].riders : 0;
+  const head = top[1] && gap < lead.riders * 0.03
+    ? `${lead.name} edges ${top[1].name} by ${num(gap)}`
+    : `${lead.name} leads the day with ${num(lead.riders)}`;
+  const deck = box.notes && box.notes.length ? box.notes[0]
+    : `${num(box.totals.riders)} riders on ${box.totals.buses} buses over ${num(box.totals.miles)} miles.`;
+  return [head, deck];
+}
+
+function lineScore(box) {
+  const max = Math.max(...box.routes.flatMap(r => r.innings));
+  const rows = box.routes.map(r => {
+    const peak = Math.max(...r.innings);
+    return `<tr><td class="name">${dot(r.color)}${esc(r.name)}</td>${r.innings.map(v => `<td${v && v === peak ? ' class="hot"' : ''}>${v ? num(v) : '&middot;'}</td>`).join('')}
+      <td class="r">${num(r.riders)}</td><td>${r.family === 'Other' ? '&ndash;' : (r.buses || '&ndash;')}</td><td>${num(r.miles)}</td></tr>`;
+  }).join('');
+  return `<h3>Line score: riders by time of day</h3><div class="scroll"><table class="line">
+    <tr><th>Route</th>${box.innings.map(l => `<th>${l}</th>`).join('')}<th class="r">Riders</th><th>Buses</th><th>Miles</th></tr>
+    ${rows}
+    <tr class="total"><td>All routes</td>${box.totals.innings.map(v => `<td>${num(v)}</td>`).join('')}<td class="r">${num(box.totals.riders)}</td><td>${box.totals.buses}</td><td>${num(box.totals.miles)}</td></tr>
+  </table></div>`;
+}
+
+function stars(box) {
+  if (!box.stars || !box.stars.length) return '';
+  const color = fam => (box.routes.find(r => r.family === fam) || {}).color || '#888';
+  return `<h3>Three stars</h3><div class="stars">${box.stars.map((s, i) => `<div class="star">
+    <div class="n">${'&#9733;'.repeat(3 - i)}</div><div class="t">${esc(s.title)}</div>
+    <div class="b">${dot(color(s.family))}Block ${s.block}</div><div class="w">${esc(s.why)}</div></div>`).join('')}</div>`;
+}
+
+function routeBox(r) {
+  if (!r.blocks.length) return '';
+  const rows = r.blocks.map(b => b.riders || b.miles
+    ? `<tr><td class="name">[${b.block}]</td><td>${b.buses.length ? b.buses.join(', ') : '&ndash;'}</td><td>${num(b.riders)}</td><td>${b.hours ? b.hours.toFixed(1) : '&ndash;'}</td><td>${b.per_hour == null ? '&ndash;' : b.per_hour.toFixed(1)}</td><td>${num(b.miles)}</td><td>${b.peak_hour == null ? '&ndash;' : String(b.peak_hour).padStart(2, '0') + ':00'}</td></tr>`
+    : `<tr><td class="name">[${b.block}]</td><td class="dnp" colspan="6">scheduled, no riders counted</td></tr>`).join('');
+  return `<div class="route"><h3>${dot(r.color)} ${esc(r.name)} <span>${num(r.riders)} riders</span></h3><table>
+    <tr><th>Block</th><th>Bus</th><th>Riders</th><th>Hrs</th><th>R/Hr</th><th>Mi</th><th>Peak</th></tr>${rows}</table></div>`;
+}
+
+function hours(box) {
+  // Service-day order: 04:00 first, so Night Pilot's after-midnight riders sit at the right.
+  const order = []; for (let i = 0; i < 24; i++) order.push((i + 4) % 24);
+  const vals = order.map(h => box.by_hour[h]), max = Math.max(...vals, 1), bw = 100 / 24;
+  const bars = vals.map((v, i) => `<rect x="${(i * bw + .25).toFixed(2)}" y="${(60 - 58 * v / max).toFixed(1)}" width="${(bw - .5).toFixed(2)}" height="${(58 * v / max).toFixed(1)}" fill="${order[i] === box.totals.peak_hour ? '#b3261e' : '#1d1b18'}"/>`).join('');
+  return `<div class="hours"><h3>Boardings by hour</h3><svg viewBox="0 0 100 60" preserveAspectRatio="none" aria-hidden="true">${bars}</svg>
+    <div class="ax"><span>04:00</span><span>10:00</span><span>16:00</span><span>22:00</span><span>04:00</span></div></div>`;
+}
+
+function gameNotes(box) {
+  const t = box.totals, out = (box.notes || []).slice(1);
+  if (t.peak_hour != null) out.push(`Busiest hour: ${String(t.peak_hour).padStart(2, '0')}:00, with ${num(t.peak_riders)} boardings.`);
+  if (t.first_boarding) out.push(`First rider aboard at ${t.first_boarding}; last one at ${t.last_boarding}.`);
+  if (box.top_bus) out.push(`Bus ${esc(box.top_bus.bus)} carried the most of any bus: ${num(box.top_bus.riders)}.`);
+  out.push(`${t.buses} buses went out and covered ${num(t.miles)} miles; ${t.blocks} blocks carried riders.`);
+  const other = box.routes.find(r => r.family === 'Other');
+  if (other && other.riders) out.push(`${num(other.riders)} riders were on shuttles, charters and other runs outside the six routes.`);
+  return `<h3>Notes</h3><ul class="notes">${out.map(n => `<li>${esc(n)}</li>`).join('')}</ul>`;
+}
+
+function stops(box) {
+  if (!box.stops.length) return '';
+  return `<h3>Busiest stops</h3><table><tr><th>Stop</th><th>Boardings</th></tr>${box.stops.map(s => `<tr><td>${esc(s.name)}</td><td>${num(s.riders)}</td></tr>`).join('')}</table>`;
+}
+
+function render(box) {
+  renderBar(box);
+  document.title = 'UTS Box Score, ' + box.date;
+  const [head, deck] = headline(box);
+  page.innerHTML = `
+    <div class="dateline"><span>${longDate(box.date)}</span><span>${LEVELS[box.level] || ''}</span>
+      <span${box.final ? '' : ' class="early"'}>${box.final ? 'Final edition' : 'Early edition: counts still coming in'}</span></div>
+    <h2 class="head">${esc(head)}</h2><p class="deck">${esc(deck)}</p>
+    ${lineScore(box)}
+    ${stars(box)}
+    <div class="cols">${box.routes.map(routeBox).join('')}</div>
+    <div class="two"><div>${hours(box)}${gameNotes(box)}</div><div>${stops(box)}</div></div>
+    <p class="fine">Riders are door-counter boardings from TransLoc for the service day (04:00 to 04:00, so Night Pilot's last trips count with the evening before).
+      Each boarding goes to the block its bus was on; when dispatch had one bus listed on two blocks of a route, it is placed by the schedule and the timetable,
+      so block numbers are close rather than exact. Miles are from GPS, split between a bus's blocks. A bus with a dead counter shows no riders.
+      R/Hr is riders per scheduled hour. Game-day lot shuttles are counted under "Shuttles &amp; other".</p>`;
+}
+
+function wait(title, text, box) {
+  if (box) renderBar(Object.assign({prev: null, next: null}, box));
+  page.innerHTML = `<div class="wait"><div class="big">${title}</div><p>${text}</p></div>`;
+}
+
+async function load() {
+  let res, box;
+  try {
+    res = await fetch('/v1/boxscore' + (wanted ? '?date=' + encodeURIComponent(wanted) : ''));
+    box = await res.json();
+  } catch (e) {
+    return wait('The wire is down', 'Could not reach the server. Try again in a minute.');
+  }
+  if (box.status === 'ok') return render(box);
+  if (box.status === 'building') {
+    wait('The presses are running', `The box score for ${longDate(box.date)} is being put together. This takes a minute or two; the page will fill in on its own.`, box);
+    return setTimeout(load, 15000);
+  }
+  if (box.status === 'too_early') return wait('That day is not over yet', `The latest edition is ${box.latest ? `<a href="?date=${box.latest}">${longDate(box.latest)}</a>` : 'not out yet'}.`, box);
+  if (box.status === 'none') return wait('No edition for that day', `Box scores start on ${box.first ? `<a href="?date=${box.first}">${longDate(box.first)}</a>` : 'a later date'}.`, box);
+  wait('Nothing to print', esc(box.detail || 'That date did not work.'));
+}
+load();
+</script>
+</body>
+</html>

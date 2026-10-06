@@ -43,6 +43,7 @@ from w2w_schedule import W2WScheduleLog
 from slides_mirror import SlidesMirror
 from service_schedule import ServiceSchedule, fetch_tables as fetch_service_schedule_tables
 import service_levels
+import boxscore
 from fullbus_tracker import FullBusTracker
 from headway_tracker import (
     HeadwayTracker,
@@ -2117,6 +2118,7 @@ WEATHERCLOCK_HTML = _load_html("weatherclock.html")
 BLOCKCARDS_HTML = _load_html("blockcards.html")
 BUSCARDS_HTML = _load_html("buscards.html")
 PACKS_HTML = _load_html("packs.html")
+BOXSCORE_HTML = _load_html("boxscore.html")
 TIMELAPSE_HTML = _load_html("timelapse.html")
 TIMELAPSE_WEEK_HTML = _load_html("timelapse-week.html")
 DUCK_CONFIG_HTML = _load_html("duck-config.html")
@@ -6902,6 +6904,10 @@ async def startup():
             await asyncio.sleep(max(300, SERVICE_SCHEDULE_POLL_S))
 
     asyncio.create_task(service_schedule_poller())
+
+    # Box score (/boxscore): yesterday written up each morning, plus a slow backfill of the days before it.
+    app.state.boxscore_store = boxscore.BoxScoreStore(PRIMARY_DATA_DIR)
+    asyncio.create_task(_boxscore_loop())
 
     def _uts_service_level(d):
         # "Recess Service" days (fall break etc.) run the Block Package's recess sheets (see uts_blocks._groups_for_day).
@@ -11852,6 +11858,174 @@ async def transloc_ridership(
     return await _proxy_transloc_get(url, params=params, base_url=base_url)
 
 
+# ---------------------------
+# BOX SCORE (boxscore.py): one service day written up like a baseball box score
+# ---------------------------
+# Door-counter rows for a day keep arriving for hours after it ends, so a day's box score is an "early edition" until
+# it is rebuilt after this hour the next morning.
+BOXSCORE_FINAL_HOUR = int(os.getenv("BOXSCORE_FINAL_HOUR", "10"))
+BOXSCORE_BACKFILL_FROM = date.fromisoformat(os.getenv("BOXSCORE_BACKFILL_FROM", "2026-08-20"))
+BOXSCORE_EARLY_REFRESH_S = 90 * 60
+_boxscore_building: Set[str] = set()
+_boxscore_retry_after: Dict[str, float] = {}
+
+
+def _boxscore_config(name: str) -> Dict[str, Any]:
+    try:
+        return json.loads((BASE_DIR / "config" / name).read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return {}
+
+
+_BOXSCORE_PACKAGES = _boxscore_config("uts_blocks.json").get("blocks", {})
+_BOXSCORE_TIMESTOPS = _boxscore_config("uts_timestops.json")
+_BOXSCORE_ROW_KEYS = ("Entries", "ClientTime", "Vehicle", "Route", "RouteID", "RouteStop", "RouteStopID")
+
+
+def _boxscore_latest_day(now: Optional[datetime] = None) -> date:
+    """The newest service day that is over (a service day runs to 04:00)."""
+    now = now or datetime.now(ZoneInfo("America/New_York"))
+    return (now - timedelta(hours=boxscore.SERVICE_DAY_START_H)).date() - timedelta(days=1)
+
+
+def _boxscore_can_be_final(day: date, now: datetime) -> bool:
+    nxt = day + timedelta(days=1)
+    return now >= datetime(nxt.year, nxt.month, nxt.day, BOXSCORE_FINAL_HOUR, tzinfo=now.tzinfo)
+
+
+async def _boxscore_rows(client: httpx.AsyncClient, day: date) -> List[Dict[str, Any]]:
+    """One calendar day of door-counter rows, trimmed to the fields the box score reads. One day per request: TransLoc
+    times out on longer ranges."""
+    nxt = day + timedelta(days=1)
+    url = build_transloc_url(None, "GetRidershipData")
+    params = {"startDate": f"{day.month}/{day.day}/{day.year}", "endDate": f"{nxt.month}/{nxt.day}/{nxt.year}"}
+    error: Exception = RuntimeError("no attempt made")
+    for _ in range(4):
+        try:
+            r = await client.get(url, params=params, timeout=170)
+            record_api_call("GET", str(r.url), r.status_code)
+            r.raise_for_status()
+            rows = r.json()
+            if not isinstance(rows, list):
+                raise ValueError(f"unexpected ridership payload: {str(rows)[:80]}")
+            return [{k: row.get(k) for k in _BOXSCORE_ROW_KEYS} for row in rows if row.get("Entries")]
+        except Exception as exc:
+            error = exc
+            await asyncio.sleep(5)
+    raise error
+
+
+async def _build_box_score(day: date) -> Optional[Dict[str, Any]]:
+    key = day.isoformat()
+    if key in _boxscore_building:
+        return None
+    _boxscore_building.add(key)
+    try:
+        tz = ZoneInfo("America/New_York")
+        nxt = day + timedelta(days=1)
+        async with httpx.AsyncClient() as client:
+            rows = await _boxscore_rows(client, day)
+            groups = {day: await fetch_block_groups(client, target_date=day)}
+            if nxt <= datetime.now(tz).date():  # Night Pilot's after-midnight riders
+                rows += await _boxscore_rows(client, nxt)
+                groups[nxt] = await fetch_block_groups(client, target_date=nxt)
+        async with state.lock:
+            bus_days = {
+                d: {bus: {"blocks": sorted(bd.blocks), "miles": bd.day_miles} for bus, bd in state.bus_days.get(d.isoformat(), {}).items()}
+                for d in (day, nxt)
+            }
+        level = app.state.service_level_log.level(day)
+        box = await asyncio.to_thread(
+            boxscore.build, day, rows, bus_days, groups, _BOXSCORE_PACKAGES, _BOXSCORE_TIMESTOPS, level
+        )
+        now = datetime.now(tz)
+        box["generated_at"] = now.isoformat(timespec="seconds")
+        box["final"] = _boxscore_can_be_final(day, now)
+        await asyncio.to_thread(app.state.boxscore_store.save, box)
+        _boxscore_retry_after.pop(key, None)
+        print(f"[boxscore] {key}: {box['totals']['riders']} riders, {'final' if box['final'] else 'early edition'}")
+        return box
+    except Exception as exc:
+        _boxscore_retry_after[key] = time.time() + 30 * 60
+        print(f"[boxscore] {key} failed: {exc!r}"[:300])
+        return None
+    finally:
+        _boxscore_building.discard(key)
+
+
+def _boxscore_next_to_build(now: datetime) -> Optional[date]:
+    """The recent days first (missing, or an early edition that can now be final or has gone stale), then one older
+    missing day back to BOXSCORE_BACKFILL_FROM."""
+    store = app.state.boxscore_store
+    latest = _boxscore_latest_day(now)
+    have = {s["date"]: s for s in store.summaries()}
+    waiting = lambda d: _boxscore_retry_after.get(d.isoformat(), 0) > time.time()
+    for back in range(3):
+        d = latest - timedelta(days=back)
+        if waiting(d):
+            continue
+        summary = have.get(d.isoformat())
+        if summary is None:
+            return d
+        if not summary["final"]:
+            box = store.load(d) or {}
+            try:
+                age = (now - datetime.fromisoformat(box.get("generated_at"))).total_seconds()
+            except (TypeError, ValueError):
+                age = BOXSCORE_EARLY_REFRESH_S
+            if _boxscore_can_be_final(d, now) or age >= BOXSCORE_EARLY_REFRESH_S:
+                return d
+    d = latest - timedelta(days=3)
+    while d >= BOXSCORE_BACKFILL_FROM:
+        if d.isoformat() not in have and not waiting(d):
+            return d
+        d -= timedelta(days=1)
+    return None
+
+
+async def _boxscore_loop():
+    await asyncio.sleep(120)
+    while True:
+        built = None
+        try:
+            todo = _boxscore_next_to_build(datetime.now(ZoneInfo("America/New_York")))
+            if todo:
+                built = await _build_box_score(todo)
+        except Exception as exc:
+            print(f"[boxscore] loop error: {exc!r}"[:300])
+        await asyncio.sleep(120 if built else 900)
+
+
+@app.get("/v1/boxscore")
+async def boxscore_api(date: Optional[str] = Query(None, description="Service day, YYYY-MM-DD; default is the last finished one")):
+    store = app.state.boxscore_store
+    latest = _boxscore_latest_day()
+    try:
+        day = datetime.strptime(date, "%Y-%m-%d").date() if date else latest
+    except ValueError:
+        raise HTTPException(status_code=400, detail="date must be YYYY-MM-DD")
+    days = store.days()
+    base = {"date": day.isoformat(), "latest": latest.isoformat(), "first": days[0] if days else None}
+    if day > latest:
+        return JSONResponse({**base, "status": "too_early"}, status_code=404)
+    box = await asyncio.to_thread(store.load, day)
+    if box is None:
+        if day < BOXSCORE_BACKFILL_FROM:
+            return JSONResponse({**base, "status": "none"}, status_code=404)
+        # One build at a time, and only for days inside the backfill range: each one is two slow TransLoc pulls.
+        if not _boxscore_building and _boxscore_retry_after.get(day.isoformat(), 0) <= time.time():
+            asyncio.create_task(_build_box_score(day))
+        return JSONResponse({**base, "status": "building"}, status_code=202)
+    earlier = [d for d in days if d < box["date"]]
+    later = [d for d in days if d > box["date"]]
+    return {
+        **box, **base, "status": "ok",
+        "notes": boxscore.notes(box, store.summaries()),
+        "prev": earlier[-1] if earlier else None,
+        "next": later[0] if later else None,
+    }
+
+
 @app.get("/v1/transloc/alerts")
 async def transloc_alerts(
     showInactive: bool = Query(False),
@@ -14618,6 +14792,10 @@ async def blockcards_page():
 @app.get("/buscards")
 async def buscards_page():
     return HTMLResponse(BUSCARDS_HTML)
+
+@app.get("/boxscore")
+async def boxscore_page():
+    return HTMLResponse(BOXSCORE_HTML)
 
 @app.get("/packs")
 async def packs_page():

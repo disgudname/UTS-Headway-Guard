@@ -175,10 +175,12 @@ const MIX_COLOR = Object.assign({Training: '#9aa0a8', Charter: '#3b3f47', Event:
 const longDay = s => new Date(s + 'T12:00:00').toLocaleDateString('en-US', {month: 'short', day: 'numeric', year: 'numeric'});
 const monthYear = s => new Date(s + 'T12:00:00').toLocaleDateString('en-US', {month: 'short', year: 'numeric'});
 const seasonShort = name => name.replace('Spring ', "Spr '").replace('Summer ', "Sum '").replace('Fall ', "Fall '").replace("'20", "'");
-// A rookie joined the fleet during the data: it first shows up more than three weeks in AND carries the newest number
-// series (an old bus that was parked in September also shows up late, and is no rookie).
-const NEWEST_SERIES = Math.max(...(DATA.buses || []).map(b => +b.bus.slice(0, 2)));
-const isRookie = b => +b.bus.slice(0, 2) === NEWEST_SERIES && (new Date(b.first_seen) - new Date(DATA.bus_info.from)) / 864e5 > 21;
+// The first two digits of a bus number are its model year (user, 2026-10-06): 18432 is a 2018.
+const modelYear = b => 2000 + +b.bus.slice(0, 2);
+const NEWEST_YEAR = Math.max(...(DATA.buses || []).map(modelYear)), OLDEST_YEAR = Math.min(...(DATA.buses || []).map(modelYear));
+// A rookie is from the newest model year AND first shows up more than three weeks into the log (an old bus that was
+// parked in September also shows up late, and is no rookie).
+const isRookie = b => modelYear(b) === NEWEST_YEAR && (new Date(b.first_seen) - new Date(DATA.bus_info.from)) / 864e5 > 21;
 // The 24xxx buses carry 18 passengers; everything else 60-70 (user, 2026-10-06). Their rider counts are small because
 // the bus is, not because a door counter is dead.
 const isSmall = b => b.bus.slice(0, 2) === '24';
@@ -222,7 +224,7 @@ function busFact(b) {
 function busCardHtml(b, stuck) {
   const ink = inkFor(b.color), team = b.family ? TEAM[b.family] : 'Free agent', r = busRole(b);
   const vit = [];
-  vit.push(isRookie(b) ? ['Debut', monthYear(b.first_seen)] : ['On the road', `${monthYear(b.first_seen)} to ${monthYear(b.last_seen)} (as far back as the log goes)`]);
+  vit.push(['Class of', modelYear(b) + (isRookie(b) ? `, debut ${monthYear(b.first_seen)}` : '')]);
   if (b.blocks.length) vit.push(['Top blocks', b.blocks.slice(0, 3).map(x => `[${x.block}] ${x.days}`).join(', ') + ' days']);
   if (b.block_count) vit.push(['Range', `${b.block_count} different blocks`]);
   if (b.riders) vit.push(['Riders', `${num(b.riders.median)} on a typical day` + (isSmall(b) ? ' (seats 18)' : '')]);
@@ -234,7 +236,7 @@ function busCardHtml(b, stuck) {
       <div class="face front">
         <div class="photo">
           ${busSvg(ink)}
-          <div class="uts">UVA TRANSIT</div>
+          <div class="uts">UVA TRANSIT &bull; CLASS OF ${modelYear(b)}</div>
           <div class="role${r.length > 9 ? ' long' : ''}">${r}</div>
           <div class="num bus">${b.bus}</div>
           ${stuck ? `<div class="stickers${stuck.length > 4 ? ' many' : ''}">${stuck.join('')}</div>` : ''}
@@ -268,6 +270,7 @@ const BUS_TITLES = [
   {small: 'Weekend', big: 'Warrior', cls: 'blue', get: b => b.weekend_days, tip: v => `Out on ${v} Saturdays and Sundays`},
   {small: 'Night Pilot', big: 'Night owl', cls: 'night', get: b => b.night_days, tip: v => `${v} nights on Night Pilot`},
   {small: 'Top rookie', big: 'R.O.Y.', cls: 'red', get: b => isRookie(b) ? b.miles : null, tip: v => `${num(v)} miles, the most of any bus that joined during the season`},
+  {small: 'Top veteran', big: 'Old pro', cls: 'gold', get: b => modelYear(b) === OLDEST_YEAR ? b.miles : null, tip: (v, b) => `${num(v)} miles, the most of the ${modelYear(b)} buses, the oldest in the fleet`},
   {small: 'Most training', big: 'Teacher', cls: '', get: b => (b.mix.find(m => m.name === 'Training') || {}).share, tip: v => `${Math.round(v * 100)}% of its assignments are driver training`},
   {small: 'Most charters', big: 'Tourist', cls: '', get: b => (b.mix.find(m => m.name === 'Charter') || {}).share, tip: v => `${Math.round(v * 100)}% of its assignments are charters`}
 ];
