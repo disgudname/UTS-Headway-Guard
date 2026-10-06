@@ -27,6 +27,13 @@ Machine tags: `[dev]` = Windows dev machine · `[home]` = home server (Windows b
 
 ## 1. Message board (newest first)
 
+### 2026-10-06 · [home] · /blockcards: a baseball card for every block (UNCOMMITTED, not deployed)
+
+- **What:** `html/blockcards.html` at `/blockcards` (public, in the sitemap): 23 flip cards, blocks 01-14 and 17-25 (user: 15 and 16 are gone for good). Front = route colour, route line, block number, a role (Starter / Everyday / Closer / Call-up / Two-way / Doubleheader / Reliever). Back = hours, a Wkdy/Sat/Sun stat table (days, hours, riders, riders per hour, miles), timestops, busiest stop, usual bus, boardings by hour, one fun fact.
+- **Data is baked in** by `scripts/build_block_cards.py` (between the `BLOCKCARDS-DATA` markers; the page fetches nothing). Schedule = one week of TransLoc `GetDispatchBlockGroupData` straight from uva.transloc.com (default week of 2026-09-28), which is also the only schedule source for the Purple blocks 17-25 (no block package). Riders/miles = medians from `data-local/ridership/` (this machine only; pulled through 2026-10-03) with events matched to a block by the day's `/v1/servicecrew` bus map plus the event's route. Rerun after a schedule change.
+- **TransLoc quirks the script handles:** interlined groups are split by route (`[17]/[10]`: Purple = 17, Gold = 10; `[19]/[06]`; `[05]/[03]`; `[01]/[04]`); Night Pilot's 00:00-02:00 tail is filed under the evening before; TransLoc lists a `[04]` tail on Thursday morning although Wednesday night has no [04], so a tail with no evening piece is dropped. [24] and [25] are PM-only in TransLoc (user confirmed).
+- **Tested:** headless Chrome via Playwright (`channel="chrome"`; Playwright's own browser is not installed here) on a local static server: 23 cards, no JS errors, no back face overflows, no sideways scroll at 390 px. **NOT tested:** through `app.py` (route added the same way as `/weatherclock`, syntax-checked only), print layout.
+
 ### 2026-10-06 · [home] · /weatherclock also fits a 960x360 screen (`f0e7480`, DEPLOYED v2058)
 
 User asked for 960w x 360h on top of the 1044x297 it was built for. Before, a 960x360 window got the 1044x297 box scaled to 960x273 with an 87 px empty strip at the bottom.
