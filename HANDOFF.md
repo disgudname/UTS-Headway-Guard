@@ -27,6 +27,15 @@ Machine tags: `[dev]` = Windows dev machine · `[home]` = home server (Windows b
 
 ## 1. Message board (newest first)
 
+### 2026-10-06 · [home] · Bus cards + pack opening (UNCOMMITTED, not deployed); box score is ON DECK
+
+- **New pages:** `/buscards` (a card per bus, 44) and `/packs` (rip a pack: 5 random cards, 2 always blocks, rarer = more stickers, ~1 in 12 foil; binder kept in `localStorage` key `utsCards.v1`, this browser only). `/blockcards` unchanged to look at.
+- **Restructure:** the card code moved out of `html/blockcards.html` into `scripts/cards.js` (drawing, stickers, gallery, nav; `window.Cards`) + `css/cards.css`, and the baked data into `scripts/cards-data.js` (`window.CARD_DATA`, written by `scripts/build_block_cards.py`; no more BLOCKCARDS-DATA markers). The three html pages are thin. Each asset has its own route in `app.py` (no static mount).
+- **Bus data:** `scripts/bus_days_pull.py` saves `/v1/servicecrew` for every day into `data-local/bus_days/` (this machine only). Prod has it from **2025-09-06**; nothing earlier. Miles/days are per season (Fall = Aug 20 on, Summer = May 11 on); blocks and the route mix only count days from 2026-03-09 (see the canary entry below); riders only from the ridership days on disk (101), so a bus with a dead door counter looks quiet (the 24xxx buses read ~100/day).
+- **"Rookie"** = newest number series (25xxx) AND first seen 3+ weeks into the log. Not confirmed with the user that the first two digits are the model year; the card does not print a year.
+- **Tested:** headless Chrome through a local `uvicorn app:app` (all three pages, the three assets, a pack opened and flipped, binder survives reload, 390 px wide, no JS errors, no card back overflows). **NOT tested:** real phone, print, Safari (foil uses `mix-blend-mode`).
+- **ON DECK (user asked, not started): box score.** A newspaper-style page generated each night for yesterday: riders by route, the day's MVP block, longest gap, earliest pull-out. Needs yesterday's ridership + servicecrew pulled on a schedule (same-day ridership lags by hours), and the block attribution in `build_block_cards.ridership()` is the piece to reuse.
+
 ### 2026-10-06 · [home] · /blockcards: a baseball card for every block (`c60c506`, DEPLOYED v2059)
 
 - **What:** `html/blockcards.html` at `/blockcards` (public, in the sitemap): 23 flip cards, blocks 01-14 and 17-25 (user: 15 and 16 are gone for good). Front = route colour, route line, block number, a role (Starter / Everyday / Closer / Call-up / Two-way / Doubleheader / Reliever). Back = hours, a Wkdy/Sat/Sun stat table (days, hours, riders, riders per hour, miles), timestops, busiest stop, usual bus, boardings by hour, one fun fact.
