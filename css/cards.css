@@ -1,0 +1,141 @@
+/* Trading cards: /blockcards, /buscards and /packs. Drawn by scripts/cards.js from scripts/cards-data.js. */
+:root {
+    --bg: #1b1a3a;
+    --text: #ffffff;
+    --muted: #aeb6d0;
+    --accent: #f58a2e;
+    --paper: #f3ead6;
+    --paper-edge: #e2d5b8;
+    --ink: #2a2620;
+    --ink-soft: #6b6355;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; }
+  body {
+    background: radial-gradient(80% 60% at 50% 0%, #2c2b5c, var(--bg) 70%) fixed, var(--bg);
+    color: var(--text);
+    font-family: 'Roboto Condensed', system-ui, sans-serif;
+    min-height: 100vh;
+  }
+  header { text-align: center; padding: 28px 16px 8px; }
+  h1 { font-family: 'Alfa Slab One', serif; font-weight: 400; font-size: 38px; letter-spacing: 1px; margin: 0; }
+  h1 span { color: var(--accent); }
+  .sub { color: var(--muted); margin: 6px 0 0; font-size: 16px; }
+  .filters { display: flex; flex-wrap: wrap; justify-content: center; gap: 8px; padding: 16px 16px 4px; }
+  .filters button {
+    font: 700 14px 'Roboto Condensed', sans-serif; letter-spacing: .6px; text-transform: uppercase;
+    color: var(--text); background: rgba(255,255,255,.08); border: 2px solid rgba(255,255,255,.14);
+    border-radius: 999px; padding: 6px 14px; cursor: pointer;
+  }
+  .filters button.on { background: var(--chip, var(--accent)); border-color: var(--chip, var(--accent)); color: var(--chip-ink, #fff); }
+  .tools { text-align: center; padding: 8px 16px 0; }
+  .tools button { background: none; border: 0; color: var(--muted); font: 500 14px 'Roboto Condensed', sans-serif; text-decoration: underline; cursor: pointer; }
+
+  #cards { display: flex; flex-wrap: wrap; justify-content: center; gap: 26px; padding: 22px 16px 40px; max-width: 1400px; margin: 0 auto; }
+  .card { width: 300px; height: 420px; perspective: 1400px; cursor: pointer; border: 0; padding: 0; background: none; color: inherit; font: inherit; text-align: left; }
+  .card:focus-visible { outline: 3px solid var(--accent); outline-offset: 6px; border-radius: 16px; }
+  .inner { position: relative; width: 100%; height: 100%; transition: transform .6s cubic-bezier(.2,.7,.2,1); transform-style: preserve-3d; }
+  .card.flipped .inner { transform: rotateY(180deg); }
+  .card:hover .inner { transform: translateY(-4px) rotateY(0deg); }
+  .card.flipped:hover .inner { transform: translateY(-4px) rotateY(180deg); }
+  .face {
+    position: absolute; inset: 0; backface-visibility: hidden; -webkit-backface-visibility: hidden;
+    border-radius: 14px; overflow: hidden; background: var(--paper); color: var(--ink);
+    box-shadow: 0 10px 24px rgba(0,0,0,.45), inset 0 0 0 1px var(--paper-edge);
+  }
+  .back { transform: rotateY(180deg); }
+
+  /* Front */
+  .front { padding: 12px; display: flex; flex-direction: column; }
+  .photo { position: relative; flex: 1; border-radius: 6px; overflow: hidden; background: var(--c); border: 3px solid var(--ink); }
+  .photo svg.route { position: absolute; inset: 0; width: 100%; height: 100%; }
+  .photo .num {
+    position: absolute; left: 12px; bottom: -6px; font-family: 'Alfa Slab One', serif; font-size: 132px; line-height: 1;
+    color: var(--c-ink); text-shadow: 3px 3px 0 rgba(0,0,0,.18);
+  }
+  .photo .role {
+    position: absolute; top: 10px; right: -34px; transform: rotate(35deg); width: 150px; text-align: center;
+    background: var(--ink); color: var(--paper); font-weight: 700; font-size: 11px; letter-spacing: 1.2px; text-transform: uppercase; padding: 4px 0;
+  }
+  .photo .role.long { font-size: 9.5px; letter-spacing: .3px; }
+  .photo .uts { position: absolute; top: 9px; left: 10px; font-weight: 700; font-size: 12px; letter-spacing: 2px; color: var(--c-ink); opacity: .8; }
+  /* Stickers: stacked up the right edge from the bottom, each a little crooked, like they were stuck on by hand. */
+  .stickers { position: absolute; right: 6px; bottom: 6px; display: flex; flex-direction: column-reverse; align-items: flex-end; }
+  .sticker {
+    background: var(--paper); color: var(--ink); border: 2px solid var(--ink); border-radius: 50%;
+    width: 60px; height: 60px; display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center;
+    font-weight: 700; font-size: 8.5px; line-height: 1.05; letter-spacing: .4px; text-transform: uppercase;
+    box-shadow: 1px 2px 0 rgba(0,0,0,.25); margin-top: -9px;
+  }
+  .sticker b { font-family: 'Alfa Slab One', serif; font-weight: 400; font-size: 12.5px; letter-spacing: 0; line-height: 1; margin-top: 1px; }
+  .sticker b.long { font-size: 9.5px; }
+  .stickers.many .sticker { width: 54px; height: 54px; margin-top: -12px; }
+  .sticker:nth-child(odd) { transform: rotate(-10deg); }
+  .sticker:nth-child(even) { transform: rotate(8deg) translateX(-7px); }
+  .sticker.gold { background: #ffd24a; }
+  .sticker.red { background: #d8392b; color: #fff; }
+  .sticker.blue { background: #2f6fdb; color: #fff; }
+  .sticker.night { background: #232d48; color: #fff; }
+  .plate { padding: 9px 4px 2px; display: flex; align-items: baseline; justify-content: space-between; gap: 8px; }
+  .plate .name { font-family: 'Alfa Slab One', serif; font-size: 25px; letter-spacing: .5px; }
+  .plate .team { font-weight: 700; font-size: 14px; letter-spacing: 1.4px; text-transform: uppercase; color: var(--ink-soft); white-space: nowrap; }
+  .strip { display: flex; gap: 6px; padding: 4px 4px 0; font-size: 13px; color: var(--ink-soft); justify-content: space-between; }
+  .strip b { color: var(--ink); }
+
+  /* Back */
+  .back { padding: 12px 14px; display: flex; flex-direction: column; font-size: 13px; }
+  .bhead { display: flex; align-items: center; gap: 10px; border-bottom: 3px solid var(--ink); padding-bottom: 7px; }
+  .bnum { font-family: 'Alfa Slab One', serif; font-size: 26px; background: var(--c); color: var(--c-ink); border: 2px solid var(--ink); border-radius: 50%; width: 46px; height: 46px; display: flex; align-items: center; justify-content: center; flex: none; }
+  .bhead .t1 { font-family: 'Alfa Slab One', serif; font-size: 18px; line-height: 1; }
+  .bhead .t2 { font-weight: 700; font-size: 12px; letter-spacing: 1.2px; text-transform: uppercase; color: var(--ink-soft); margin-top: 3px; }
+  .vitals { margin: 7px 0 4px; display: grid; grid-template-columns: auto 1fr; gap: 1px 8px; }
+  .vitals dt { font-weight: 700; text-transform: uppercase; font-size: 11px; letter-spacing: .8px; color: var(--ink-soft); padding-top: 1px; }
+  .vitals dd { margin: 0; }
+  table { width: 100%; border-collapse: collapse; margin-top: 4px; font-variant-numeric: tabular-nums; }
+  th { font-size: 10.5px; letter-spacing: .8px; text-transform: uppercase; background: var(--ink); color: var(--paper); padding: 3px 4px; text-align: right; font-weight: 700; }
+  td { padding: 3px 4px; text-align: right; border-bottom: 1px solid var(--paper-edge); }
+  th:first-child, td:first-child { text-align: left; font-weight: 700; }
+  tr.total td { border-top: 2px solid var(--ink); border-bottom: 0; font-weight: 700; }
+  .hours { margin-top: 7px; }
+  .hours .lbl { font-weight: 700; text-transform: uppercase; font-size: 11px; letter-spacing: .8px; color: var(--ink-soft); display: flex; justify-content: space-between; }
+  .hours svg { display: block; width: 100%; height: 28px; margin-top: 2px; }
+  .fact { margin-top: auto; border-top: 2px dotted var(--ink-soft); padding-top: 6px; font-style: italic; line-height: 1.25; }
+  .fact b { font-style: normal; }
+
+  footer { color: var(--muted); font-size: 13px; text-align: center; max-width: 760px; margin: 0 auto; padding: 0 16px 36px; line-height: 1.5; }
+  @media (prefers-reduced-motion: reduce) { .inner { transition: none; } }
+  @media print {
+    body { background: #fff; } header .sub, .filters, .tools, footer { display: none; }
+    .card { break-inside: avoid; }
+  }
+
+/* Links between the three card pages */
+.cardnav { display: flex; justify-content: center; gap: 6px; padding: 14px 16px 0; flex-wrap: wrap; }
+.cardnav a {
+  font: 700 13px 'Roboto Condensed', sans-serif; letter-spacing: 1px; text-transform: uppercase; text-decoration: none;
+  color: var(--muted); padding: 5px 12px; border-radius: 999px;
+}
+.cardnav a.here { color: var(--bg); background: var(--text); }
+.cardnav a:hover:not(.here) { color: var(--text); }
+
+/* Bus cards */
+.photo svg.busart { position: absolute; left: 0; right: 0; top: 30px; width: 100%; height: 150px; }
+.photo .num.bus { font-size: 70px; left: 10px; bottom: 2px; letter-spacing: -1px; }
+.bnum.wide { width: auto; border-radius: 23px; padding: 0 11px; font-size: 17px; height: 40px; }
+.mix { margin: 6px 0 2px; }
+.mix .bar { display: flex; height: 12px; border: 2px solid var(--ink); border-radius: 3px; overflow: hidden; }
+.mix .bar i { display: block; height: 100%; }
+.mix .key { display: flex; flex-wrap: wrap; gap: 2px 9px; margin-top: 3px; font-size: 11px; color: var(--ink-soft); }
+.mix .key span::before { content: ''; display: inline-block; width: 8px; height: 8px; margin-right: 3px; background: var(--k); border: 1px solid var(--ink); }
+
+/* Rarity (how many stickers a card holds) and foil pulls */
+.card[data-rarity="rare"] .face { box-shadow: 0 10px 24px rgba(0,0,0,.45), inset 0 0 0 3px #9fb4c7; }
+.card[data-rarity="legendary"] .face { box-shadow: 0 10px 24px rgba(0,0,0,.45), inset 0 0 0 3px #e2b33c; }
+.card.foil .photo::after {
+  content: ''; position: absolute; inset: 0; pointer-events: none; mix-blend-mode: color-dodge; opacity: .5;
+  background: linear-gradient(115deg, transparent 20%, #ff5ea8 32%, #ffe45e 42%, #5effc0 52%, #5eb8ff 62%, #c05eff 72%, transparent 84%);
+  background-size: 300% 300%; animation: foil 4s linear infinite;
+}
+.card.foil .uts::after { content: '  \2726  FOIL'; }
+@keyframes foil { from { background-position: 100% 0; } to { background-position: 0 100%; } }
+@media (prefers-reduced-motion: reduce) { .card.foil .photo::after { animation: none; background-position: 50% 50%; } }

@@ -1,4 +1,10 @@
-"""Bakes the data for /blockcards (html/blockcards.html): one "baseball card" per UTS block.
+"""Bakes the data for the trading cards (/blockcards, /buscards, /packs): one "baseball card" per UTS block and
+one per bus, written to scripts/cards-data.js. scripts/cards.js draws them; the pages fetch nothing else.
+
+Bus cards come from data-local/bus_days/ (scripts/bus_days_pull.py: every day's blocks and miles per bus, back to
+2025-09) plus whatever ridership days are on disk.
+
+Block cards:
 
 Per block it works out, from public TransLoc data and the ridership pulls in data-local/ridership/
 (scripts/ridership_pull.py):
@@ -9,7 +15,6 @@ Per block it works out, from public TransLoc data and the ridership pulls in dat
     (user, 2026-10-06), so a weekday counts when the [06] bus carried Orange riders, and a weekend counts when the
     Friday before and the Monday after both did. Exam, recess and summer days drop out on their own.
 
-The result replaces the JSON between the BLOCKCARDS-DATA markers in html/blockcards.html.
 
   python scripts/build_block_cards.py [--week-of 2026-09-28] [--since 2026-03-09]
 
@@ -31,10 +36,10 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 RIDERSHIP = ROOT / "data-local" / "ridership"
-PAGE = ROOT / "html" / "blockcards.html"
+BUS_DAYS = ROOT / "data-local" / "bus_days"
+DATA_JS = ROOT / "scripts" / "cards-data.js"
+BLOCKS_SINCE = datetime.date(2026, 3, 9)  # block numbers mean what they mean today from this day on
 TRANSLOC = "https://uva.transloc.com/Services/JSONPRelay.svc/"
-MARK_START = "/*BLOCKCARDS-DATA-START*/"
-MARK_END = "/*BLOCKCARDS-DATA-END*/"
 
 BLOCK_FAMILY = {
     **{b: "Green" for b in ("01", "02")},
@@ -401,6 +406,101 @@ def season_of(day):
     return ("Spring " if day.month <= 6 else "Fall ") + str(day.year)
 
 
+def bus_season(day):
+    """Fall runs from the start of Full Service (Aug 20) to New Year, summer from the end of exams (May 11)."""
+    md = (day.month, day.day)
+    name = "Spring" if md < (5, 11) else "Summer" if md < (8, 20) else "Fall"
+    return f"{name} {day.year}"
+
+
+def bus_cards():
+    """One card per bus: miles and days in service per season, the blocks and routes it gets, riders where counted."""
+    seasons = collections.defaultdict(lambda: collections.defaultdict(lambda: {"days": 0, "miles": 0.0}))
+    best_miles, block_days, family_days, other_days, weekend_days = {}, {}, {}, {}, collections.Counter()
+    first_seen, last_seen, order = {}, {}, []
+    for path in sorted(BUS_DAYS.glob("*.blocks.json")):
+        day = datetime.date.fromisoformat(path.name[:10])
+        for bus, info in json.loads(path.read_text())["buses"].items():
+            if bus not in order:
+                order.append(bus)
+            miles = info.get("actual_miles") or 0
+            if miles > 5:
+                first_seen.setdefault(bus, day)
+                last_seen[bus] = day
+                season = seasons[bus][bus_season(day)]
+                season["days"] += 1
+                season["miles"] += miles
+                weekend_days[bus] += day.weekday() >= 5
+                if miles > best_miles.get(bus, (0, None))[0]:
+                    best_miles[bus] = (miles, day)
+            if day < BLOCKS_SINCE:
+                continue
+            numbers = {n for g in info.get("blocks") or [] for n in group_numbers(g) if n in BLOCK_FAMILY}
+            for n in numbers:
+                block_days.setdefault(bus, collections.Counter())[n] += 1
+            for fam in {BLOCK_FAMILY[n] for n in numbers}:
+                family_days.setdefault(bus, collections.Counter())[fam] += 1
+            for g in info.get("blocks") or []:
+                if not group_numbers(g):
+                    kind = "Training" if "Training" in g else "Charter" if "Charter" in g else "Event"
+                    other_days.setdefault(bus, collections.Counter())[kind] += 1
+
+    riders = collections.defaultdict(lambda: collections.defaultdict(int))  # bus -> day -> boardings
+    by_stop = collections.defaultdict(collections.Counter)
+    by_family = collections.defaultdict(collections.Counter)
+    counted_days = 0
+    for path in sorted(RIDERSHIP.glob("*.json.gz")):
+        day = datetime.date.fromisoformat(path.name[:10])
+        counted_days += 1
+        for row in json.loads(gzip.decompress(path.read_bytes())):
+            entries, bus = row.get("Entries") or 0, row.get("Vehicle")
+            if entries and bus:
+                riders[bus][day] += entries
+                by_stop[bus][row.get("RouteStop") or "?"] += entries
+                by_family[bus][family_of(row.get("Route")) or "Other"] += entries
+
+    cards = []
+    for bus in order:
+        if bus not in first_seen:
+            continue
+        mix = family_days.get(bus, collections.Counter()) + other_days.get(bus, collections.Counter())
+        total_mix = sum(mix.values()) or 1
+        top_family = family_days.get(bus, collections.Counter()).most_common(1)
+        carried = riders.get(bus, {})
+        best = max(carried.items(), key=lambda kv: kv[1], default=None)
+        stop = by_stop[bus].most_common(1)
+        blocks = block_days.get(bus, collections.Counter())
+        cards.append({
+            "bus": bus,
+            "family": top_family[0][0] if top_family else None,
+            "color": FAMILY_COLOR[top_family[0][0]] if top_family else "#4a4f5a",
+            "first_seen": first_seen[bus].isoformat(),
+            "last_seen": last_seen[bus].isoformat(),
+            "seasons": [{"name": name, "days": v["days"], "miles": round(v["miles"])}
+                        for name, v in sorted(seasons[bus].items(), key=lambda kv: (kv[0][-4:], "SpSuFa".index(kv[0][:2])))],
+            "days": sum(v["days"] for v in seasons[bus].values()),
+            "miles": round(sum(v["miles"] for v in seasons[bus].values())),
+            "weekend_days": weekend_days[bus],
+            "best_miles": {"date": best_miles[bus][1].isoformat(), "miles": round(best_miles[bus][0])},
+            "blocks": [{"block": n, "days": d} for n, d in blocks.most_common(5)],
+            "block_count": len(blocks),
+            "block_days": sum(1 for _ in blocks.elements()),
+            "mix": [{"name": name, "share": round(n / total_mix, 3)} for name, n in mix.most_common()],
+            "night_days": blocks["03"] + blocks["04"],
+            "riders": {
+                "total": sum(carried.values()),
+                "days": sum(1 for v in carried.values() if v >= 20),
+                "median": round(median_of(v for v in carried.values() if v >= 20) or 0),
+                "best": {"date": best[0].isoformat(), "riders": best[1]} if best else None,
+                "top_stop": {"name": stop[0][0], "share": round(stop[0][1] / sum(by_stop[bus].values()), 3)} if stop else None,
+            } if sum(carried.values()) >= 500 else None,
+        })
+    span = sorted(datetime.date.fromisoformat(p.name[:10]) for p in BUS_DAYS.glob("*.blocks.json"))
+    info = {"from": min(first_seen.values()).isoformat(), "to": span[-1].isoformat(), "rider_days": counted_days,
+            "blocks_since": BLOCKS_SINCE.isoformat()}
+    return cards, info
+
+
 def median_of(values):
     values = [v for v in values if v > 0]
     return statistics.median(values) if values else None
@@ -514,16 +614,21 @@ def main():
         "shapes": shapes,
         "variants": {str(k): v for k, v in VARIANT_LABEL.items()},
     }
-    html = PAGE.read_text(encoding="utf-8")
-    head, rest = html.split(MARK_START, 1)
-    _, tail = rest.split(MARK_END, 1)
-    PAGE.write_text(head + MARK_START + json.dumps(data, separators=(",", ":")) + MARK_END + tail, encoding="utf-8")
+    data["buses"], data["bus_info"] = bus_cards()
+    data["family_colors"] = FAMILY_COLOR
+    DATA_JS.write_text("// Generated by scripts/build_block_cards.py. Do not edit.\nwindow.CARD_DATA = "
+                       + json.dumps(data, separators=(",", ":")) + ";\n", encoding="utf-8")
     print(f"{len(cards)} cards, {len(days)} Full Service days: {data['ridership_ranges']}")
     for c in cards:
         w = c["rows"].get("wkd") or {}
         print(c["block"], c["family"], "wkd", w.get("hours"), "h", w.get("riders"), "riders", w.get("miles"), "mi",
               "| sat", (c["rows"].get("sat") or {}).get("riders"), "| sun", (c["rows"].get("sun") or {}).get("riders"),
               "| best", c["best_day"], "| bus", c["usual_bus"], "| stop", c["top_stop"])
+    print(len(data["buses"]), "bus cards,", data["bus_info"])
+    for c in data["buses"]:
+        print(c["bus"], c["family"], c["first_seen"], c["days"], "days", c["miles"], "mi", "blocks", c["block_count"],
+              [(x["block"], x["days"]) for x in c["blocks"][:3]], [(m["name"], m["share"]) for m in c["mix"][:3]],
+              "riders", (c["riders"] or {}).get("median"))
 
 
 if __name__ == "__main__":

@@ -1,0 +1,213 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>UTS Card Packs</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Alfa+Slab+One&family=Roboto+Condensed:wght@400;500;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/css/cards.css">
+<style>
+  /* Pack opening: rip a pack, get five random block and bus cards. Cards with more stickers are rarer, and any
+     pull can come out foil. What you have collected is remembered in this browser only (localStorage). */
+  .progress { text-align: center; color: var(--muted); font-size: 15px; margin-top: 6px; }
+  .progress b { color: var(--text); }
+  #stage { min-height: 470px; display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 18px 12px 8px; }
+
+  .pack {
+    position: relative; width: 250px; height: 360px; border: 0; padding: 0; cursor: pointer; border-radius: 10px;
+    background: linear-gradient(135deg, #f58a2e, #d8392b 55%, #7a1f6b); color: #fff; font-family: inherit;
+    box-shadow: 0 14px 30px rgba(0,0,0,.5), inset 0 0 0 2px rgba(255,255,255,.25);
+    transition: transform .2s;
+  }
+  .pack:hover { transform: translateY(-5px) rotate(-1.5deg); }
+  .pack:focus-visible { outline: 3px solid var(--text); outline-offset: 6px; }
+  .pack::before, .pack::after {
+    content: ''; position: absolute; left: 0; right: 0; height: 16px;
+    background: repeating-linear-gradient(90deg, rgba(0,0,0,.28) 0 3px, transparent 3px 7px);
+  }
+  .pack::before { top: 0; border-radius: 10px 10px 0 0; } .pack::after { bottom: 0; border-radius: 0 0 10px 10px; }
+  .pack .shine { position: absolute; inset: 0; border-radius: 10px; background: linear-gradient(105deg, transparent 35%, rgba(255,255,255,.35) 48%, transparent 60%); background-size: 250% 100%; animation: shine 3.2s linear infinite; }
+  @keyframes shine { from { background-position: 120% 0; } to { background-position: -120% 0; } }
+  .pack .uts { position: absolute; top: 34px; left: 0; right: 0; text-align: center; font-weight: 700; letter-spacing: 3px; font-size: 13px; }
+  .pack .big { position: absolute; top: 96px; left: 0; right: 0; text-align: center; font-family: 'Alfa Slab One', serif; font-size: 44px; line-height: .95; text-shadow: 3px 3px 0 rgba(0,0,0,.25); }
+  .pack .small { position: absolute; bottom: 44px; left: 0; right: 0; text-align: center; font-weight: 700; letter-spacing: 2px; font-size: 12px; text-transform: uppercase; }
+  .pack .tap { position: absolute; bottom: 86px; left: 0; right: 0; text-align: center; font-size: 15px; opacity: .9; }
+  .pack.rip { animation: rip .55s ease-in forwards; pointer-events: none; }
+  @keyframes rip { 30% { transform: rotate(-4deg) scale(1.05); } 55% { transform: rotate(5deg) scale(1.08); } 100% { transform: translateY(60px) scale(.6); opacity: 0; } }
+
+  #hand { display: flex; flex-wrap: wrap; justify-content: center; gap: 18px; }
+  .slot { position: relative; width: 300px; height: 420px; animation: deal .45s cubic-bezier(.2,.8,.2,1) backwards; }
+  @keyframes deal { from { transform: translateY(-80px) rotate(-8deg); opacity: 0; } }
+  .slot .card { transform: rotateY(90deg); transition: transform .28s ease-out; }
+  .slot.shown .card { transform: none; }
+  .sleeve {
+    position: absolute; inset: 0; border: 0; padding: 0; cursor: pointer; border-radius: 14px; z-index: 2; font-family: inherit;
+    background: repeating-linear-gradient(45deg, #24234b 0 14px, #2c2b5c 14px 28px); color: var(--paper);
+    box-shadow: 0 10px 24px rgba(0,0,0,.45), inset 0 0 0 10px var(--paper), inset 0 0 0 13px #24234b;
+    transition: transform .28s ease-in;
+  }
+  .sleeve span { display: block; font-family: 'Alfa Slab One', serif; font-size: 54px; line-height: 1; }
+  .sleeve small { display: block; margin-top: 8px; font-weight: 700; letter-spacing: 3px; font-size: 12px; }
+  .sleeve:focus-visible { outline: 3px solid var(--accent); outline-offset: 5px; }
+  .slot.turning .sleeve { transform: rotateY(90deg); }
+  .slot.shown .sleeve { display: none; }
+  .tag {
+    position: absolute; top: -10px; left: -8px; z-index: 3; background: var(--accent); color: #1b1a3a; font-weight: 700; font-size: 12px;
+    letter-spacing: 1px; padding: 3px 9px; border-radius: 999px; transform: rotate(-8deg); box-shadow: 0 2px 6px rgba(0,0,0,.4); display: none;
+  }
+  .slot.shown .tag { display: block; }
+  .tag.foiltag { left: auto; right: -8px; transform: rotate(8deg); background: linear-gradient(90deg, #ff5ea8, #ffe45e, #5effc0, #5eb8ff); }
+  .rarity { text-align: center; margin-top: 6px; font-size: 12px; font-weight: 700; letter-spacing: 1.5px; text-transform: uppercase; color: var(--muted); visibility: hidden; }
+  .slot.shown + .rarity { visibility: visible; }
+  .rarity.rare { color: #b9cee0; } .rarity.legendary { color: #f0c350; } .rarity.uncommon { color: #9fe0b0; }
+
+  .actions { display: flex; gap: 10px; justify-content: center; padding: 18px 12px 6px; flex-wrap: wrap; }
+  .actions button {
+    font: 700 15px 'Roboto Condensed', sans-serif; letter-spacing: 1px; text-transform: uppercase; cursor: pointer;
+    border-radius: 999px; padding: 9px 20px; border: 2px solid var(--accent); background: var(--accent); color: #1b1a3a;
+  }
+  .actions button.quiet { background: none; color: var(--muted); border-color: rgba(255,255,255,.2); }
+  .actions button[hidden] { display: none; }
+
+  h2 { font-family: 'Alfa Slab One', serif; font-weight: 400; font-size: 22px; text-align: center; margin: 34px 0 4px; }
+  .binder { max-width: 900px; margin: 0 auto; padding: 8px 16px 10px; display: flex; flex-wrap: wrap; gap: 6px; justify-content: center; }
+  .chip {
+    min-width: 46px; text-align: center; padding: 5px 7px; border-radius: 6px; font-weight: 700; font-size: 13px;
+    background: rgba(255,255,255,.06); color: rgba(255,255,255,.28); border: 1px dashed rgba(255,255,255,.18);
+  }
+  .chip.have { background: var(--k); color: var(--k-ink); border: 1px solid rgba(0,0,0,.35); }
+  .chip.have.foil { box-shadow: 0 0 0 2px #ffe45e, 0 0 10px #ff5ea8; }
+  .chip sup { font-size: 9px; opacity: .8; margin-left: 2px; }
+  @media (prefers-reduced-motion: reduce) { .pack .shine, .slot, .pack.rip { animation: none; } }
+</style>
+</head>
+<body>
+<div id="nav"></div>
+<header>
+  <h1>UTS <span>Card</span> Packs</h1>
+  <p class="sub">Five cards a pack &bull; blocks and buses &bull; watch for foils</p>
+  <p class="progress" id="progress"></p>
+</header>
+<div id="stage"></div>
+<div class="actions">
+  <button id="revealall" type="button" class="quiet" hidden>Flip them all</button>
+  <button id="again" type="button" hidden>Open another pack</button>
+</div>
+<h2>Your binder</h2>
+<div class="binder" id="binder"></div>
+<div class="actions"><button id="reset" type="button" class="quiet">Empty the binder</button></div>
+<footer>Your binder is kept in this browser only. Cards with more stickers turn up less often; about one pull in twelve is a foil.</footer>
+
+<script src="/scripts/cards-data.js"></script>
+<script src="/scripts/cards.js"></script>
+<script>
+const KEY = 'utsCards.v1', PACK_SIZE = 5, BLOCKS_PER_PACK = 2, FOIL_ODDS = 1 / 12;
+const WEIGHT = {common: 10, uncommon: 6, rare: 3, legendary: 1};
+const ALL = Cards.all();
+const stage = document.getElementById('stage');
+
+// The binder: {card id: {n: copies pulled, foil: true if one of them was a foil}}. Browser storage can be missing or
+// blocked (private windows), in which case the page still works and just forgets.
+let binder = {};
+try { binder = JSON.parse(localStorage.getItem(KEY) || '{}') || {}; } catch (e) { binder = {}; }
+function save() { try { localStorage.setItem(KEY, JSON.stringify(binder)); } catch (e) {} }
+
+// Five different cards, rarer ones less likely. Two are always blocks: there are twice as many buses as blocks, so a
+// plain draw would bury them.
+function drawPack() {
+  const pool = ALL.slice(), picks = [];
+  while (picks.length < PACK_SIZE && pool.length) {
+    const from = picks.length < BLOCKS_PER_PACK ? pool.filter(c => c.kind === 'block') : pool;
+    let roll = Math.random() * from.reduce((s, c) => s + WEIGHT[c.rarity], 0), i = 0;
+    while (i < from.length - 1 && (roll -= WEIGHT[from[i].rarity]) > 0) i++;
+    pool.splice(pool.indexOf(from[i]), 1);
+    picks.push({card: from[i], foil: Math.random() < FOIL_ODDS});
+  }
+  return picks.sort(() => Math.random() - 0.5);
+}
+
+function showPack() {
+  stage.innerHTML = `<button class="pack" type="button" aria-label="Open a pack of five cards">
+    <div class="shine"></div><div class="uts">UVA TRANSIT</div><div class="big">TRADING<br>CARDS</div>
+    <div class="tap">tap to rip it open</div><div class="small">Fall 2026 &bull; ${PACK_SIZE} cards</div></button>`;
+  document.getElementById('again').hidden = true;
+  document.getElementById('revealall').hidden = true;
+  stage.querySelector('.pack').addEventListener('click', e => {
+    e.currentTarget.classList.add('rip');
+    setTimeout(deal, 520);
+  });
+}
+
+function deal() {
+  const picks = drawPack();
+  stage.innerHTML = `<div id="hand">${picks.map((p, i) => `<div class="cell">
+      <div class="slot" data-id="${p.card.id}" data-foil="${p.foil ? 1 : ''}" style="animation-delay:${i * 90}ms">
+        <button class="sleeve" type="button" aria-label="Turn over card ${i + 1}"><span>UTS</span><small>TRADING CARDS</small></button>
+        ${binder[p.card.id] ? '' : '<div class="tag">NEW</div>'}${p.foil ? '<div class="tag foiltag">FOIL</div>' : ''}
+        ${p.card.html}
+      </div>
+      <div class="rarity ${p.card.rarity}">${p.foil ? 'Foil ' : ''}${p.card.rarity}</div></div>`).join('')}</div>`;
+  stage.querySelectorAll('.slot').forEach(slot => { if (slot.dataset.foil) slot.querySelector('.card').classList.add('foil'); });
+  // Count the whole pack as collected the moment it is opened, so closing the tab mid-pack loses nothing.
+  for (const p of picks) {
+    const have = binder[p.card.id] || {n: 0, foil: false};
+    binder[p.card.id] = {n: have.n + 1, foil: have.foil || p.foil};
+  }
+  save();
+  document.getElementById('revealall').hidden = false;
+}
+
+function reveal(slot) {
+  if (slot.classList.contains('shown') || slot.classList.contains('turning')) return;
+  slot.classList.add('turning');
+  setTimeout(() => {
+    slot.classList.add('shown');
+    if ([...stage.querySelectorAll('.slot')].every(s => s.classList.contains('shown'))) {
+      document.getElementById('again').hidden = false;
+      document.getElementById('revealall').hidden = true;
+      renderBinder();
+    }
+  }, 280);
+}
+
+stage.addEventListener('click', e => {
+  const sleeve = e.target.closest('.sleeve');
+  if (sleeve) return reveal(sleeve.parentElement);
+  const card = e.target.closest('.card');
+  if (card) card.classList.toggle('flipped');
+});
+document.getElementById('revealall').addEventListener('click', () => {
+  stage.querySelectorAll('.slot').forEach((slot, i) => setTimeout(() => reveal(slot), i * 140));
+});
+document.getElementById('again').addEventListener('click', showPack);
+
+// Emptying the binder takes two clicks on the same button rather than a pop-up.
+const reset = document.getElementById('reset');
+reset.addEventListener('click', () => {
+  if (reset.dataset.armed) {
+    binder = {}; save(); renderBinder();
+    delete reset.dataset.armed; reset.textContent = 'Empty the binder';
+  } else {
+    reset.dataset.armed = 1; reset.textContent = 'Really empty it? Click again';
+    setTimeout(() => { delete reset.dataset.armed; reset.textContent = 'Empty the binder'; }, 4000);
+  }
+});
+
+function renderBinder() {
+  const have = ALL.filter(c => binder[c.id]), foils = have.filter(c => binder[c.id].foil).length;
+  document.getElementById('progress').innerHTML = `Collected <b>${have.length}</b> of <b>${ALL.length}</b>` + (foils ? ` &bull; <b>${foils}</b> foil${foils > 1 ? 's' : ''}` : '');
+  document.getElementById('binder').innerHTML = ALL.map(c => {
+    const b = binder[c.id];
+    if (!b) return `<div class="chip" title="Not collected yet">${c.kind === 'block' ? '[' + c.label + ']' : c.label}</div>`;
+    return `<div class="chip have${b.foil ? ' foil' : ''}" style="--k:${c.color};--k-ink:${Cards.inkFor(c.color)}" title="${c.kind === 'block' ? 'Block' : 'Bus'} ${c.label}: ${b.n} pulled${b.foil ? ', foil' : ''}">${c.kind === 'block' ? '[' + c.label + ']' : c.label}${b.n > 1 ? `<sup>&times;${b.n}</sup>` : ''}</div>`;
+  }).join('');
+}
+
+document.getElementById('nav').innerHTML = Cards.nav('packs');
+renderBinder();
+showPack();
+</script>
+</body>
+</html>

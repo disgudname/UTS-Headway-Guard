@@ -388,7 +388,7 @@ Admin-managed alerts (`/v1/system-notices` CRUD, edited at `/system-notices`). `
 - `GET /replay` - Historical replay
 - `GET /timelapse` - Baked timelapse of one service day (Fri 2026-10-02); static snapshot, no API calls, see HANDOFF.md
 - `GET /timelapse-week` - Same thing for a whole week (Mon 2026-09-21 to Sun 2026-09-27, with Saturday's game-day shuttles); `html/timelapse-week.html`, 7 MB, shares the `/timelapse` aerial tiles
-- `GET /blockcards` - A baseball card per block (01-14, 17-25): hours, riders, miles, usual bus. Static; data baked into `html/blockcards.html` by `scripts/build_block_cards.py` (needs `data-local/ridership/`, rerun when the schedule changes)
+- `GET /blockcards`, `GET /buscards`, `GET /packs` - Trading cards: a baseball card per block (01-14, 17-25) and per bus, and a pack-opening page that deals five at random and keeps a binder in localStorage. All three are thin pages over `scripts/cards.js` + `css/cards.css`, drawing `scripts/cards-data.js`, which `scripts/build_block_cards.py` bakes from TransLoc block groups, `data-local/ridership/` (`scripts/ridership_pull.py`) and `data-local/bus_days/` (`scripts/bus_days_pull.py`). Rerun the build when the schedule changes; see HANDOFF.md 2026-10-06
 - `GET /headway` - Headway visualization
 - `GET /headway-diagnostics` - Diagnostic view
 - `GET /arrivalsdisplay` - Arrivals board

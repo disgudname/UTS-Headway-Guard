@@ -2115,6 +2115,8 @@ ONBOARD_HTML = _load_html("onboard.html")
 WEATHER_HTML = _load_html("weather.html")
 WEATHERCLOCK_HTML = _load_html("weatherclock.html")
 BLOCKCARDS_HTML = _load_html("blockcards.html")
+BUSCARDS_HTML = _load_html("buscards.html")
+PACKS_HTML = _load_html("packs.html")
 TIMELAPSE_HTML = _load_html("timelapse.html")
 TIMELAPSE_WEEK_HTML = _load_html("timelapse-week.html")
 DUCK_CONFIG_HTML = _load_html("duck-config.html")
@@ -14612,6 +14614,26 @@ async def weatherclock_page():
 @app.get("/blockcards")
 async def blockcards_page():
     return HTMLResponse(BLOCKCARDS_HTML)
+
+@app.get("/buscards")
+async def buscards_page():
+    return HTMLResponse(BUSCARDS_HTML)
+
+@app.get("/packs")
+async def packs_page():
+    return HTMLResponse(PACKS_HTML)
+
+@app.get("/scripts/cards.js", include_in_schema=False)
+async def cards_js():
+    return _serve_js_asset("cards.js")
+
+@app.get("/scripts/cards-data.js", include_in_schema=False)
+async def cards_data_js():
+    return _serve_js_asset("cards-data.js")
+
+@app.get("/css/cards.css", include_in_schema=False)
+async def cards_css():
+    return _serve_css_asset("cards.css")
 
 @app.get("/timelapse")
 async def timelapse_page():
