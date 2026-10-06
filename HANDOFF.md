@@ -27,7 +27,7 @@ Machine tags: `[dev]` = Windows dev machine · `[home]` = home server (Windows b
 
 ## 1. Message board (newest first)
 
-### 2026-10-06 · [home] · Game days in the box score and the cards (UNCOMMITTED, not deployed)
+### 2026-10-06 · [home] · Game days in the box score and the cards (`4b83909`, DEPLOYED v2065)
 
 - **User:** "take UVA football gamedays into account". Done in both places.
 - **How a game/event day is recognised:** the lot and fan shuttles ("Purple/Red/Blue Lots Shuttle", "Post-Game Fan Shuttle") only run for a home football game or another big event, so **500+ riders on routes with "shuttle" in the name = event day** (`EVENT_MIN_SHUTTLE_RIDERS` in `boxscore.py` and in `scripts/build_block_cards.py`). Found so far: 2026-04-04 (2,613; **a Luke Combs concert at Scott Stadium**, per the user), 08-29 (8,918; **a home football game after all: the Brazil opener was relocated to Charlottesville**, per the user; opponent taken to be NC State, the scheduled Brazil opponent), 09-11 (7,027; Norfolk State, a Friday) and 09-26 (6,269; Delaware). All four are in `KNOWN_HOME_GAMES` (a `name` instead of an `opponent` marks a non-football event).
