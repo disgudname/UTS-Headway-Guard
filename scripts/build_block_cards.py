@@ -40,8 +40,8 @@ BLOCK_FAMILY = {
 }
 FAMILY_COLOR = {"Green": "#0c8103", "Night Pilot": "#232d48", "Orange": "#ff7300", "Gold": "#ffdd00",
                 "Silver": "#5f6367", "Purple": "#662c90"}
-# The route whose line is drawn on the card front.
-FAMILY_SHAPE_ROUTE = {"Green": 68, "Night Pilot": 59, "Orange": 53, "Gold": 67, "Silver": 58, "Purple": 74}
+# What a route id is called on a card when its family has more than one variant.
+VARIANT_LABEL = {68: "Day", 54: "Loop", 53: "Day", 55: "Loop", 67: "Day", 57: "Evening", 72: "Early", 74: "Midday", 73: "PM"}
 TIMESTOP_NAMES = {"BAR": "Barracks", "CHP": "Chapel", "CSW": "Carl Smith Way", "HER": "Hereford", "JPA": "JPA",
                   "LIB": "Library", "MCQ": "McCormick", "MP": "Madison/Preston", "PIN": "Pinn Hall"}
 DAY_TYPES = ("wkd", "sat", "sun")
@@ -82,7 +82,7 @@ def block_for(numbers, family):
 
 
 def week_schedule(monday):
-    """{service day: {block: [(start_s, end_s, family)]}} with seconds counted from the service day's midnight, and
+    """{service day: {block: [(start_s, end_s, family, route_id)]}} with seconds counted from the service day's midnight, and
     {day type: {block group id: {block: seconds}}} for splitting one bus's miles between the blocks it ran."""
     out = collections.defaultdict(lambda: collections.defaultdict(list))
     by_group = collections.defaultdict(lambda: collections.defaultdict(dict))
@@ -110,11 +110,11 @@ def week_schedule(monday):
                     if end <= SERVICE_DAY_START_S:
                         service_day, start, end = day - datetime.timedelta(days=1), start + 86400, end + 86400
                     if monday <= service_day < monday + datetime.timedelta(days=7):
-                        out[service_day][block].append((start, end, fam))
+                        out[service_day][block].append((start, end, fam, trip.get("RouteID")))
     # TransLoc lists Night Pilot [04]'s 00:00-02:00 tail on Thursday too, though Wednesday night has no [04]: a
     # service day with only an after-midnight tail and no evening piece is not a day the block runs.
     for blocks in out.values():
-        for block in [b for b, segs in blocks.items() if all(s >= 86400 for s, _, _ in segs)]:
+        for block in [b for b, segs in blocks.items() if all(seg[0] >= 86400 for seg in segs)]:
             del blocks[block]
     group_seconds = collections.defaultdict(dict)
     for (day, gid), seconds in by_group.items():
@@ -122,27 +122,37 @@ def week_schedule(monday):
     return out, group_seconds
 
 
-def merge_pieces(segments):
-    """Joins back-to-back segments on the same route family (TransLoc splits a block at every route-id flip)."""
+def merge_pieces(segments, by_route=False):
+    """Joins back-to-back segments on the same route family (TransLoc splits a block at every route-id flip), or,
+    with by_route, on the same route id: the block's lineup of route variants."""
     pieces = []
-    for start, end, fam in sorted(segments):
-        if pieces and pieces[-1][2] == fam and start - pieces[-1][1] <= 5 * 60:
+    for start, end, fam, route_id in sorted(segments):
+        key = route_id if by_route else fam
+        if pieces and pieces[-1][2] == key and start - pieces[-1][1] <= 5 * 60:
             pieces[-1][1] = max(pieces[-1][1], end)
         else:
-            pieces.append([start, end, fam])
+            pieces.append([start, end, key])
     for p in pieces:  # 23:59 -> 00:00 seams and 07:28 / 21:58 style pull-out offsets
         p[0], p[1] = round(p[0] / 300) * 300, round(p[1] / 300) * 300
+    for a, b in zip(pieces, pieces[1:]):  # a 06:56 / 06:58 route flip rounds to 06:55 / 07:00: close the gap
+        if 0 < b[0] - a[1] <= 5 * 60:
+            a[1] = b[0]
     return pieces
 
 
 def typical(schedule, block, kind):
-    """The pieces this block runs on a typical day of this type (the most common pattern across the week)."""
-    patterns = collections.Counter()
-    for day, blocks in schedule.items():
+    """The pieces this block runs on a typical day of this type (the most common pattern across the week), the same
+    day split by route variant instead, and how many days of this type it runs."""
+    patterns, lineups = collections.Counter(), {}
+    for day, blocks in sorted(schedule.items()):
         if day_type(day) == kind and block in blocks:
-            patterns[json.dumps(merge_pieces(blocks[block]))] += 1
-    days = sum(patterns.values())
-    return (json.loads(patterns.most_common(1)[0][0]), days) if patterns else ([], 0)
+            key = json.dumps(merge_pieces(blocks[block]))
+            patterns[key] += 1
+            lineups.setdefault(key, merge_pieces(blocks[block], by_route=True))
+    if not patterns:
+        return [], [], 0
+    key = patterns.most_common(1)[0][0]
+    return json.loads(key), lineups[key], sum(patterns.values())
 
 
 def parse_time(text):
@@ -219,11 +229,11 @@ def main():
 
     schedule, group_seconds = week_schedule(monday)
     packages = json.loads((ROOT / "config" / "uts_blocks.json").read_text(encoding="utf-8"))["blocks"]
-    pieces, run_days = {}, {}
+    pieces, lineups, run_days = {}, {}, {}
     for block in BLOCK_FAMILY:
-        pieces[block], run_days[block] = {}, {}
+        pieces[block], lineups[block], run_days[block] = {}, {}, {}
         for kind in DAY_TYPES:
-            pieces[block][kind], run_days[block][kind] = typical(schedule, block, kind)
+            pieces[block][kind], lineups[block][kind], run_days[block][kind] = typical(schedule, block, kind)
     schedule_by_type = {k: {b: pieces[b][k] for b in BLOCK_FAMILY} for k in DAY_TYPES}
     riders, by_hour, by_stop, miles, buses, days = ridership(schedule_by_type, group_seconds, since)
 
@@ -239,6 +249,7 @@ def main():
             rows[kind] = {
                 "days": run_days[block][kind],
                 "pieces": pieces[block][kind],
+                "lineup": lineups[block][kind],
                 "hours": round(hours, 1),
                 "riders": round(r) if r else None,
                 "per_hour": round(r / hours, 1) if r and hours else None,
@@ -264,6 +275,12 @@ def main():
         if package:
             group = next((g for g in package["weekday_groups"] if g.get("service") != "recess" and 2 in g["weekdays"]),
                          package["weekday_groups"][0])
+            # The block package's evening route change, not TransLoc's fixed clock-time flip, is what the bus follows.
+            change = (group.get("route_change") or {}).get("leave_s")
+            lineup = (rows.get("wkd") or {}).get("lineup") or []
+            for a, b in zip(lineup, lineup[1:]):
+                if change and a[1] == b[0] and abs(a[1] - change) <= 30 * 60:
+                    a[1] = b[0] = change
             codes = [c for _, c in group["stops"]]
             order = list(dict.fromkeys(codes))
             card["timestops"] = {
@@ -273,14 +290,20 @@ def main():
                 "loops": max(codes.count(c) for c in order),
                 "then": (group.get("out_of_service") or {}).get("then"),
             }
+        # The variant the block spends most of its week on is the bold line on the front; the rest are ghosts.
+        seconds = collections.Counter()
+        for r in rows.values():
+            for start, end, route_id in r["lineup"]:
+                seconds[route_id] += (end - start) * r["days"]
+        card["routes"] = [route_id for route_id, _ in seconds.most_common()]
         cards.append(card)
 
     routes = get_json("GetRoutesForMapWithScheduleWithEncodedLine")
     shapes = {}
-    for fam, route_id in FAMILY_SHAPE_ROUTE.items():
+    for route_id in sorted({r for c in cards for r in c["routes"]}):
         route = next((r for r in routes if r.get("RouteID") == route_id), None)
         if route:
-            shapes[fam] = route.get("EncodedPolyline") or ""
+            shapes[str(route_id)] = route.get("EncodedPolyline") or ""
 
     data = {
         "generated": datetime.date.today().isoformat(),
@@ -290,6 +313,7 @@ def main():
         "ridership_days": len(days),
         "cards": cards,
         "shapes": shapes,
+        "variants": {str(k): v for k, v in VARIANT_LABEL.items()},
     }
     html = PAGE.read_text(encoding="utf-8")
     head, rest = html.split(MARK_START, 1)
