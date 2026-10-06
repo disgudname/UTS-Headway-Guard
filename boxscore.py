@@ -9,7 +9,7 @@ BoxScoreStore keeps one JSON file per day under <data dir>/boxscores/ and works 
 A service day runs 04:00 to 04:00, so Night Pilot's after-midnight riders stay with the evening before; that is why
 build() wants the rows and bus maps of two calendar days.
 
-Placing a boarding on a block follows scripts/build_block_cards.py (same rules, kept in step by hand): the bus map
+Placing a boarding on a block is block_attribution.py's job (the trading cards use the same rules): the bus map
 lists every block a bus TOUCHED, without times, so a bus listed on two blocks of one route has each boarding placed
 on the blocks scheduled out at that time, minus any another bus is covering, then on the one its timestop times fit,
 and is split evenly only if still tied.
@@ -19,32 +19,36 @@ from __future__ import annotations
 import bisect
 import collections
 import json
-import re
 import statistics
 import threading
 from datetime import date, datetime, timedelta
 from pathlib import Path
 from typing import Any, Dict, Iterable, List, Optional, Tuple
 
-BLOCK_FAMILY = {
-    **{b: "Green" for b in ("01", "02")},
-    **{b: "Night Pilot" for b in ("03", "04")},
-    **{b: "Orange" for b in ("05", "06", "07", "08")},
-    **{b: "Gold" for b in ("09", "10", "11", "12")},
-    **{b: "Silver" for b in ("13", "14")},
-    **{b: "Purple" for b in ("17", "18", "19", "20", "21", "22", "23", "24", "25")},
-}
-FAMILY_COLOR = {"Green": "#0c8103", "Night Pilot": "#232d48", "Orange": "#ff7300", "Gold": "#ffdd00",
-                "Silver": "#5f6367", "Purple": "#662c90"}
+from block_attribution import (
+    BLOCK_FAMILY,
+    EVENT_MIN_SHUTTLE_RIDERS,
+    FAMILY_COLOR,
+    Cover,
+    block_by_hour,
+    block_for,
+    blocks_by_family,
+    family_of,
+    group_numbers,
+    iso_s,
+    parse_time,
+    place,
+    timestop_codes,
+    timetables,
+)
+
 FAMILY_NAME = {"Green": "Green Line", "Night Pilot": "Night Pilot", "Orange": "Orange Line", "Gold": "Gold Line",
                "Silver": "Silver Line", "Purple": "Purple Line"}
 OTHER = "Other"  # charters, orientation runs, anything that is neither one of the six routes nor a lot shuttle
 # Bump when build()'s output changes shape, so stored days are rebuilt (app.py's _boxscore_loop looks at "v").
 VERSION = 2
-# Game days. The lot and fan shuttles ("Purple Lots Shuttle", "Post-Game Fan Shuttle"...) only run for a home football
-# game or another big event (a stadium concert), so a day with this many riders on them is an event day whether or
-# not anyone told us what it was. Event days are only ranked against each other.
-EVENT_MIN_SHUTTLE_RIDERS = 500
+# Game days (block_attribution.EVENT_MIN_SHUTTLE_RIDERS riders on the lot and fan shuttles) are only ranked against
+# each other.
 SHUTTLE_COLOR = {"purple": "#8420d2", "blue": "#0072bc", "red": "#f60303", "post-game": "#6134aa"}
 IGNORED_ROUTES = ("training", "test route")  # driver training and TransLoc's test route are not service
 # Home football games already played when the game log started (the athletics feed only lists upcoming ones), and
@@ -61,35 +65,7 @@ SERVICE_DAY_START_H = 4
 # Nine "innings": the hour each one starts at, counted from the service day's midnight (so 25 is 01:00 next morning).
 INNING_STARTS = (4, 7, 9, 11, 13, 15, 17, 19, 21)
 INNING_LABELS = ("Early", "7a", "9a", "11a", "1p", "3p", "5p", "7p", "Late")
-COVER_S = 45 * 60
-FIT_HOURS = range(7, 17)
-FIT_BEST_MAX_S = 300
-FIT_MARGIN_S = 240
-FIT_SMOOTH_HOURS = 2
 FIRST_DAY = date(2026, 3, 9)  # block numbers mean what they mean today from this day on
-
-
-def family_of(route_name: Any) -> Optional[str]:
-    text = str(route_name or "").lower()
-    if "shuttle" in text:  # "Purple Lots Shuttle" is a game-day lot shuttle, not the Purple Line
-        return None
-    for fam in FAMILY_COLOR:
-        if fam.lower() in text:
-            return fam
-    return None
-
-
-def group_numbers(group_id: Any) -> List[str]:
-    return [n.zfill(2) for n in re.findall(r"\[(\d+)\]", str(group_id or ""))]
-
-
-def parse_time(text: str) -> datetime:
-    return datetime.strptime(text, "%m/%d/%Y %I:%M:%S %p")
-
-
-def _iso_s(text: Any) -> int:
-    m = re.match(r"PT(?:(\d+)H)?(?:(\d+)M)?(?:(\d+)S)?", str(text or ""))
-    return (int(m[1] or 0) * 3600 + int(m[2] or 0) * 60 + int(m[3] or 0)) if m else 0
 
 
 def schedule_pieces(day: date, block_groups: Dict[date, List[Dict[str, Any]]]) -> Dict[str, List[Tuple[int, int]]]:
@@ -104,72 +80,16 @@ def schedule_pieces(day: date, block_groups: Dict[date, List[Dict[str, Any]]]) -
             numbers = group_numbers(gid)
             for blk in g.get("Blocks") or []:
                 for trip in blk.get("Trips") or []:
-                    fam = family_of(trip.get("RouteName"))
-                    match = [n for n in numbers if BLOCK_FAMILY.get(n) == fam]
-                    if len(match) != 1:
+                    block = block_for(numbers, family_of(trip.get("RouteName")))
+                    if not block:
                         continue
-                    start, end = _iso_s(trip.get("StartTime")), _iso_s(trip.get("EndTime"))
+                    start, end = iso_s(trip.get("StartTime")), iso_s(trip.get("EndTime"))
                     tail = end <= SERVICE_DAY_START_H * 3600
                     if tail != bool(offset):
                         continue
-                    out[match[0]].append((start + 86400 * offset, end + 86400 * offset))
+                    out[block].append((start + 86400 * offset, end + 86400 * offset))
     # TransLoc lists a Night Pilot tail on mornings after a night the block did not run: a tail alone is not service.
     return {b: sorted(p) for b, p in out.items() if not all(s >= 86400 for s, _ in p)}
-
-
-def timetables(day: date, packages: Dict[str, Any], recess: bool) -> Dict[str, Dict[str, List[int]]]:
-    """{block: {timestop code: sorted scheduled seconds}} from the block packages (config/uts_blocks.json)."""
-    out = {}
-    for name, package in (packages or {}).items():
-        for g in package.get("weekday_groups") or []:
-            if (g.get("service") == "recess") == recess and day.weekday() in g.get("weekdays", []):
-                table: Dict[str, List[int]] = collections.defaultdict(list)
-                for sec, code in g.get("stops") or []:
-                    table[code].append(sec)
-                out[name.strip("[]")] = {c: sorted(v) for c, v in table.items()}
-                break
-    return out
-
-
-def timestop_codes(timestops: Dict[str, Dict[str, str]]) -> Dict[Tuple[int, int], str]:
-    return {(int(route), int(rsid)): code for code, by_route in (timestops or {}).items() for route, rsid in by_route.items()}
-
-
-def block_by_hour(stop_events, candidates, tables, codes) -> Dict[int, str]:
-    """{hour: block} for a bus listed on several blocks of one route, from when it is at timestops (weekday daytime
-    route only; see scripts/build_block_cards.py for how well this scores)."""
-    visits: Dict[int, List[Tuple[int, str]]] = collections.defaultdict(list)
-    last: Dict[str, int] = {}
-    for when, route_id, rsid in sorted(stop_events):
-        code = codes.get((route_id, rsid))
-        if not code:
-            continue
-        sec = when.hour * 3600 + when.minute * 60 + when.second
-        if code not in last or sec - last[code] > 240:
-            visits[when.hour].append((sec, code))
-        last[code] = sec
-    clear = {}
-    for hour in FIT_HOURS:
-        scores = {}
-        for n in candidates:
-            devs = []
-            for sec, code in visits.get(hour, []):
-                times = tables[n].get(code)
-                if times:
-                    k = bisect.bisect_left(times, sec)
-                    devs.append(min(abs(times[x] - sec) for x in (k - 1, k) if 0 <= x < len(times)))
-            if len(devs) >= 2:
-                scores[n] = statistics.median(devs)
-        ranked = sorted(scores.items(), key=lambda kv: kv[1])
-        if len(ranked) >= 2 and ranked[0][1] <= FIT_BEST_MAX_S and ranked[1][1] - ranked[0][1] >= FIT_MARGIN_S:
-            clear[hour] = ranked[0][0]
-    if not clear:
-        return {}
-    out = {}
-    for hour in range(24):
-        near = collections.Counter(b for h, b in clear.items() if abs(h - hour) <= FIT_SMOOTH_HOURS)
-        out[hour] = near.most_common(1)[0][0] if near else clear[min(clear, key=lambda h: abs(h - hour))]
-    return out
 
 
 def _inning(hour_of_service_day: int) -> int:
@@ -201,15 +121,10 @@ def build(
     codes = timestop_codes(timestops or {})
 
     def listed(bus: str, on: date) -> Dict[str, List[str]]:
-        by_family: Dict[str, set] = collections.defaultdict(set)
-        for g in (bus_days.get(on, {}).get(bus) or {}).get("blocks") or []:
-            for n in group_numbers(g):
-                if n in BLOCK_FAMILY:
-                    by_family[BLOCK_FAMILY[n]].add(n)
-        return {fam: sorted(ns) for fam, ns in by_family.items()}
+        return blocks_by_family((bus_days.get(on, {}).get(bus) or {}).get("blocks"))
 
     events = []
-    cover: Dict[str, List[datetime]] = collections.defaultdict(list)
+    cover = Cover()
     stop_events: Dict[Tuple[str, str], list] = collections.defaultdict(list)
     for row in rows:
         entries = row.get("Entries") or 0
@@ -231,17 +146,11 @@ def build(
         events.append((when, bus, fam or (route_name if "shuttle" in route_name.lower() else OTHER), numbers, entries,
                        row.get("RouteStop") or "?"))
         if len(numbers) == 1:
-            cover[numbers[0]].append(when)
+            cover.add(numbers[0], when)
         elif len(numbers) > 1 and when.date() == day and all(n in tables for n in numbers):
             stop_events[(bus, fam)].append((when, row.get("RouteID"), row.get("RouteStopID")))
-    for times in cover.values():
-        times.sort()
+    cover.sort()
     fits = {key: block_by_hour(ev, listed(key[0], day)[key[1]], tables, codes) for key, ev in stop_events.items()}
-
-    def covered(block: str, when: datetime) -> bool:
-        times = cover.get(block) or []
-        k = bisect.bisect_left(times, when)
-        return any(abs((times[x] - when).total_seconds()) <= COVER_S for x in (k - 1, k) if 0 <= x < len(times))
 
     line: Dict[str, List[float]] = collections.defaultdict(lambda: [0.0] * len(INNING_STARTS))
     kickoff = None
@@ -273,12 +182,8 @@ def build(
         first, last = first or when, when
         if len(numbers) > 1:
             sec = service_hour * 3600 + when.minute * 60
-            out_now = [n for n in numbers if any(s - 900 <= sec <= e + 900 for s, e in pieces.get(n, []))]
-            numbers = out_now or numbers
-            numbers = [n for n in numbers if not covered(n, when)] or numbers
             fit = fits.get((bus, fam), {}).get(when.hour) if when.date() == day else None
-            if fit in numbers:
-                numbers = [fit]
+            numbers, _ = place(numbers, when, sec, pieces, cover, fit)
         for n in numbers:
             share = entries / len(numbers)
             block_riders[n] += share

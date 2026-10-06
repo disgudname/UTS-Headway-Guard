@@ -11,6 +11,10 @@ claude's toybox/
 # (see CLAUDE.md: `DATA_DIR=./data-local PORT=8080 node src/server.js`)
 data-local-test*/
 
+# Local pulls and logs (ETA watch runs, ridership, vehicle logs, box scores ...).
+# Committed only when the user asks: use `git add -f <file>`. Files already tracked stay tracked.
+data-local/
+
 # Ad-hoc local scratch files -- never meant to be committed/deployed
 NOVANEX_TIME_LOG_2026-07-08.md
 scratch_check3.py

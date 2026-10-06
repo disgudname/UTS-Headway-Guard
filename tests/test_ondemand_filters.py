@@ -83,9 +83,9 @@ def test_stop_plans_include_ride_status_and_id():
 
 def test_status_falls_back_to_status_map_when_missing_from_schedule():
     schedules = _build_schedule_with_pending("")
-    status_map = {"ride-1": "in_progress"}
+    status_map = {"ride-1": {"status": "in_progress"}}
     stops = build_ondemand_virtual_stops(
-        schedules, datetime.now(timezone.utc), ride_status_map=status_map
+        schedules, datetime.now(timezone.utc), rides_map=status_map
     )
     assert len(stops) == 1
     stop = stops[0]
@@ -94,17 +94,17 @@ def test_status_falls_back_to_status_map_when_missing_from_schedule():
 
 def test_status_map_overrides_schedule_value():
     schedules = _build_schedule_with_pending("pending")
-    status_map = {"ride-1": "complete"}
+    status_map = {"ride-1": {"status": "complete"}}
 
     stops = build_ondemand_virtual_stops(
-        schedules, datetime.now(timezone.utc), ride_status_map=status_map
+        schedules, datetime.now(timezone.utc), rides_map=status_map
     )
     assert len(stops) == 1
     stop = stops[0]
     assert stop.get("rideStatus") == "complete"
 
     plans = build_ondemand_vehicle_stop_plans(
-        schedules, ride_status_map=status_map
+        schedules, rides_map=status_map
     )
     assert "veh-1" in plans
     entries = plans["veh-1"]

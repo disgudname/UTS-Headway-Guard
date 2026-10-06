@@ -25,7 +25,6 @@ from app import (
     _select_current_or_next_block,
     _infer_block_number_from_route,
     _build_driver_assignments,
-    _parse_driving_role,
     _build_ondemand_vehicle_entries,
 )
 
@@ -1402,80 +1401,6 @@ class TestBuildDriverAssignmentsColorIdFilter(unittest.TestCase):
         self.assertIn("Charlie Brown", driver_names)
 
 
-class TestParseDrivingRole(unittest.TestCase):
-    """Test the _parse_driving_role function."""
-
-    def test_senior_driving_with_partner(self):
-        """Test parsing Senior Driving with partner name."""
-        description = "OFF - Relieve @ 1040 MP - Senior Driving 1500-1830 w/Owen J"
-        result = _parse_driving_role(description)
-        self.assertEqual(result["role"], "senior")
-        self.assertEqual(result["partner"], "Owen J")
-
-    def test_junior_driving_with_partner(self):
-        """Test parsing Junior Driving with partner name."""
-        description = "OFF - Meet OTR - Junior Driving w/Gene K"
-        result = _parse_driving_role(description)
-        self.assertEqual(result["role"], "junior")
-        self.assertEqual(result["partner"], "Gene K")
-
-    def test_senior_driving_full_name(self):
-        """Test parsing Senior Driving with full partner name."""
-        description = "OFF - Senior Driving w/John Smith"
-        result = _parse_driving_role(description)
-        self.assertEqual(result["role"], "senior")
-        self.assertEqual(result["partner"], "John Smith")
-
-    def test_junior_driving_full_name(self):
-        """Test parsing Junior Driving with full partner name."""
-        description = "OFF - Junior Driving w/Mary Jones"
-        result = _parse_driving_role(description)
-        self.assertEqual(result["role"], "junior")
-        self.assertEqual(result["partner"], "Mary Jones")
-
-    def test_senior_driving_no_partner(self):
-        """Test parsing Senior Driving without partner name."""
-        description = "OFF - Senior Driving"
-        result = _parse_driving_role(description)
-        self.assertEqual(result["role"], "senior")
-        self.assertIsNone(result["partner"])
-
-    def test_junior_driving_no_partner(self):
-        """Test parsing Junior Driving without partner name."""
-        description = "OFF - Junior Driving"
-        result = _parse_driving_role(description)
-        self.assertEqual(result["role"], "junior")
-        self.assertIsNone(result["partner"])
-
-    def test_case_insensitive(self):
-        """Test that role detection is case-insensitive."""
-        description1 = "OFF - SENIOR DRIVING w/Owen J"
-        description2 = "OFF - senior driving w/Gene K"
-        result1 = _parse_driving_role(description1)
-        result2 = _parse_driving_role(description2)
-        self.assertEqual(result1["role"], "senior")
-        self.assertEqual(result2["role"], "senior")
-
-    def test_no_driving_role(self):
-        """Test description without driving role."""
-        description = "OFF - Relief @ 1115 PIN"
-        result = _parse_driving_role(description)
-        self.assertIsNone(result["role"])
-        self.assertIsNone(result["partner"])
-
-    def test_empty_description(self):
-        """Test empty description."""
-        result = _parse_driving_role("")
-        self.assertIsNone(result["role"])
-        self.assertIsNone(result["partner"])
-
-    def test_none_description(self):
-        """Test None description."""
-        result = _parse_driving_role(None)
-        self.assertIsNone(result["role"])
-        self.assertIsNone(result["partner"])
-
-
 class TestBuildDriverAssignmentsColorId7(unittest.TestCase):
     """Test that COLOR_ID 7 shifts are parsed correctly with driving role info."""
 
@@ -1515,9 +1440,8 @@ class TestBuildDriverAssignmentsColorId7(unittest.TestCase):
         self.assertEqual(shift["name"], "Gene Kirby")
         self.assertEqual(shift["color_id"], "7")
 
-        # Verify driving role info
-        self.assertEqual(shift["driving_role"], "senior")
-        self.assertEqual(shift["driving_partner"], "Owen J")
+        # COLOR_ID 7 is flagged as a training shift (the role is no longer parsed out of the note)
+        self.assertTrue(shift["is_training"])
 
     def test_color_id_7_junior_driving(self):
         """Test that Junior Driving shifts (COLOR_ID 7) include driving role."""
@@ -1555,9 +1479,7 @@ class TestBuildDriverAssignmentsColorId7(unittest.TestCase):
         self.assertEqual(shift["name"], "Owen Johnson")
         self.assertEqual(shift["color_id"], "7")
 
-        # Verify driving role info
-        self.assertEqual(shift["driving_role"], "junior")
-        self.assertEqual(shift["driving_partner"], "Gene K")
+        self.assertTrue(shift["is_training"])
 
     def test_color_id_7_both_drivers(self):
         """Test that both Senior and Junior drivers are in assignments."""
@@ -1602,20 +1524,11 @@ class TestBuildDriverAssignmentsColorId7(unittest.TestCase):
         # Should have both shifts
         self.assertEqual(len(all_shifts), 2)
 
-        # Verify we have one senior and one junior
-        senior_shifts = [s for s in all_shifts if s.get("driving_role") == "senior"]
-        junior_shifts = [s for s in all_shifts if s.get("driving_role") == "junior"]
-
-        self.assertEqual(len(senior_shifts), 1)
-        self.assertEqual(len(junior_shifts), 1)
-
-        # Verify senior driver
-        self.assertEqual(senior_shifts[0]["name"], "Gene Kirby")
-        self.assertEqual(senior_shifts[0]["driving_partner"], "Owen J")
-
-        # Verify junior driver
-        self.assertEqual(junior_shifts[0]["name"], "Owen Johnson")
-        self.assertEqual(junior_shifts[0]["driving_partner"], "Gene K")
+        # Both halves of the training pair are kept and flagged
+        self.assertEqual(
+            sorted(s["name"] for s in all_shifts), ["Gene Kirby", "Owen Johnson"]
+        )
+        self.assertTrue(all(s.get("is_training") for s in all_shifts))
 
     def test_color_id_7_without_role_description(self):
         """Test COLOR_ID 7 shift without driving role in description."""

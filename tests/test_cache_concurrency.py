@@ -10,6 +10,16 @@ import asyncio
 import time
 from typing import Any, Dict, List, Optional
 
+import pytest
+
+# The tests are coroutines; anyio ships with Starlette and runs them under pytest.
+pytestmark = pytest.mark.anyio
+
+
+@pytest.fixture
+def anyio_backend():
+    return "asyncio"
+
 
 class TTLCache:
     """Copy of TTLCache from app.py for isolated testing."""

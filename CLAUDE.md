@@ -24,12 +24,29 @@ This document provides comprehensive guidance for AI assistants working with the
 
 ```
 .
-├── app.py                      # Main FastAPI application (290KB, core backend)
+├── app.py                      # Main FastAPI application (~820KB, ~20,000 lines, core backend)
 ├── headway_tracker.py          # Headway tracking logic and vehicle state management
 ├── headway_storage.py          # Persistence layer for headway events
+├── fullbus_tracker.py          # Full-bus (passenger load) tracking + fullbus_storage.py
+├── bus_eta.py                  # Live stop-ETA engine (GET /v1/eta/uts_stop_arrivals), see HANDOFF.md §4
+├── trip_planner.py             # /livemap trip planner (walk -> ride -> walk)
+├── trip_planner_history.py     # Stop-to-stop travel time history the ETA engine and planner read
+├── uts_blocks.py               # Block package timetable (timestop holds); compiled by build_uts_blocks.py
+├── build_eta_model.py          # Occasional batch job: deep historical hop-time model
+├── service_schedule.py         # UTS service-level calendar scrape (headless Chromium)
+├── service_levels.py           # Permanent per-day service-level log
+├── w2w_schedule.py             # W2W "Complete Schedule" iCal poller + change log
+├── boxscore.py                 # /boxscore: one service day as a box score
+├── block_attribution.py        # Which block a boarding belongs to (shared by boxscore.py and the card builder)
+├── slides_mirror.py            # Local copy of a Google Slides deck for /ob-slides
+├── cat_gtfs.py                 # CAT's published GTFS static schedule
+├── spare_client.py             # Spare Labs (van dispatch) API client
+├── viriciti_client.py          # ViriCiti WebSocket client (bus state of charge)
+├── push_subscriptions.py       # Web Push subscription storage
 ├── tickets_store.py            # Python ticket store interface
 ├── ondemand_client.py          # On-demand service client integration
 ├── uva_athletics.py            # UVA athletics event feed integration
+├── HANDOFF.md                  # Shared notes between machines/sessions (read at the start of every session)
 ├── requirements.txt            # Python dependencies (FastAPI, uvicorn, httpx, pycryptodome)
 ├── package.json                # Node.js dependencies (Express)
 ├── Dockerfile                  # Multi-stage build with Python 3.12-slim
@@ -38,14 +55,20 @@ This document provides comprehensive guidance for AI assistants working with the
 ├── AGENTS.md                   # AI assistant instructions (read this!)
 ├── config/
 │   ├── headway_config.json     # Headway monitoring configuration
-│   └── stop_approach.json      # Stop approach detection settings
+│   ├── stop_approach.json      # Stop approach detection settings
+│   ├── uts_blocks.json         # Block packages (timetables per block), built by build_uts_blocks.py
+│   ├── uts_timestops.json      # Timestop code -> RouteStopID per route (hand-confirmed)
+│   ├── uts_active_sheets.json  # Which block-package sheets are active (incl. recess_sheets)
+│   ├── uts_route_ids.json      # Route families -> TransLoc route IDs
+│   ├── uts_landmarks.json      # Landmark names for stops
+│   └── evening_route_stops.json # Stops the post-6PM routes skip
 ├── src/                        # Node.js maintenance ticketing service
 │   ├── server.js               # Express app with REST API
 │   ├── state.js                # Event sourcing state management
 │   ├── storage.js              # JSONL append-only log + snapshots
 │   ├── config.js               # Node.js configuration
 │   └── logger.js               # Logging utilities
-├── html/                       # User-facing HTML dashboards (30+ pages)
+├── html/                       # User-facing HTML dashboards (70+ pages; /sitemap is the full list)
 │   ├── index.html              # Landing page
 │   ├── map.html                # Main operations map
 │   ├── dispatcher.html         # Dispatcher control panel
@@ -83,14 +106,16 @@ This document provides comprehensive guidance for AI assistants working with the
 ├── fonts/                      # Custom fonts (incl. mta-sign.bdf for /countdown)
 ├── media/                      # Media assets
 ├── examples/                   # Sample API payloads for testing
-└── tests/                      # Python test suite
+├── data-local/                 # Local pulls and logs (git-ignored; `git add -f` only when the user asks)
+└── tests/                      # Python test suite (30 files; the whole suite passes, keep it that way)
     ├── test_headway_tracker.py
-    ├── test_headway_storage.py
-    ├── test_ondemand_client.py
-    ├── test_ticket_export.py
-    ├── test_ticket_purge.py
+    ├── test_bus_eta.py
+    ├── test_trip_planner_history.py
+    ├── test_boxscore.py
+    ├── test_block_attribution.py
+    ├── test_vehicle_drivers.py
     ├── test_dispatch_auth.py
-    └── test_pulsepoint_first_on_scene.py
+    └── ...
 ```
 
 ---
@@ -113,6 +138,9 @@ This document provides comprehensive guidance for AI assistants working with the
 - `tickets_store.py` - Python interface to maintenance ticket data
 - `ondemand_client.py` - Integration with on-demand service providers
 - `uva_athletics.py` - ICS feed parser for UVA home games (cached daily at 03:00 ET)
+- `bus_eta.py` / `trip_planner_history.py` / `uts_blocks.py` - live stop ETAs: position + learned hop times + scheduled timestop holds
+- `boxscore.py` / `block_attribution.py` - the daily box score; `block_attribution.py` is the single copy of the rules for placing a boarding on a block, also imported by `scripts/build_block_cards.py`
+- `w2w_schedule.py`, `service_schedule.py`, `service_levels.py` - W2W calendar poller, service-level calendar scrape, permanent service-level log
 
 ### Node.js Express Service (Port 8080)
 
@@ -228,8 +256,11 @@ python -m pytest tests/
 # Run specific test
 python -m pytest tests/test_headway_tracker.py -v
 
+# The whole suite passes. A failing test is a real failure, not a known baseline.
 # Key test files:
 # - test_headway_tracker.py - Arrival/departure detection logic
+# - test_bus_eta.py, test_trip_planner_history.py - Stop ETA engine and its history
+# - test_boxscore.py, test_block_attribution.py - Box score and rider-to-block placement
 # - test_headway_storage.py - Event persistence
 # - test_ticket_export.py - CSV export validation
 # - test_ticket_purge.py - Soft/hard purge logic
@@ -948,11 +979,13 @@ Balance freshness vs API rate limits:
 ## Quick Reference
 
 ### File Size Hotspots
-- `app.py` - 290KB (main application, many endpoints)
-- `headway_tracker.py` - 54KB (core tracking logic)
-- `scripts/testmap.js` - 744KB (large test map script)
-- `html/map.html` - 545KB (main map dashboard)
-- `html/dispatcher.html` - 172KB (dispatcher panel)
+- `app.py` - ~820KB, ~20,000 lines (main application, many endpoints; search it, don't read it whole)
+- `html/timelapse-week.html` - 7MB (baked data, never read it)
+- `scripts/testmap.js` - 968KB (the `/map` script)
+- `html/map.html` - 548KB (older map page)
+- `html/dispatcher.html` - 138KB (dispatcher panel)
+- `scripts/cards-data.js` - 73KB (generated by `scripts/build_block_cards.py`)
+- `trip_planner.py` 61KB, `headway_tracker.py` 57KB, `bus_eta.py` 53KB
 
 ### Critical Paths
 - Vehicle position updates → `HeadwayTracker.process_snapshot()`
@@ -971,13 +1004,14 @@ Balance freshness vs API rate limits:
 
 ## Recent Development Focus (from git history)
 
-Recent commits show focus on:
-- **Departure timing logic** - Movement confirmation, displacement-based detection
-- **GPS drift tolerance** - Preventing false departures from GPS noise
-- **Arrival logging** - Approach cone behavior improvements
-- **Movement confirmation** - Refining thresholds for reliable event detection
+As of October 2026 the work is on:
+- **Stop ETAs** (`bus_eta.py`, `trip_planner_history.py`) - measured daily by the scheduled ETA health checks; the user's decision is to stop tuning unless something is clearly broken (HANDOFF.md §2, §4, §7)
+- **`/livemap`** - the newer map (MapLibre, `scripts/livemap/`), alongside the older Leaflet `/map`
+- **W2W open blocks** - `/ob`, OPEN entries on the dispatch pages
+- **Ridership pages** - `/boxscore`, `/blockcards`, `/buscards`, `/packs`
+- **Signage** - `/weather`, `/weatherclock`, `/onboard`, `/countdown`
 
-This indicates the headway tracking system is under active refinement. Be cautious when modifying these areas and add diagnostic logging for validation.
+HANDOFF.md's message board is the running record. Its headlines are written when the work starts; check the `↳` follow-up lines and its "Open right now" list before calling something unfinished.
 
 ---
 
@@ -990,5 +1024,5 @@ This indicates the headway tracking system is under active refinement. Be cautio
 
 ---
 
-**Last updated:** 2026-07-22
+**Last updated:** 2026-10-06
 **For questions:** Consult AGENTS.md and README.md
