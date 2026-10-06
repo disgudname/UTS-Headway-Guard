@@ -34,7 +34,7 @@ Machine tags: `[dev]` = Windows dev machine · `[home]` = home server (Windows b
 
 Checked against the entries below on 2026-10-06. Everything not listed here is believed done.
 
-- **User, TomTom (from the 09-29 reminder):** compare `/admin`'s vector count with MyTomTom's "Vector Tiles API" line, and rotate `TOMTOM_KEY` (the old one was public until v2029). Our counter on 10-06: 19,681 vector / 0 raster for October, about 3,400 a day, on pace for ~107k of 200k.
+- **User, TomTom (from the 09-29 reminder):** compare `/admin`'s vector count with MyTomTom's "Vector Tiles API" line (the user has to be signed in at my.tomtom.com; Claude cannot log in). ~~Rotate `TOMTOM_KEY`~~ done, per the user 2026-10-06. Our counter on 10-06: 19,681 vector / 0 raster for October, about 3,400 a day, on pace for ~107k of 200k.
 - **ETA, first fair weekday test of the 10-02 quantile fix:** Wed 10-07 (Full Service returns). Target: under 3% of predictions >2 min late on weekday runs.
 - **ETA, Green bus 22 leaving Gooch/Dillard ~3-4 min before we expected (10-05 17:30):** one bus, one evening; compare with the 10-06 17:30 run before touching anything. Not looked at yet.
 - **`/onboard`:** the tablet-GPS path has never run on a real bus, nobody has listened to the voice, and a bus on its last run still lists stops it will not serve (no out-of-service cut-off, no evening route-change hiding).
