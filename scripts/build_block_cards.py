@@ -18,6 +18,7 @@ The result replaces the JSON between the BLOCKCARDS-DATA markers in html/blockca
 (before it [15], [16] and [26] existed and the interlines were different, e.g. "[22]/[06]").
 """
 import argparse
+import bisect
 import collections
 import datetime
 import gzip
@@ -205,13 +206,96 @@ def date_ranges(days):
     return [[a.isoformat(), b.isoformat()] for a, b in runs]
 
 
+COVER_S = 45 * 60  # a block counts as covered by another bus if that bus boarded someone within this long
+# Telling a bus's block from when it is at timestops. Only the daytime route on weekdays: the evening and weekend
+# routes pass some timestops twice a loop, which makes "nearest scheduled time" meaningless. Scored 2026-10-06 on
+# buses listed on one block only (pick between the true block and each other block of the route, hour by hour):
+# right 98% of the time on Gold, 100% Green, 94% Silver, 87% Orange, before the smoothing below.
+FIT_HOURS = range(7, 17)
+FIT_BEST_MAX_S = 300   # the winning block's timestops must be within 5 min (median)
+FIT_MARGIN_S = 240     # and the runner-up at least 4 min worse
+FIT_SMOOTH_HOURS = 2   # an hour's answer is the majority of the clear hours within +/- this many
+
+
+def load_timetables(day):
+    """{block: {timestop code: sorted scheduled seconds}} for a regular-service weekday, from the block packages."""
+    packages = json.loads((ROOT / "config" / "uts_blocks.json").read_text(encoding="utf-8"))["blocks"]
+    out = {}
+    for name, package in packages.items():
+        for g in package["weekday_groups"]:
+            if g.get("service") != "recess" and day.weekday() in g["weekdays"]:
+                table = collections.defaultdict(list)
+                for sec, code in g["stops"]:
+                    table[code].append(sec)
+                out[name.strip("[]")] = {c: sorted(v) for c, v in table.items()}
+                break
+    return out
+
+
+def timestop_codes():
+    """{(route id, route stop id): timestop code}"""
+    timestops = json.loads((ROOT / "config" / "uts_timestops.json").read_text(encoding="utf-8"))
+    return {(int(route), int(rsid)): code for code, by_route in timestops.items() for route, rsid in by_route.items()}
+
+
+def block_by_hour(stop_events, candidates, tables, codes):
+    """{hour: block} for a bus listed on several blocks of one route: which of them its timestop times fit, hour by
+    hour, smoothed (a bus does not change block every hour). Empty if the timetable never gives a clear answer."""
+    visits, last = collections.defaultdict(list), {}
+    for when, route_id, rsid in sorted(stop_events):
+        code = codes.get((route_id, rsid))
+        if not code:
+            continue
+        sec = when.hour * 3600 + when.minute * 60 + when.second
+        if code not in last or sec - last[code] > 240:  # door events under 4 min apart are one stay at the stop
+            visits[when.hour].append((sec, code))
+        last[code] = sec
+    clear = {}
+    for hour in FIT_HOURS:
+        scores = {}
+        for n in candidates:
+            devs = []
+            for sec, code in visits.get(hour, []):
+                times = tables[n].get(code)
+                if times:
+                    k = bisect.bisect_left(times, sec)
+                    devs.append(min(abs(times[x] - sec) for x in (k - 1, k) if 0 <= x < len(times)))
+            if len(devs) >= 2:
+                scores[n] = statistics.median(devs)
+        ranked = sorted(scores.items(), key=lambda kv: kv[1])
+        if len(ranked) >= 2 and ranked[0][1] <= FIT_BEST_MAX_S and ranked[1][1] - ranked[0][1] >= FIT_MARGIN_S:
+            clear[hour] = ranked[0][0]
+    if not clear:
+        return {}
+    out = {}
+    for hour in range(24):
+        near = collections.Counter(b for h, b in clear.items() if abs(h - hour) <= FIT_SMOOTH_HOURS)
+        if near:
+            out[hour] = near.most_common(1)[0][0]
+        else:  # early morning, evening, or a quiet stretch: the nearest clear hour's answer carries
+            out[hour] = clear[min(clear, key=lambda h: abs(h - hour))]
+    return out
+
+
 def ridership(schedule_by_type, group_seconds, since, full):
-    riders = collections.defaultdict(lambda: collections.defaultdict(int))   # block -> service day -> boardings
-    by_hour = collections.defaultdict(lambda: collections.defaultdict(int))  # block -> hour -> boardings (weekdays)
-    by_stop = collections.defaultdict(lambda: collections.defaultdict(int))
+    """Boardings, miles and buses per block per Full Service day.
+
+    /v1/servicecrew lists every block a bus TOUCHED that day, without times, so a bus dispatch had on [09] for a
+    minute before moving it to [11] is listed on both. Counting it on both gave [09] 2,201 riders on 2026-08-26, two
+    buses' worth. So a bus listed on several blocks of one route has each boarding placed by, in order: the blocks
+    scheduled to be out at that time; of those, the ones no other bus (one listed on that block alone) is covering
+    right then; of those, the one its timestop times fit (block_by_hour: weekdays, blocks with a block package);
+    and if that still leaves more than one, an even split between them. Cover goes before the timetable fit because
+    the fit is weak on Orange (four buses a few minutes apart) and on spring's detour days: tried the other way
+    round, it put two all-day buses on [05] on 2026-08-26."""
+    riders = collections.defaultdict(lambda: collections.defaultdict(float))   # block -> service day -> boardings
+    by_hour = collections.defaultdict(lambda: collections.defaultdict(float))  # block -> hour -> boardings (weekdays)
+    by_stop = collections.defaultdict(lambda: collections.defaultdict(float))
     miles = collections.defaultdict(lambda: collections.defaultdict(float))
-    buses = collections.defaultdict(lambda: collections.defaultdict(set))    # block -> bus -> days
+    buses = collections.defaultdict(lambda: collections.defaultdict(set))      # block -> bus -> days
     days = set()
+    split = fitted = total_boardings = 0.0
+    codes = timestop_codes()
     for path in sorted(RIDERSHIP.glob("*.json.gz")):
         day = datetime.date.fromisoformat(path.name[:10])
         blocks_path = RIDERSHIP / f"{day}.blocks.json"
@@ -221,45 +305,95 @@ def ridership(schedule_by_type, group_seconds, since, full):
             days.add(day)
         bus_groups = {b: v for b, v in json.loads(blocks_path.read_text())["buses"].items() if v.get("blocks")}
         kind = day_type(day)
+        candidates = {}  # bus -> family -> the blocks of that route it is listed on
         for bus, info in bus_groups.items():
-            numbers = sorted({n for g in info["blocks"] for n in group_numbers(g)} & set(BLOCK_FAMILY))
+            by_family = collections.defaultdict(set)
+            for g in info["blocks"]:
+                for n in group_numbers(g):
+                    if n in BLOCK_FAMILY:
+                        by_family[BLOCK_FAMILY[n]].add(n)
+            candidates[bus] = {fam: sorted(ns) for fam, ns in by_family.items()}
+
+        tables = load_timetables(day) if day.weekday() < 5 else {}
+        stop_events = collections.defaultdict(list)  # (bus, family) -> door events, for buses listed on 2+ blocks
+        events = []
+        cover = collections.defaultdict(list)  # block -> times a bus listed on it alone boarded someone
+        for row in json.loads(gzip.decompress(path.read_bytes())):
+            entries = row.get("Entries") or 0
+            fam = family_of(row.get("Route"))
+            numbers = candidates.get(row.get("Vehicle"), {}).get(fam)
+            if not entries or not numbers:
+                continue
+            when = parse_time(row["ClientTime"])
+            events.append((when, row["Vehicle"], fam, numbers, entries, row.get("RouteStop") or "?"))
+            if len(numbers) == 1:
+                cover[numbers[0]].append(when)
+            elif when.date() == day and all(n in tables for n in numbers):
+                stop_events[(row["Vehicle"], fam)].append((when, row.get("RouteID"), row.get("RouteStopID")))
+        fits = {key: block_by_hour(ev, candidates[key[0]][key[1]], tables, codes) for key, ev in stop_events.items()}
+        for times in cover.values():
+            times.sort()
+
+        def covered(block, when):
+            times = cover.get(block) or []
+            k = bisect.bisect_left(times, when)
+            return any(abs((times[x] - when).total_seconds()) <= COVER_S for x in (k - 1, k) if 0 <= x < len(times))
+
+        attributed = collections.defaultdict(lambda: collections.defaultdict(float))  # bus -> block -> boardings
+        for when, bus, fam, numbers, entries, stop in events:
+            by_fit = False
+            if len(numbers) > 1:
+                sec = when.hour * 3600 + when.minute * 60
+                out_now = [n for n in numbers
+                           if any(s - 900 <= sec <= e + 900 for s, e, _ in schedule_by_type[kind].get(n, []))]
+                numbers = out_now or numbers
+                numbers = [n for n in numbers if not covered(n, when)] or numbers
+                fit = fits.get((bus, fam), {}).get(when.hour) if when.date() == day else None
+                if fit in numbers and len(numbers) > 1:
+                    numbers, by_fit = [fit], True
+            service_day = (when - datetime.timedelta(seconds=SERVICE_DAY_START_S)).date()
+            for block in numbers:
+                share = entries / len(numbers)
+                attributed[bus][block] += share
+                if service_day not in full:
+                    continue
+                riders[block][service_day] += share
+                by_stop[block][stop] += share
+                if service_day.weekday() < 5:
+                    by_hour[block][when.hour] += share
+            if service_day in full:
+                total_boardings += entries
+                split += entries if len(numbers) > 1 else 0
+                fitted += entries if by_fit else 0
+
+        if day not in full:
+            continue
+        for bus, info in bus_groups.items():
             # Miles are per bus per day; a bus that ran several blocks has them split by the scheduled hours of the
-            # block groups it was on ("[19]/[06]" is the morning Purple piece + Orange, not [19]'s afternoon bus).
+            # block groups it was on ("[19]/[06]" is the morning Purple piece + Orange, not [19]'s afternoon bus)...
             hours = collections.defaultdict(float)
             for g in info["blocks"]:
                 known = group_seconds[kind].get(g)
                 for n in group_numbers(g):
                     if n in BLOCK_FAMILY:
                         hours[n] += known.get(n, 0) if known else sum(e - s for s, e, _ in schedule_by_type[kind].get(n, []))
+            # ...and between blocks of one route, by where its riders were placed above rather than by the schedule.
+            for numbers in candidates[bus].values():
+                carried = sum(attributed[bus][n] for n in numbers)
+                if len(numbers) > 1 and carried:
+                    pool = sum(hours[n] for n in numbers)
+                    for n in numbers:
+                        hours[n] = pool * attributed[bus][n] / carried
             total = sum(hours.values())
-            for n in numbers if day in full else []:
+            counted = sum(attributed[bus].values())
+            for n in hours:
+                if counted and attributed[bus][n] < 0.1 * counted:
+                    continue  # it barely carried anyone on this block: not this block's bus
                 buses[n][bus].add(day)
-                if total and info.get("actual_miles"):
-                    miles[n][day] += info["actual_miles"] * hours[n] / total
-        for row in json.loads(gzip.decompress(path.read_bytes())):
-            entries = row.get("Entries") or 0
-            info = bus_groups.get(row.get("Vehicle"))
-            if not entries or not info:
-                continue
-            when = parse_time(row["ClientTime"])
-            fam = family_of(row.get("Route"))
-            numbers = sorted({n for g in info["blocks"] for n in group_numbers(g) if BLOCK_FAMILY.get(n) == fam})
-            if not numbers:
-                continue
-            block = numbers[0]
-            if len(numbers) > 1:  # same bus on two blocks of one route that day: go by the clock
-                sec = when.hour * 3600 + when.minute * 60
-                for n in numbers:
-                    if any(s - 900 <= sec <= e + 900 for s, e, _ in schedule_by_type[kind].get(n, [])):
-                        block = n
-                        break
-            service_day = (when - datetime.timedelta(seconds=SERVICE_DAY_START_S)).date()
-            if service_day not in full:
-                continue
-            riders[block][service_day] += entries
-            by_stop[block][row.get("RouteStop") or "?"] += entries
-            if service_day.weekday() < 5:
-                by_hour[block][when.hour] += entries
+            for n in hours if total and info.get("actual_miles") else []:
+                miles[n][day] += info["actual_miles"] * hours[n] / total
+    print(f"bus listed on two blocks of one route: {fitted / (total_boardings or 1):.1%} of boardings placed by timestop "
+          f"times, {split / (total_boardings or 1):.1%} split evenly")
     return riders, by_hour, by_stop, miles, buses, days
 
 
@@ -320,7 +454,7 @@ def main():
             "rows": rows,
             "week_hours": round(sum(r["hours"] * r["days"] for r in rows.values()), 1),
             "week_riders": round(sum((r["riders"] or 0) * r["days"] for r in rows.values())),
-            "best_day": {"date": best[0].isoformat(), "riders": best[1]} if best else None,
+            "best_day": {"date": best[0].isoformat(), "riders": round(best[1])} if best else None,
             "top_stop": {"name": stop[0], "share": round(stop[1] / sum(by_stop[block].values()), 3)} if stop else None,
             "usual_bus": {"bus": bus[0], "days": len(bus[1]), "of": len({d for b in buses[block].values() for d in b})} if bus else None,
             "by_hour": [round(by_hour[block].get(h, 0) / weekdays) for h in range(24)],
