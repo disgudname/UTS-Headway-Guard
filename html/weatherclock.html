@@ -8,9 +8,9 @@
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Roboto:wght@300;400;500;700;900&display=swap" rel="stylesheet">
 <style>
-  /* Designed for a fixed 1044x297 box. If the window is a different size the
-     whole widget is scaled to fit (see fit()). UVA navy + orange to sit next to
-     the rest of the signage. */
+  /* Designed for a fixed 1044x297 box, with a second 960x360 layout (#wx.tall)
+     for the taller sign. fit() picks whichever shape is closer to the window and
+     scales it to fit. UVA navy + orange to sit next to the rest of the signage. */
   :root {
     --bg: #24234b; /* exact match to /clockdisplay; left + bottom edges must stay this */
     --card: rgba(255, 255, 255, 0.07);
@@ -77,6 +77,19 @@
     display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;
   }
   .cell .pop { font-size: 13px; white-space: nowrap; }
+
+  /* 960x360 layout: 84px narrower, 63px taller. The top row is squeezed sideways,
+     the extra height goes to the forecast cards. */
+  #wx.tall { width: 960px; height: 360px; grid-template-rows: 150px 1fr; }
+  .tall .now-temp { margin-left: 12px; }
+  .tall .now-info { margin-left: 18px; }
+  .tall .now-meta { gap: 12px; }
+  .tall .cell { padding: 12px 10px; }
+  .tall .cell .label, .tall .cell .sub { font-size: 15px; }
+  .tall .cell .mid { gap: 8px; }
+  .tall .cell .icon svg { width: 46px; height: 46px; }
+  .tall .cell .temp .lo { font-size: 20px; margin-left: 3px; }
+  .tall .cell .cond, .tall .cell .pop { font-size: 14px; }
 </style>
 </head>
 <body>
@@ -111,10 +124,14 @@
   const CACHE_MAX_AGE_MS = 6 * 60 * 60 * 1000;
   const POP_MIN = 20; // only show chance of rain at or above this %
 
-  // ---- scale the fixed 1044x297 box to fit the window ----
+  // ---- pick the 1044x297 or the 960x360 layout, then scale that box to fit the window ----
   const box = document.getElementById('wx');
   function fit() {
-    const s = Math.min(innerWidth / 1044, innerHeight / 297);
+    // 3.05 is halfway between the two shapes (1044/297 = 3.52, 960/360 = 2.67).
+    const tall = innerWidth / innerHeight < 3.05;
+    box.classList.toggle('tall', tall);
+    const [w, h] = tall ? [960, 360] : [1044, 297];
+    const s = Math.min(innerWidth / w, innerHeight / h);
     box.style.transform = `scale(${s})`;
   }
   addEventListener('resize', fit); fit();

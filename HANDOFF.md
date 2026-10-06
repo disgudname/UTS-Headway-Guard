@@ -27,6 +27,12 @@ Machine tags: `[dev]` = Windows dev machine · `[home]` = home server (Windows b
 
 ## 1. Message board (newest first)
 
+### 2026-10-06 · [home] · /weatherclock also fits a 960x360 screen (committed, NOT deployed)
+
+User asked for 960w x 360h on top of the 1044x297 it was built for. Before, a 960x360 window got the 1044x297 box scaled to 960x273 with an 87 px empty strip at the bottom.
+- `html/weatherclock.html`: `fit()` now picks a layout by window shape (width/height under 3.05 = `#wx.tall`, a 960x360 box; otherwise the old 1044x297 box) and scales that to the window. The `.tall` CSS gives the extra height to the forecast cards and tightens the top row and card contents sideways. The 1044x297 layout is untouched. `/weather` was not changed.
+- **Tested** with headless Chrome screenshots at 960x360, 1920x720 and 1044x297 against live NWS data (clear morning, two-digit temps). **NOT tested:** the real sign, a long condition text, a rain % line, three-digit temps.
+
 ### 2026-10-05 · [home] · 17:30 route-change run (60 min, recess): 3 breaches, 2 are the Goodwin bug + the 18:14 deploy, 1 is Green bus 22 leaving Gooch/Dillard ~3-4 min before we expected
 
 `20261005-1730.jsonl`, re-scored with the graph saved at 18:30 (so stop 835 is scored at its right place for the whole hour).
