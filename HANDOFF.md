@@ -27,6 +27,12 @@ Machine tags: `[dev]` = Windows dev machine · `[home]` = home server (Windows b
 
 ## 1. Message board (newest first)
 
+### 2026-10-06 · [home] · /ob showed no open bus block: W2W has none; a "callout" shift keeps its driver. No code changed
+- **Asked:** why `/ob` shows no open block today (Tue, Recess Service). **Checked against prod's snapshot (16:26 ET, fresh):** `open_blocks()` returns 0 bus rows and 2 Ride rows (two `OnDemand Driver` 19:30 shifts). The board is doing what it was built to do.
+- **Why nothing shows:** `/ob` only lists shifts with NO employee. Today's only such bus-side shift is an `[EB]` 04:30-09:30, and plain `[EB]` is left off on purpose. Every bus block that was open this week got filled before today.
+- **The likely gap:** dispatch marks a callout by typing "callout" / "Call out" in the shift NOTE and leaving the driver on it. Today: `[22]` 14:00-20:30 (note changed to "OFF -callout" at 14:02 ET), `[01]` 07:00-11:30, and an `[EB]` 04:30-12:30. All 19 callout-noted shifts in the snapshot still have an employee, so none of them ever reaches the board.
+- **Not a simple fix:** for `[01]` dispatch ALSO made a second open copy of the shift, which was then filled. A "note says callout = open" rule would have kept showing `[01]` as open after it was covered. A rule would have to drop a callout shift when another assigned, non-callout shift for the same block overlaps it. Waiting on the user.
+
 ### 2026-10-06 · [home] · Game days in the box score and the cards (`4b83909`, DEPLOYED v2065)
 
 - **User:** "take UVA football gamedays into account". Done in both places.
