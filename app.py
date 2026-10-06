@@ -11867,6 +11867,7 @@ async def transloc_ridership(
 BOXSCORE_FINAL_HOUR = int(os.getenv("BOXSCORE_FINAL_HOUR", "10"))
 BOXSCORE_BACKFILL_FROM = date.fromisoformat(os.getenv("BOXSCORE_BACKFILL_FROM", "2026-08-20"))
 BOXSCORE_EARLY_REFRESH_S = 90 * 60
+BOXSCORE_BUILD_GAP_S = 30  # between two builds in a row (a backfill); each build is two slow TransLoc pulls
 _boxscore_building: Set[str] = set()
 _boxscore_retry_after: Dict[str, float] = {}
 
@@ -12007,7 +12008,7 @@ async def _boxscore_loop():
                 built = await _build_box_score(todo)
         except Exception as exc:
             print(f"[boxscore] loop error: {exc!r}"[:300])
-        await asyncio.sleep(120 if built else 900)
+        await asyncio.sleep(BOXSCORE_BUILD_GAP_S if built else 900)
 
 
 @app.get("/v1/boxscore")
@@ -12023,6 +12024,8 @@ async def boxscore_api(date: Optional[str] = Query(None, description="Service da
     if day > latest:
         return JSONResponse({**base, "status": "too_early"}, status_code=404)
     box = await asyncio.to_thread(store.load, day)
+    if box is not None and box.get("v", 1) < boxscore.VERSION and day >= BOXSCORE_BACKFILL_FROM:
+        box = None  # written by an older boxscore.py: redo it now rather than show the old layout
     if box is None:
         if day < BOXSCORE_BACKFILL_FROM:
             return JSONResponse({**base, "status": "none"}, status_code=404)
