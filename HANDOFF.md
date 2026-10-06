@@ -40,7 +40,16 @@ Checked against the entries below on 2026-10-06. Everything not listed here is b
 - **`/boxscore`:** the before/after-kickoff split has only a unit test; the first real game with a kick time is Syracuse, Sat 10-10 19:30.
 - **`/livemap` off-route badge (09-24):** deployed, never looked at on a real off-route bus.
 - **Card build is not repeatable:** `scripts/build_block_cards.py` breaks ties in a bus card's top-5 blocks (and its route mix) by set order, so two runs on the same data give a slightly different `scripts/cards-data.js`. Block cards are stable.
+- **`/livemap` theme-switch fix (10-06):** sitting uncommitted in `scripts/livemap/core/theme.js` on [home], waiting for the user's go to commit and deploy.
 - **Branches:** three merged `claude/*` branches can be deleted; `claude/late-dwell` is an unmerged prototype (see §3).
+
+### 2026-10-06 · [home] · `/livemap` light/dark switch took ~8 s to bring buses back: fixed in `scripts/livemap/core/theme.js` (NOT committed, NOT deployed)
+
+User: "/livemap takes ages to switch between light and dark mode".
+- **Cause:** `applyTheme()` swapped the style, then waited in `whenStyleReady()` for `map.isStyleLoaded()` before replaying the layer builders. That only turns true once every basemap tile is in, so buses, routes and stops stayed gone until the 8 s `STYLE_READY_TIMEOUT_MS` ran out. Measured on a local server in Chrome: `style.load` at 79 ms, builders replayed at 8111 ms.
+- **Fix:** replay the builders straight from `style.load` (the sources are baked into the style, the builders only `setData`). Also: a mode change clicked mid-swap used to be stamped on `<html>` but never drawn; it now catches up.
+- **Tested** locally (port 8097, Chrome): replay at 52 ms / 44 ms both directions, same feature counts after each swap as before (27 vehicles, 237 route pieces, 75 stops), three rapid clicks end with page chrome and map agreeing. **Not tested:** `/vandispatch2` (shares `theme.js`), a kiosk on solar auto-switching.
+- **Not touched:** `createMap()` in `core/map.js` still uses the same wait on first page load, so the first paint of buses may be held up the same way. Not measured.
 
 ### 2026-10-06 · [home] · Housekeeping: test suite green, `data-local/` ignored, one shared rider-to-block module, docs refreshed (`4a4a977`, DEPLOYED v2067)
 
