@@ -27,6 +27,16 @@ Machine tags: `[dev]` = Windows dev machine · `[home]` = home server (Windows b
 
 ## 1. Message board (newest first)
 
+### 2026-10-06 · [home] · /boxscore built (UNCOMMITTED, not deployed) + "Class of" on bus cards
+
+- **What:** `/boxscore?date=` lays one service day out as a newspaper box score: a line score (riders per route in nine "innings" of the day), three stars, a table per block (bus, riders, hours, riders/hr, miles, peak hour), boardings by hour, busiest stops, and notes that rank the day against the same kind of day at the same service level.
+- **Where it lives:** `boxscore.py` (pure: `build()`, `notes()`, `BoxScoreStore`), `html/boxscore.html`, and in `app.py` `_build_box_score` / `_boxscore_loop` / `GET /v1/boxscore`. Files go to `<data dir>/boxscores/<date>.json`. Tests: `tests/test_boxscore.py` (5).
+- **How it runs on prod (once deployed):** the loop wakes 2 min after boot, then every 15 min (2 min after a build). It builds the last finished service day (ends 04:00), marks it an "early edition" and rebuilds it every 90 min until 10:00 ET the next morning (`BOXSCORE_FINAL_HOUR`), when it is final: door-counter rows keep arriving for hours. With nothing recent to do it backfills ONE older day per pass, back to `BOXSCORE_BACKFILL_FROM` (2026-08-20), so the first ~50 days fill in over a couple of hours. Each build is two one-day `GetRidershipData` pulls straight from TransLoc (slow, ~30 s each); a failed day waits 30 min. A request for a missing day inside that range starts its build (one at a time) and the page polls.
+- **Attribution is a hand-kept copy** of `scripts/build_block_cards.py`'s rules (schedule, cover, timestop fit, even split). Change one, change the other. Both now ignore "... Shuttle" routes in `family_of` ("Purple Lots Shuttle" was being counted as the Purple Line on game days).
+- **Tested:** unit tests; box scores built from the local pulls for 2026-08-24..10-02 and viewed through a local `uvicorn` in headless Chrome (desktop + 390 px, no JS errors); the live build path run once locally for 2026-10-03 (worked; that day is Fall Break "No Service", so 0 riders is right). **NOT tested:** the loop itself over time, the early-edition refresh, memory use on prod, a recess day's page.
+- **Fall Break 2026 is Oct 3-6** (Sat/Sun No Service, Mon/Tue Recess Service, per the service-level log). TransLoc has ~no ridership rows for Oct 3-4.
+- **Bus cards:** the user confirmed the first two digits of a bus number are the model year. Cards now say "Class of 2018" (front and back) and there is an "Old pro" sticker for the top-mileage bus of the oldest year. Also uncommitted.
+
 ### 2026-10-06 · [home] · Bus cards + pack opening (`f53fdff`, DEPLOYED v2063); box score is ON DECK
 
 - **New pages:** `/buscards` (a card per bus, 44) and `/packs` (rip a pack: 5 random cards, 2 always blocks, rarer = more stickers, ~1 in 12 foil; binder kept in `localStorage` key `utsCards.v1`, this browser only). `/blockcards` unchanged to look at.
