@@ -1,0 +1,313 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>UTS Block Cards</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Alfa+Slab+One&family=Roboto+Condensed:wght@400;500;700&display=swap" rel="stylesheet">
+<style>
+  /* One "baseball card" per UTS block. The data is baked in by scripts/build_block_cards.py
+     (between the BLOCKCARDS-DATA markers at the bottom); nothing is fetched at runtime. */
+  :root {
+    --bg: #1b1a3a;
+    --text: #ffffff;
+    --muted: #aeb6d0;
+    --accent: #f58a2e;
+    --paper: #f3ead6;
+    --paper-edge: #e2d5b8;
+    --ink: #2a2620;
+    --ink-soft: #6b6355;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; }
+  body {
+    background: radial-gradient(80% 60% at 50% 0%, #2c2b5c, var(--bg) 70%) fixed, var(--bg);
+    color: var(--text);
+    font-family: 'Roboto Condensed', system-ui, sans-serif;
+    min-height: 100vh;
+  }
+  header { text-align: center; padding: 28px 16px 8px; }
+  h1 { font-family: 'Alfa Slab One', serif; font-weight: 400; font-size: 38px; letter-spacing: 1px; margin: 0; }
+  h1 span { color: var(--accent); }
+  .sub { color: var(--muted); margin: 6px 0 0; font-size: 16px; }
+  .filters { display: flex; flex-wrap: wrap; justify-content: center; gap: 8px; padding: 16px 16px 4px; }
+  .filters button {
+    font: 700 14px 'Roboto Condensed', sans-serif; letter-spacing: .6px; text-transform: uppercase;
+    color: var(--text); background: rgba(255,255,255,.08); border: 2px solid rgba(255,255,255,.14);
+    border-radius: 999px; padding: 6px 14px; cursor: pointer;
+  }
+  .filters button.on { background: var(--chip, var(--accent)); border-color: var(--chip, var(--accent)); color: var(--chip-ink, #fff); }
+  .tools { text-align: center; padding: 8px 16px 0; }
+  .tools button { background: none; border: 0; color: var(--muted); font: 500 14px 'Roboto Condensed', sans-serif; text-decoration: underline; cursor: pointer; }
+
+  #cards { display: flex; flex-wrap: wrap; justify-content: center; gap: 26px; padding: 22px 16px 40px; max-width: 1400px; margin: 0 auto; }
+  .card { width: 300px; height: 420px; perspective: 1400px; cursor: pointer; border: 0; padding: 0; background: none; color: inherit; font: inherit; text-align: left; }
+  .card:focus-visible { outline: 3px solid var(--accent); outline-offset: 6px; border-radius: 16px; }
+  .inner { position: relative; width: 100%; height: 100%; transition: transform .6s cubic-bezier(.2,.7,.2,1); transform-style: preserve-3d; }
+  .card.flipped .inner { transform: rotateY(180deg); }
+  .card:hover .inner { transform: translateY(-4px) rotateY(0deg); }
+  .card.flipped:hover .inner { transform: translateY(-4px) rotateY(180deg); }
+  .face {
+    position: absolute; inset: 0; backface-visibility: hidden; -webkit-backface-visibility: hidden;
+    border-radius: 14px; overflow: hidden; background: var(--paper); color: var(--ink);
+    box-shadow: 0 10px 24px rgba(0,0,0,.45), inset 0 0 0 1px var(--paper-edge);
+  }
+  .back { transform: rotateY(180deg); }
+
+  /* Front */
+  .front { padding: 12px; display: flex; flex-direction: column; }
+  .photo { position: relative; flex: 1; border-radius: 6px; overflow: hidden; background: var(--c); border: 3px solid var(--ink); }
+  .photo svg.route { position: absolute; inset: 0; width: 100%; height: 100%; }
+  .photo .num {
+    position: absolute; left: 12px; bottom: -6px; font-family: 'Alfa Slab One', serif; font-size: 132px; line-height: 1;
+    color: var(--c-ink); text-shadow: 3px 3px 0 rgba(0,0,0,.18);
+  }
+  .photo .role {
+    position: absolute; top: 10px; right: -34px; transform: rotate(35deg); width: 150px; text-align: center;
+    background: var(--ink); color: var(--paper); font-weight: 700; font-size: 11px; letter-spacing: 1.2px; text-transform: uppercase; padding: 4px 0;
+  }
+  .photo .uts { position: absolute; top: 9px; left: 10px; font-weight: 700; font-size: 12px; letter-spacing: 2px; color: var(--c-ink); opacity: .8; }
+  .photo .leader {
+    position: absolute; right: 8px; bottom: 8px; background: var(--paper); color: var(--ink); border: 2px solid var(--ink); border-radius: 50%;
+    width: 62px; height: 62px; display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center;
+    font-weight: 700; font-size: 9px; line-height: 1.05; letter-spacing: .5px; text-transform: uppercase; transform: rotate(-10deg);
+  }
+  .photo .leader b { font-family: 'Alfa Slab One', serif; font-weight: 400; font-size: 13px; }
+  .plate { padding: 9px 4px 2px; display: flex; align-items: baseline; justify-content: space-between; gap: 8px; }
+  .plate .name { font-family: 'Alfa Slab One', serif; font-size: 25px; letter-spacing: .5px; }
+  .plate .team { font-weight: 700; font-size: 14px; letter-spacing: 1.4px; text-transform: uppercase; color: var(--ink-soft); white-space: nowrap; }
+  .strip { display: flex; gap: 6px; padding: 4px 4px 0; font-size: 13px; color: var(--ink-soft); justify-content: space-between; }
+  .strip b { color: var(--ink); }
+
+  /* Back */
+  .back { padding: 12px 14px; display: flex; flex-direction: column; font-size: 13px; }
+  .bhead { display: flex; align-items: center; gap: 10px; border-bottom: 3px solid var(--ink); padding-bottom: 7px; }
+  .bnum { font-family: 'Alfa Slab One', serif; font-size: 26px; background: var(--c); color: var(--c-ink); border: 2px solid var(--ink); border-radius: 50%; width: 46px; height: 46px; display: flex; align-items: center; justify-content: center; flex: none; }
+  .bhead .t1 { font-family: 'Alfa Slab One', serif; font-size: 18px; line-height: 1; }
+  .bhead .t2 { font-weight: 700; font-size: 12px; letter-spacing: 1.2px; text-transform: uppercase; color: var(--ink-soft); margin-top: 3px; }
+  .vitals { margin: 7px 0 4px; display: grid; grid-template-columns: auto 1fr; gap: 1px 8px; }
+  .vitals dt { font-weight: 700; text-transform: uppercase; font-size: 11px; letter-spacing: .8px; color: var(--ink-soft); padding-top: 1px; }
+  .vitals dd { margin: 0; }
+  table { width: 100%; border-collapse: collapse; margin-top: 4px; font-variant-numeric: tabular-nums; }
+  th { font-size: 10.5px; letter-spacing: .8px; text-transform: uppercase; background: var(--ink); color: var(--paper); padding: 3px 4px; text-align: right; font-weight: 700; }
+  td { padding: 3px 4px; text-align: right; border-bottom: 1px solid var(--paper-edge); }
+  th:first-child, td:first-child { text-align: left; font-weight: 700; }
+  tr.total td { border-top: 2px solid var(--ink); border-bottom: 0; font-weight: 700; }
+  .hours { margin-top: 7px; }
+  .hours .lbl { font-weight: 700; text-transform: uppercase; font-size: 11px; letter-spacing: .8px; color: var(--ink-soft); display: flex; justify-content: space-between; }
+  .hours svg { display: block; width: 100%; height: 40px; margin-top: 2px; }
+  .fact { margin-top: auto; border-top: 2px dotted var(--ink-soft); padding-top: 6px; font-style: italic; line-height: 1.25; }
+  .fact b { font-style: normal; }
+
+  footer { color: var(--muted); font-size: 13px; text-align: center; max-width: 760px; margin: 0 auto; padding: 0 16px 36px; line-height: 1.5; }
+  @media (prefers-reduced-motion: reduce) { .inner { transition: none; } }
+  @media print {
+    body { background: #fff; } header .sub, .filters, .tools, footer { display: none; }
+    .card { break-inside: avoid; }
+  }
+</style>
+</head>
+<body>
+<header>
+  <h1>UTS <span>Block</span> Cards</h1>
+  <p class="sub">Fall 2026 series &bull; collect all <span id="count"></span> &bull; tap a card to flip it</p>
+</header>
+<div class="filters" id="filters"></div>
+<div class="tools"><button id="flipall" type="button">Flip all</button></div>
+<main id="cards"></main>
+<footer id="foot"></footer>
+
+<script>
+const DATA = /*BLOCKCARDS-DATA-START*/{"generated":"2026-10-06","schedule_week":"2026-09-28","ridership_from":"2026-08-25","ridership_to":"2026-10-03","ridership_days":40,"cards":[{"block":"01","family":"Green","color":"#0c8103","rows":{"wkd":{"days":5,"pieces":[[27000,79200,"Green"]],"hours":14.5,"riders":525,"per_hour":36.2,"miles":120},"sat":{"days":1,"pieces":[[27000,79800,"Green"]],"hours":14.7,"riders":465,"per_hour":31.7,"miles":140},"sun":{"days":1,"pieces":[[27000,79200,"Green"]],"hours":14.5,"riders":428,"per_hour":29.5,"miles":137}},"week_hours":101.7,"week_riders":3518,"best_day":{"date":"2026-08-28","riders":677},"top_stop":{"name":"Madison Ave @ Preston Ave","share":0.102},"usual_bus":{"bus":"17332","days":24,"of":40},"by_hour":[0,0,0,0,0,0,0,15,37,40,40,30,36,39,23,33,31,42,48,42,31,23,0,0],"timestops":{"count":45,"codes":["MP","HER","CHP","JPA"],"names":["Madison/Preston","Hereford","Chapel","JPA"],"loops":16,"then":"night_pilot"}},{"block":"02","family":"Green","color":"#0c8103","rows":{"wkd":{"days":5,"pieces":[[27000,79200,"Green"]],"hours":14.5,"riders":486,"per_hour":33.5,"miles":121}},"week_hours":72.5,"week_riders":2430,"best_day":{"date":"2026-09-03","riders":670},"top_stop":{"name":"Madison Ave @ Preston Ave","share":0.119},"usual_bus":{"bus":"17732","days":21,"of":30},"by_hour":[0,0,0,0,0,0,0,15,37,45,40,24,33,33,26,33,37,23,50,32,35,16,3,0],"timestops":{"count":45,"codes":["HER","MP","JPA","CHP"],"names":["Hereford","Madison/Preston","JPA","Chapel"],"loops":16,"then":"lot"}},{"block":"03","family":"Night Pilot","color":"#232d48","rows":{"wkd":{"days":5,"pieces":[[79200,93600,"Night Pilot"]],"hours":4.0,"riders":83,"per_hour":20.8,"miles":34},"sat":{"days":1,"pieces":[[79200,93600,"Night Pilot"]],"hours":4.0,"riders":126,"per_hour":31.5,"miles":40},"sun":{"days":1,"pieces":[[79200,93600,"Night Pilot"]],"hours":4.0,"riders":56,"per_hour":14.0,"miles":38}},"week_hours":28.0,"week_riders":597,"best_day":{"date":"2026-08-28","riders":384},"top_stop":{"name":"McCormick Rd @ Shannon Library","share":0.465},"usual_bus":{"bus":"12632","days":19,"of":40},"by_hour":[22,21,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,30,29],"timestops":{"count":13,"codes":["LIB"],"names":["Library"],"loops":13,"then":"lot"}},{"block":"04","family":"Night Pilot","color":"#232d48","rows":{"wkd":{"days":2,"pieces":[[79800,93600,"Night Pilot"]],"hours":3.8,"riders":138,"per_hour":35.9,"miles":28},"sat":{"days":1,"pieces":[[79800,93600,"Night Pilot"]],"hours":3.8,"riders":109,"per_hour":28.4,"miles":30}},"week_hours":11.4,"week_riders":385,"best_day":{"date":"2026-09-18","riders":256},"top_stop":{"name":"McCormick Rd @ Shannon Library","share":0.403},"usual_bus":{"bus":"17332","days":12,"of":23},"by_hour":[28,44,6,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,33,24],"timestops":{"count":9,"codes":["LIB","PIN"],"names":["Library","Pinn Hall"],"loops":8,"then":"lot"}},{"block":"05","family":"Orange","color":"#ff7300","rows":{"wkd":{"days":5,"pieces":[[27000,79200,"Orange"]],"hours":14.5,"riders":937,"per_hour":64.6,"miles":121},"sat":{"days":1,"pieces":[[27000,79200,"Orange"]],"hours":14.5,"riders":558,"per_hour":38.5,"miles":122},"sun":{"days":1,"pieces":[[27000,79200,"Orange"]],"hours":14.5,"riders":543,"per_hour":37.4,"miles":137}},"week_hours":101.5,"week_riders":5786,"best_day":{"date":"2026-08-26","riders":1693},"top_stop":{"name":"Carl Smith Way @ Scott Stadium","share":0.116},"usual_bus":{"bus":"12632","days":18,"of":40},"by_hour":[0,0,0,0,0,0,0,50,71,92,63,58,70,81,41,93,82,54,67,41,39,29,0,0],"timestops":{"count":132,"codes":["CSW","MP","LIB","PIN"],"names":["Carl Smith Way","Madison/Preston","Library","Pinn Hall"],"loops":48,"then":"night_pilot"}},{"block":"06","family":"Orange","color":"#ff7300","rows":{"wkd":{"days":5,"pieces":[[30300,64800,"Orange"]],"hours":9.6,"riders":687,"per_hour":71.7,"miles":85}},"week_hours":48.0,"week_riders":3435,"best_day":{"date":"2026-10-01","riders":852},"top_stop":{"name":"Carl Smith Way @ Scott Stadium","share":0.201},"usual_bus":{"bus":"18832","days":23,"of":30},"by_hour":[0,0,0,0,0,0,0,0,33,100,76,55,63,77,49,86,78,57,1,0,0,0,0,0],"timestops":{"count":86,"codes":["JPA","CSW","MP"],"names":["JPA","Carl Smith Way","Madison/Preston"],"loops":42,"then":"lot"}},{"block":"07","family":"Orange","color":"#ff7300","rows":{"wkd":{"days":5,"pieces":[[27000,79200,"Orange"]],"hours":14.5,"riders":990,"per_hour":68.2,"miles":120}},"week_hours":72.5,"week_riders":4950,"best_day":{"date":"2026-09-03","riders":1234},"top_stop":{"name":"Carl Smith Way @ Scott Stadium","share":0.133},"usual_bus":{"bus":"18432","days":23,"of":30},"by_hour":[0,0,0,0,0,0,0,58,98,84,93,48,76,65,65,62,83,64,51,51,40,33,2,0],"timestops":{"count":133,"codes":["CSW","JPA","MP","PIN","LIB"],"names":["Carl Smith Way","JPA","Madison/Preston","Pinn Hall","Library"],"loops":48,"then":"lot"}},{"block":"08","family":"Orange","color":"#ff7300","rows":{"wkd":{"days":5,"pieces":[[27000,64800,"Orange"]],"hours":10.5,"riders":673,"per_hour":64.1,"miles":91}},"week_hours":52.5,"week_riders":3365,"best_day":{"date":"2026-09-10","riders":833},"top_stop":{"name":"Carl Smith Way @ Scott Stadium","share":0.169},"usual_bus":{"bus":"18232","days":24,"of":30},"by_hour":[0,0,0,0,0,0,0,31,62,76,93,44,74,61,46,68,53,62,2,0,0,0,0,0],"timestops":{"count":96,"codes":["JPA","MP","CSW"],"names":["JPA","Madison/Preston","Carl Smith Way"],"loops":48,"then":"lot"}},{"block":"09","family":"Gold","color":"#ffdd00","rows":{"wkd":{"days":5,"pieces":[[18000,79200,"Gold"]],"hours":17.0,"riders":985,"per_hour":57.9,"miles":162},"sat":{"days":1,"pieces":[[27000,79200,"Gold"]],"hours":14.5,"riders":780,"per_hour":53.8,"miles":144},"sun":{"days":1,"pieces":[[27000,79200,"Gold"]],"hours":14.5,"riders":795,"per_hour":54.8,"miles":147}},"week_hours":114.0,"week_riders":6500,"best_day":{"date":"2026-08-26","riders":2201},"top_stop":{"name":"Arlington Blvd @ Barracks Road Shopping Center","share":0.109},"usual_bus":{"bus":"12132","days":24,"of":39},"by_hour":[0,0,0,0,0,4,9,35,70,76,81,45,73,76,61,97,90,104,69,61,51,38,3,0],"timestops":{"count":51,"codes":["CSW","BAR","HER","CHP","LIB"],"names":["Carl Smith Way","Barracks","Hereford","Chapel","Library"],"loops":20,"then":"lot"}},{"block":"10","family":"Gold","color":"#ffdd00","rows":{"wkd":{"days":5,"pieces":[[30300,72000,"Gold"]],"hours":11.6,"riders":793,"per_hour":68.5,"miles":110}},"week_hours":58.0,"week_riders":3965,"best_day":{"date":"2026-09-02","riders":991},"top_stop":{"name":"McCormick Rd @ McCormick Rd Dorms","share":0.103},"usual_bus":{"bus":"17532","days":22,"of":30},"by_hour":[0,0,0,0,0,0,0,0,45,72,73,56,75,69,50,72,64,57,86,51,5,0,0,0],"timestops":{"count":35,"codes":["CSW","BAR","HER","CHP","LIB"],"names":["Carl Smith Way","Barracks","Hereford","Chapel","Library"],"loops":15,"then":"lot"}},{"block":"11","family":"Gold","color":"#ffdd00","rows":{"wkd":{"days":5,"pieces":[[18000,79200,"Gold"]],"hours":17.0,"riders":1040,"per_hour":61.2,"miles":158},"sat":{"days":1,"pieces":[[27000,79200,"Gold"]],"hours":14.5,"riders":625,"per_hour":43.1,"miles":149},"sun":{"days":1,"pieces":[[27000,79200,"Gold"]],"hours":14.5,"riders":788,"per_hour":54.3,"miles":148}},"week_hours":114.0,"week_riders":6613,"best_day":{"date":"2026-09-25","riders":1242},"top_stop":{"name":"Arlington Blvd @ Barracks Road Shopping Center","share":0.108},"usual_bus":{"bus":"19232","days":20,"of":39},"by_hour":[0,0,0,0,1,3,8,38,67,71,59,49,69,78,47,87,73,55,69,48,53,32,1,0],"timestops":{"count":51,"codes":["MCQ","HER","BAR","LIB","CHP"],"names":["McCormick","Hereford","Barracks","Library","Chapel"],"loops":19,"then":"lot"}},{"block":"12","family":"Gold","color":"#ffdd00","rows":{"wkd":{"days":5,"pieces":[[27000,79200,"Gold"]],"hours":14.5,"riders":874,"per_hour":60.3,"miles":138}},"week_hours":72.5,"week_riders":4370,"best_day":{"date":"2026-09-04","riders":1068},"top_stop":{"name":"McCormick Rd @ McCormick Rd Dorms","share":0.106},"usual_bus":{"bus":"14132","days":22,"of":30},"by_hour":[0,0,0,0,0,0,0,21,56,79,64,44,53,69,61,76,79,57,68,53,50,32,2,0],"timestops":{"count":44,"codes":["CSW","BAR","HER","LIB","CHP"],"names":["Carl Smith Way","Barracks","Hereford","Library","Chapel"],"loops":16,"then":"lot"}},{"block":"13","family":"Silver","color":"#5f6367","rows":{"wkd":{"days":5,"pieces":[[23400,72000,"Silver"]],"hours":13.5,"riders":416,"per_hour":30.8,"miles":88}},"week_hours":67.5,"week_riders":2080,"best_day":{"date":"2026-09-22","riders":506},"top_stop":{"name":"Massie Rd @ JPJ South Lot","share":0.43},"usual_bus":{"bus":"14532","days":21,"of":30},"by_hour":[0,0,0,0,0,0,8,34,64,49,37,17,22,25,17,37,37,26,18,10,0,0,0,0],"timestops":{"count":55,"codes":["PIN","MCQ"],"names":["Pinn Hall","McCormick"],"loops":28,"then":"lot"}},{"block":"14","family":"Silver","color":"#5f6367","rows":{"wkd":{"days":5,"pieces":[[23400,72000,"Silver"]],"hours":13.5,"riders":322,"per_hour":23.9,"miles":88}},"week_hours":67.5,"week_riders":1610,"best_day":{"date":"2026-09-23","riders":471},"top_stop":{"name":"Massie Rd @ JPJ South Lot","share":0.425},"usual_bus":{"bus":"18332","days":23,"of":30},"by_hour":[0,0,0,0,0,0,11,30,44,31,22,16,20,22,18,27,33,31,14,9,1,0,0,0],"timestops":{"count":55,"codes":["MCQ","PIN"],"names":["McCormick","Pinn Hall"],"loops":28,"then":"lot"}},{"block":"17","family":"Purple","color":"#662c90","rows":{"wkd":{"days":5,"pieces":[[21600,29100,"Purple"],[51900,72000,"Purple"]],"hours":7.7,"riders":428,"per_hour":55.8,"miles":69}},"week_hours":38.5,"week_riders":2140,"best_day":{"date":"2026-09-03","riders":670},"top_stop":{"name":"Lee St @ UVA Medical Center","share":0.348},"usual_bus":{"bus":"12332","days":22,"of":30},"by_hour":[0,0,0,0,0,0,104,74,4,0,0,0,0,0,13,47,58,39,27,64,1,0,0,0]},{"block":"18","family":"Purple","color":"#662c90","rows":{"wkd":{"days":5,"pieces":[[18000,36000,"Purple"],[51900,63000,"Purple"]],"hours":8.1,"riders":410,"per_hour":50.8,"miles":80}},"week_hours":40.5,"week_riders":2050,"best_day":{"date":"2026-09-11","riders":593},"top_stop":{"name":"Ray C. Hunt Dr @ 400 Fontaine Bldg","share":0.37},"usual_bus":{"bus":"17632","days":23,"of":30},"by_hour":[0,0,0,0,0,50,102,73,53,28,2,0,0,0,9,33,43,20,1,4,0,0,0,0]},{"block":"19","family":"Purple","color":"#662c90","rows":{"wkd":{"days":5,"pieces":[[21600,28800,"Purple"],[51900,72000,"Purple"]],"hours":7.6,"riders":400,"per_hour":52.8,"miles":65}},"week_hours":38.0,"week_riders":2000,"best_day":{"date":"2026-09-29","riders":742},"top_stop":{"name":"Lee St @ UVA Medical Center","share":0.336},"usual_bus":{"bus":"18532","days":23,"of":30},"by_hour":[0,0,0,0,0,0,98,70,13,0,0,0,0,0,12,37,56,37,23,55,1,0,0,0]},{"block":"20","family":"Purple","color":"#662c90","rows":{"wkd":{"days":5,"pieces":[[21600,72000,"Purple"]],"hours":14.0,"riders":612,"per_hour":43.8,"miles":125}},"week_hours":70.0,"week_riders":3060,"best_day":{"date":"2026-10-01","riders":1020},"top_stop":{"name":"Ray C. Hunt Dr @ 400 Fontaine Bldg","share":0.364},"usual_bus":{"bus":"18132","days":23,"of":30},"by_hour":[0,0,0,0,0,1,103,71,61,30,27,19,28,32,40,44,59,41,24,61,1,0,0,0]},{"block":"21","family":"Purple","color":"#662c90","rows":{"wkd":{"days":5,"pieces":[[18000,64800,"Purple"]],"hours":13.0,"riders":544,"per_hour":41.9,"miles":116}},"week_hours":65.0,"week_riders":2720,"best_day":{"date":"2026-09-22","riders":649},"top_stop":{"name":"Ray C. Hunt Dr @ 400 Fontaine Bldg","share":0.355},"usual_bus":{"bus":"19332","days":24,"of":30},"by_hour":[0,0,0,0,2,52,91,58,54,29,30,19,24,19,29,39,60,39,4,1,0,0,0,0]},{"block":"22","family":"Purple","color":"#662c90","rows":{"wkd":{"days":5,"pieces":[[18000,28800,"Purple"],[51900,72000,"Purple"]],"hours":8.6,"riders":436,"per_hour":50.8,"miles":80}},"week_hours":43.0,"week_riders":2180,"best_day":{"date":"2026-09-29","riders":627},"top_stop":{"name":"Lee St @ UVA Medical Center","share":0.3},"usual_bus":{"bus":"14232","days":18,"of":30},"by_hour":[0,0,0,0,0,44,102,58,0,0,0,0,0,0,15,38,60,37,16,54,0,0,0,0]},{"block":"23","family":"Purple","color":"#662c90","rows":{"wkd":{"days":5,"pieces":[[21600,72000,"Purple"]],"hours":14.0,"riders":544,"per_hour":38.9,"miles":125}},"week_hours":70.0,"week_riders":2720,"best_day":{"date":"2026-09-01","riders":817},"top_stop":{"name":"Ray C. Hunt Dr @ 400 Fontaine Bldg","share":0.319},"usual_bus":{"bus":"18732","days":20,"of":30},"by_hour":[0,0,0,0,0,0,85,55,40,21,19,16,20,22,30,41,57,40,25,59,1,0,0,0]},{"block":"24","family":"Purple","color":"#662c90","rows":{"wkd":{"days":5,"pieces":[[51900,72000,"Purple"]],"hours":5.6,"riders":216,"per_hour":38.8,"miles":48}},"week_hours":28.0,"week_riders":1080,"best_day":{"date":"2026-09-11","riders":346},"top_stop":{"name":"Lee St @ UVA Medical Center","share":0.545},"usual_bus":{"bus":"20231","days":20,"of":30},"by_hour":[0,0,0,0,0,0,0,0,0,0,0,0,0,0,11,29,46,32,22,51,1,0,0,0]},{"block":"25","family":"Purple","color":"#662c90","rows":{"wkd":{"days":5,"pieces":[[51900,63000,"Purple"]],"hours":3.1,"riders":110,"per_hour":35.8,"miles":32}},"week_hours":15.5,"week_riders":550,"best_day":{"date":"2026-09-21","riders":168},"top_stop":{"name":"Lee St @ UVA Medical Center","share":0.427},"usual_bus":{"bus":"17232","days":23,"of":30},"by_hour":[0,0,0,0,0,0,0,0,0,0,0,0,0,0,15,31,43,21,0,0,0,0,0,0]}],"shapes":{"Green":"{rbgFdzf~MGXCNALAT?HAN?Z?T?HALCLAHABCFABCDEDGFGDA?A@E@IBG@I@A?M@K@G?A?E?A?IAI?EACACACAEEEECCAAACCCAACGEKAEAE?EAEAM?K?K@_@Bc@?O?I?G?KAQ???KAQCWCMAACQKWEMQUGIMKMOGEUSWOQKKGGGYMOGCAOGQGMEKE??GCa@QMESIOGOEA?GAGAG?G?C?E@G@IBIBC@[NMFA?IDI@K@A?G?IAI?ICWGGAa@MKE??QKGCWMa@QKIu@a@[WMOMQMWMWAM?OCk@Ac@Ae@??A_@Ey@EkAGqBAg@AKAa@?C?M@O?Y@S@G@IBKBMDOJSj@kARo@N]T{@XkAFWNg@??Jo@ZsARi@d@yB@M@S@KBwA??MQCECECII_@GO?CEGGQEKEIEKEQ??_AU{@SICSGIACAUGWIMEa@Ok@OUGm@OCA_@KaAYs@Qe@Mg@OKCo@QSEg@Ms@O[IUGKE??_@I{@U}Ac@[G??KUGMAKAI?I@M@KBKDMBKDEBCFEDCFCb@WVOJC~@]`Aa@lAg@XMJELI@AHGJI??HGZ]Ta@L_@@CDQFWBGNo@H]DOFUNc@??UMm@[WMeAk@_@QuAs@KGu@_@IEMGe@ScAc@{@c@WMSKECECk@[WOSMWQ??YO}@e@OEy@e@a@SaBy@??JMHQ?CXy@`@aBFU\\sAPm@VgAJWBM??H[Ng@D_@HK@ALi@Li@Ni@H]FSDU\\qA??y@_@??GCWMSKMIA?[Y??MMKMIOGKKWSc@Sa@CCO[CIQ[Sa@CKMs@G}@?M@m@BcA??@u@?M?Q@qB??D?p@CN@b@?B?t@@b@?XADAH?NCPCLEHCBA\\O@?RKLG\\SNORQ??NOJKLKJGJG@?LGPG??LDHBJHDBVT\\V??Gj@It@DTOn@??I`@a@~A_@nAWbAc@zAgA~DQr@St@GZOf@??GPWfAK^GRI\\Oh@Mh@Mh@A@GJG^Of@IZCLIXSt@??ENUt@YjAGTa@`BYx@?BIPKL??`Bx@`@Rv@f@PB|@d@XN??DD??d@X??\\Rd@VDBDBRJVLz@b@bAb@d@RLFHDt@^JFtAr@^TdAf@VLl@ZTL??Ob@GTENI\\On@CFGVEPABM^OV??EH[\\IFKHIFA@MHKDYLqAh@}@^_A\\KBWNc@VGBEBGDCBEDMLEHGFEHOT[n@??L@dAPZF|Ab@z@Tf@P??^FTFr@Nf@LRDn@PJBf@Nd@Lr@P`AXj@Pd@JTFj@P??`@LLDVHTFB@H@RFHBz@R~@T??DPDJDHDJFPDF?BFNH^BHBDBDLP??CvAAJARALe@xBSh@[rAOp@K`@??GZYjAUz@O\\Sn@k@jAKRENCLCJAHAFAR?X??\\BdADj@@~ADJ???P?XBN@N@XDN@PDF@RDZHVJRFd@RHBTJPHXNNFRJd@RrBz@lAh@`Ab@`@PJDZPNFXNRHZLp@VZNB@??FBPFJBTFD?LBH@D?J?V???@XBN?B@L@T?H@N?n@A|@@vB@N??D`AFv@@T@J@V?\\@L?bAAp@?v@??S?GACAE?ECCCMMIKEIESEUCUEi@CEGMIKAAIGICC?C?C?GBCBCDGLCHGR","Night Pilot":"aycgFv`d~Mx@^FB@@HDNFTJ`@Rt@^JLNVFT@???FRL`@HXNb@N`@Nd@Ph@Rj@BNBP@TAdB?B?h@Ab@AN?NA\\?@?RAl@AT?RCvAAJARALe@xBSh@[rAOp@I^??Kd@WbAUz@O\\Sn@k@jAKRENCLCJAHAFAR?XAN?L?B@`@@J@f@FpBDjA????NbF^~@j@p@vCxAhAb@|@Dh@Qh@Qj@Id@F`@Rx@XjA`@tAx@nAtA\\dAFjA??C~A?|@HXNXRPb@Dv@Gd@MNYHa@Dy@@[?]D]Hc@??DOBIFMBEBCFCB?B?B?HBHF@@HJFLBDDd@BXDTDRDHHJLLBBDBD?B@F@R????w@@q@?cAAM?]AWAKAUEm@I{AAwB@}@?o@AO?IAUAM?CCOAY??l@?N?f@???XAp@@RCNALALEHCJGRWFK@ABGVg@h@_ANQFKJI@AFCFERINEbA]??NALEAOEUCYCQG]EQCMOq@GWS}@GWGQGSEK??AEQ_@Wg@]o@_@{@MYUc@[k@]q@i@eA[i@??y@_BgAoBKSIOIIKKEE??EEYSMIGECACAIEk@]}A}@gBcAa@S_@S_@S[Oa@U??]QUKa@QOIIGKAICK?O?]B??OeACYA}@@y@?m@@W@yA@a@@S@c@?Q?_@@e@?G?q@?g@?O?MCeAAm@?[?CAi@?W??AUAuAAg@?O?GA[?AAc@AYC[C[?KUwAQiA??Kk@Ie@Ou@SgA]kBACKc@ACWuAOw@Ie@EKAEEGIIGG??Gb@Gd@CLAHEPCFKTWj@k@nAO\\CDOX??KTINADKRWh@EFKL]T{@n@MHy@n@MHQN}@n@w@l@IHGFCDCFEHGROp@U|@CJKb@Qr@??EPERU|@GVOb@GTENI\\On@CFGVEPABM^??\\ED?DANEF?RCZ?FAD?B@B?HDNHf@VNHNHZPTNPLLJHFHF","Orange":"i`egFjua~M@u@?M?E@}B@AB@p@CN@b@?B?t@@b@?XADAH?NCPCLEHCBA\\O@?RKLG\\SNORQ??NOJKLKJIJE@?LGPG??LDHBJHDBVT\\V??C`@M~@DTOn@??K^_@`BYbA]nAc@zAgA~DQr@St@A@U`A??GP??~@f@^TxAv@~@h@NJDBHB`Af@@?LFf@Vf@RVJb@P??THn@VHDl@VNFNF`@P`@Nh@Th@T`@N^PHDB@NFPF^RNFNFNHPHTJ`@Pf@T@???TLh@R`@N??NYBEN]j@oAVk@JUBGDQ@IBMFe@Fc@??FFHHDF@DDJHd@Nv@VtA@BJb@@B`@vBNz@Ln@??@DHd@Jj@PhARvA@JBZBZ@N@l@?@@Z?F?N@f@@tA?N?B@X@h@?B?Z@l@?B??B`A?L?N?f@?p@?FCd@@^?PAb@ARA`@AxAAV?l@Ax@@|@BXNdA??@RZCHAH?D@DBHBRN^R`Ab@`@N^R`@R~@f@~@f@FDv@d@t@`@j@\\PJD@DD@?DBJHJJDD??HFFFJNJNHXLJbAfB@@j@fA\\p@T`@??Zt@X^P\\Tb@Tb@P^Th@\\t@h@hA\\hALh@XjAFV??FX@J?LHL@J?F?P??MNcA\\ODSHGDGBA@KHGJOPg@~@??A?Wf@CFA@GJSVKFIBMDM@O@I@{@?aA@O?m@???W?K?E?IAMCE?IC??EAQEQCKI[Oq@W[MSIYOOG[QKEa@QaAc@mAi@sB{@e@SSKOGYOQIUK??ZmABMHa@D[BOB[@O@U@eA?g@???U@[@Q@KD[BWH[d@_A|@cBDITo@Pg@Rg@??RNBDNLNPRVDFDHXd@j@z@j@|@FJRZHLFL???@Rd@FJXr@Vl@R`@HLVb@Xf@JNV^LVPZ?@HRHPBHJ^DRDVBJBV@Z@T?F?^CFBNARAF?JC`@ABCZANAT@P?@?B?R??DV??l@?N?`AAz@?HANALALEHCJGRWFK@ABGVg@h@_ANQFKJI@AFCFERINEbA]??NALEAOEUCYCQG]EQCMOq@GWO}@KWGQGSEK??AEQ_@Wg@We@e@eAMYUc@[k@]q@g@gA]g@??s@sAiA{BOSIOIIKKEE??EEYSMIGECACAIEq@a@wAy@gBcAa@S]Wa@O[Oa@U??]Q[O[MOIIGKAICK?O?]B??OeACYA}@@y@?m@@W@yA@a@@S@c@?QA_@Be@?G?q@?g@?O?MCeAAm@?[?CAi@A]???OAuAAg@?O?GA[?AAm@AOC[C[AKSwAQiA??Kk@Ie@Ou@O{@a@wBACKc@ACWuAOw@Ie@EKAEEGIIGG??Gb@Gd@CLAHEPCFKTWj@k@nAO\\CDOX??a@Oi@WWIOG??WMa@QUKQIOIOGOG_@SQGOGCAIE_@Qa@Oi@Ui@Ua@Oa@QOGOGm@WIESI??[My@[WKg@Sg@WMGA?aAg@ICECOK_Ai@yAw@_@U_Ag@y@_@??GCWMSKMIA?[Y??MMKMIOGKKWUa@Qc@CCO[CIQ[Sa@CKQ_ACq@?M@m@BcA","Gold":"}rbgFhzf~METCNALAP?LAN?Z?T?HALCLAHABCFABCDEDGFGDA?A@E@IBG@I@A?M@K@G?A?E?A?IAI?EACACACAEEEECCAAACCCAACGEKAEAE?EAEAM?K?K@e@B]?O?I?G?KAQ???KAQCWCMAACQKWEMOQMQIGMOGEUSWOQKKGGGYMOGCAOGQGMEKE??GCa@QMESIOGOEA?GAGAG?G?C?E@G@IBIBC@[NMFA?IDI@K@A?G?IAI?ICWGGAa@MKE??QKGCWMa@QMGs@c@[WMOMQMWMWAM?OCk@Ac@Ai@??A[Ey@EkAGqBAg@AKAa@?C?M@O?Y@S@G@IBKBMDOJSj@kARo@N]T{@XkAFWLk@??Lk@ZsARi@d@yB@M@S@KBwA??MQCECECII_@GO?CEGGQEKEIEKEQ??_AU{@SICSGIACAUGWIMEa@Mk@QUGm@O??c@MaAYs@Qe@Mg@OKCo@QSEg@Ms@OUK[EKE??_@I{@U}Ac@[GeAQMAg@Ic@ISEQGOEECi@O{@YSC??g@OcAY]ImA]YGICi@OKCiAYg@MOC??IEEAEA{@SA?c@M}A_@??GXUx@Oh@Oh@M^Up@i@~AM\\[|@Oh@[z@GP??ITQf@Qf@KVUr@M`@Of@Sh@KXELQd@Yx@a@nAa@fA?Bg@fA]l@IN_@h@MLIHIHIFIFKDKHIBKHMBOBKBA???UBMA}@C[AM@K?G@I@G@A@G@OHIDA?EDKHWPOL[XIFKJKNEFQRIL??OIKGc@UEAWOQOWM??KGWQOI_@SKEUKAAOIIGa@WOSKWM_@GWAGG_@CYA[EcAAU@UAm@AqA??AaA?IAO??NCNEFC@CBABC@CDGXq@FQJQFK@ADGHKHG@AHGXONKHEDEDEFKBCHMRYT]T[BCt@kAPSXe@p@_A\\k@V_@??Vc@FKXa@HOj@}@??KSKKIGEEUSUWUUKKCAAECKBW??P[R[?ANUNW??NNPRFHb@b@FHHFHH\\Z??Wd@CFAB[h@??Wh@k@|@INY`@GJo@bAc@t@k@t@Yd@QRu@jACBUZU\\SXAB??GHCBGJEDEDIDWRQFIFA@IFIJEFA@GJKPGPYp@EFABCBC@ABGBODOB??@N?H?z@BvA??Bl@CX@PDbA@ZBXF^@FFVL^JVNR`@VHFNH@@TJJD^RNHTN??@@JFVLPNVND@b@TJFNH??HMPSDGJOJKHGZYNMVQJIDE@?HENIFA@AFAHAFAJ?LAZ@|@BL@VCJC??NCLCJIHCJIJEHGHGHIHILM^i@HO\\m@f@gA?C`@gA`@oAXy@Pe@DMJYRi@Ng@La@JY??HYJWPg@Pg@HUFQZy@Nk@Z}@L]h@_BTq@L_@Ni@Ni@Ty@??TFf@LXFPDr@Jb@DF@B?B?BAP???D?f@LhAXJBh@NHBXFlA\\\\HbAXj@P??N@z@Xh@NDBNDPFRDb@Hf@HL@dAPZF|Ab@z@Tf@N??^DTJr@Nf@LRDn@PJBf@Nd@Lr@P`AXb@Ll@NTFj@P??`@LLDVHTFB@H@RFHBz@R~@T??DPDJDHDJFPDF?BFNH^BHBDBDLP??CvAAJARALe@xBSh@[rAOp@K^??G\\YjAUz@O\\Sn@k@jAKRENCLCJAHAFAR?X??\\BdADj@@~ADJ???P?XBN@N@XDN@PDF@RDZHVJRFd@RHBTJPHXNNFRJd@RrBz@lAh@`Ab@`@PJDZPNFXNRHZLp@VZNB@??FBPFPDNDH@H@H@D?J?V???@XBN?B@L@T?H@N?n@A|@@vB@N??FjADl@@T@J@V?\\@L?v@A|@?v@??S?GACAE?ECCCMMIKEIESEUCUEi@CEGMIKAAIGICC?C?C?GBCBCDGLCHIV","Silver":"yyegFxud~MHYJWPg@Pg@HUFQRq@Vs@Z}@L]h@_BTq@L_@Ni@Ni@Ty@??TFf@LXFPDr@Jb@DF@B?B?BALA??HBf@JbARPHh@NHBXFlA\\\\HbAXj@P??NBz@V^JNFNDPFRDb@Hf@HL@dAPZF|Ab@z@Th@N??\\HTFr@Nf@LRDn@PJBf@Nd@L`AVr@Rb@Ll@NTFj@P??`@LLDVHTFB@H@RFRHp@L~@T\\Jb@Jf@LTFTFHBLB@?t@NJ@L?TARELE@?NGHEJGJIJIPQFIBGHM@CBMBID[@W?U?Q?M??ASOeACYA}@@y@?m@@W@yA@a@@S@c@?Q?_@@e@?G?q@?g@?O?MCeAAm@?[?CAi@?Y??ASAuAAg@?O?GA[AM?a@AOC[C[?KUwAQiA??Kk@Ie@Mi@QgAa@wBACKc@ACWuAOw@Ie@EKAEEGIIGG??Gb@Gd@CLAHEPCFKTWj@k@nAO\\CDOX??KTINADKRWh@EFKL]T{@n@MHy@n@MHQN}@n@w@l@IHGFCDCFEHGROp@U|@CJKb@Qr@??EPKb@Qt@ENOb@GTENI\\On@CFGVEPABM^OV??EH[\\IFKHIFA@MHKDi@P}@b@aA`@_A\\KBWNc@VGBEBGDCBEDMLEHGFEHOT[n@??yAzCe@`Ag@dAy@~Aa@z@ADc@`A??Wh@Sb@Sh@KPMV]r@O\\Yr@Ud@i@hAQ^??EQEKMQCEECEGOQSOSIYEi@A_@?E?]@gA?eA@UAWCMEICIEWOqA{@i@[_Am@a@U_Am@??Pe@DMPc@L_@Ng@La@JY","Purple":"}zagFv|g~MJN??BKDIDIKR??DIDIQOKKOSGGECGCGEgAEo@C??DqBFoA@s@?C@CAC?CAW?K@K@UFuADg@Be@Bu@D}@D}@Ds@Dg@DcAFaAFcBDu@Bi@DkA?S?Y@_@AM?o@?{A?S?Y?yA?wA?c@?M?aA?a@@c@?w@F_@AOEUCYCQG]EQCMOq@GWS}@GWGQGSGQQ_@Wg@We@e@eAMYUc@[k@]q@i@eAoA}BmA{BKSIOIIKKKKYSMIGECACAIEq@a@wAy@gBcAa@S_@S_@S[O_Ag@[O[MOIIGKAICK?O?]B??OeACYA}@@y@?m@@W@yA@a@@S@c@?Q?_@@e@?G?q@?g@?O?MCeAAm@?[?CAi@?W??AUCuA?g@?O?GA[?AAm@AOC[??t@UFENMLMHKFKDGBGDOLa@Lc@J_@??BINg@BIf@{AFSJ[Ng@?APe@Pg@HUFIJILE`@O??]eBKm@CQA?E[K{@Gg@SyACWCGAGCCGEOAI@M@UB??Gh@A@Of@Od@g@vA[dA??Up@e@vAOf@Qf@?@A@Yz@GJEJCDEFCBEBEB[N??Nz@Ln@??@DHd@Jj@PhATvA?JBZBZ@N@l@?@@Z?F?N?f@BtA?N?B@X@h@?B?Z@l@?B??B`A?L?N?f@?p@?FAd@?^?PAb@ARA`@AxAAV?l@Ax@@|@BXNdA??@RZCHAH?D@DBHBRN^R`Ab@`@N^R`@R~@f@~@f@FDv@d@t@`@j@\\PJD@DD@?DBJHJJNLFFJNJNJTJNbAfB@@j@fA\\p@r@rAVb@P\\Tb@Tb@P^Th@\\t@h@hA\\hALh@XjANp@@JBJDN@J?F?P??@LDX?v@Ab@?`@?`A?L?b@?vA?xA?X?R?zA?n@@LA^?X?REjACh@Et@GbBG`AEbAEf@Er@E|@E|@Ct@Cd@Ef@GtAATAJ?JGXAB?@?@?@ADIxAOtC??C`@XBP@F@XBj@BB?J@D@D@@?@?@@DBDDLNDFFF"}}/*BLOCKCARDS-DATA-END*/;
+
+const TEAM = {Green: 'Green Line', Orange: 'Orange Line', Gold: 'Gold Line', Silver: 'Silver Line', Purple: 'Purple Line', 'Night Pilot': 'Night Pilot'};
+const KIND_LABEL = {wkd: 'Wkdy', sat: 'Sat', sun: 'Sun'};
+// Which block a block's bus was, or becomes, on the same day (TransLoc interlines them).
+const HANDOFFS = {
+  '01': 'Thu&ndash;Sat this bus stays out past 22:00 and turns into <b>Night Pilot [04]</b>.',
+  '05': 'Never goes home at 22:00: it turns into <b>Night Pilot [03]</b> at the Library, every night.',
+  '03': 'Was <b>Orange [05]</b> all day. Same bus, new sign, four more hours.',
+  '04': 'Was <b>Green [01]</b> all day. Only comes out Thursday to Saturday nights.',
+  '10': 'Called up from the minors: starts the morning as <b>Purple [17]</b>, flips to Gold at 08:25.',
+  '06': 'Called up from the minors: starts the morning as <b>Purple [19]</b>, flips to Orange at 08:25.',
+  '17': 'The morning bus turns into <b>Gold [10]</b> at 08:25. A fresh [17] comes back out at 14:25.',
+  '19': 'The morning bus turns into <b>Orange [06]</b> at 08:25. A fresh [19] comes back out at 14:25.'
+};
+
+function inkFor(hex) {
+  const n = parseInt(hex.slice(1), 16), r = n >> 16, g = (n >> 8) & 255, b = n & 255;
+  return (0.299 * r + 0.587 * g + 0.114 * b) > 160 ? '#2a2620' : '#ffffff';
+}
+function clock(s) {
+  s = ((s % 86400) + 86400) % 86400;
+  return String(Math.floor(s / 3600)).padStart(2, '0') + ':' + String(Math.floor(s % 3600 / 60)).padStart(2, '0');
+}
+function num(v) { return v == null ? '&ndash;' : Number(v).toLocaleString('en-US'); }
+function esc(s) { return String(s).replace(/[&<>"]/g, c => ({'&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;'}[c])); }
+
+function decodePolyline(str) {
+  const pts = []; let i = 0, lat = 0, lng = 0;
+  while (i < str.length) {
+    for (const which of [0, 1]) {
+      let shift = 0, result = 0, b;
+      do { b = str.charCodeAt(i++) - 63; result |= (b & 31) << shift; shift += 5; } while (b >= 32);
+      const d = (result & 1) ? ~(result >> 1) : (result >> 1);
+      if (which === 0) lat += d; else lng += d;
+    }
+    pts.push([lat / 1e5, lng / 1e5]);
+  }
+  return pts;
+}
+// The route's line, fitted into the top part of the card's picture box.
+function routeSvg(family, ink) {
+  const pts = decodePolyline(DATA.shapes[family] || '');
+  if (!pts.length) return '';
+  const k = Math.cos(pts[0][0] * Math.PI / 180);
+  const xs = pts.map(p => p[1] * k), ys = pts.map(p => -p[0]);
+  const x0 = Math.min(...xs), x1 = Math.max(...xs), y0 = Math.min(...ys), y1 = Math.max(...ys);
+  const W = 270, H = 300, box = {x: 22, y: 34, w: 226, h: 150};
+  const sc = Math.min(box.w / (x1 - x0 || 1), box.h / (y1 - y0 || 1));
+  const ox = box.x + (box.w - (x1 - x0) * sc) / 2, oy = box.y + (box.h - (y1 - y0) * sc) / 2;
+  const d = pts.map((p, i) => (i ? 'L' : 'M') + (ox + (xs[i] - x0) * sc).toFixed(1) + ' ' + (oy + (ys[i] - y0) * sc).toFixed(1)).join('');
+  return `<svg class="route" viewBox="0 0 ${W} ${H}" preserveAspectRatio="xMidYMid slice" aria-hidden="true">
+    <path d="${d}" fill="none" stroke="rgba(0,0,0,.22)" stroke-width="9" stroke-linejoin="round" stroke-linecap="round" transform="translate(2 3)"/>
+    <path d="${d}" fill="none" stroke="${ink}" stroke-width="5" stroke-linejoin="round" stroke-linecap="round" opacity=".92"/></svg>`;
+}
+
+function role(c) {
+  const w = c.rows.wkd, pieces = w ? w.pieces : [];
+  if (c.family === 'Night Pilot') return 'Closer';
+  if (c.block === '10' || c.block === '06') return 'Call-up';
+  if (c.block === '17' || c.block === '19') return 'Two-way';
+  if (pieces.length > 1) return 'Doubleheader';
+  if (pieces.length && pieces[0][0] >= 12 * 3600) return 'Reliever';
+  return (c.rows.sat || c.rows.sun) ? 'Everyday' : 'Starter';
+}
+function runs(c) {
+  const r = c.rows;
+  if (r.wkd && r.wkd.days === 5 && r.sat && r.sun) return 'Every day';
+  if (r.wkd && r.wkd.days === 5) return 'Monday to Friday';
+  if (r.wkd && r.sat) return 'Thursday to Saturday';
+  return Object.keys(r).map(k => KIND_LABEL[k]).join(', ');
+}
+function piecesText(row) {
+  return row.pieces.map(p => clock(p[0]) + '&ndash;' + clock(p[1])).join(' + ');
+}
+
+// League leaders: one badge per card, the most impressive title it holds.
+function leaders(cards) {
+  const titles = [
+    ['Riders', c => c.rows.wkd && c.rows.wkd.riders],
+    ['Riders / hr', c => c.rows.wkd && c.rows.wkd.per_hour],
+    ['Miles', c => c.rows.wkd && c.rows.wkd.miles],
+    ['Hours', c => c.week_hours]
+  ];
+  const out = {};
+  for (const [title, get] of titles) {
+    const best = cards.filter(c => get(c)).sort((a, b) => get(b) - get(a))[0];
+    if (best && !out[best.block]) out[best.block] = title;
+  }
+  return out;
+}
+
+function hourBars(c) {
+  // Service-day order, 04:00 first, so Night Pilot's after-midnight hours sit at the end.
+  const hours = []; for (let i = 0; i < 24; i++) hours.push((i + 4) % 24);
+  const vals = hours.map(h => c.by_hour[h] || 0), max = Math.max(...vals, 1);
+  if (max <= 1) return '';
+  const first = vals.findIndex(v => v > max * 0.02), last = vals.length - 1 - [...vals].reverse().findIndex(v => v > max * 0.02);
+  const span = hours.slice(first, last + 1), sv = vals.slice(first, last + 1);
+  const bw = 100 / span.length, peak = sv.indexOf(Math.max(...sv));
+  const bars = sv.map((v, i) => `<rect x="${(i * bw + bw * .12).toFixed(2)}" y="${(34 - 32 * v / max).toFixed(1)}" width="${(bw * .76).toFixed(2)}" height="${(32 * v / max).toFixed(1)}" fill="${i === peak ? 'var(--ink)' : 'var(--ink-soft)'}" opacity="${i === peak ? 1 : .55}"/>`).join('');
+  return `<div class="hours"><div class="lbl"><span>Boardings by hour, ${String(span[0]).padStart(2, '0')}:00&ndash;${String((span[span.length - 1] + 1) % 24).padStart(2, '0')}:00</span><span>peak ${String(span[peak]).padStart(2, '0')}:00</span></div>
+    <svg viewBox="0 0 100 34" preserveAspectRatio="none" aria-hidden="true">${bars}</svg></div>`;
+}
+
+function fact(c) {
+  if (HANDOFFS[c.block]) return HANDOFFS[c.block];
+  if (c.best_day) {
+    const d = new Date(c.best_day.date + 'T12:00:00');
+    return `Career high: <b>${num(c.best_day.riders)} riders</b> on ${d.toLocaleDateString('en-US', {weekday: 'long', month: 'short', day: 'numeric'})}.`;
+  }
+  return '';
+}
+
+function cardHtml(c, leader) {
+  const ink = inkFor(c.color), w = c.rows.wkd || c.rows.sat || c.rows.sun;
+  const kinds = ['wkd', 'sat', 'sun'].filter(k => c.rows[k]);
+  const first = Math.min(...kinds.map(k => c.rows[k].pieces[0][0]));
+  const last = Math.max(...kinds.map(k => c.rows[k].pieces[c.rows[k].pieces.length - 1][1]));
+  const rows = kinds.map(k => { const r = c.rows[k]; return `<tr><td>${KIND_LABEL[k]}</td><td>${r.days}</td><td>${r.hours.toFixed(1)}</td><td>${num(r.riders)}</td><td>${r.per_hour == null ? '&ndash;' : r.per_hour.toFixed(1)}</td><td>${num(r.miles)}</td></tr>`; }).join('');
+  const weekMiles = kinds.reduce((s, k) => s + (c.rows[k].miles || 0) * c.rows[k].days, 0);
+  const vit = [];
+  vit.push(['Runs', runs(c)]);
+  vit.push(['Weekday', c.rows.wkd ? piecesText(c.rows.wkd) : 'Off']);
+  if (c.rows.sat || c.rows.sun) vit.push(['Weekend', piecesText(c.rows.sat || c.rows.sun)]);
+  if (c.timestops) vit.push(['Timestops', esc(c.timestops.names.join(', ')) + ` &bull; ${c.timestops.count} a day`]);
+  if (c.top_stop) vit.push(['Hot stop', esc(c.top_stop.name) + ` (${Math.round(c.top_stop.share * 100)}%)`]);
+  if (c.usual_bus) vit.push(['Usual bus', esc(c.usual_bus.bus) + ` (${c.usual_bus.days} of ${c.usual_bus.of} days)`]);
+  return `<button class="card" type="button" data-family="${esc(c.family)}" style="--c:${c.color};--c-ink:${ink}" aria-label="Block ${c.block}, ${TEAM[c.family]}. Flip card.">
+    <div class="inner">
+      <div class="face front">
+        <div class="photo">
+          ${routeSvg(c.family, ink)}
+          <div class="uts">UVA TRANSIT</div>
+          <div class="role">${role(c)}</div>
+          <div class="num">${c.block}</div>
+          ${leader ? `<div class="leader">League leader<b>${leader}</b></div>` : ''}
+        </div>
+        <div class="plate"><div class="name">BLOCK ${c.block}</div><div class="team">${TEAM[c.family]}</div></div>
+        <div class="strip"><span><b>${clock(first)}</b> first out</span><span><b>${num(w.riders)}</b> riders/day</span><span><b>${clock(last)}</b> last in</span></div>
+      </div>
+      <div class="face back">
+        <div class="bhead"><div class="bnum">${c.block}</div><div><div class="t1">BLOCK ${c.block}</div><div class="t2">${TEAM[c.family]} &bull; ${role(c)}</div></div></div>
+        <dl class="vitals">${vit.map(v => `<dt>${v[0]}</dt><dd>${v[1]}</dd>`).join('')}</dl>
+        <table>
+          <tr><th>Day</th><th>Days</th><th>Hrs</th><th>Riders</th><th>R/Hr</th><th>Mi</th></tr>
+          ${rows}
+          <tr class="total"><td>Week</td><td>${kinds.reduce((s, k) => s + c.rows[k].days, 0)}</td><td>${c.week_hours.toFixed(1)}</td><td>${num(c.week_riders || null)}</td><td></td><td>${num(Math.round(weekMiles) || null)}</td></tr>
+        </table>
+        ${hourBars(c)}
+        <div class="fact">${fact(c)}</div>
+      </div>
+    </div>
+  </button>`;
+}
+
+function render() {
+  const cards = DATA.cards, lead = leaders(cards);
+  document.getElementById('count').textContent = cards.length;
+  const el = document.getElementById('cards');
+  el.innerHTML = cards.map(c => cardHtml(c, lead[c.block])).join('');
+  el.addEventListener('click', e => { const card = e.target.closest('.card'); if (card) card.classList.toggle('flipped'); });
+
+  const families = [...new Set(cards.map(c => c.family))];
+  const filters = document.getElementById('filters');
+  filters.innerHTML = '<button type="button" class="on" data-f="">All</button>' + families.map(f => {
+    const color = cards.find(c => c.family === f).color;
+    return `<button type="button" data-f="${esc(f)}" style="--chip:${color};--chip-ink:${inkFor(color)}">${TEAM[f]}</button>`;
+  }).join('');
+  filters.addEventListener('click', e => {
+    const b = e.target.closest('button'); if (!b) return;
+    filters.querySelectorAll('button').forEach(x => x.classList.toggle('on', x === b));
+    el.querySelectorAll('.card').forEach(card => { card.style.display = (!b.dataset.f || card.dataset.family === b.dataset.f) ? '' : 'none'; });
+  });
+  document.getElementById('flipall').addEventListener('click', () => {
+    const all = [...el.querySelectorAll('.card')], on = !all.every(c => c.classList.contains('flipped'));
+    all.forEach(c => c.classList.toggle('flipped', on));
+  });
+
+  const day = s => new Date(s + 'T12:00:00').toLocaleDateString('en-US', {month: 'short', day: 'numeric'});
+  if (DATA.ridership_from) {
+    document.getElementById('foot').innerHTML =
+      `Hours come from TransLoc's block schedule for the week of ${day(DATA.schedule_week)}. Riders and miles are the middle (median) day from
+       door-counter and GPS data, ${day(DATA.ridership_from)} to ${day(DATA.ridership_to)}, matched to blocks by which bus dispatch
+       had on the block; a bus with a broken counter or a mid-day swap makes these rough. Purple blocks have no timestops.`;
+  }
+}
+render();
+</script>
+</body>
+</html>

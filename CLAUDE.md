@@ -388,6 +388,7 @@ Admin-managed alerts (`/v1/system-notices` CRUD, edited at `/system-notices`). `
 - `GET /replay` - Historical replay
 - `GET /timelapse` - Baked timelapse of one service day (Fri 2026-10-02); static snapshot, no API calls, see HANDOFF.md
 - `GET /timelapse-week` - Same thing for a whole week (Mon 2026-09-21 to Sun 2026-09-27, with Saturday's game-day shuttles); `html/timelapse-week.html`, 7 MB, shares the `/timelapse` aerial tiles
+- `GET /blockcards` - A baseball card per block (01-14, 17-25): hours, riders, miles, usual bus. Static; data baked into `html/blockcards.html` by `scripts/build_block_cards.py` (needs `data-local/ridership/`, rerun when the schedule changes)
 - `GET /headway` - Headway visualization
 - `GET /headway-diagnostics` - Diagnostic view
 - `GET /arrivalsdisplay` - Arrivals board

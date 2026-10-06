@@ -2114,6 +2114,7 @@ COUNTDOWN_HTML = _load_html("countdown.html")
 ONBOARD_HTML = _load_html("onboard.html")
 WEATHER_HTML = _load_html("weather.html")
 WEATHERCLOCK_HTML = _load_html("weatherclock.html")
+BLOCKCARDS_HTML = _load_html("blockcards.html")
 TIMELAPSE_HTML = _load_html("timelapse.html")
 TIMELAPSE_WEEK_HTML = _load_html("timelapse-week.html")
 DUCK_CONFIG_HTML = _load_html("duck-config.html")
@@ -14607,6 +14608,10 @@ async def weather_page():
 @app.get("/weatherclock")
 async def weatherclock_page():
     return HTMLResponse(WEATHERCLOCK_HTML)
+
+@app.get("/blockcards")
+async def blockcards_page():
+    return HTMLResponse(BLOCKCARDS_HTML)
 
 @app.get("/timelapse")
 async def timelapse_page():
