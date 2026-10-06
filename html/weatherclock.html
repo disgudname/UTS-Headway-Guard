@@ -88,7 +88,10 @@
   .tall .cell .label, .tall .cell .sub { font-size: 15px; }
   .tall .cell .mid { gap: 8px; }
   .tall .cell .icon svg { width: 46px; height: 46px; }
-  .tall .cell .temp .lo { font-size: 20px; margin-left: 3px; }
+  /* On a 100-degree day the high and low no longer fit side by side in these
+     narrower cards, so the low is allowed to drop under the high. */
+  .tall .cell .temp { flex: 1; min-width: 0; white-space: normal; }
+  .tall .cell .temp .lo { display: inline-block; font-size: 20px; line-height: 1; margin-left: 3px; }
   .tall .cell .cond, .tall .cell .pop { font-size: 14px; }
 </style>
 </head>
