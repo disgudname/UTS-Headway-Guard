@@ -4,13 +4,18 @@ Per block it works out, from public TransLoc data and the ridership pulls in dat
 (scripts/ridership_pull.py):
   - the schedule (pieces, hours) per day type, from one week of TransLoc block groups;
   - timestops and loops per weekday, from config/uts_blocks.json (blocks 01-14 only, Purple has no block package);
-  - median riders and miles per day, the best day, the busiest stop, boardings by hour and the bus it usually gets.
+  - median riders and miles per day, the best day, the busiest stop, boardings by hour and the bus it usually gets,
+    over Full Service days only. Which days those were is read off the data: block [06] only runs on Full Service
+    (user, 2026-10-06), so a weekday counts when the [06] bus carried Orange riders, and a weekend counts when the
+    Friday before and the Monday after both did. Exam, recess and summer days drop out on their own.
 
 The result replaces the JSON between the BLOCKCARDS-DATA markers in html/blockcards.html.
 
-  python scripts/build_block_cards.py [--week-of 2026-09-28] [--since 2026-08-25]
+  python scripts/build_block_cards.py [--week-of 2026-09-28] [--since 2026-03-09]
 
 --week-of is the Monday of the week whose schedule goes on the cards (pick a normal full-service week).
+--since is the first day of ridership to use. Not before 2026-03-09: that is when the blocks became what they are now
+(before it [15], [16] and [26] existed and the interlines were different, e.g. "[22]/[06]").
 """
 import argparse
 import collections
@@ -45,6 +50,8 @@ VARIANT_LABEL = {68: "Day", 54: "Loop", 53: "Day", 55: "Loop", 67: "Day", 57: "E
 TIMESTOP_NAMES = {"BAR": "Barracks", "CHP": "Chapel", "CSW": "Carl Smith Way", "HER": "Hereford", "JPA": "JPA",
                   "LIB": "Library", "MCQ": "McCormick", "MP": "Madison/Preston", "PIN": "Pinn Hall"}
 DAY_TYPES = ("wkd", "sat", "sun")
+CANARY_BLOCK = "06"
+CANARY_MIN_RIDERS = 100  # a normal day is ~700; well clear of a stray boarding on a bus that was only labelled [06]
 SERVICE_DAY_START_S = 4 * 3600  # a service day runs to 04:00, so Night Pilot's after-midnight trips stay with the evening
 
 
@@ -159,7 +166,46 @@ def parse_time(text):
     return datetime.datetime.strptime(text, "%m/%d/%Y %I:%M:%S %p")
 
 
-def ridership(schedule_by_type, group_seconds, since):
+def full_service_days(since):
+    """The days in data-local/ridership/ that ran Full Service, going by block [06] (see the module docstring)."""
+    canary = {}
+    for path in sorted(RIDERSHIP.glob("*.json.gz")):
+        day = datetime.date.fromisoformat(path.name[:10])
+        blocks_path = RIDERSHIP / f"{day}.blocks.json"
+        if day < since or not blocks_path.exists():
+            continue
+        canary[day] = 0
+        if day.weekday() >= 5:
+            continue
+        buses = {b for b, v in json.loads(blocks_path.read_text())["buses"].items()
+                 if any(CANARY_BLOCK in group_numbers(g) for g in v.get("blocks") or [])}
+        for row in json.loads(gzip.decompress(path.read_bytes())):
+            if row.get("Vehicle") in buses and family_of(row.get("Route")) == BLOCK_FAMILY[CANARY_BLOCK]:
+                when = parse_time(row["ClientTime"])
+                if when.date() == day and 9 <= when.hour < 17:  # the bus is Purple [19] before 08:25
+                    canary[day] += row.get("Entries") or 0
+    full = {d for d, n in canary.items() if d.weekday() < 5 and n >= CANARY_MIN_RIDERS}
+    for day in canary:
+        if day.weekday() >= 5:
+            friday = day - datetime.timedelta(days=day.weekday() - 4)
+            monday = day + datetime.timedelta(days=7 - day.weekday())
+            if friday in full and (monday in full or monday not in canary):
+                full.add(day)
+    return full
+
+
+def date_ranges(days):
+    """Sorted days as [first, last] runs, a run ending at a gap of more than four days (a long weekend is not a gap)."""
+    runs = []
+    for day in sorted(days):
+        if runs and (day - runs[-1][1]).days <= 4:
+            runs[-1][1] = day
+        else:
+            runs.append([day, day])
+    return [[a.isoformat(), b.isoformat()] for a, b in runs]
+
+
+def ridership(schedule_by_type, group_seconds, since, full):
     riders = collections.defaultdict(lambda: collections.defaultdict(int))   # block -> service day -> boardings
     by_hour = collections.defaultdict(lambda: collections.defaultdict(int))  # block -> hour -> boardings (weekdays)
     by_stop = collections.defaultdict(lambda: collections.defaultdict(int))
@@ -171,7 +217,8 @@ def ridership(schedule_by_type, group_seconds, since):
         blocks_path = RIDERSHIP / f"{day}.blocks.json"
         if day < since or not blocks_path.exists():
             continue
-        days.add(day)
+        if day in full:
+            days.add(day)
         bus_groups = {b: v for b, v in json.loads(blocks_path.read_text())["buses"].items() if v.get("blocks")}
         kind = day_type(day)
         for bus, info in bus_groups.items():
@@ -185,7 +232,7 @@ def ridership(schedule_by_type, group_seconds, since):
                     if n in BLOCK_FAMILY:
                         hours[n] += known.get(n, 0) if known else sum(e - s for s, e, _ in schedule_by_type[kind].get(n, []))
             total = sum(hours.values())
-            for n in numbers:
+            for n in numbers if day in full else []:
                 buses[n][bus].add(day)
                 if total and info.get("actual_miles"):
                     miles[n][day] += info["actual_miles"] * hours[n] / total
@@ -207,11 +254,17 @@ def ridership(schedule_by_type, group_seconds, since):
                         block = n
                         break
             service_day = (when - datetime.timedelta(seconds=SERVICE_DAY_START_S)).date()
+            if service_day not in full:
+                continue
             riders[block][service_day] += entries
             by_stop[block][row.get("RouteStop") or "?"] += entries
             if service_day.weekday() < 5:
                 by_hour[block][when.hour] += entries
     return riders, by_hour, by_stop, miles, buses, days
+
+
+def season_of(day):
+    return ("Spring " if day.month <= 6 else "Fall ") + str(day.year)
 
 
 def median_of(values):
@@ -222,12 +275,13 @@ def median_of(values):
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--week-of", default="2026-09-28")
-    ap.add_argument("--since", default="2026-08-25")
+    ap.add_argument("--since", default="2026-03-09")
     args = ap.parse_args()
     monday = datetime.date.fromisoformat(args.week_of)
     since = datetime.date.fromisoformat(args.since)
 
     schedule, group_seconds = week_schedule(monday)
+    full = full_service_days(since)
     packages = json.loads((ROOT / "config" / "uts_blocks.json").read_text(encoding="utf-8"))["blocks"]
     pieces, lineups, run_days = {}, {}, {}
     for block in BLOCK_FAMILY:
@@ -235,7 +289,7 @@ def main():
         for kind in DAY_TYPES:
             pieces[block][kind], lineups[block][kind], run_days[block][kind] = typical(schedule, block, kind)
     schedule_by_type = {k: {b: pieces[b][k] for b in BLOCK_FAMILY} for k in DAY_TYPES}
-    riders, by_hour, by_stop, miles, buses, days = ridership(schedule_by_type, group_seconds, since)
+    riders, by_hour, by_stop, miles, buses, days = ridership(schedule_by_type, group_seconds, since, full)
 
     cards = []
     for block, fam in sorted(BLOCK_FAMILY.items()):
@@ -271,6 +325,16 @@ def main():
             "usual_bus": {"bus": bus[0], "days": len(bus[1]), "of": len({d for b in buses[block].values() for d in b})} if bus else None,
             "by_hour": [round(by_hour[block].get(h, 0) / weekdays) for h in range(24)],
         }
+        # One line per semester, like a baseball card's season rows: the typical weekday (or, for a block with no
+        # weekday service, whatever days it runs).
+        card["seasons"] = []
+        for season in sorted({season_of(d) for d in days}, key=lambda name: (name[-4:], name[0] != "S")):
+            pick = lambda d: season_of(d) == season and (d.weekday() < 5 or "wkd" not in rows)
+            r = median_of(v for d, v in riders[block].items() if pick(d))
+            m = median_of(v for d, v in miles[block].items() if pick(d) and v > 5)
+            if r or m:
+                card["seasons"].append({"name": season, "days": len({d for d in riders[block] if pick(d)}),
+                                        "riders": round(r) if r else None, "miles": round(m) if m else None})
         package = packages.get(f"[{block}]")
         if package:
             group = next((g for g in package["weekday_groups"] if g.get("service") != "recess" and 2 in g["weekdays"]),
@@ -311,6 +375,7 @@ def main():
         "ridership_from": min(days).isoformat() if days else None,
         "ridership_to": max(days).isoformat() if days else None,
         "ridership_days": len(days),
+        "ridership_ranges": date_ranges(days),
         "cards": cards,
         "shapes": shapes,
         "variants": {str(k): v for k, v in VARIANT_LABEL.items()},
@@ -319,7 +384,7 @@ def main():
     head, rest = html.split(MARK_START, 1)
     _, tail = rest.split(MARK_END, 1)
     PAGE.write_text(head + MARK_START + json.dumps(data, separators=(",", ":")) + MARK_END + tail, encoding="utf-8")
-    print(f"{len(cards)} cards, ridership {data['ridership_from']}..{data['ridership_to']} ({len(days)} days)")
+    print(f"{len(cards)} cards, {len(days)} Full Service days: {data['ridership_ranges']}")
     for c in cards:
         w = c["rows"].get("wkd") or {}
         print(c["block"], c["family"], "wkd", w.get("hours"), "h", w.get("riders"), "riders", w.get("miles"), "mi",
