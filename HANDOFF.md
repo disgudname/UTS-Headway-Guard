@@ -34,7 +34,6 @@ Machine tags: `[dev]` = Windows dev machine · `[home]` = home server (Windows b
 
 Checked against the entries below on 2026-10-06. Everything not listed here is believed done.
 
-- **User, TomTom (from the 09-29 reminder):** compare `/admin`'s vector count with MyTomTom's "Vector Tiles API" line (the user has to be signed in at my.tomtom.com; Claude cannot log in). ~~Rotate `TOMTOM_KEY`~~ done, per the user 2026-10-06. Our counter on 10-06: 19,681 vector / 0 raster for October, about 3,400 a day, on pace for ~107k of 200k.
 - **ETA, first fair weekday test of the 10-02 quantile fix:** Wed 10-07 (Full Service returns). Target: under 3% of predictions >2 min late on weekday runs.
 - **ETA, Green bus 22 leaving Gooch/Dillard ~3-4 min before we expected (10-05 17:30):** one bus, one evening; compare with the 10-06 17:30 run before touching anything. Not looked at yet.
 - **`/onboard`:** the tablet-GPS path has never run on a real bus, nobody has listened to the voice, and a bus on its last run still lists stops it will not serve (no out-of-service cut-off, no evening route-change hiding).
@@ -367,7 +366,8 @@ The red PulsePoint halos drifted 110px lower per extra incident because `.incide
 - **Testing gotcha:** Claude-in-Chrome tabs can be `visibilityState: hidden`, and then MapLibre never renders or requests tiles and sits on "Loading the map…". It looks broken and isn't. Render headless with Playwright + `channel="chrome"` instead. The traffic layer is dispatcher-only, so a logged-out test page re-hides it on every `applyVis`.
 - ↳ [home] 2026-09-29: **DEPLOYED Fly v2031** (`fc3850b`). Verified on prod: the vector endpoint returns real tiles, and a headless render shows red slowdown lines at z12/15/17 in dark mode. Around 13:00 almost every road was in the lightest tier (0.5-0.75). If the user finds that noisy, raise the cutoff in `FLOW_SLOW`/`FLOW_COLOR` (e.g. only < 0.5).
 
-### 2026-09-29 · [home] · ⏰ REMINDER for the user, on or after 2026-10-02: check TomTom tile billing
+### 2026-09-29 · [home] · ⏰ REMINDER for the user, on or after 2026-10-02: check TomTom tile billing (RESOLVED 2026-10-06: 1 request per tile, key rotated)
+- ↳ [home] 2026-10-06 ~19:55 ET, **resolved.** MyTomTom (user signed in, read in Chrome): "Traffic Flow & Incidents Vector Tiles API" 20,619 / 200,000 for October; raster 0. Our counter at the same moment: 19,716 vector, 0 raster. TomTom is 903 (4.6%) above ours, so a tile is billed as ONE request, not four; the small gap was not chased. At TomTom's rate (~3,550/day) October ends near 110k of 200k. The user rotated `TOMTOM_KEY` the same day and tiles kept fetching afterwards. (The dashboard's "1.3M requests, 94.6% 4XX" is the last-30-days view and is still September's old seeder.)
 - **Any session running on or after Oct 2: bring this up with the user before other work.**
 - **Why:** the new traffic setup fetches 512 px tiles (see the TomTom entry below). TomTom's docs don't say whether one counts as 1 request or 4, and the budget math assumes 1.
 - **How:** about a day after the Oct 1 reset, compare `/admin` → "TomTom Traffic Usage" (our own count, expect ~5,800/day with the 3 kiosks) with the MyTomTom dashboard (my.tomtom.com → Analytics → Traffic Flow & Incidents Raster Tiles). The user has to log in there.
