@@ -27,6 +27,15 @@ Machine tags: `[dev]` = Windows dev machine · `[home]` = home server (Windows b
 
 ## 1. Message board (newest first)
 
+### 2026-10-06 · [home] · Game days in the box score and the cards (UNCOMMITTED, not deployed)
+
+- **User:** "take UVA football gamedays into account". Done in both places.
+- **How a game/event day is recognised:** the lot and fan shuttles ("Purple/Red/Blue Lots Shuttle", "Post-Game Fan Shuttle") only run for a home football game or another big event, so **500+ riders on routes with "shuttle" in the name = event day** (`EVENT_MIN_SHUTTLE_RIDERS` in `boxscore.py` and in `scripts/build_block_cards.py`). Found so far: 2026-04-04 (2,613; spring), **08-29 (8,918; NOT football, the team was in Brazil; some other event)**, 09-11 (7,027; Norfolk State, a Friday) and 09-26 (6,269; Delaware).
+- **Football specifically:** `boxscore.GameLog` keeps `<data dir>/boxscores/games.json` (date -> opponent, kickoff). The athletics feed only lists games not yet played, so `_boxscore_loop` copies home football games off it on every pass; the two already played are seeded in `KNOWN_HOME_GAMES`. A midnight start on the feed means the kick time is not set (Cal 11-14, UNC 11-21 right now).
+- **Box score changes (`VERSION = 2`; the loop rebuilds stored days with an older `v`):** each shuttle gets its own line in the line score, the dateline says "Game day vs Delaware" or "Event day", there is a shuttles box (riders, buses, before/after kickoff when the kick time is known), the headline is about the shuttles, and `notes()` ranks event days only against event days and keeps them out of ordinary days' comparisons. "Training"/"Test Route" riders are dropped. The three stars are now three different blocks.
+- **Cards:** event days are left out of the Full Service days the typical-day numbers use (92 days, was 96). Weekdays barely move; Saturdays go up (e.g. [01] Sat 289 -> 334, [05] 388 -> 454) because two of six fall Saturdays were game days. `scripts/cards-data.js` regenerated.
+- **Tested:** 7 unit tests; game-day pages for 09-26, 08-29, 09-11 through a local app in headless Chrome. **NOT tested:** a game with a known kickoff end to end (the before/after split has only a unit test; first real one is Syracuse 10-10 19:30), and the GameLog reading the real feed on prod.
+
 ### 2026-10-06 · [home] · /boxscore (`dd99978`, DEPLOYED v2064) + "Class of" on bus cards
 
 - **What:** `/boxscore?date=` lays one service day out as a newspaper box score: a line score (riders per route in nine "innings" of the day), three stars, a table per block (bus, riders, hours, riders/hr, miles, peak hour), boardings by hour, busiest stops, and notes that rank the day against the same kind of day at the same service level.
