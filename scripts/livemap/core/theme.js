@@ -117,15 +117,26 @@ function applyTheme() {
   if (!map || !treatments || applying) return;
   applying = true;
 
-  // setStyle wipes custom layers; replay them as soon as the new style document
-  // is in. Don't wait for isStyleLoaded() here: that only turns true once every
-  // basemap tile has arrived, which left the map without buses, routes and stops
-  // for seconds (often the full whenStyleReady timeout) after each swap.
-  map.once('style.load', () => {
+  // The two treatments have the same sources and (bar one raster layer) the same
+  // layers, so let MapLibre diff them: it recolours in place, keeps every loaded
+  // tile and the image atlas, and the map never blanks. A full replace
+  // ({ diff: false }) refetched and re-parsed every tile for the same result.
+  // The diff still resets our GeoJSON sources and layer visibility to what the
+  // style document says, so the builders are replayed either way.
+  const done = () => {
     replayStyleBuilders();
     applying = false;
     // A mode change that arrived mid-swap was stamped but not drawn; catch up.
     if (getEffectiveTheme() !== effective) applyTheme();
-  });
-  map.setStyle(treatments[effective], { diff: false });
+  };
+  const before = map.style;
+  map.setStyle(treatments[effective]);
+  if (map.style === before) {
+    done(); // diffed in place, synchronously
+  } else {
+    // MapLibre could not diff (it logs why) and built a new style instead.
+    // Replay as soon as that document is in; don't wait for isStyleLoaded(),
+    // which only turns true once every basemap tile has arrived.
+    map.once('style.load', done);
+  }
 }
