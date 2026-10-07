@@ -934,6 +934,7 @@ TM.registerVisibilityResumeHandler(() => {
 
       let trafficVisible = false;
       let trafficLayer = null;
+      let trafficFlowData = null;
       let trafficRefreshIntervalId = null;
       const TRAFFIC_REDRAW_INTERVAL_MS = 90 * 1000; // match backend TOMTOM_VECTOR_TTL_S
 
@@ -1661,28 +1662,57 @@ TM.registerVisibilityResumeHandler(() => {
         return '#f47c7c';
       }
 
-      // Line width for a major road at this zoom (same stops as /livemap).
-      function trafficFlowBaseWidth(zoom) {
-        const stops = [[11, 2], [14, 4.5], [18, 11]];
-        if (zoom <= stops[0][0]) return stops[0][1];
-        for (let i = 1; i < stops.length; i++) {
-          const [z1, w1] = stops[i];
-          const [z0, w0] = stops[i - 1];
-          if (zoom <= z1) return w0 + (w1 - w0) * (zoom - z0) / (z1 - z0);
-        }
-        return stops[stops.length - 1][1];
+      // The lines sit under the route lines, so they are sized to stick out from
+      // behind them (same idea as /livemap): half the route line plus the part
+      // that shows.
+      function trafficFlowHalfWidth(zoom) {
+        return computeRouteStrokeWeight(zoom) / 2 + 3;
       }
 
       function trafficFlowStyle(feature) {
         const p = feature.properties || {};
-        const base = trafficFlowBaseWidth(map ? map.getZoom() : 14);
+        const half = trafficFlowHalfWidth(map ? map.getZoom() : 14);
         return {
           color: trafficFlowColor(p),
-          weight: Math.max(1, base * (p.weight || 0.5)),
+          weight: p.one_side ? half : half * 2,
           opacity: 1,
           lineCap: 'round',
           lineJoin: 'round',
         };
+      }
+
+      // Shift a [lng, lat] line `px` screen pixels to the right of its direction.
+      function offsetTrafficLine(coords, px, zoom) {
+        const pts = coords.map(c => map.project([c[1], c[0]], zoom));
+        return coords.map((c, i) => {
+          const a = pts[Math.max(0, i - 1)];
+          const b = pts[Math.min(pts.length - 1, i + 1)];
+          const dx = b.x - a.x;
+          const dy = b.y - a.y;
+          const len = Math.hypot(dx, dy);
+          if (!len) return c;
+          const ll = map.unproject([pts[i].x - dy / len * px, pts[i].y + dx / len * px], zoom);
+          return [ll.lng, ll.lat];
+        });
+      }
+
+      // A one-direction segment is drawn right of travel with its inside edge on
+      // the road centreline, so it shows on that direction's side of the route
+      // line. Leaflet has no line offset, so the geometry is shifted per zoom.
+      function drawTrafficFlow() {
+        if (!trafficLayer || !map || !trafficFlowData) return;
+        const zoom = map.getZoom();
+        const px = trafficFlowHalfWidth(zoom) / 2;
+        const features = (trafficFlowData.features || []).map(f => {
+          const g = f.geometry;
+          if (!f.properties || !f.properties.one_side || !g) return f;
+          const coordinates = g.type === 'LineString'
+            ? offsetTrafficLine(g.coordinates, px, zoom)
+            : g.coordinates.map(line => offsetTrafficLine(line, px, zoom));
+          return { type: 'Feature', properties: f.properties, geometry: { type: g.type, coordinates } };
+        });
+        trafficLayer.clearLayers();
+        trafficLayer.addData({ type: 'FeatureCollection', features });
       }
 
       async function refreshTrafficFlow() {
@@ -1690,16 +1720,11 @@ TM.registerVisibilityResumeHandler(() => {
         try {
           const resp = await fetch('/api/traffic/flow.geojson', { cache: 'no-store' });
           if (!resp.ok) return;
-          const data = await resp.json();
-          trafficLayer.clearLayers();
-          trafficLayer.addData(data);
+          trafficFlowData = await resp.json();
+          drawTrafficFlow();
         } catch (e) {
           console.warn('[traffic] flow fetch failed', e);
         }
-      }
-
-      function restyleTrafficFlow() {
-        if (trafficLayer) trafficLayer.setStyle(trafficFlowStyle);
       }
 
       function setTrafficVisibility(visible) {
@@ -1716,7 +1741,7 @@ TM.registerVisibilityResumeHandler(() => {
           }
           if (map && !map.hasLayer(trafficLayer)) {
             trafficLayer.addTo(map);
-            map.on('zoomend', restyleTrafficFlow);
+            map.on('zoomend', drawTrafficFlow);
           }
           refreshTrafficFlow();
           if (!trafficRefreshIntervalId) {
@@ -1725,7 +1750,7 @@ TM.registerVisibilityResumeHandler(() => {
         } else {
           if (trafficLayer && map && map.hasLayer(trafficLayer)) {
             map.removeLayer(trafficLayer);
-            map.off('zoomend', restyleTrafficFlow);
+            map.off('zoomend', drawTrafficFlow);
           }
           if (trafficRefreshIntervalId !== null) {
             clearInterval(trafficRefreshIntervalId);

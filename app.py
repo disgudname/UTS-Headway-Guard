@@ -19558,7 +19558,8 @@ async def traffic_flow_geojson():
     that can't render vector tiles (/map is Leaflet). Built from the same cached
     z13 vector tiles /livemap uses, so it costs no extra TomTom requests.
     Properties: level (speed / free-flow speed, 0-1), closed, weight (road
-    class, 0.5-1). Slowest segments come last so they draw on top.
+    class, 0.5-1), one_side (one direction of a two-way road, drawn in its
+    direction of travel). Slowest segments come last so they draw on top.
     """
     features = []
     if TOMTOM_KEY:
@@ -19594,6 +19595,7 @@ async def traffic_flow_geojson():
                         "level": round(level, 3),
                         "closed": closed,
                         "weight": _ROAD_WEIGHT.get(p.get("road_type"), 0.5),
+                        "one_side": p.get("traffic_road_coverage") == "one_side",
                     },
                 })
     features.sort(key=lambda f: (f["properties"]["closed"], -f["properties"]["level"]))

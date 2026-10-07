@@ -46,21 +46,21 @@ export const SAFETY_LAYER_IDS = [
   PULSEPOINT_DOT_LAYER,
 ];
 
-// Features carry road_type, traffic_level (current speed / free-flow speed,
-// 0-1) and road_closure. One-direction segments are offset to the right of
-// travel so both directions of a two-way road show side by side.
-const FLOW_MAJOR = ['match', ['get', 'road_type'],
-  ['Motorway', 'International road', 'Major road'], 1,
-  ['Secondary road', 'Connecting road'], 0.75,
-  0.5];
-const flowWidth = (extra) => ['interpolate', ['exponential', 1.5], ['zoom'],
-  11, ['+', ['*', FLOW_MAJOR, 2], extra],
-  14, ['+', ['*', FLOW_MAJOR, 4.5], extra],
-  18, ['+', ['*', FLOW_MAJOR, 11], extra]];
-const FLOW_OFFSET = ['interpolate', ['exponential', 1.5], ['zoom'],
-  11, ['case', ['==', ['get', 'traffic_road_coverage'], 'one_side'], ['*', FLOW_MAJOR, 1], 0],
-  14, ['case', ['==', ['get', 'traffic_road_coverage'], 'one_side'], ['*', FLOW_MAJOR, 2.5], 0],
-  18, ['case', ['==', ['get', 'traffic_road_coverage'], 'one_side'], ['*', FLOW_MAJOR, 6], 0]];
+// Features carry traffic_level (current speed / free-flow speed, 0-1),
+// road_closure and traffic_road_coverage. The lines sit under the route lines,
+// so they are sized to stick out from behind them: FLOW_HALF is half the route
+// casing width (route-style.js CASING_WIDTH) plus the part that shows.
+//   one_side — one direction of a two-way road: FLOW_HALF wide, offset right
+//              of travel by half its width, so its inside edge is on the road
+//              centreline and it shows on that direction's side only.
+//   full     — the whole road: centred, FLOW_HALF showing on both sides.
+// Every road class gets the same width; routes run on local roads too.
+const FLOW_ONE_SIDE = ['==', ['get', 'traffic_road_coverage'], 'one_side'];
+const FLOW_HALF = [[10, 3.5], [13, 5.5], [16, 9], [18, 12.5]];
+const flowWidth = (extra) => ['interpolate', ['linear'], ['zoom'],
+  ...FLOW_HALF.flatMap(([z, half]) => [z, ['case', FLOW_ONE_SIDE, half + extra, half * 2 + extra]])];
+const FLOW_OFFSET = ['interpolate', ['linear'], ['zoom'],
+  ...FLOW_HALF.flatMap(([z, half]) => [z, ['case', FLOW_ONE_SIDE, half / 2, 0]])];
 const FLOW_LEVEL = ['to-number', ['get', 'traffic_level'], 1];
 // Only slowdowns are drawn, in reds only: the route palette already uses
 // green / orange / yellow / purple / gray, so traffic green or orange would
