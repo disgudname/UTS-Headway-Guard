@@ -42,6 +42,13 @@ Checked against the entries below on 2026-10-06. Everything not listed here is b
 - **Card build is not repeatable:** `scripts/build_block_cards.py` breaks ties in a bus card's top-5 blocks (and its route mix) by set order, so two runs on the same data give a slightly different `scripts/cards-data.js`. Block cards are stable.
 - **Branches:** three merged `claude/*` branches can be deleted; `claude/late-dwell` is an unmerged prototype (see §3).
 
+### 2026-10-06 · [home] · `/livemap` traffic lines made wide enough to show from behind the route lines (UNCOMMITTED, not deployed)
+- **Why:** traffic is drawn under the routes and was thinner than the route casing, so it was invisible on every street a bus runs on.
+- **What (user's design, `scripts/livemap/core/layers/safety-style.js` only):** a `one_side` segment (one direction of a two-way road) has its inside edge on the road centreline and is wide enough to pass the route casing on that side. A `full` segment is centred and shows on both sides. Widths come from `FLOW_HALF` = half of `route-style.js` `CASING_WIDTH` plus 2-5 px showing; if the route casing width changes, change `FLOW_HALF` with it. Road-class width scaling is gone (routes run on local roads too). Still under the routes, still reds only.
+- **Checked on live tiles:** 66 of 122 segments were `one_side`, and they come as reversed pairs with their own `traffic_level`, so the per-direction split is real. Shared corridors are alternating dashes at the normal route width, not side-by-side lines, so one width works everywhere.
+- **Tested:** headless Chrome on prod `/livemap` with the local `safety-style.js` swapped in, at z13/14.5/16 (red shows beside Gold/Green/Orange on JPA and McCormick). **NOT tested:** dark theme, logged in as a dispatcher, and a real look by the user. The route polyline and TomTom's centreline don't always coincide, so the red sticks out more on one side in places.
+- **Not done:** `/map` (kiosks) still has the old thin lines. Leaflet has no per-direction offset and `/api/traffic/flow.geojson` drops `traffic_road_coverage`; widening it there is a separate change.
+
 ### 2026-10-06 · [home] · `/livemap` light/dark switch took ~8 s to bring buses back: fixed in `scripts/livemap/core/theme.js` (`7dc0f11`, DEPLOYED v2068)
 
 User: "/livemap takes ages to switch between light and dark mode".
