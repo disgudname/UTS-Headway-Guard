@@ -40,7 +40,6 @@ Checked against the entries below on 2026-10-06. Everything not listed here is b
 - **`/boxscore`:** the before/after-kickoff split has only a unit test; the first real game with a kick time is Syracuse, Sat 10-10 19:30.
 - **`/livemap` off-route badge (09-24):** deployed, never looked at on a real off-route bus.
 - **Card build is not repeatable:** `scripts/build_block_cards.py` breaks ties in a bus card's top-5 blocks (and its route mix) by set order, so two runs on the same data give a slightly different `scripts/cards-data.js`. Block cards are stable.
-- **`/livemap` theme swap by style diff (10-06):** sitting uncommitted in `scripts/livemap/core/theme.js` on [home], waiting for the user's go to commit and deploy.
 - **Branches:** three merged `claude/*` branches can be deleted; `claude/late-dwell` is an unmerged prototype (see §3).
 
 ### 2026-10-06 · [home] · `/livemap` light/dark switch took ~8 s to bring buses back: fixed in `scripts/livemap/core/theme.js` (`7dc0f11`, DEPLOYED v2068)
@@ -50,7 +49,7 @@ User: "/livemap takes ages to switch between light and dark mode".
 - **Fix:** replay the builders straight from `style.load` (the sources are baked into the style, the builders only `setData`). Also: a mode change clicked mid-swap used to be stamped on `<html>` but never drawn; it now catches up.
 - **Tested** locally (port 8097, Chrome): replay at 52 ms / 44 ms both directions, same feature counts after each swap as before (27 vehicles, 237 route pieces, 75 stops), three rapid clicks end with page chrome and map agreeing. **Not tested:** a kiosk on solar auto-switching.
 - **`/vandispatch` checked too** (it IS the "vandispatch2" code now; `/vandispatch2` only redirects). Local server with a throwaway `LOCALTEST_PASS`, real sun/moon button: replay at 22 ms / 15 ms, button icon, page chrome, map style and service-area colour all agree after single and triple clicks. No Spare creds locally, so no real vans, trips or service area; instead a test polygon and line were fed into `vd-area` / `vd-route` from a style-ready builder (the same `setData` + visibility calls `syncArea` and the route drawer make) and both were drawn 400 ms after each swap. **Not tested:** a real selected van's route or real stop discs across a swap.
-- **Follow-up, same day (NOT committed, NOT deployed): let MapLibre diff the two styles instead of replacing the whole thing.** `{ diff: false }` had been there since the first `/livemap` commit (`a4fd860`) with no reason recorded. The two treatments differ by one layer (`cv-city-raster`, day only) and 213 paint/layout values. Measured on a local server, 6 swaps each, MapLibre 5.24:
+- **Follow-up, same day (`751c424`, DEPLOYED v2069): let MapLibre diff the two styles instead of replacing the whole thing.** `{ diff: false }` had been there since the first `/livemap` commit (`a4fd860`) with no reason recorded. The two treatments differ by one layer (`cv-city-raster`, day only) and 213 paint/layout values. Measured on a local server, 6 swaps each, MapLibre 5.24:
 
   | method | map blank mid-swap | settled (`idle`) | tile requests per swap |
   |---|---|---|---|
