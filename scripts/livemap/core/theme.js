@@ -14,7 +14,7 @@
 import { STORAGE, SOLAR_ANCHOR } from './config.js';
 import { lsGet, lsSet, emitter, param } from './util.js';
 import { loadBasemapTreatments } from './basemap-style.js';
-import { getMap, replayStyleBuilders, whenStyleReady } from './map.js';
+import { getMap, replayStyleBuilders } from './map.js';
 import { useSolarTheme } from './modes.js';
 import { isDarkNow } from './solar.js';
 
@@ -117,12 +117,15 @@ function applyTheme() {
   if (!map || !treatments || applying) return;
   applying = true;
 
-  // setStyle wipes custom layers; replay them once the new style settles.
+  // setStyle wipes custom layers; replay them as soon as the new style document
+  // is in. Don't wait for isStyleLoaded() here: that only turns true once every
+  // basemap tile has arrived, which left the map without buses, routes and stops
+  // for seconds (often the full whenStyleReady timeout) after each swap.
   map.once('style.load', () => {
-    whenStyleReady(() => {
-      replayStyleBuilders();
-      applying = false;
-    });
+    replayStyleBuilders();
+    applying = false;
+    // A mode change that arrived mid-swap was stamped but not drawn; catch up.
+    if (getEffectiveTheme() !== effective) applyTheme();
   });
   map.setStyle(treatments[effective], { diff: false });
 }
