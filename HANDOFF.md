@@ -34,7 +34,9 @@ Machine tags: `[dev]` = Windows dev machine · `[home]` = home server (Windows b
 
 Checked against the entries below on 2026-10-06. Everything not listed here is believed done.
 
-- **ETA, first fair weekday test of the 10-02 quantile fix (Wed 10-07):** 05:00 / 08:30 / 12:30 passed the under-3% late target (board, 10-07). Still to read: the 17:00, 17:30 and 19:30 runs (10-02 17:30 was 12.3% late, so evening is the real test). Side effect to keep an eye on: Silver now runs ~110 s early.
+- **ETA, first fair weekday test of the 10-02 quantile fix (Wed 10-07):** daytime and 17:00 runs passed the under-3% late target; the 17:30 route-change run failed at 7.1% (board, 10-07). 19:30 not read yet.
+- **ETA, phantom hold for a bus half a lap off its block (10-07 17:51-18:05, bus 2 [11] at CHP):** the engine held it 21 min for the block's next slot. Not fixed; the user has not said whether to.
+- **ETA, Preston Ave -> Washington Park hop reads ~130 s around 17:40, real ~45 s:** one visit ([08], 10-07). Check other days before touching.
 - **ETA, Green bus 22 leaving Gooch/Dillard ~3-4 min before we expected (10-05 17:30):** one bus, one evening; compare with the 10-06 17:30 run before touching anything. Not looked at yet.
 - **`/onboard`:** the tablet-GPS path has never run on a real bus, nobody has listened to the voice, and a bus on its last run still lists stops it will not serve (no out-of-service cut-off, no evening route-change hiding).
 - **`/boxscore`:** the before/after-kickoff split has only a unit test; the first real game with a kick time is Syracuse, Sat 10-10 19:30.
@@ -50,6 +52,13 @@ Checked against the entries below on 2026-10-06. Everything not listed here is b
 - **08:30 Orange 96 s:** buses 14 [07] and 27 [08] ran 2-2.5 min behind our far-out numbers (TransLoc -190 s); back to 42 s at 12:30.
 - **12:30, "75 visits TransLoc predicted that we didn't" + Gold 89 s = bus 2 [11].** Its GPS froze at Central Grounds Garage at 12:42:31 and never moved again in the log. We dropped it after about a minute, TransLoc kept showing it for four more. Without bus 2 the other Gold buses were -49 / -92 / -180 s.
 - **Purple:** under-5-min median |error| 55 s and 61 s, 4.2% and 7.0% late: inside its own limits.
+- ↳ **Silver, checked later the same day:** of 36 timestop visits seen start to finish Mon-Wed, 28 left within 90 s of schedule, 7 sat parked at the stop past their time with minutes in hand (1:00 to 4:00 late moving off; [13] at JPJ South Lot five times, [14] at Pinn Hall twice), 1 arrived late. That explains [14] today. [13] left on time today and still ran ~2 min behind far-out predictions (Emmet St southbound, JPA): class-day traffic. Not an engine fault either way.
+- ↳ **17:00 run: passed** (3.3% overall, 1.6% without Purple). Gold 139 s early: [09] [10] [11] were 7-25 min behind their timetable at rush, [12] on time.
+- ↳ **17:30 route-change run: FAILED, 7.1% >2 min late without Purple.** Two buses are 1,427 of the 1,662 late rows; the rest is 1.6%.
+  - **Bus 2 [11], 946 rows: a phantom 21-minute hold at the Chapel.** It ran half a lap off its block all evening (at HER 17:51 when [11] is due at BAR 17:50; it was travelling with bus 21 on [09]'s pattern). When it switched to evening Gold (57) at 17:51 we held it at CHP until [11]'s 18:25 slot, so every stop past the Chapel read ~16-20 min late until it drove through at 18:05. TransLoc was 3-9 min early on the same rows. **This is an engine weakness: a bus half a lap off its block gets the next slot's hold. Not fixed.**
+  - **Bus 27 [08], 481 rows:** left Preston Ave at 17:39:30 for a 17:40 time. We had Preston Ave -> Washington Park at ~130 s; it took about 45. Stops after it read 2.5-3 min late from 17:30 to 17:39. One visit; not checked on other days.
+  - **"263 visits only TransLoc predicted":** 249 are bus 27 going out of service at Scott Stadium at 18:00 as timetabled. We stopped there; TransLoc kept predicting the next two stops and the bus drove past them. We were right.
+  - 4 flips: bus 14 [07] on Orange Loop at 17:53 (one poll), not looked at further. 19:30 run not in yet.
 
 ### 2026-10-06 · [home] · Traffic lines on `/livemap` and `/map` made wide enough to show from behind the route lines (`d93756b`, DEPLOYED v2070)
 - **Why:** traffic is drawn under the routes and was thinner than the route line, so it was invisible on every street a bus runs on. True on both maps.
