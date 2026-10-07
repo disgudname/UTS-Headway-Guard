@@ -30,17 +30,26 @@ Machine tags: `[dev]` = Windows dev machine · `[home]` = home server (Windows b
 
 ## 1. Message board (newest first)
 
-### Open right now (last checked 2026-10-06 · keep this list short and current)
+### Open right now (last checked 2026-10-07 · keep this list short and current)
 
 Checked against the entries below on 2026-10-06. Everything not listed here is believed done.
 
-- **ETA, first fair weekday test of the 10-02 quantile fix:** Wed 10-07 (Full Service returns). Target: under 3% of predictions >2 min late on weekday runs.
+- **ETA, first fair weekday test of the 10-02 quantile fix (Wed 10-07):** 05:00 / 08:30 / 12:30 passed the under-3% late target (board, 10-07). Still to read: the 17:00, 17:30 and 19:30 runs (10-02 17:30 was 12.3% late, so evening is the real test). Side effect to keep an eye on: Silver now runs ~110 s early.
 - **ETA, Green bus 22 leaving Gooch/Dillard ~3-4 min before we expected (10-05 17:30):** one bus, one evening; compare with the 10-06 17:30 run before touching anything. Not looked at yet.
 - **`/onboard`:** the tablet-GPS path has never run on a real bus, nobody has listened to the voice, and a bus on its last run still lists stops it will not serve (no out-of-service cut-off, no evening route-change hiding).
 - **`/boxscore`:** the before/after-kickoff split has only a unit test; the first real game with a kick time is Syracuse, Sat 10-10 19:30.
 - **`/livemap` off-route badge (09-24):** deployed, never looked at on a real off-route bus.
 - **Card build is not repeatable:** `scripts/build_block_cards.py` breaks ties in a bus card's top-5 blocks (and its route mix) by set order, so two runs on the same data give a slightly different `scripts/cards-data.js`. Block cards are stable.
 - **Branches:** three merged `claude/*` branches can be deleted; `claude/late-dwell` is an unmerged prototype (see §3).
+
+### 2026-10-07 · [home] · ETA day check so far (05:00 / 08:30 / 12:30, first Full Service weekday since the 10-02 changes): late target met; Silver ~110 s early. No code changed
+- **The target (>2 min late under ~3%):** 3.1% / 0.9% / 0.8% overall, 2.3% / 0.6% / 0.4% without Purple. Median |error| 39 / 62 / 59 s; TransLoc's median error was -184 s and -175 s on the two daytime runs. Evening runs (17:00, 17:30, 19:30) not in yet.
+- **The price is an early lean:** median error -32 s and -39 s on the daytime runs (bus comes a bit after we say). That is the safe side.
+- **Silver breached the 90 s route limit twice (111 s, 113 s, all early), and did on 10-05 17:00 and 10-06 12:30 too.** Predictions under 5 min out are fine (within ~30 s at every stop but Pinn Hall); the far-out ones are ~2 min early. Looks like the stretch around the Pinn Hall hold: at 08:42 we gave Pinn -> Madison 398 s, the bus took ~525 s; Contemplative Commons -> Brandon was 360-390 s against a predicted 227 s at 08:30 (JPA crawling). Not traced to a commit. Pinn Hall's own number (-310 / -354 s) is a scorer artifact: the bus holds just short of the stop's point on the line, so its "arrival" is scored at departure; TransLoc gets the same miss.
+- **05:00, 22 full-lap flips = one bus, 45 s.** Bus 59 [11] joined Gold at Contemplative Commons at 05:02 and for three polls we showed the stops ahead a lap away (~51 min for a stop 10 min off); right from 05:02:45. 10-06 05:00 had 8 flips, likely the same pull-out moment (not checked).
+- **08:30 Orange 96 s:** buses 14 [07] and 27 [08] ran 2-2.5 min behind our far-out numbers (TransLoc -190 s); back to 42 s at 12:30.
+- **12:30, "75 visits TransLoc predicted that we didn't" + Gold 89 s = bus 2 [11].** Its GPS froze at Central Grounds Garage at 12:42:31 and never moved again in the log. We dropped it after about a minute, TransLoc kept showing it for four more. Without bus 2 the other Gold buses were -49 / -92 / -180 s.
+- **Purple:** under-5-min median |error| 55 s and 61 s, 4.2% and 7.0% late: inside its own limits.
 
 ### 2026-10-06 · [home] · Traffic lines on `/livemap` and `/map` made wide enough to show from behind the route lines (`d93756b`, DEPLOYED v2070)
 - **Why:** traffic is drawn under the routes and was thinner than the route line, so it was invisible on every street a bus runs on. True on both maps.
