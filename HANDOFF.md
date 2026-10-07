@@ -42,7 +42,7 @@ Checked against the entries below on 2026-10-06. Everything not listed here is b
 - **Card build is not repeatable:** `scripts/build_block_cards.py` breaks ties in a bus card's top-5 blocks (and its route mix) by set order, so two runs on the same data give a slightly different `scripts/cards-data.js`. Block cards are stable.
 - **Branches:** three merged `claude/*` branches can be deleted; `claude/late-dwell` is an unmerged prototype (see §3).
 
-### 2026-10-06 · [home] · Traffic lines on `/livemap` and `/map` made wide enough to show from behind the route lines
+### 2026-10-06 · [home] · Traffic lines on `/livemap` and `/map` made wide enough to show from behind the route lines (`d93756b`, DEPLOYED v2070)
 - **Why:** traffic is drawn under the routes and was thinner than the route line, so it was invisible on every street a bus runs on. True on both maps.
 - **Design (user's):** a `one_side` segment (one direction of a two-way road) has its inside edge on the road centreline and is wide enough to pass the route line on that side. A `full` segment is centred and shows on both sides. Road-class width scaling is gone (routes run on local roads too). Still under the routes, still reds only.
 - **`/livemap` (`scripts/livemap/core/layers/safety-style.js`):** widths come from `FLOW_HALF` = half of `route-style.js` `CASING_WIDTH` plus 2-5 px showing. If the route casing width changes, change `FLOW_HALF` with it.
