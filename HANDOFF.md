@@ -35,7 +35,7 @@ Machine tags: `[dev]` = Windows dev machine · `[home]` = home server (Windows b
 Checked against the entries below on 2026-10-06. Everything not listed here is believed done.
 
 - **ETA, first fair weekday test of the 10-02 quantile fix (Wed 10-07):** daytime and 17:00 runs passed the under-3% late target; the 17:30 route-change run failed at 7.1% (board, 10-07). 19:30 not read yet.
-- **ETA, phantom hold for a bus half a lap off its block (10-07 17:51-18:05, bus 2 [11] at CHP):** the engine held it 21 min for the block's next slot. Not fixed; the user has not said whether to.
+- **ETA, phantom hold for a late bus (board, 10-07):** fix is in the working tree of the home machine (`uts_blocks.py` + test), NOT committed, NOT deployed. Needs the user's go-ahead; after deploy, watch the next weekday 17:30 run.
 - **ETA, Preston Ave -> Washington Park hop reads ~130 s around 17:40, real ~45 s:** one visit ([08], 10-07). Check other days before touching.
 - **ETA, Green bus 22 leaving Gooch/Dillard ~3-4 min before we expected (10-05 17:30):** one bus, one evening; compare with the 10-06 17:30 run before touching anything. Not looked at yet.
 - **`/onboard`:** the tablet-GPS path has never run on a real bus, nobody has listened to the voice, and a bus on its last run still lists stops it will not serve (no out-of-service cut-off, no evening route-change hiding).
@@ -43,6 +43,16 @@ Checked against the entries below on 2026-10-06. Everything not listed here is b
 - **`/livemap` off-route badge (09-24):** deployed, never looked at on a real off-route bus.
 - **Card build is not repeatable:** `scripts/build_block_cards.py` breaks ties in a bus card's top-5 blocks (and its route mix) by set order, so two runs on the same data give a slightly different `scripts/cards-data.js`. Block cards are stable.
 - **Branches:** three merged `claude/*` branches can be deleted; `claude/late-dwell` is an unmerged prototype (see §3).
+
+### 2026-10-07 · [home] · ETA: a late bus was held for its block's NEXT timetable slot (the 21-min Chapel hold). Fix written in `uts_blocks.py`, UNCOMMITTED, NOT DEPLOYED (waiting for the user)
+- **Where:** `uts_blocks.scheduled_hold_epoch`, last line ("no earlier visit to blame (first of the day)"). The 10-minute early limit only worked when the block had an earlier visit to the SAME stop within 25 min. Gold visits each timestop every 40-45 min and the post-6PM pattern adds stops the day pattern never had, so a bus 25+ min behind had no such visit and was matched to the next one with no limit.
+- **Today:** bus 2 [11] ran ~25 min (half a lap) behind all evening and got three phantom holds: BAR 17:30 -> 17:50, CHP 18:04 -> 18:25, LIB ~18:27 -> 18:45. Also explains this morning's 22 "flips" at 05:02 (bus 59 [11], held at BAR until 05:30 for three polls).
+- **The fix:** on that path a bus more than 15 min ahead of the next visit (`EARLY_FIRST_MATCH_LIMIT_S`) is treated as late for the block's most recent entry at any stop, if the block's day has started. A block whose day has not started (pull-out) still waits, as before.
+- **DON'T use "any earlier entry means no hold" with no limit:** tried first; it cancelled 7 real holds of 10-14 min (HER 05:19 -> 05:30, HER 17:38 -> 17:50, LIB 19:41 -> 19:55, JPA 18:17 -> 18:30...). Real waits on this path run to 13.8 min. Don't lower the 15 either.
+- **Checked on every log 09-21..10-07 (old vs new function, no engine replay):** 2,161 timestop arrivals, 3 change, all three phantom (the bus left within 1.5-3.3 min; old rule held 18-21 min). 312,045 prediction lookups, 231 change in 20 episodes: the long ones are the phantoms (bus 2 today 52 + 78 + 16 polls; Orange [07] at PIN 09-28, 31 polls; Night Pilot [04] at PIN 10-02). **Cost:** a few 1-6 poll transients at pull-out or just after the route change where a real hold is dropped for up to ~90 s (clearest: Green [01] at JPA 10-05 18:07, 6 polls; Orange [06] at MP around 08:30 on 09-21/29/30). Those read early, not late.
+- **Expected effect on today's 17:30 run:** bus 2 is 946 of the 1,662 late rows, so about 7.1% -> 3.1%. Estimate, not replayed through the engine.
+- **Tested:** 441 unit tests pass (1 new). `/onboard` only uses a scheduled time in the future, so the past time now returned is ignored there.
+- **Gold at rush is a separate, unfixed thing:** [09] [10] [11] ran 7-25 min behind their timetable at 17:00-18:00 today. That is the road, not the engine.
 
 ### 2026-10-07 · [home] · ETA day check so far (05:00 / 08:30 / 12:30, first Full Service weekday since the 10-02 changes): late target met; Silver ~110 s early. No code changed
 - **The target (>2 min late under ~3%):** 3.1% / 0.9% / 0.8% overall, 2.3% / 0.6% / 0.4% without Purple. Median |error| 39 / 62 / 59 s; TransLoc's median error was -184 s and -175 s on the two daytime runs. Evening runs (17:00, 17:30, 19:30) not in yet.
