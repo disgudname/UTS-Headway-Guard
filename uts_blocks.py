@@ -85,6 +85,16 @@ MATCH_TOLERANCE_S = 25 * 60.0
 # Picking the previous visit instead gives no hold (the bus is already past it).
 EARLY_MATCH_LIMIT_S = 10 * 60.0
 
+# The same question when the block has NO earlier visit to this stop to be late for (within
+# MATCH_TOLERANCE_S), but its day has already started somewhere else: Gold visits each of its
+# timestops only every 40-45 min, and the post-6PM pattern adds stops the daytime one never had.
+# Gold [11], 25 min behind all evening on 2026-10-07, reached the Chapel at 18:04, was matched to the
+# block's first Chapel visit at 18:25 and held 21 min for it: every stop past it read 16-20 min late.
+# Looser than EARLY_MATCH_LIMIT_S because real waits on this path run long: in 1,934 timestop arrivals
+# logged 2026-09-23..10-07 the longest was 13.8 min, and the only ones over 15 never happened.
+# Erring low is the cheap side: a real hold missed makes ETAs early, a phantom one makes them late.
+EARLY_FIRST_MATCH_LIMIT_S = 15 * 60.0
+
 _blocks: Dict[str, Dict] = {}
 _timestops: Dict[str, Dict[str, str]] = {}  # code -> {route_id: stop_id}
 _stop_id_to_code: Dict[Tuple[str, str], str] = {}  # (route_id, stop_id) -> code
@@ -169,7 +179,9 @@ def scheduled_hold_epoch(
     """If block_id has a scheduled visit to the timestop at (route_id, stop_id)
     near reference_ts (a live/historical ETA's own estimate of when the vehicle
     will get there -- NOT necessarily real "now"), returns that visit's
-    scheduled epoch. None if stop_id isn't a mapped timestop for this route,
+    scheduled epoch (or, for a bus too far ahead of the block's first visit to this
+    stop, the time of the entry it is late for -- see EARLY_FIRST_MATCH_LIMIT_S; either
+    way a time in the past means "no hold"). None if stop_id isn't a mapped timestop for this route,
     the block has no schedule data, or nothing scheduled is close enough in
     time to plausibly be the same lap (see MATCH_TOLERANCE_S)."""
     if not block_id:
@@ -184,6 +196,7 @@ def scheduled_hold_epoch(
     local_dt = datetime.fromtimestamp(reference_ts, tz=NY_TZ)
     prev_epoch: Optional[float] = None   # latest visit at/before reference_ts (bus is late for it)
     next_epoch: Optional[float] = None   # earliest visit after reference_ts (bus is early for it)
+    next_group_entries: List[float] = []  # every entry (any stop) of the schedule group next_epoch came from
     # A schedule entry just after local midnight could belong to the previous
     # evening's weekday-group rolling past midnight (see build_uts_blocks.py's
     # rollover handling) just as easily as to today's own group -- check both,
@@ -203,6 +216,7 @@ def scheduled_hold_epoch(
                         prev_epoch = epoch
                 elif next_epoch is None or epoch < next_epoch:
                     next_epoch = epoch
+                    next_group_entries = [midnight_ts + t for t, _ in group.get("stops", [])]
     if next_epoch is not None and next_epoch - reference_ts <= EARLY_MATCH_LIMIT_S:
         # Plausibly early for the upcoming visit -- unless the previous visit is much closer.
         if prev_epoch is None or (next_epoch - reference_ts) <= (reference_ts - prev_epoch):
@@ -210,7 +224,13 @@ def scheduled_hold_epoch(
         return prev_epoch
     if prev_epoch is not None:
         return prev_epoch   # too far ahead of the next visit to be early for it: late for this one
-    return next_epoch       # no earlier visit to blame (first of the day): keep the old behavior
+    if next_epoch is not None and next_epoch - reference_ts > EARLY_FIRST_MATCH_LIMIT_S:
+        # No earlier visit to this stop, but the block was already due somewhere else: it is running late
+        # against that entry, not this early for the next one. Returned so the caller sees a past time (no hold).
+        started = [e for e in next_group_entries if e <= reference_ts]
+        if started:
+            return max(started)
+    return next_epoch       # the block's day has not started (pull-out), or it is plausibly early: it waits
 
 
 def next_scheduled_arrival_epoch(route_id: str, stop_id: str, after_ts: float) -> Optional[float]:

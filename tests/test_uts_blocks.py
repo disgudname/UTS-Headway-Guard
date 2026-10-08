@@ -256,6 +256,17 @@ def test_scheduled_hold_epoch_bus_very_late_matches_previous_visit_not_next(monk
     assert uts_blocks.scheduled_hold_epoch("99", "stop-1", "[01]", _epoch(2026, 9, 14, 8, 1)) == _epoch(2026, 9, 14, 7, 40)
 
 
+def test_scheduled_hold_epoch_late_bus_is_not_held_for_the_blocks_first_visit_to_a_stop(monkeypatch):
+    # Gold [11] on 2026-10-07: 17:50 BAR, 18:00 LIB, then its first Chapel visit of the day at 18:25.
+    stops = [[17 * 3600 + 50 * 60, "BBB"], [18 * 3600, "CCC"], [18 * 3600 + 25 * 60, "AAA"]]
+    blocks = {"[01]": {"weekday_groups": [{"weekdays": [0, 1, 2, 3, 4], "stops": stops}]}}
+    _patch_data(monkeypatch, blocks, SAMPLE_TIMESTOPS)
+    # 25 min behind, it reaches the Chapel at 18:04: 21 min "early" for 18:25. It is late for 18:00, so no hold.
+    assert uts_blocks.scheduled_hold_epoch("99", "stop-1", "[01]", _epoch(2026, 9, 14, 18, 4)) == _epoch(2026, 9, 14, 18, 0)
+    # 13 min early is a wait buses really make (longest logged: 13.8 min): still held for 18:25.
+    assert uts_blocks.scheduled_hold_epoch("99", "stop-1", "[01]", _epoch(2026, 9, 14, 18, 12)) == _epoch(2026, 9, 14, 18, 25)
+
+
 def test_scheduled_hold_epoch_first_visit_of_day_still_holds_an_early_bus(monkeypatch):
     blocks = {"[01]": {"weekday_groups": [{"weekdays": [0, 1, 2, 3, 4], "stops": [[8 * 3600, "AAA"]]}]}}
     _patch_data(monkeypatch, blocks, SAMPLE_TIMESTOPS)
