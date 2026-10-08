@@ -30,19 +30,27 @@ Machine tags: `[dev]` = Windows dev machine · `[home]` = home server (Windows b
 
 ## 1. Message board (newest first)
 
-### Open right now (last checked 2026-10-07 · keep this list short and current)
+### Open right now (last checked 2026-10-08 · keep this list short and current)
 
 Checked against the entries below on 2026-10-06. Everything not listed here is believed done.
 
-- **ETA, first fair weekday test of the 10-02 quantile fix (Wed 10-07):** daytime and 17:00 runs passed the under-3% late target; the 17:30 route-change run failed at 7.1% (board, 10-07). 19:30 not read yet.
-- **ETA, phantom hold for a late bus (board, 10-07):** fixed and deployed (`db376ba`, v2071). Not yet seen on a live run: check the Thu 10-08 17:30 route-change run (target under 3% >2 min late without Purple) and the 05:00 run for pull-out flips.
-- **ETA, Preston Ave -> Washington Park hop reads ~130 s around 17:40, real ~45 s:** one visit ([08], 10-07). Check other days before touching.
+- **ETA, 10-02 quantile fix + 10-07 late-bus hold fix:** both seen working on live runs Thu 10-08 (board, 10-08). Every run under 3% >2 min late without Purple, the 17:30 route-change run 1.8% (was 7.1%). Nothing open; keep watching through the scheduled runs.
+- **ETA, one-poll flip on [07] at 17:53:16 as it joins Orange Loop:** seen 10-07 (bus 14) and 10-08 (bus 50), 3-4 rows each time. Cosmetic; only look if it grows.
 - **ETA, Green bus 22 leaving Gooch/Dillard ~3-4 min before we expected (10-05 17:30):** one bus, one evening; compare with the 10-06 17:30 run before touching anything. Not looked at yet.
 - **`/onboard`:** the tablet-GPS path has never run on a real bus, nobody has listened to the voice, and a bus on its last run still lists stops it will not serve (no out-of-service cut-off, no evening route-change hiding).
 - **`/boxscore`:** the before/after-kickoff split has only a unit test; the first real game with a kick time is Syracuse, Sat 10-10 19:30.
 - **`/livemap` off-route badge (09-24):** deployed, never looked at on a real off-route bus.
 - **Card build is not repeatable:** `scripts/build_block_cards.py` breaks ties in a bus card's top-5 blocks (and its route mix) by set order, so two runs on the same data give a slightly different `scripts/cards-data.js`. Block cards are stable.
 - **Branches:** three merged `claude/*` branches can be deleted; `claude/late-dwell` is an unmerged prototype (see §3).
+
+### 2026-10-08 · [home] · ETA day check (8 runs, first full day on v2071): late target met on every run, incl. the 17:30 route change (1.8%). No code changed
+- **>2 min late without Purple:** 00:00 0.0 / 01:30 0.0 / 05:00 0.0 / 08:30 0.9 / 12:30 0.1 / 17:00 0.1 / 17:30 (60 min) 1.8%. Median |error| 27-65 s, 96 s at 17:00. Wed 19:30 (read today): 0.0%, no breaches.
+- **Late-bus hold fix (`db376ba`) seen live:** 05:00 had 0 flips (22 on 10-07). At 17:30 bus 2 [11] had 0 late rows on both day and evening Gold (946 on 10-07); no phantom hold at BAR/CHP/LIB.
+- **17:30, 357 of the ~420 late rows are bus 15 [08]:** it left Scott Stadium at 17:56:12, about 4 min before its 18:00 time, ran Stadium Rd + JPA Observatory / Shamrock / Kent on the day pattern and dropped to route 0 at 18:02. We held it at Scott Stadium to 18:00, so those three JPA stops read ~270 s late from 17:30 on. Same bus is the "210 visits only TransLoc predicted" (the two Stadium Rd stops). A driver ahead of the timetable, not the engine. Without it the run is ~0.3%.
+- **Preston Ave -> Washington Park (the 10-07 open item) did not repeat:** [08] today held at Madison/Preston to ~17:41 and Washington Park read -22 s at 17:30. Item closed.
+- **17:30 flips:** 3 counted = bus 50 [07], one poll at 17:53:16 right after it joined Orange Loop (three JPA stops shown a lap away). Same block, same second as 10-07. The 5 "just passed" are Purple showing Due a poll after passing.
+- **Purple:** 12.0 / 18.9 / 11.4 / 20.4% late (08:30 / 12:30 / 17:00 / 17:30), under-5-min median |error| 35-49 s. The late rows are buses leaving 400 Fontaine / Scott Stadium 3-5 min before the hold we expected. Known staging, not chased.
+- **Early breaches are traffic:** 17:00 Gold 123 s / Orange 96 s / Silver 167 s, all early, far-out only (under 5 min out within ~45 s; TransLoc median -224 s). 17:30 Orange Loop 95 s early (TransLoc -213 / -375 s). 12:30 Silver 95 s = bus 48 [13] ~3.5 min behind far-out numbers. 12:30 flip = one poll, bus 24 [05] sitting on the 14th @ Wertland stop point.
 
 ### 2026-10-07 · [home] · ETA: a late bus was held for its block's NEXT timetable slot (the 21-min Chapel hold). Fixed in `uts_blocks.py` (`db376ba`, DEPLOYED v2071 10-07 ~20:57 ET)
 - **Where:** `uts_blocks.scheduled_hold_epoch`, last line ("no earlier visit to blame (first of the day)"). The 10-minute early limit only worked when the block had an earlier visit to the SAME stop within 25 min. Gold visits each timestop every 40-45 min and the post-6PM pattern adds stops the day pattern never had, so a bus 25+ min behind had no such visit and was matched to the next one with no limit.
