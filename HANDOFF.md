@@ -34,7 +34,7 @@ Machine tags: `[dev]` = Windows dev machine · `[home]` = home server (Windows b
 
 Checked against the entries below on 2026-10-06. Everything not listed here is believed done.
 
-- **ETA, 10-02 quantile fix + 10-07 late-bus hold fix:** both seen working on live runs Thu 10-08 (board, 10-08). Every run under 3% >2 min late without Purple, the 17:30 route-change run 1.8% (was 7.1%). Nothing open; keep watching through the scheduled runs.
+- **ETA "DONE" DATE: Wed 2026-10-14, after the 19:30 run (user, 10-08).** That is one run of every day of the week on v2071 (Thu 10-08 already passed). Call stop ETAs done that evening if (1) no ETA engine code changed since `db376ba`, (2) every run is under 3% >2 min late without Purple, or a miss is explained by one bus / one driver / traffic, and (3) no new KIND of failure shows up. Purple stays judged on its own limits and is not part of the test (staging can't be predicted; user chose not to tune). Lot shuttles on game day Sat 10-10 don't count. **If engine code changes, the week starts over from the deploy.** On 10-14: write the closing board entry, drop this item, and say so to the user.
 - **ETA, one-poll flip on [07] at 17:53:16 as it joins Orange Loop:** seen 10-07 (bus 14) and 10-08 (bus 50), 3-4 rows each time. Cosmetic; only look if it grows.
 - **ETA, Green bus 22 leaving Gooch/Dillard ~3-4 min before we expected (10-05 17:30):** one bus, one evening; compare with the 10-06 17:30 run before touching anything. Not looked at yet.
 - **`/onboard`:** the tablet-GPS path has never run on a real bus, nobody has listened to the voice, and a bus on its last run still lists stops it will not serve (no out-of-service cut-off, no evening route-change hiding).
