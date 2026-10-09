@@ -43,6 +43,12 @@ Checked against the entries below on 2026-10-06. Everything not listed here is b
 - **Card build is not repeatable:** `scripts/build_block_cards.py` breaks ties in a bus card's top-5 blocks (and its route mix) by set order, so two runs on the same data give a slightly different `scripts/cards-data.js`. Block cards are stable.
 - **Branches:** three merged `claude/*` branches can be deleted; `claude/late-dwell` is an unmerged prototype (see §3).
 
+### 2026-10-09 · [home] · /ob missing `[12]` 14:30-22:30: the calendar feed still has a driver's name on it, no nameless copy. No code changed
+- **Asked:** why `/ob` does not list `[12]` 14:30-22:30 today; the user sees it open in W2W.
+- **Checked prod's snapshot (saved 12:59 ET, one minute old, poller healthy):** the only `[12]` 14:30-22:30 event has an employee on it (LAST-MODIFIED 10-08 20:28Z, untouched today). There is no nameless `[12]` for that time. `open_blocks()` only lists nameless shifts, so it is doing what it was built to do.
+- **Same pattern as 10-06 `[22]`:** the open copy has not reached the Google Calendar feed. Other edits to `[12]` made today at 12:33 ET (the 07:00 shift split into a nameless 07:00-13:00 and an assigned 13:00-15:00) DID sync within a minute, so the feed is not stalled as a whole. Either the open copy is lagging (10-06 took almost 4 h) or it was not made as a separate nameless shift. Nothing to fix on our side.
+- Today's nameless bus blocks in the feed, for comparison: `[20]` 05:30, `[12]` 07:00-13:00, `[11]` 08:00, `[02]` 09:30, `[06]` 13:00, `[18]` 14:00, `[24]` 14:00, `[09]` 17:00, `[10]` 17:00.
+
 ### 2026-10-09 · [home] · `/livemap`: CAT buses came up black when the overlay was switched on. Fixed in `scripts/livemap/core/data/cat.js` (NOT committed, NOT deployed: in the working tree on [home], waiting for the user to try it)
 - **User said** CAT buses often stay black after turning CAT on, and that turning it on feels janky.
 - **Cause:** a CAT bus gets its colour (and counts as in service) by looking its `RouteID` up in the route list. `spin()` started the position poll and the route-list load together, and the positions come back first nearly every time (one small request vs waiting on routes + patterns + stops, ~70 KB each). So the first poll marked every bus "Not in service": black for a dispatcher, hidden from the public, until the next poll 8 s later. The route list landing did re-run the vehicle layer, but with the same already-black list.
