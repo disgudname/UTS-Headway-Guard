@@ -825,6 +825,16 @@ feed (`W2W_ICAL_URL`) lists every shift, unassigned ones with an empty employee 
   it has anything, and the calendar-built log otherwise or with `?source=calendar`. The two have different event
   shapes: W2W's has stable shift ids and who made the change; the calendar's sees every edit as removed + added.
   The poller no longer needs `W2W_ICAL_URL` to run: the calendar is only the fallback for open shifts now.
+- **The change log that is actually running is our own, by W2W shift id.** A key made on this account returns Recent
+  Shift History EMPTY (header, no rows): the token panel only offers an expiry here, W2W hides the Permissions and Scope
+  options that would widen it. So after each good export read `w2w_schedule.apply_shifts` builds the whole schedule
+  keyed by shift id (`AssignedShiftList` rows + the unassigned export), compares it with the last poll
+  (`w2w_shift_state.json`) and appends what changed to the same `w2w_shift_history.jsonl`, in the same event shape with
+  `"observed": true`: Shift Created / Shift Deleted / Worker assigned / unassigned / changed, Position, Start Time,
+  End Time, Description, Color changed. When an assigned shift's `LAST_CHANGED_TS` moved, the event carries that time
+  and `LAST_CHANGED_BY`; otherwise the poll time and no name (an unassigned shift has neither). Only days both polls
+  covered are compared, and a day whose export failed the count check keeps its open shifts from the last poll, so a
+  short export is never logged as deletions. It sees one net change per shift per poll, not every edit.
 - **The feed misses some open shifts, so the API fills them in.** When a manager edits a shift and has W2W make an unassigned
   copy (a callout), W2W pushes the edited shift to Google but NOT the copy, until someone saves the copy again (hours or
   never). W2W's API has no list of unassigned shifts, but `DailyPositionTotals` counts them per position per day

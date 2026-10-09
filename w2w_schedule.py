@@ -19,7 +19,12 @@ W2W also keeps its own change log, the "Recent Shift History" report (the W2W_HI
 its export): one row per change with the shift's id, who changed it and what changed. `apply_history` copies it into
 w2w_shift_history.jsonl, and the schedule-changes endpoint serves that in preference to the log built from the calendar.
 
-Files (in the data directory): w2w_schedule_snapshot.json, w2w_schedule_changes.jsonl, w2w_shift_history.jsonl.
+A key made on this account returns that report empty (W2W hides the options that would widen it), so the same file
+is filled by `apply_shifts` instead: every poll it compares the whole schedule (assigned shifts from the API plus the
+unassigned export, both keyed by W2W's shift id) with the last poll and writes what changed, in the same event shape.
+
+Files (in the data directory): w2w_schedule_snapshot.json, w2w_schedule_changes.jsonl, w2w_shift_history.jsonl,
+w2w_shift_state.json.
 """
 from __future__ import annotations
 
@@ -39,6 +44,7 @@ NY = ZoneInfo("America/New_York")
 SNAPSHOT_NAME = "w2w_schedule_snapshot.json"
 LOG_NAME = "w2w_schedule_changes.jsonl"
 HISTORY_NAME = "w2w_shift_history.jsonl"
+STATE_NAME = "w2w_shift_state.json"
 HISTORY_COLUMNS = ("ShiftID", "ShiftDate", "StartTime", "EndTime", "Position", "ChangeDate", "ChangedBy", "NowAssignedTo", "Change")
 # Only shifts starting within this many days back are tracked (the feed reaches a year back; old edits are just noise).
 TRACK_DAYS_BACK = 60
@@ -46,6 +52,7 @@ TRACK_DAYS_BACK = 60
 MIN_KEEP_FRACTION = 0.5
 COMPARED_FIELDS = ("employee", "position", "start", "end", "note")
 _BUS_BLOCK_RE = re.compile(r"\d{2}")
+_BRACKETED_RE = re.compile(r"\[([^\]]+)\]")
 # /ob board: (side, service-day rollover, [(group, position matcher)]). Positions are W2W's exact names.
 OB_SIDES = (
     ("bus", time(2, 30), [
@@ -226,6 +233,96 @@ def parse_history_csv(text: str) -> List[Dict[str, Any]]:
     return events
 
 
+def shifts_by_id(assigned: List[Dict[str, Any]], open_shifts: List[Dict[str, Any]]) -> Dict[str, Dict[str, Any]]:
+    """The schedule keyed by W2W shift id: AssignedShiftList rows plus unassigned shifts from the export
+    (parse_export_csv). Each is {date, position, position_name, start, end, employee, note, color, changed_ts,
+    changed_by}; color and the changed_* fields are only known for assigned shifts (None / "" otherwise)."""
+    shifts: Dict[str, Dict[str, Any]] = {}
+    for row in assigned:
+        shift_id = str(row.get("SHIFT_ID") or "").strip()
+        try:
+            start = _api_dt(row["START_DATE"], row["START_TIME"])
+            end = _api_dt(row.get("END_DATE") or row["START_DATE"], row["END_TIME"])
+        except (KeyError, ValueError):
+            continue
+        if not shift_id:
+            continue
+        if end <= start:
+            end += timedelta(days=1)
+        name = (row.get("POSITION_NAME") or "").strip()
+        position = _BRACKETED_RE.search(name)
+        shifts[shift_id] = {
+            "date": start.date().isoformat(), "position": position.group(1) if position else name, "position_name": name,
+            "start": start.isoformat(timespec="minutes"), "end": end.isoformat(timespec="minutes"),
+            "employee": " ".join(f"{row.get('FIRST_NAME') or ''} {row.get('LAST_NAME') or ''}".split()),
+            "note": " ".join((row.get("DESCRIPTION") or "").split()), "color": str(row.get("COLOR_ID") or ""),
+            "changed_ts": (row.get("LAST_CHANGED_TS") or "").strip(), "changed_by": (row.get("LAST_CHANGED_BY") or "").strip(),
+        }
+    for shift in open_shifts:
+        shift_id = shift.get("shift_id") or ""
+        if shift_id and shift_id not in shifts:
+            shifts[shift_id] = {
+                "date": shift["start"][:10], "position": shift["position"], "position_name": shift["position_name"],
+                "start": shift["start"], "end": shift["end"], "employee": "", "note": " ".join(shift["note"].split()),
+                "color": None, "changed_ts": "", "changed_by": "",
+            }
+    return shifts
+
+
+def diff_shifts_by_id(
+    old: Dict[str, Dict[str, Any]], new: Dict[str, Dict[str, Any]], days: set, now: datetime,
+) -> List[Dict[str, Any]]:
+    """What changed between two polls of the schedule, in W2W's own wording and the parse_history_csv event shape
+    (plus "observed": True, meaning we saw the difference between two polls and W2W did not tell us). Only shifts on
+    `days` (the days both polls covered) are compared, so a day sliding into or out of the window is not a change.
+    When W2W's "last changed" stamp on an assigned shift moved, the event carries that time and who did it;
+    otherwise the time is this poll's and nobody is named."""
+    poll_ts = now.astimezone(NY).isoformat(timespec="minutes")
+    events: List[Dict[str, Any]] = []
+
+    def event(shift_id: str, shift: Dict[str, Any], before: Optional[Dict[str, Any]], changes: List[str]) -> Dict[str, Any]:
+        ts, who = poll_ts, ""
+        if shift.get("changed_ts") and (before is None or before.get("changed_ts") != shift["changed_ts"]):
+            try:
+                ts = datetime.strptime(shift["changed_ts"], "%m/%d/%Y %I:%M:%S %p").replace(tzinfo=NY).isoformat(timespec="minutes")
+                who = shift.get("changed_by", "")
+            except ValueError:
+                pass
+        return {"ts": ts, "shift_id": shift_id, "date": shift["date"], "position": shift["position"],
+                "position_name": shift["position_name"], "start": shift["start"], "end": shift["end"],
+                "changed_by": who, "assigned_to": shift["employee"], "changes": changes, "observed": True}
+
+    for shift_id, shift in new.items():
+        if shift["date"] not in days:
+            continue
+        before = old.get(shift_id)
+        if before is None:
+            events.append(event(shift_id, shift, None, ["Shift Created"]))
+            continue
+        changes: List[str] = []
+        if before["employee"] != shift["employee"]:
+            changes.append("Worker assigned" if not before["employee"] else
+                           "Worker unassigned" if not shift["employee"] else "Worker changed")
+        if before["position_name"] != shift["position_name"]:
+            changes.append("Position changed")
+        if before["start"] != shift["start"]:
+            changes.append("Start Time changed")
+        if before["end"] != shift["end"]:
+            changes.append("End Time changed")
+        if before["note"] != shift["note"]:
+            changes.append("Description changed")
+        if before.get("color") is not None and shift.get("color") is not None and before["color"] != shift["color"]:
+            changes.append("Color changed")
+        if changes:
+            events.append(event(shift_id, shift, before, changes))
+    for shift_id, shift in old.items():
+        if shift_id not in new and shift["date"] in days:
+            gone = event(shift_id, {**shift, "changed_ts": ""}, shift, ["Shift Deleted"])
+            events.append(gone)
+    events.sort(key=lambda e: e["ts"])
+    return events
+
+
 def _hours(shift: Dict[str, Any]) -> float:
     return (datetime.fromisoformat(shift["end"]) - datetime.fromisoformat(shift["start"])).total_seconds() / 3600.0
 
@@ -334,6 +431,7 @@ class W2WScheduleLog:
         self._history_seen: Optional[set] = None
         self.last_history_ts: Optional[str] = None
         self.last_history_error: Optional[str] = None
+        self.state_path = self.directory / STATE_NAME
 
     def _load_snapshot(self) -> Optional[Dict[str, Dict[str, Any]]]:
         if self._snapshot is not None:
@@ -492,6 +590,40 @@ class W2WScheduleLog:
         self.last_history_ts = (now or datetime.now(timezone.utc)).astimezone(timezone.utc).isoformat(timespec="seconds")
         self.last_history_error = None
         return len(fresh)
+
+    def apply_shifts(
+        self, assigned: List[Dict[str, Any]], open_shifts: List[Dict[str, Any]], days: List[str],
+        trusted_open_days: set, now: Optional[datetime] = None,
+    ) -> int:
+        """One poll of the whole schedule for `days`: assigned shifts from the API and unassigned ones from the export.
+        Compares it with the last poll and appends what changed to the shift history. On a day NOT in
+        `trusted_open_days` (the export disagreed with the API's count) the unassigned shifts are carried over from the
+        last poll unchanged, so a short export is never logged as deletions. The first poll only saves the state.
+        Returns the number of changes written."""
+        now = now or datetime.now(timezone.utc)
+        current = shifts_by_id(assigned, [s for s in open_shifts if s["start"][:10] in trusted_open_days])
+        previous: Dict[str, Dict[str, Any]] = {}
+        previous_days: set = set()
+        try:
+            saved = json.loads(self.state_path.read_text(encoding="utf-8"))
+            previous, previous_days = saved["shifts"], set(saved["days"])
+        except (OSError, ValueError, KeyError):
+            pass
+        for shift_id, shift in previous.items():
+            if not shift["employee"] and shift["date"] in days and shift["date"] not in trusted_open_days:
+                current.setdefault(shift_id, shift)
+        events = diff_shifts_by_id(previous, current, previous_days & set(days), now) if previous_days else []
+        if events:
+            self.directory.mkdir(parents=True, exist_ok=True)
+            with self.history_path.open("a", encoding="utf-8") as fh:
+                fh.write("".join(json.dumps(e, separators=(",", ":")) + "\n" for e in events))
+            if self._history_seen is not None:
+                self._history_seen.update(self._history_key(e) for e in events)
+        _atomic_write(self.state_path, json.dumps({
+            "saved_at": now.astimezone(timezone.utc).isoformat(timespec="seconds"), "days": sorted(days), "shifts": current,
+        }, separators=(",", ":")))
+        self.last_history_ts = now.astimezone(timezone.utc).isoformat(timespec="seconds")
+        return len(events)
 
     def history(self, limit: int = 200, on_date: Optional[str] = None, position: Optional[str] = None) -> List[Dict[str, Any]]:
         """W2W's own change log, newest first. `on_date` is the SHIFT's day; `position` like "08"."""

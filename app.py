@@ -6940,6 +6940,14 @@ async def startup():
                         days = [(first + timedelta(days=n)).isoformat() for n in range((last - first).days + 1)]
                         was = w2w_schedule_log.open_source(), list(w2w_schedule_log.export_mismatch)
                         await asyncio.to_thread(w2w_schedule_log.apply_export, resp.text, days, rows["DailyPositionTotals"])
+                        # The whole schedule by W2W shift id (assigned from the API, unassigned from the export),
+                        # compared with the last poll: our own change log (w2w_schedule.apply_shifts).
+                        changed = await asyncio.to_thread(
+                            w2w_schedule_log.apply_shifts, rows["AssignedShiftList"], w2w_schedule_log._export_open,
+                            days, w2w_schedule_log._export_days,
+                        )
+                        if changed > 100:
+                            print(f"[w2w-schedule] {changed} shift changes logged in one poll")
                         now_is = w2w_schedule_log.open_source(), list(w2w_schedule_log.export_mismatch)
                         if now_is != was:
                             print(f"[w2w-schedule] open shifts source: {now_is[0]}; days where the export and the API count disagree: {now_is[1] or 'none'}")

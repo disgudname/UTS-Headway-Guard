@@ -535,3 +535,71 @@ def test_shift_history_is_stored_once_and_served_newest_first(tmp_path):
             log.apply_history(bad)
     assert len(log.history()) == 5  # a bad file stores nothing
     assert log.apply_history(HISTORY_HEAD + CRLF) == 0  # a quiet day
+
+
+# --- Our own change log: the schedule by W2W shift id, compared poll to poll ---
+
+def _api_row(shift_id, position, start, end, name="Gene Kirby", note="OFF", color="0", changed="9/1/2026 9:00:00 AM",
+             by="Pat Manager", day="9/4/2026", end_day=None):
+    first, _, last = name.partition(" ")
+    return {"SHIFT_ID": shift_id, "POSITION_NAME": position, "START_DATE": day, "START_TIME": start, "END_DATE": end_day or day,
+            "END_TIME": end, "FIRST_NAME": first, "LAST_NAME": last, "DESCRIPTION": note, "COLOR_ID": color,
+            "LAST_CHANGED_TS": changed, "LAST_CHANGED_BY": by, "PUBLISHED": "Y"}
+
+
+def _open(shift_id, position_name, start, end, note="OFF"):
+    return {"employee": "", "position": position_name.strip("[]"), "position_name": position_name, "start": start, "end": end,
+            "note": note, "modified": "", "shift_id": shift_id}
+
+
+DAYS = ["2026-09-03", "2026-09-04", "2026-09-05"]
+POLL = datetime(2026, 9, 4, 16, 0, tzinfo=timezone.utc)  # 12:00 New York
+
+
+def test_a_callout_is_logged_the_way_w2w_logs_it(tmp_path):
+    log = w.W2WScheduleLog(tmp_path)
+    before = [_api_row("100", "[08]", "10:30am", "6:30pm"), _api_row("101", "[08]", "6am", "10:30am", name="Ann Lee")]
+    assert log.apply_shifts(before, [], DAYS, set(DAYS), now=POLL) == 0  # the first poll is only a baseline
+    assert log.history() == []
+    # dispatch turns shift 100 red and W2W makes unassigned copy 200
+    after = [_api_row("100", "[08]", "10:30am", "6:30pm", color="9", changed="9/4/2026 11:58:10 AM", by="Kay Dispatcher"), before[1]]
+    copy = _open("200", "[08]", "2026-09-04T10:30-04:00", "2026-09-04T18:30-04:00")
+    assert log.apply_shifts(after, [copy], DAYS, set(DAYS), now=POLL) == 2
+    red, created = sorted(log.history(), key=lambda e: e["shift_id"])
+    assert red == {"ts": "2026-09-04T11:58-04:00", "shift_id": "100", "date": "2026-09-04", "position": "08", "position_name": "[08]",
+                   "start": "2026-09-04T10:30-04:00", "end": "2026-09-04T18:30-04:00", "changed_by": "Kay Dispatcher",
+                   "assigned_to": "Gene Kirby", "changes": ["Color changed"], "observed": True}
+    assert (created["ts"], created["assigned_to"], created["changed_by"], created["changes"]) == ("2026-09-04T12:00-04:00", "", "", ["Shift Created"])
+    assert log.apply_shifts(after, [copy], DAYS, set(DAYS), now=POLL) == 0  # nothing changed: nothing logged
+    # someone picks the open copy up: same shift id, now in the API's list
+    taken = _api_row("200", "[08]", "10:30am", "6:30pm", name="New Driver", changed="9/4/2026 12:20:00 PM", by="Kay Dispatcher")
+    assert log.apply_shifts(after + [taken], [], DAYS, set(DAYS), now=POLL) == 1
+    newest = log.history(limit=1)[0]
+    assert (newest["shift_id"], newest["assigned_to"], newest["changed_by"], newest["changes"]) == ("200", "New Driver", "Kay Dispatcher", ["Worker assigned"])
+
+
+def test_retimes_notes_reassignments_and_deletions_are_named(tmp_path):
+    log = w.W2WScheduleLog(tmp_path)
+    log.apply_shifts([_api_row("1", "[08]", "6am", "10am"), _api_row("2", "[09]", "6am", "10am")],
+                     [_open("3", "[10]", "2026-09-04T06:00-04:00", "2026-09-04T10:00-04:00")], DAYS, set(DAYS), now=POLL)
+    log.apply_shifts([_api_row("1", "[11]", "7am", "11am", name="Ann Lee", note="OFF - Relief @ HER")], [], DAYS, set(DAYS), now=POLL)
+    by_id = {e["shift_id"]: e["changes"] for e in log.history()}
+    assert by_id == {"1": ["Worker changed", "Position changed", "Start Time changed", "End Time changed", "Description changed"],
+                     "2": ["Shift Deleted"], "3": ["Shift Deleted"]}
+
+
+def test_a_day_entering_or_leaving_the_window_is_not_a_change(tmp_path):
+    log = w.W2WScheduleLog(tmp_path)
+    log.apply_shifts([_api_row("1", "[08]", "6am", "10am", day="9/3/2026")], [], DAYS, set(DAYS), now=POLL)
+    moved = ["2026-09-04", "2026-09-05", "2026-09-06"]  # 9-03 dropped out, 9-06 came in with a shift on it
+    assert log.apply_shifts([_api_row("9", "[08]", "6am", "10am", day="9/6/2026")], [], moved, set(moved), now=POLL) == 0
+
+
+def test_an_untrusted_export_day_keeps_its_open_shifts_instead_of_logging_deletions(tmp_path):
+    log = w.W2WScheduleLog(tmp_path)
+    copy = _open("200", "[08]", "2026-09-04T10:30-04:00", "2026-09-04T18:30-04:00")
+    log.apply_shifts([], [copy], DAYS, set(DAYS), now=POLL)
+    # the export came back short for 9-04 (it failed the count check): nothing is known about that day's open shifts
+    assert log.apply_shifts([], [], DAYS, {"2026-09-03", "2026-09-05"}, now=POLL) == 0
+    # ... and when the export is right again and the shift really is gone, it is logged
+    assert log.apply_shifts([], [], DAYS, set(DAYS), now=POLL) == 1 and log.history()[0]["changes"] == ["Shift Deleted"]
