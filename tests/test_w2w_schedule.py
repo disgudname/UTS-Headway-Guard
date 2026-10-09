@@ -293,3 +293,84 @@ def test_open_shifts_only_come_from_the_days_the_caller_asked_for(tmp_path):
     assert names(log.open_shift_rows(now, first=date(2026, 9, 4), last=date(2026, 9, 4))) == ["[02]"]   # one service day
     assert names(log.open_shift_rows(now, first=date(2026, 9, 3), last=date(2026, 9, 3))) == ["[01]"]   # 02:30 rollover: still yesterday's
     assert names(log.open_shift_rows(now, first=date(2026, 9, 3), last=date(2026, 9, 5))) == ["[01]", "[02]", "[03]"]
+
+
+# --- Open shifts the feed has not delivered, filled in from W2W's API (missing_open_shifts) ---
+
+def _api_shift(position, start, end, hours, color="0", day="9/4/2026", end_day=None, published="Y"):
+    return {"POSITION_NAME": position, "START_DATE": day, "START_TIME": start, "END_DATE": end_day or day, "END_TIME": end,
+            "DURATION": str(hours), "COLOR_ID": color, "PUBLISHED": published, "FIRST_NAME": "Gene", "LAST_NAME": "Kirby"}
+
+
+def _total(position, shifts, hours, day="9/4/2026"):
+    return {"SCHEDULE_DATE": day, "POSITION_NAME": position, "UNASSIGNED_SHIFTS": str(shifts), "UNASSIGNED_HOURS": str(hours)}
+
+
+def test_an_open_copy_the_feed_never_got_takes_its_times_from_the_shift_it_was_copied_from():
+    feed = w.parse_ics(_feed(ASSIGNED))  # the called-out shift is in the feed with its driver; the open copy is not
+    assigned = [_api_shift("[08]", "10:30am", "6:30pm", 8.0, color="9"), _api_shift("[08]", "6am", "10:30am", 4.5)]
+    filled, unresolved = w.missing_open_shifts(feed, [_total("[08]", 1, 8.0)], assigned)
+    assert unresolved == []
+    assert [(s["employee"], s["position"], s["position_name"], s["start"], s["end"], s["note"]) for s in filled] == [
+        ("", "08", "[08]", "2026-09-04T10:30-04:00", "2026-09-04T18:30-04:00", "")]
+
+
+def test_nothing_is_filled_when_the_feed_already_has_every_open_shift_w2w_counts():
+    assigned = [_api_shift("[08]", "10:30am", "6:30pm", 8.0, color="9")]
+    assert w.missing_open_shifts(w.parse_ics(_feed(UNASSIGNED)), [_total("[08]", 1, 8.0)], assigned) == ([], [])
+
+
+def test_an_overnight_open_copy_ends_on_the_next_day():
+    assigned = [_api_shift("[03]", "10pm", "2:30am", 4.5, color="9", end_day="9/5/2026")]
+    filled, _ = w.missing_open_shifts({}, [_total("[03]", 1, 4.5)], assigned)
+    assert (filled[0]["start"], filled[0]["end"]) == ("2026-09-04T22:00-04:00", "2026-09-05T02:30-04:00")
+
+
+def test_the_original_of_a_copy_already_in_the_feed_is_not_used_twice():
+    # two 8 h shifts on the block were called out; one copy reached the feed, so the missing one is the other
+    feed = w.parse_ics(_feed(UNASSIGNED))
+    assigned = [_api_shift("[08]", "10:30am", "6:30pm", 8.0, color="9"), _api_shift("[08]", "2:30pm", "10:30pm", 8.0, color="9")]
+    filled, unresolved = w.missing_open_shifts(feed, [_total("[08]", 2, 16.0)], assigned)
+    assert unresolved == [] and [s["start"] for s in filled] == ["2026-09-04T14:30-04:00"]
+
+
+def test_between_two_shifts_of_the_same_length_the_red_one_is_the_copy_s_original():
+    assigned = [_api_shift("[08]", "6am", "10am", 4.0), _api_shift("[08]", "2pm", "6pm", 4.0, color="9")]
+    filled, unresolved = w.missing_open_shifts({}, [_total("[08]", 1, 4.0)], assigned)
+    assert unresolved == [] and [s["start"] for s in filled] == ["2026-09-04T14:00-04:00"]
+
+
+def test_a_gap_no_shift_explains_is_reported_and_nothing_is_made_up():
+    assigned = [_api_shift("[08]", "6am", "10am", 4.0), _api_shift("[08]", "2pm", "6pm", 4.0)]
+    for total in (_total("[08]", 1, 4.0), _total("[08]", 1, 6.5)):  # two equal candidates; no candidate of that length
+        filled, unresolved = w.missing_open_shifts({}, [total], assigned)
+        assert filled == [] and unresolved == [
+            {"date": "2026-09-04", "position_name": "[08]", "missing": 1, "hours": float(total["UNASSIGNED_HOURS"])}]
+
+
+def test_days_w2w_has_not_published_are_left_alone():
+    assigned = [_api_shift("[08]", "10:30am", "6:30pm", 8.0, published="N")]
+    assert w.missing_open_shifts({}, [_total("[08]", 1, 8.0)], assigned) == ([], [])
+
+
+def test_a_filled_shift_shows_on_the_board_until_the_feed_has_it_or_the_api_goes_quiet(tmp_path):
+    log = w.W2WScheduleLog(tmp_path)
+    log.apply(_feed(ASSIGNED), NOW)
+    now = datetime(2026, 9, 4, 16, 0, tzinfo=timezone.utc)
+    api = ([_total("[08]", 1, 8.0)], [_api_shift("[08]", "10:30am", "6:30pm", 8.0, color="9")])
+
+    def board(at):
+        return [(s["position"], s["start"]) for s in log.open_blocks(at)["bus"]["shifts"]]
+
+    assert board(now) == []
+    log.apply_api(*api, now=now)
+    assert board(now) == [("08", "2026-09-04T10:30-04:00")]
+    assert [r["POSITION_NAME"] for r in log.open_shift_rows(now)] == ["[08]"]
+    log.apply_api(*api)  # unassigned() has no clock argument, so this read has to be fresh by the real clock
+    assert [r["position"] for r in log.unassigned(date(2026, 9, 4), days=1)] == ["08"]
+    log.apply_api(*api, now=now)
+    # the API has not answered for longer than API_FILL_MAX_AGE_S: stop trusting the fill
+    assert board(datetime(2026, 9, 4, 16, 30, tzinfo=timezone.utc)) == []
+    # the copy reaches the feed before the next API read: one row, not two
+    log.apply(_feed(ASSIGNED.replace("UID:a1", "UID:a0"), UNASSIGNED), now)
+    assert board(now) == [("08", "2026-09-04T10:30-04:00")]

@@ -5,6 +5,11 @@ does: an unassigned shift is just a shift with no employee. The feed only shows 
 keeps the last snapshot and appends every difference (a shift added, removed, or changed hands/times/note) to a JSONL log,
 which is the only way to know later who was on a shift, or that it was open, at a given time.
 
+W2W does not push every unassigned shift to that calendar: the unassigned COPY it makes when a manager edits a shift
+(a callout) only arrives once somebody saves the copy again. W2W's API does count unassigned shifts per position per day
+(DailyPositionTotals), so `missing_open_shifts` compares that count with the feed and, where the feed is short, takes
+the missing shift's times from the assigned shift it was copied from. See HANDOFF.md 2026-10-09.
+
 Files (in the data directory): w2w_schedule_snapshot.json, w2w_schedule_changes.jsonl.
 """
 from __future__ import annotations
@@ -13,9 +18,10 @@ import json
 import os
 import re
 import tempfile
+from itertools import combinations
 from datetime import date, datetime, time, timedelta, timezone
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 from zoneinfo import ZoneInfo
 
 NY = ZoneInfo("America/New_York")
@@ -117,6 +123,89 @@ def diff_shifts(old: Dict[str, Dict[str, Any]], new: Dict[str, Dict[str, Any]], 
     return events
 
 
+# Shifts filled in from W2W's API are dropped if the API has not been read successfully for this long.
+API_FILL_MAX_AGE_S = 1200
+_API_RED = "9"  # COLOR_ID dispatch gives a called-out shift; only ever used to choose between equal candidates
+
+
+def _api_dt(day: str, clock: str) -> datetime:
+    """W2W API date + time ("10/9/2026", "2:30pm") as a New York datetime."""
+    month, dom, year = (int(part) for part in day.split("/"))
+    match = re.fullmatch(r"(\d{1,2})(?::(\d{2}))?\s*([ap])m?", clock.strip().lower())
+    if not match:
+        raise ValueError(f"unreadable W2W time {clock!r}")
+    hour = int(match.group(1)) % 12 + (12 if match.group(3) == "p" else 0)
+    return datetime(year, month, dom, hour, int(match.group(2) or 0), tzinfo=NY)
+
+
+def _hours(shift: Dict[str, Any]) -> float:
+    return (datetime.fromisoformat(shift["end"]) - datetime.fromisoformat(shift["start"])).total_seconds() / 3600.0
+
+
+def missing_open_shifts(
+    shifts: Dict[str, Dict[str, Any]], totals: List[Dict[str, Any]], assigned: List[Dict[str, Any]],
+) -> Tuple[List[Dict[str, Any]], List[Dict[str, Any]]]:
+    """Unassigned shifts W2W has that the calendar feed does not, as (filled, unresolved).
+
+    `totals` are DailyPositionTotals rows and `assigned` AssignedShiftList rows for the same days. For each position
+    and day where W2W counts more unassigned shifts than the feed holds, the missing ones are unassigned copies of
+    assigned shifts on that position that day, so their times are taken from the assigned shifts whose lengths add up
+    to the missing hours (ignoring any whose copy is already in the feed). `filled` are snapshot-shaped shifts with
+    "filled": True and no note (the original's note may say why it is open). A gap that no single choice of shifts
+    explains goes to `unresolved` and nothing is made up for it. Days W2W has not published are skipped: the feed
+    only carries published shifts."""
+    feed_open: Dict[tuple, List[Dict[str, Any]]] = {}
+    for shift in shifts.values():
+        if not shift["employee"]:
+            feed_open.setdefault((shift["start"][:10], shift.get("position_name") or shift["position"]), []).append(shift)
+    originals: Dict[tuple, List[Dict[str, Any]]] = {}
+    for row in assigned:
+        if str(row.get("PUBLISHED", "Y")).upper() != "Y":
+            continue
+        try:
+            start = _api_dt(row["START_DATE"], row["START_TIME"])
+            end = _api_dt(row.get("END_DATE") or row["START_DATE"], row["END_TIME"])
+        except (KeyError, ValueError):
+            continue
+        if end <= start:
+            end += timedelta(days=1)
+        originals.setdefault((start.date().isoformat(), row.get("POSITION_NAME", "")), []).append({
+            "start": start.isoformat(timespec="minutes"), "end": end.isoformat(timespec="minutes"),
+            "red": str(row.get("COLOR_ID", "")) == _API_RED,
+        })
+    published_days = {day for day, _ in originals}
+    filled: List[Dict[str, Any]] = []
+    unresolved: List[Dict[str, Any]] = []
+    for row in totals:
+        try:
+            month, dom, year = (int(part) for part in row["SCHEDULE_DATE"].split("/"))
+            day, name = date(year, month, dom).isoformat(), row["POSITION_NAME"]
+            want, want_hours = int(row["UNASSIGNED_SHIFTS"]), float(row["UNASSIGNED_HOURS"])
+        except (KeyError, ValueError):
+            continue
+        have = feed_open.get((day, name), [])
+        missing = want - len(have)
+        if missing <= 0 or day not in published_days:
+            continue
+        missing_hours = want_hours - sum(_hours(s) for s in have)
+        candidates = list(originals.get((day, name), []))
+        for twin in have:  # an original whose copy already reached the feed is not the one that is missing
+            match = next((c for c in candidates if (c["start"], c["end"]) == (twin["start"], twin["end"])), None)
+            if match:
+                candidates.remove(match)
+        picks = [c for c in combinations(candidates, missing) if abs(sum(_hours(x) for x in c) - missing_hours) < 0.01]
+        if len(picks) > 1:
+            picks = [c for c in picks if all(x["red"] for x in c)]
+        if len(picks) != 1:
+            unresolved.append({"date": day, "position_name": name, "missing": missing, "hours": round(missing_hours, 2)})
+            continue
+        position = re.search(r"\[([^\]]+)\]", name)
+        for original in picks[0]:
+            filled.append({"employee": "", "position": position.group(1) if position else name, "position_name": name,
+                           "start": original["start"], "end": original["end"], "note": "", "modified": "", "filled": True})
+    return filled, unresolved
+
+
 def _atomic_write(path: Path, data: str) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     fd, tmp = tempfile.mkstemp(dir=str(path.parent), prefix=path.name, suffix=".tmp")
@@ -140,6 +229,11 @@ class W2WScheduleLog:
         self.last_poll_ts: Optional[str] = None
         self.last_error: Optional[str] = None
         self._snapshot: Optional[Dict[str, Dict[str, Any]]] = None  # in-memory copy of the last good snapshot
+        # Unassigned shifts W2W's API says exist but the feed has not delivered (see missing_open_shifts)
+        self.filled: List[Dict[str, Any]] = []
+        self._filled_at: Optional[datetime] = None
+        self.unresolved: List[Dict[str, Any]] = []
+        self.last_api_error: Optional[str] = None
 
     def _load_snapshot(self) -> Optional[Dict[str, Dict[str, Any]]]:
         if self._snapshot is not None:
@@ -177,6 +271,22 @@ class W2WScheduleLog:
         self.last_poll_ts, self.last_error = stamp, None
         return events
 
+    def apply_api(self, totals: List[Dict[str, Any]], assigned: List[Dict[str, Any]], now: Optional[datetime] = None) -> None:
+        """Take one read of W2W's API (DailyPositionTotals + AssignedShiftList rows for the same days) and work out which
+        unassigned shifts the feed is missing. Memory only: the change log stays a record of the feed itself."""
+        self.filled, self.unresolved = missing_open_shifts(self._load_snapshot() or {}, totals, assigned)
+        self._filled_at = now or datetime.now(timezone.utc)
+        self.last_api_error = None
+
+    def _open_shifts(self, now: Optional[datetime] = None) -> List[Dict[str, Any]]:
+        """Every unassigned shift: the feed's, plus the ones filled in from the API that the feed still lacks."""
+        shifts = [s for s in (self._load_snapshot() or {}).values() if not s["employee"]]
+        now = now or datetime.now(timezone.utc)
+        if self._filled_at is None or (now - self._filled_at).total_seconds() > API_FILL_MAX_AGE_S:
+            return shifts
+        in_feed = {(s.get("position_name") or s["position"], s["start"], s["end"]) for s in shifts}
+        return shifts + [s for s in self.filled if (s["position_name"], s["start"], s["end"]) not in in_feed]
+
     def recent_changes(self, limit: int = 200, on_date: Optional[str] = None, position: Optional[str] = None) -> List[Dict[str, Any]]:
         try:
             lines = self.log_path.read_text(encoding="utf-8").splitlines()
@@ -201,12 +311,11 @@ class W2WScheduleLog:
 
     def unassigned(self, start: date, days: int = 7) -> List[Dict[str, Any]]:
         """Unassigned bus-block shifts (position like "08") starting from `start` for `days` days."""
-        shifts = self._load_snapshot() or {}
         end = start + timedelta(days=days)
         rows = [
             {"date": s["start"][:10], "position": s["position"], "start": s["start"], "end": s["end"], "note": s["note"]}
-            for s in shifts.values()
-            if not s["employee"] and _BUS_BLOCK_RE.fullmatch(s["position"] or "")
+            for s in self._open_shifts()
+            if _BUS_BLOCK_RE.fullmatch(s["position"] or "")
             and start.isoformat() <= s["start"][:10] < end.isoformat()
         ]
         rows.sort(key=lambda r: (r["start"], r["position"]))
@@ -217,7 +326,7 @@ class W2WScheduleLog:
         FlexRide Dispatch, day 02:30 -> 02:30. OnDemand side: OnDemand/FlexRide drivers and EBs and OnDemand Dispatch,
         day 05:30 -> 05:30. A shift belongs to the day its START falls in; ended shifts are kept (flagged by the page)."""
         now = (now or datetime.now(timezone.utc)).astimezone(NY)
-        shifts = self._load_snapshot() or {}
+        shifts = self._open_shifts(now)
         result: Dict[str, Dict[str, Any]] = {}
         for side, rollover, groups in OB_SIDES:
             day_start = datetime.combine(now.date(), rollover, NY)
@@ -225,9 +334,7 @@ class W2WScheduleLog:
                 day_start -= timedelta(days=1)
             day_end = day_start + timedelta(days=1)
             rows = []
-            for shift in shifts.values():
-                if shift["employee"]:
-                    continue
+            for shift in shifts:
                 group = next((g for g, match in groups if match(shift["position"] or "")), None)
                 if group and day_start <= datetime.fromisoformat(shift["start"]) < day_end:
                     rows.append({"group": group, "position": shift["position"], "start": shift["start"],
@@ -249,12 +356,11 @@ class W2WScheduleLog:
         from another day must not show up as if it were today's. Default: yesterday..today, which is what block-drivers
         uses (yesterday so a shift running past midnight still counts). Empty until the first poll has succeeded."""
         now = (now or datetime.now(timezone.utc)).astimezone(NY)
-        shifts = self._load_snapshot() or {}
         first_day = (first or (now.date() - timedelta(days=1))).isoformat()
         last_day = (last or now.date()).isoformat()
         rows: List[Dict[str, str]] = []
-        for shift in shifts.values():
-            if shift["employee"] or not (first_day <= shift["start"][:10] <= last_day):
+        for shift in self._open_shifts(now):
+            if not (first_day <= shift["start"][:10] <= last_day):
                 continue
             start, end = datetime.fromisoformat(shift["start"]), datetime.fromisoformat(shift["end"])
             if end <= now:

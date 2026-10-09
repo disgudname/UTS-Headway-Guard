@@ -801,6 +801,17 @@ feed (`W2W_ICAL_URL`) lists every shift, unassigned ones with an empty employee 
   change (shift added/removed/reassigned/retimed) to `w2w_schedule_changes.jsonl` in the data dir. The feed is only the
   schedule as it is NOW, so the log is the only history; a poll that has no shifts or shrinks by more than half is ignored.
   Dispatcher-auth endpoints: `GET /v1/w2w/schedule-changes` (`?date=&position=&limit=`) and `GET /v1/w2w/unassigned` (`?days=&start=`).
+- **The feed misses some open shifts, so the API fills them in.** When a manager edits a shift and has W2W make an unassigned
+  copy (a callout), W2W pushes the edited shift to Google but NOT the copy, until someone saves the copy again (hours or
+  never). W2W's API has no list of unassigned shifts, but `DailyPositionTotals` counts them per position per day
+  (`UNASSIGNED_SHIFTS`, `UNASSIGNED_HOURS`). After every feed poll `app.py` reads that and `AssignedShiftList` for
+  yesterday to `W2W_OPEN_FILL_DAYS` (7) days ahead, and `w2w_schedule.missing_open_shifts` adds any shift W2W counts
+  that the feed lacks, with the times of the assigned shift it was copied from (same position and day, same length, its
+  copy not already in the feed; red `COLOR_ID` 9 only breaks a tie between equal candidates). Filled shifts have no note
+  (the original's note can say why it is open), live in memory only (the change log stays a record of the feed), go
+  away when the feed catches up, and are dropped if the API has been unreadable for 20 minutes. Unpublished days are
+  skipped. A gap nothing explains is listed in `unresolved` on `GET /v1/w2w/ob` and nothing is shown for it. The nine
+  `/api/export*` payroll endpoints and `detail=Y` were tried and carry assigned shifts only (HANDOFF.md 2026-10-09).
 - `_fetch_w2w_assignments` returns `unassigned_by_block` next to `assignments_by_block`: same shape, each entry named `"OPEN"`
   with `"unassigned": true`. It is deliberately SEPARATE so nothing that treats `assignments_by_block` as "people on duty"
   (vehicle matching, OnDemand name matching, van roster) changes; only display code opts in.

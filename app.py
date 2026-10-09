@@ -129,6 +129,8 @@ W2W_ASSIGNMENT_TTL_S = int(os.getenv("W2W_ASSIGNMENT_TTL_S", "45"))
 # Secret iCal address of the W2W "Complete Schedule" Google Calendar. Unlike the API it includes UNASSIGNED shifts.
 W2W_ICAL_URL = (os.getenv("W2W_ICAL_URL") or "").strip()
 W2W_ICAL_POLL_S = int(os.getenv("W2W_ICAL_POLL_S", "300"))
+# How many days ahead the feed's unassigned shifts are checked against W2W's API on every poll
+W2W_OPEN_FILL_DAYS = int(os.getenv("W2W_OPEN_FILL_DAYS", "7"))
 # Published Google Slides deck mirrored for /ob-slides (see slides_mirror.py). Must be a /pub link.
 OB_SLIDES_DECK_URL = (
     os.getenv("OB_SLIDES_DECK_URL")
@@ -6842,6 +6844,33 @@ async def startup():
             except Exception as exc:
                 w2w_schedule_log.last_error = _redact_w2w_error(str(exc))
                 print(f"[w2w-schedule] poll failed: {w2w_schedule_log.last_error}")
+            # The feed misses the unassigned copy of a called-out shift until someone re-saves it in W2W; W2W's API
+            # counts it, so fill those in (w2w_schedule.missing_open_shifts).
+            if W2W_KEY:
+                try:
+                    today = datetime.now(ZoneInfo("America/New_York")).date()
+                    first, last = today - timedelta(days=1), today + timedelta(days=W2W_OPEN_FILL_DAYS)
+                    params = {
+                        "start_date": f"{first.month}/{first.day}/{first.year}",
+                        "end_date": f"{last.month}/{last.day}/{last.year}",
+                        "key": W2W_KEY,
+                    }
+                    rows: Dict[str, List[Dict[str, Any]]] = {}
+                    async with httpx.AsyncClient() as client:
+                        for name in ("DailyPositionTotals", "AssignedShiftList"):
+                            url = W2W_ASSIGNED_SHIFT_URL.rsplit("/", 1)[0] + "/" + name
+                            resp = await client.get(url, params=params, timeout=30)
+                            record_api_call("GET", str(httpx.URL(url, params={**params, "key": "***"})), resp.status_code)
+                            resp.raise_for_status()
+                            rows[name] = resp.json().get(name) or []
+                    before = len(w2w_schedule_log.filled), len(w2w_schedule_log.unresolved)
+                    w2w_schedule_log.apply_api(rows["DailyPositionTotals"], rows["AssignedShiftList"])
+                    after = len(w2w_schedule_log.filled), len(w2w_schedule_log.unresolved)
+                    if after != before:
+                        print(f"[w2w-schedule] open shifts filled from the API: {after[0]}, unexplained gaps: {after[1]}")
+                except Exception as exc:
+                    w2w_schedule_log.last_api_error = _redact_w2w_error(str(exc))
+                    print(f"[w2w-schedule] API open-shift check failed: {w2w_schedule_log.last_api_error}")
             await asyncio.sleep(max(60, W2W_ICAL_POLL_S))
 
     asyncio.create_task(w2w_schedule_poller())
@@ -7838,6 +7867,9 @@ async def w2w_open_blocks(request: Request):
     return {
         "configured": bool(W2W_ICAL_URL),
         "last_poll": getattr(log, "last_poll_ts", None),
+        # Open shifts W2W counts that neither the feed nor the API fill could put a time on (should stay empty)
+        "unresolved": getattr(log, "unresolved", []),
+        "last_api_error": getattr(log, "last_api_error", None),
         **data,
     }
 
