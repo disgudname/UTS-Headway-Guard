@@ -100,6 +100,25 @@ def service_level():
         return None
 
 
+def service_calendar(now):
+    """The public calendar's row for the SERVICE day this run falls in: {"service_date", "services", "notes"}, or None.
+    A service day runs to 04:00, so the 00:00 and 01:30 runs read the day before (a Saturday with Night Pilot
+    "No Service" is why Sunday's 00:00 run is empty). `notes` is where a game day says so
+    ("Home Football Game Route Service Ends at 4PM")."""
+    try:
+        day = (now - datetime.timedelta(hours=4)).date().isoformat()
+        for d in eta_watch.fetch(f"/v1/service-schedule?start={day}&days=1").get("days") or []:
+            if d.get("date") == day:
+                return {"service_date": day, "services": d.get("services") or {}, "notes": d.get("notes") or ""}
+    except Exception:
+        pass
+    return None
+
+
+def is_game_day(summary):
+    return "football" in str((summary.get("calendar") or {}).get("notes") or "").lower()
+
+
 def route_names():
     try:
         return {str(l["id"]): l["name"] for l in eta_watch.fetch("/v1/trip-planner/uts-graph")["lines"]}
@@ -261,10 +280,12 @@ def analyze(rows, names, warmup_until=None):
 def usual_route_errors(summary, earlier):
     """{route name: median of its median_err_s} over the last USUAL_RUNS earlier runs of the same slot: same start
     time and length, same kind of day (Mon-Fri together, Sat and Sun each alone), same service level (runs from
-    before the level was logged, 2026-10-05, were all Full Service)."""
+    before the level was logged, 2026-10-05, were all Full Service). A home football day is only compared with other
+    football days (calendar notes, logged from 2026-10-09)."""
     def slot(d):
         day = d.get("day")
-        return (str(d.get("when", ""))[11:16], d.get("minutes"), day if day in ("Sat", "Sun") else "wk", d.get("service_level") or "full")
+        return (str(d.get("when", ""))[11:16], d.get("minutes"), day if day in ("Sat", "Sun") else "wk", d.get("service_level") or "full",
+                is_game_day(d))
 
     seen = defaultdict(list)
     for d in earlier:
@@ -329,6 +350,9 @@ def main():
     }
     try:
         summary["service_level"] = service_level()
+        calendar = service_calendar(now)
+        if calendar:
+            summary["calendar"] = calendar
         names = route_names()
         seen = watch(minutes, every, log)
         summary["purple_in_service"] = any(names.get(r, "").lower().startswith("purple") for r in seen)

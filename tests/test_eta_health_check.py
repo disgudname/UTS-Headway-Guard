@@ -187,3 +187,26 @@ def test_flips_and_missing_predictions_are_the_engine_and_a_route_on_target_says
                               "Purple Line: 20.4% of predictions >2 min late (limit 12.0%)"])
     causes = h.diagnose(run, [])
     assert causes[0].startswith("ENGINE -- 3 full-lap") and causes[1].startswith("Purple staging")
+
+
+def test_a_football_saturday_is_not_compared_with_ordinary_saturdays():
+    sats = [_run(-40, when=f"2026-09-{d:02d}T12:30:01-04:00", day="Sat") for d in (5, 12, 19, 26)]
+    game = _run(-170, when="2026-10-10T12:30:01-04:00", day="Sat",
+                calendar={"service_date": "2026-10-10", "services": {}, "notes": "Home Football Game Route Service Ends at 4PM"})
+    assert "too few earlier runs" in h.diagnose(game, sats)[0]
+    assert "BUSES SLOW today" in h.diagnose(_run(-170, when="2026-10-17T12:30:01-04:00", day="Sat"), sats + [game])[0]
+
+
+def test_an_after_midnight_run_reads_the_calendar_of_the_evening_before(monkeypatch):
+    import datetime
+    asked = []
+
+    def fetch(path):
+        asked.append(path)
+        return {"days": [{"date": "2026-10-10", "services": {"Night Pilot": "No Service"}, "notes": "Home Football Game"}]}
+
+    monkeypatch.setattr(h.eta_watch, "fetch", fetch)
+    cal = h.service_calendar(datetime.datetime(2026, 10, 11, 1, 30))
+    assert "start=2026-10-10" in asked[0]
+    assert cal["service_date"] == "2026-10-10" and cal["services"]["Night Pilot"] == "No Service"
+    assert h.is_game_day({"calendar": cal})

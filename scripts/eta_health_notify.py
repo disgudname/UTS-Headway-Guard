@@ -28,6 +28,13 @@ thresholds and baseline, then judge this result:
 A "notes" field is informational only (e.g. thin weekend history that should improve on its own): mention it in
 one short clause if present, but it is NOT a PROBLEM and must not change an ALL CLEAR into one.
 
+A "calendar" field is the public service calendar's row for this run's service day (a service day runs to 04:00, so
+the 00:00 and 01:30 runs carry the day before): what each service is scheduled to do, plus "notes" such as a home
+football game or route service ending early. Use it to explain the result: if there is little or no data and the
+calendar says why (a service listed "No Service", route service already ended, a game day running only lot shuttles),
+say "expected" with that reason in a few words and do not call it a PROBLEM. If the calendar says a route should be
+running and we have nothing for it, that IS worth saying. Mention a game day whenever the notes show one.
+
 Reply with ONLY the notification text, plain language, no markdown, max 5 short lines:
 line 1 starts with "ALL CLEAR:", "PROBLEM:" (a real breach, not one delayed bus or a scorer artifact) or
 "NOTE:" (inconclusive/odd, e.g. error, too little data, Purple off-hours), plus a few-word verdict.
