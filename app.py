@@ -133,6 +133,11 @@ W2W_ICAL_POLL_S = int(os.getenv("W2W_ICAL_POLL_S", "300"))
 # Custom Reports > Unassigned Shifts > export, CSV, default columns, then "Generate API Access Token". The key only
 # works for that one report. StartDate/EndDate in it are replaced on every poll.
 W2W_EXPORT_URL = (os.getenv("W2W_EXPORT_URL") or "").strip()
+# Keyed URL of W2W's "Recent Shift History" export CSV (a credential, as above; Reports > Custom Reports > Recent Shift
+# History > export > "Generate API Access Token"). W2W's own change log, copied into the data dir on every poll.
+W2W_HISTORY_URL = (os.getenv("W2W_HISTORY_URL") or "").strip()
+# How far back the first read of that history goes (W2W keeps at least a year)
+W2W_HISTORY_BACKFILL_DAYS = int(os.getenv("W2W_HISTORY_BACKFILL_DAYS", "60"))
 # How many days ahead the feed's unassigned shifts are checked against W2W's API on every poll
 W2W_OPEN_FILL_DAYS = int(os.getenv("W2W_OPEN_FILL_DAYS", "7"))
 # Published Google Slides deck mirrored for /ob-slides (see slides_mirror.py). Must be a /pub link.
@@ -973,6 +978,7 @@ EXPECTED_ENV_KEYS = sorted(
         "W2W_ASSIGNMENT_TTL_S",
         "SERVICE_SCHEDULE_POLL_S",
         "W2W_EXPORT_URL",
+        "W2W_HISTORY_URL",
         "W2W_ICAL_POLL_S",
         "W2W_ICAL_URL",
         "W2W_KEY",
@@ -6832,23 +6838,58 @@ async def startup():
     w2w_schedule_log = W2WScheduleLog(PRIMARY_DATA_DIR)
     app.state.w2w_schedule_log = w2w_schedule_log
 
+    async def w2w_history_poll():
+        """Copy W2W's own change log (Recent Shift History export) into the data dir: from the newest change already
+        stored up to today, a week per request, so the first run and any outage backfill themselves."""
+        today = datetime.now(ZoneInfo("America/New_York")).date()
+        start = await asyncio.to_thread(w2w_schedule_log.history_resume_date, today, W2W_HISTORY_BACKFILL_DAYS)
+        history_url = httpx.URL(W2W_HISTORY_URL)
+        added = 0
+        async with httpx.AsyncClient(follow_redirects=True) as client:
+            while start <= today:
+                end = min(start + timedelta(days=6), today)
+                params = {
+                    **dict(history_url.params),
+                    "StartDate": start.strftime("%m/%d/%Y"), "EndDate": end.strftime("%m/%d/%Y"),
+                }
+                resp = await client.get(history_url.copy_with(query=None), params=params, timeout=60)
+                record_api_call(
+                    "GET", str(httpx.URL(history_url.copy_with(query=None), params={**params, "key": "***"})),
+                    resp.status_code,
+                )
+                resp.raise_for_status()
+                added += await asyncio.to_thread(w2w_schedule_log.apply_history, resp.text)
+                start = end + timedelta(days=1)
+        return added
+
     async def w2w_schedule_poller():
-        if not W2W_ICAL_URL:
+        if not (W2W_ICAL_URL or W2W_KEY or W2W_HISTORY_URL):
             return
         await asyncio.sleep(20)
         while True:
-            try:
-                async with httpx.AsyncClient(follow_redirects=True) as client:
-                    resp = await client.get(W2W_ICAL_URL, timeout=60)
-                resp.raise_for_status()
-                events = await asyncio.to_thread(w2w_schedule_log.apply, resp.text)
-                if events:
-                    print(f"[w2w-schedule] {len(events)} change(s) logged")
-                if w2w_schedule_log.last_error:
-                    print(f"[w2w-schedule] {w2w_schedule_log.last_error}")
-            except Exception as exc:
-                w2w_schedule_log.last_error = _redact_w2w_error(str(exc))
-                print(f"[w2w-schedule] poll failed: {w2w_schedule_log.last_error}")
+            if W2W_HISTORY_URL:
+                try:
+                    added = await w2w_history_poll()
+                    if added > 50:
+                        print(f"[w2w-schedule] {added} W2W shift-history rows stored")
+                except Exception as exc:
+                    first_failure = w2w_schedule_log.last_history_error is None
+                    w2w_schedule_log.last_history_error = _redact_w2w_error(str(exc))[:300]
+                    if first_failure:
+                        print(f"[w2w-schedule] shift history read failed: {w2w_schedule_log.last_history_error}")
+            if W2W_ICAL_URL:
+                try:
+                    async with httpx.AsyncClient(follow_redirects=True) as client:
+                        resp = await client.get(W2W_ICAL_URL, timeout=60)
+                    resp.raise_for_status()
+                    events = await asyncio.to_thread(w2w_schedule_log.apply, resp.text)
+                    if events:
+                        print(f"[w2w-schedule] {len(events)} change(s) logged")
+                    if w2w_schedule_log.last_error:
+                        print(f"[w2w-schedule] {w2w_schedule_log.last_error}")
+                except Exception as exc:
+                    w2w_schedule_log.last_error = _redact_w2w_error(str(exc))
+                    print(f"[w2w-schedule] poll failed: {w2w_schedule_log.last_error}")
             # The feed misses the unassigned copy of a called-out shift until someone re-saves it in W2W. Two things
             # cover that, both read here: W2W's API counts unassigned shifts per position and day (used to fill the
             # gap by deduction, w2w_schedule.missing_open_shifts), and W2W's Unassigned Shifts export lists them
@@ -7845,12 +7886,25 @@ async def w2w_schedule_changes(
     limit: int = Query(200, ge=1, le=2000),
     date: Optional[str] = Query(None, description="Only shifts on this day, YYYY-MM-DD"),
     position: Optional[str] = Query(None, description="Only this position, e.g. 08"),
+    source: Optional[str] = Query(None, description="w2w or calendar; default: w2w when it has anything"),
 ):
-    """Every change seen in the W2W full-schedule feed (shift added/removed/reassigned/retimed), newest first."""
+    """Schedule changes, newest first. `source` "w2w" = W2W's own change log (who changed what on which shift, see
+    w2w_schedule.parse_history_csv); "calendar" = the older log built from the calendar feed (shift added / removed /
+    changed), served until the W2W log has something, or on request with source=calendar."""
     _require_dispatcher_access(request)
     log = getattr(app.state, "w2w_schedule_log", None)
+    events = log.history(limit, date, position) if log and source != "calendar" else []
+    if events or source == "w2w":
+        return {
+            "configured": bool(W2W_HISTORY_URL),
+            "source": "w2w",
+            "last_poll": getattr(log, "last_history_ts", None),
+            "last_error": getattr(log, "last_history_error", None),
+            "events": events,
+        }
     return {
         "configured": bool(W2W_ICAL_URL),
+        "source": "calendar",
         "last_poll": getattr(log, "last_poll_ts", None),
         "last_error": getattr(log, "last_error", None),
         "events": log.recent_changes(limit, date, position) if log else [],

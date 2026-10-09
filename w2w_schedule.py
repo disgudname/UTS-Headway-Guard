@@ -15,7 +15,11 @@ URL made in its export popup) lists every unassigned shift in a date range with 
 it has been read recently AND agrees with the API's count for a day, it IS the list of open shifts for that day; the
 feed (plus the fill above) is what is used for every other day and whenever the export cannot be read.
 
-Files (in the data directory): w2w_schedule_snapshot.json, w2w_schedule_changes.jsonl.
+W2W also keeps its own change log, the "Recent Shift History" report (the W2W_HISTORY_URL secret is a keyed URL for
+its export): one row per change with the shift's id, who changed it and what changed. `apply_history` copies it into
+w2w_shift_history.jsonl, and the schedule-changes endpoint serves that in preference to the log built from the calendar.
+
+Files (in the data directory): w2w_schedule_snapshot.json, w2w_schedule_changes.jsonl, w2w_shift_history.jsonl.
 """
 from __future__ import annotations
 
@@ -34,6 +38,8 @@ from zoneinfo import ZoneInfo
 NY = ZoneInfo("America/New_York")
 SNAPSHOT_NAME = "w2w_schedule_snapshot.json"
 LOG_NAME = "w2w_schedule_changes.jsonl"
+HISTORY_NAME = "w2w_shift_history.jsonl"
+HISTORY_COLUMNS = ("ShiftID", "ShiftDate", "StartTime", "EndTime", "Position", "ChangeDate", "ChangedBy", "NowAssignedTo", "Change")
 # Only shifts starting within this many days back are tracked (the feed reaches a year back; old edits are just noise).
 TRACK_DAYS_BACK = 60
 # A fetch that suddenly has far fewer shifts than the last good one is treated as a bad response, not a mass deletion.
@@ -175,6 +181,51 @@ def parse_export_csv(text: str) -> List[Dict[str, Any]]:
     return open_shifts
 
 
+def _stamp(value: str) -> datetime:
+    """A W2W export date and time as New York time. The same report comes with a 24-hour or a 12-hour clock depending
+    on the account it is run as: "10/09/2026 14:30" or "10/09/2026 02:30 PM"."""
+    value = " ".join(value.split())
+    for pattern in ("%m/%d/%Y %H:%M", "%m/%d/%Y %I:%M %p", "%m/%d/%Y %H:%M:%S", "%m/%d/%Y %I:%M:%S %p"):
+        try:
+            return datetime.strptime(value, pattern).replace(tzinfo=NY)
+        except ValueError:
+            continue
+    raise ValueError(f"unreadable W2W date and time {value!r}")
+
+
+def parse_history_csv(text: str) -> List[Dict[str, Any]]:
+    """W2W "Recent Shift History" export CSV -> change events, oldest first:
+    {ts, shift_id, date, position, position_name, start, end, changed_by, assigned_to, changes}. `ts` is when the
+    change was made and start/end are the shift's times, all New York local ISO strings; `assigned_to` is "" for an
+    unassigned shift; `changes` is W2W's wording split into a list ("Shift Created", "Color changed", "Worker
+    assigned", ...). Raises ValueError when the text is not that export."""
+    reader = csv.DictReader(io.StringIO(text.lstrip(chr(0xFEFF))))
+    if not reader.fieldnames or not set(HISTORY_COLUMNS) <= set(name.strip() for name in reader.fieldnames):
+        raise ValueError("not a W2W shift history export")
+    events: List[Dict[str, Any]] = []
+    for row in reader:
+        try:
+            day = row["ShiftDate"].strip()
+            changed = _stamp(row["ChangeDate"])
+            start, end = _stamp(day + " " + row["StartTime"]), _stamp(day + " " + row["EndTime"])
+        except (ValueError, AttributeError):
+            raise ValueError("W2W shift history export has a row with an unreadable date or time")
+        if end <= start:
+            end += timedelta(days=1)
+        name = (row["Position"] or "").strip()
+        position = re.search(r"\[([^\]]+)\]", name)
+        events.append({
+            "ts": changed.isoformat(timespec="minutes"), "shift_id": (row["ShiftID"] or "").strip(),
+            "date": start.date().isoformat(), "position": position.group(1) if position else name, "position_name": name,
+            "start": start.isoformat(timespec="minutes"), "end": end.isoformat(timespec="minutes"),
+            "changed_by": (row["ChangedBy"] or "").strip(), "assigned_to": (row["NowAssignedTo"] or "").strip(),
+            # W2W runs several changes together with no separator: "Description changedStart Time changed"
+            "changes": [part for part in re.split(r"(?<=[a-z])(?=[A-Z])", (row["Change"] or "").strip()) if part],
+        })
+    events.sort(key=lambda e: e["ts"])
+    return events
+
+
 def _hours(shift: Dict[str, Any]) -> float:
     return (datetime.fromisoformat(shift["end"]) - datetime.fromisoformat(shift["start"])).total_seconds() / 3600.0
 
@@ -278,6 +329,11 @@ class W2WScheduleLog:
         self._export_at: Optional[datetime] = None
         self.last_export_error: Optional[str] = None
         self.export_mismatch: List[str] = []  # days the export and W2W's API count disagreed on at the last read
+        # W2W's own change log (see parse_history_csv)
+        self.history_path = self.directory / HISTORY_NAME
+        self._history_seen: Optional[set] = None
+        self.last_history_ts: Optional[str] = None
+        self.last_history_error: Optional[str] = None
 
     def _load_snapshot(self) -> Optional[Dict[str, Dict[str, Any]]]:
         if self._snapshot is not None:
@@ -392,7 +448,66 @@ class W2WScheduleLog:
             return shifts
         return self._export_open + [s for s in shifts if s["start"][:10] not in self._export_days]
 
+    @staticmethod
+    def _history_key(event: Dict[str, Any]) -> str:
+        return json.dumps([event.get(k) for k in ("ts", "shift_id", "start", "end", "assigned_to", "changes")], separators=(",", ":"))
+
+    def _history_events(self) -> List[Dict[str, Any]]:
+        try:
+            lines = self.history_path.read_text(encoding="utf-8").splitlines()
+        except OSError:
+            return []
+        events = []
+        for line in lines:
+            try:
+                events.append(json.loads(line))
+            except ValueError:
+                continue
+        return events
+
+    def history_resume_date(self, today: date, backfill_days: int) -> date:
+        """The first change date still to ask W2W for: the day of the newest change already stored (asked again, in
+        case more happened that day), or `backfill_days` back when nothing is stored yet."""
+        events = self._history_events()
+        if not events:
+            return today - timedelta(days=backfill_days)
+        return min(today, date.fromisoformat(max(e["ts"] for e in events)[:10]))
+
+    def apply_history(self, csv_text: str, now: Optional[datetime] = None) -> int:
+        """Append the rows of one Recent Shift History export that are not stored yet. Returns how many were new.
+        Raises ValueError (and stores nothing) on a bad file."""
+        events = parse_history_csv(csv_text)
+        if self._history_seen is None:
+            self._history_seen = {self._history_key(e) for e in self._history_events()}
+        fresh = []
+        for event in events:
+            key = self._history_key(event)
+            if key not in self._history_seen:
+                self._history_seen.add(key)
+                fresh.append(event)
+        if fresh:
+            self.directory.mkdir(parents=True, exist_ok=True)
+            with self.history_path.open("a", encoding="utf-8") as fh:
+                fh.write("".join(json.dumps(e, separators=(",", ":")) + "\n" for e in fresh))
+        self.last_history_ts = (now or datetime.now(timezone.utc)).astimezone(timezone.utc).isoformat(timespec="seconds")
+        self.last_history_error = None
+        return len(fresh)
+
+    def history(self, limit: int = 200, on_date: Optional[str] = None, position: Optional[str] = None) -> List[Dict[str, Any]]:
+        """W2W's own change log, newest first. `on_date` is the SHIFT's day; `position` like "08"."""
+        out: List[Dict[str, Any]] = []
+        for event in sorted(self._history_events(), key=lambda e: e["ts"], reverse=True):
+            if on_date and event.get("date") != on_date:
+                continue
+            if position and str(event.get("position", "")).lstrip("0") != str(position).lstrip("0"):
+                continue
+            out.append(event)
+            if len(out) >= limit:
+                break
+        return out
+
     def recent_changes(self, limit: int = 200, on_date: Optional[str] = None, position: Optional[str] = None) -> List[Dict[str, Any]]:
+        """Changes seen in the CALENDAR feed (added / removed / changed), newest first. `history` is W2W's own log."""
         try:
             lines = self.log_path.read_text(encoding="utf-8").splitlines()
         except OSError:

@@ -485,3 +485,53 @@ def test_the_export_replaces_the_feed_on_the_days_it_covers_and_only_while_it_is
     late = datetime(2026, 9, 4, 16, 30, tzinfo=timezone.utc)
     log.apply_export(EXPORT, EXPORT_DAYS, EXPORT_TOTALS, now=now)
     assert log.open_source(late) == "feed" and board(late) == [("09", "10:30", "OFF")]
+
+
+# --- W2W's own change log: the "Recent Shift History" export ---
+
+HISTORY_HEAD = "ShiftID,ShiftDate,StartTime,EndTime,Position,ChangeDate,ChangedBy,NowAssignedTo,Change"
+HISTORY = CRLF.join([
+    HISTORY_HEAD,
+    '1294214799,10/09/2026,13:00,15:00,"[12]",10/09/2026 12:33,"Pat Manager","Mike Driver","Description changedStart Time changedDuration changedWorker assigned"',
+    '1291723793,10/09/2026,22:00,02:30,"[03]",10/08/2026 23:39,"Sam Manager","Art Driver","Color changed"',
+    '1294167791,10/09/2026,22:00,02:30,"[03]",10/08/2026 23:39,"Sam Manager","","Shift Created"',
+    '1293279095,10/12/2026,21:30,05:30,"OnDemand Driver",10/08/2026 23:57,"Sam Manager","","Worker unassigned"',
+]) + CRLF
+
+
+def test_shift_history_rows_become_change_events_oldest_first():
+    events = w.parse_history_csv(HISTORY)
+    assert [e["ts"] for e in events] == ["2026-10-08T23:39-04:00", "2026-10-08T23:39-04:00", "2026-10-08T23:57-04:00", "2026-10-09T12:33-04:00"]
+    created = events[1]
+    assert created == {
+        "ts": "2026-10-08T23:39-04:00", "shift_id": "1294167791", "date": "2026-10-09", "position": "03", "position_name": "[03]",
+        "start": "2026-10-09T22:00-04:00", "end": "2026-10-10T02:30-04:00", "changed_by": "Sam Manager", "assigned_to": "",
+        "changes": ["Shift Created"],
+    }
+    assert events[3]["changes"] == ["Description changed", "Start Time changed", "Duration changed", "Worker assigned"]
+    assert events[2]["position"] == "OnDemand Driver" and events[2]["end"] == "2026-10-13T05:30-04:00"
+    # the same report on a 12-hour clock
+    twelve = HISTORY_HEAD + CRLF + '7,10/09/2026,10:00 PM,02:30 AM,"[03]",10/08/2026 11:39 PM,"Sam Manager","","Shift Created"' + CRLF
+    assert [(e["ts"], e["start"], e["end"]) for e in w.parse_history_csv(twelve)] == [
+        ("2026-10-08T23:39-04:00", "2026-10-09T22:00-04:00", "2026-10-10T02:30-04:00")]
+
+
+def test_shift_history_is_stored_once_and_served_newest_first(tmp_path):
+    import pytest
+    log = w.W2WScheduleLog(tmp_path)
+    assert log.history_resume_date(date(2026, 10, 9), 60) == date(2026, 8, 10)  # nothing stored: backfill
+    assert log.apply_history(HISTORY) == 4
+    assert log.apply_history(HISTORY) == 0  # the same rows again (every poll re-reads today) add nothing
+    assert w.W2WScheduleLog(tmp_path).apply_history(HISTORY) == 0  # ... also after a restart
+    later = HISTORY + '1294167791,10/09/2026,22:00,02:30,"[03]",10/09/2026 15:10,"Sam Manager","New Driver","Worker assigned"' + CRLF
+    assert log.apply_history(later) == 1
+    assert log.history_resume_date(date(2026, 10, 12), 60) == date(2026, 10, 9)  # resume from the newest stored change
+    assert [(e["ts"][5:16], e["assigned_to"]) for e in log.history(on_date="2026-10-09", position="3")] == [
+        ("10-09T15:10", "New Driver"), ("10-08T23:39", "Art Driver"), ("10-08T23:39", "")]
+    assert len(log.history(limit=2)) == 2 and log.history(on_date="2026-10-12")[0]["changes"] == ["Worker unassigned"]
+    for bad in ("Report type=exportshifthistory is not authorized!", "<html>Sign in</html>",
+                HISTORY_HEAD + CRLF + '1,soon,13:00,15:00,"[12]",10/09/2026 12:33,"A","B","Color changed"' + CRLF):
+        with pytest.raises(ValueError):
+            log.apply_history(bad)
+    assert len(log.history()) == 5  # a bad file stores nothing
+    assert log.apply_history(HISTORY_HEAD + CRLF) == 0  # a quiet day
