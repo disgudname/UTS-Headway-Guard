@@ -6860,6 +6860,9 @@ async def startup():
                 resp.raise_for_status()
                 added += await asyncio.to_thread(w2w_schedule_log.apply_history, resp.text)
                 start = end + timedelta(days=1)
+        if not added and not w2w_schedule_log.history_path.exists():
+            # A key made with the "Restricted" scope returns the header and no rows for this report, with no error
+            raise ValueError(f"W2W shift history came back empty for the last {W2W_HISTORY_BACKFILL_DAYS} days (key scope?)")
         return added
 
     async def w2w_schedule_poller():
