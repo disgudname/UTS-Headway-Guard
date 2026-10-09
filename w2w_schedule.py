@@ -10,10 +10,17 @@ W2W does not push every unassigned shift to that calendar: the unassigned COPY i
 (DailyPositionTotals), so `missing_open_shifts` compares that count with the feed and, where the feed is short, takes
 the missing shift's times from the assigned shift it was copied from. See HANDOFF.md 2026-10-09.
 
+Better than both: W2W's own "Export Schedule" CSV (the W2W_EXPORT_URL secret, a keyed URL made in W2W's export popup)
+lists every shift of the current week, unassigned ones included, with their real times and descriptions. When it has
+been read recently it IS the list of open shifts for the days it covers; the feed (plus the fill above) is what is
+used for other days and whenever the export cannot be read.
+
 Files (in the data directory): w2w_schedule_snapshot.json, w2w_schedule_changes.jsonl.
 """
 from __future__ import annotations
 
+import csv
+import io
 import json
 import os
 import re
@@ -138,6 +145,45 @@ def _api_dt(day: str, clock: str) -> datetime:
     return datetime(year, month, dom, hour, int(match.group(2) or 0), tzinfo=NY)
 
 
+def parse_export_csv(text: str) -> Tuple[List[Dict[str, Any]], List[str]]:
+    """W2W "Export Schedule" CSV -> (unassigned shifts, the days the file covers as YYYY-MM-DD).
+
+    The shifts are snapshot-shaped (employee "", position, position_name, start, end, note) plus "shift_id". A shift is
+    unassigned when its Employee Name is empty. The file holds one whole week, so every day from its first date to its
+    last counts as covered, including a day on which nothing is scheduled. Raises ValueError when the text is not that
+    export (a sign-in page, an error, a file without the needed columns), so a bad read is never taken for "no OB"."""
+    reader = csv.DictReader(io.StringIO(text.lstrip(chr(0xFEFF))))
+    needed = {"Position Name", "Shift Description", "Date", "Start Time", "End Time", "Employee Name"}
+    if not reader.fieldnames or not needed <= set(reader.fieldnames):
+        raise ValueError("not a W2W schedule export (needs Position Name, Shift Description, Date, Start/End Time, Employee Name)")
+    open_shifts: List[Dict[str, Any]] = []
+    days: List[date] = []
+    rows = 0
+    for row in reader:
+        try:
+            start = _api_dt(row["Date"].strip(), row["Start Time"])
+            end = _api_dt(row["Date"].strip(), row["End Time"])
+        except (ValueError, AttributeError):
+            continue
+        rows += 1
+        days.append(start.date())
+        if (row["Employee Name"] or "").strip():
+            continue
+        if end <= start:
+            end += timedelta(days=1)
+        name = (row["Position Name"] or "").strip()
+        position = re.search(r"\[([^\]]+)\]", name)
+        open_shifts.append({
+            "employee": "", "position": position.group(1) if position else name, "position_name": name,
+            "start": start.isoformat(timespec="minutes"), "end": end.isoformat(timespec="minutes"),
+            "note": (row["Shift Description"] or "").strip(), "modified": "", "shift_id": (row.get("Shift ID") or "").strip(),
+        })
+    if not rows:
+        raise ValueError("W2W schedule export had no shifts")
+    first, last = min(days), max(days)
+    return open_shifts, [(first + timedelta(days=n)).isoformat() for n in range((last - first).days + 1)]
+
+
 def _hours(shift: Dict[str, Any]) -> float:
     return (datetime.fromisoformat(shift["end"]) - datetime.fromisoformat(shift["start"])).total_seconds() / 3600.0
 
@@ -235,6 +281,11 @@ class W2WScheduleLog:
         self.unresolved: List[Dict[str, Any]] = []
         self.last_api_error: Optional[str] = None
         self._fill_notes: Dict[tuple, str] = {}  # (position_name, start, end) -> note, kept while the shift stays filled
+        # W2W's own schedule export (see parse_export_csv): the open shifts of the days it covers, straight from W2W
+        self._export_open: List[Dict[str, Any]] = []
+        self._export_days: set = set()
+        self._export_at: Optional[datetime] = None
+        self.last_export_error: Optional[str] = None
 
     def _load_snapshot(self) -> Optional[Dict[str, Dict[str, Any]]]:
         if self._snapshot is not None:
@@ -307,14 +358,30 @@ class W2WScheduleLog:
                 return event.get("note_before", "")
         return ""
 
+    def apply_export(self, csv_text: str, now: Optional[datetime] = None) -> None:
+        """Take one read of W2W's schedule export. Raises ValueError (and keeps the last good read) on a bad file."""
+        self._export_open, days = parse_export_csv(csv_text)
+        self._export_days = set(days)
+        self._export_at = now or datetime.now(timezone.utc)
+        self.last_export_error = None
+
+    def open_source(self, now: Optional[datetime] = None) -> str:
+        """Where open shifts are coming from right now: "export" (W2W's own list) or "feed" (calendar + API fill)."""
+        now = now or datetime.now(timezone.utc)
+        fresh = self._export_at is not None and (now - self._export_at).total_seconds() <= API_FILL_MAX_AGE_S
+        return "export" if fresh else "feed"
+
     def _open_shifts(self, now: Optional[datetime] = None) -> List[Dict[str, Any]]:
-        """Every unassigned shift: the feed's, plus the ones filled in from the API that the feed still lacks."""
+        """Every unassigned shift. Days covered by a recent W2W export come from the export alone; every other day comes
+        from the feed, plus the shifts filled in from the API that the feed still lacks."""
         shifts = [s for s in (self._load_snapshot() or {}).values() if not s["employee"]]
         now = now or datetime.now(timezone.utc)
-        if self._filled_at is None or (now - self._filled_at).total_seconds() > API_FILL_MAX_AGE_S:
+        if self._filled_at is not None and (now - self._filled_at).total_seconds() <= API_FILL_MAX_AGE_S:
+            in_feed = {(s.get("position_name") or s["position"], s["start"], s["end"]) for s in shifts}
+            shifts = shifts + [s for s in self.filled if (s["position_name"], s["start"], s["end"]) not in in_feed]
+        if self.open_source(now) != "export":
             return shifts
-        in_feed = {(s.get("position_name") or s["position"], s["start"], s["end"]) for s in shifts}
-        return shifts + [s for s in self.filled if (s["position_name"], s["start"], s["end"]) not in in_feed]
+        return self._export_open + [s for s in shifts if s["start"][:10] not in self._export_days]
 
     def recent_changes(self, limit: int = 200, on_date: Optional[str] = None, position: Optional[str] = None) -> List[Dict[str, Any]]:
         try:
