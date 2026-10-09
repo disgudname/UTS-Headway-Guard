@@ -58,6 +58,16 @@ WARMUP_POLLS = 2
 NEAR_TERM_ONLY_ROUTE_PREFIXES = ("Purple Line",)
 NEAR_TERM_S = 300
 NEAR_TERM_MAX_LATE_MISS_PCT = 12.0
+# Telling "the buses ran slow" from "the engine got it wrong" (diagnose(), 2026-10-09). A bus that is simply slower than
+# its history shows as an error that is small close in and grows the further out the prediction was made (10-08 17:00
+# Gold: -14 s under 3 min out, -174 s at 10-20 min). An ETA that is already off under CLOSE_IN_S is not pace, it is the
+# engine (position, hold, timetable). Whether slow is TODAY or every day comes from the same slot's earlier runs: the
+# engine's history is summarised below the median on purpose (10-02), so some lean toward "bus after our ETA" is normal.
+CLOSE_IN_S = 180
+CLOSE_IN_OK_S = 45
+SLOWER_THAN_USUAL_S = 45
+USUAL_RUNS = 10
+MIN_USUAL_RUNS = 3
 
 
 def watch(minutes, every, log):
@@ -185,6 +195,10 @@ def analyze(rows, names, warmup_until=None):
         }
         for rid, e in by_route.items()
     }
+    for rid in by_route:
+        close = [r["ours"] for r in rows if r["ours"] is not None and r["key"][0] == rid and r["remaining"] < CLOSE_IN_S]
+        if len(close) >= MIN_ROUTE_ROWS:
+            out["routes"][names.get(rid, rid)]["close_in_median_err_s"] = round(statistics.median(close))
 
     candidates = [r for r in both if abs(r["ours"]) > FULL_LAP_OFF_S and abs(r["tl"]) < FULL_LAP_TL_OK_S]
 
@@ -244,6 +258,64 @@ def analyze(rows, names, warmup_until=None):
     return out, problems
 
 
+def usual_route_errors(summary, earlier):
+    """{route name: median of its median_err_s} over the last USUAL_RUNS earlier runs of the same slot: same start
+    time and length, same kind of day (Mon-Fri together, Sat and Sun each alone), same service level (runs from
+    before the level was logged, 2026-10-05, were all Full Service)."""
+    def slot(d):
+        day = d.get("day")
+        return (str(d.get("when", ""))[11:16], d.get("minutes"), day if day in ("Sat", "Sun") else "wk", d.get("service_level") or "full")
+
+    seen = defaultdict(list)
+    for d in earlier:
+        if slot(d) == slot(summary) and d.get("when") != summary.get("when"):
+            for name, r in (d.get("routes") or {}).items():
+                if r.get("n", 0) >= MIN_ROUTE_ROWS:
+                    seen[name].append(r["median_err_s"])
+    return {name: round(statistics.median(v[-USUAL_RUNS:])) for name, v in seen.items() if len(v) >= MIN_USUAL_RUNS}
+
+
+def diagnose(summary, earlier=()):
+    """One plain line per thing that is off, each starting with whose fault it is:
+    BUSES SLOW (slower than usual today: road or dwell), ENGINE LEAN (the same gap most days in this slot: our history
+    is too fast there) or ENGINE (wrong for a reason that is not the bus's pace). See CLOSE_IN_S above."""
+    usual = usual_route_errors(summary, earlier)
+    out = []
+    for name, r in (summary.get("routes") or {}).items():
+        med = r["median_err_s"]
+        if r["n"] < MIN_ROUTE_ROWS or abs(med) <= MAX_ROUTE_LATE_BIAS_S or name.startswith(NEAR_TERM_ONLY_ROUTE_PREFIXES):
+            continue
+        close = r.get("close_in_median_err_s")
+        if med > 0:
+            out.append(f"{name}: ENGINE -- buses came {med} s BEFORE our ETA (a hold or slow stretch we expected did not happen)")
+        elif close is not None and abs(close) > CLOSE_IN_OK_S:
+            out.append(f"{name}: ENGINE -- off by {abs(close)} s even under {CLOSE_IN_S // 60} min out, so not just a slow bus")
+        elif name not in usual:
+            out.append(f"{name}: BUSES SLOWER THAN HISTORY -- arrived {-med} s after our ETA, close-in ETAs fine; "
+                       "too few earlier runs of this slot to say if that is today or every day")
+        elif med < usual[name] - SLOWER_THAN_USUAL_S:
+            was = f"{-usual[name]} s" if usual[name] < 0 else "on time or a little early"
+            out.append(f"{name}: BUSES SLOW today -- arrived {-med} s after our ETA, usual for this slot is "
+                       f"{was}; close-in ETAs fine. Road or dwell, not the engine")
+        else:
+            out.append(f"{name}: ENGINE LEAN -- buses arrive {-med} s after our ETA, about the same as most days in this "
+                       f"slot ({-usual[name]} s): our history is too fast here, it is not today's traffic")
+    for b in summary.get("breaches") or []:
+        if "late" in b and "bias" not in b:
+            who = "Purple staging (buses leaving a hold early), known" if b.startswith(NEAR_TERM_ONLY_ROUTE_PREFIXES) else "ENGINE"
+            out.append(f"{who} -- buses came more than 2 min before our ETA: {b}")
+        elif "full-lap" in b or "TransLoc predicted" in b or "real history" in b:
+            out.append(f"ENGINE -- {b}")
+    return out
+
+
+def earlier_results():
+    try:
+        return [json.loads(l) for l in RESULTS.read_text(encoding="utf-8").splitlines() if l.strip()]
+    except Exception:
+        return []
+
+
 def main():
     minutes = float(sys.argv[1]) if len(sys.argv) > 1 else 30
     every = float(sys.argv[2]) if len(sys.argv) > 2 else 15
@@ -275,6 +347,7 @@ def main():
 
     summary.update(stats)
     summary["breaches"] = problems
+    summary["causes"] = diagnose(summary, earlier_results())
     RESULTS.parent.mkdir(parents=True, exist_ok=True)
     with RESULTS.open("a", encoding="utf-8") as f:
         f.write(json.dumps(summary) + "\n")

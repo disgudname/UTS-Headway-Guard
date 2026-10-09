@@ -144,3 +144,46 @@ def test_a_bus_missing_at_many_stops_is_one_gap():
     assert out["only_transloc"] == 9
     assert out["only_transloc_gaps"] == 1
     assert any("9 visit(s) TransLoc predicted that we didn't (1 separate bus gap(s))" in p for p in problems)
+
+
+# --- whose fault: buses slow vs the engine ---------------------------------------------------------------------
+
+def _run(median, close=-10, when="2026-10-08T17:00:01-04:00", day="Thu", **extra):
+    route = {"n": 500, "median_err_s": median, "median_abs_err_s": abs(median), "close_in_median_err_s": close}
+    return {"when": when, "day": day, "minutes": 30.0, "service_level": "full", "routes": {"Gold": route}, **extra}
+
+
+def _earlier(medians):
+    return [_run(m, when=f"2026-09-{21 + i:02d}T17:00:01-04:00", day="Mon") for i, m in enumerate(medians)]
+
+
+def test_slower_than_the_same_slot_usually_runs_is_the_buses():
+    causes = h.diagnose(_run(-170), _earlier([-40, -60, -50, -70]))
+    assert len(causes) == 1 and "BUSES SLOW today" in causes[0] and "not the engine" in causes[0]
+
+
+def test_the_same_gap_most_days_is_the_engines_lean_not_traffic():
+    causes = h.diagnose(_run(-95), _earlier([-80, -100, -90, -85]))
+    assert len(causes) == 1 and "ENGINE LEAN" in causes[0]
+
+
+def test_an_eta_that_is_off_close_in_is_the_engine():
+    causes = h.diagnose(_run(-170, close=-120), _earlier([-40, -60, -50, -70]))
+    assert len(causes) == 1 and causes[0].startswith("Gold: ENGINE --")
+
+
+def test_buses_arriving_before_our_eta_is_the_engine():
+    causes = h.diagnose(_run(80), _earlier([-40, -60, -50, -70]))
+    assert "BEFORE our ETA" in causes[0] and "ENGINE" in causes[0]
+
+
+def test_a_slot_with_no_past_runs_does_not_guess_today_vs_every_day():
+    causes = h.diagnose(_run(-170), _earlier([-40]) + [_run(-40, when="2026-09-27T17:00:01-04:00", day="Sun")] * 5)
+    assert "too few earlier runs" in causes[0]
+
+
+def test_flips_and_missing_predictions_are_the_engine_and_a_route_on_target_says_nothing():
+    run = _run(-30, breaches=["3 full-lap flip(s): our ETA >20 min off while TransLoc was within 2 min",
+                              "Purple Line: 20.4% of predictions >2 min late (limit 12.0%)"])
+    causes = h.diagnose(run, [])
+    assert causes[0].startswith("ENGINE -- 3 full-lap") and causes[1].startswith("Purple staging")

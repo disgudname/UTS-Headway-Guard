@@ -28,13 +28,19 @@ thresholds and baseline, then judge this result:
 A "notes" field is informational only (e.g. thin weekend history that should improve on its own): mention it in
 one short clause if present, but it is NOT a PROBLEM and must not change an ALL CLEAR into one.
 
-Reply with ONLY the notification text, plain language, no markdown, max 4 short lines:
+Reply with ONLY the notification text, plain language, no markdown, max 5 short lines:
 line 1 starts with "ALL CLEAR:", "PROBLEM:" (a real breach, not one delayed bus or a scorer artifact) or
 "NOTE:" (inconclusive/odd, e.g. error, too little data, Purple off-hours), plus a few-word verdict.
 Then an ACCURACY SUMMARY answering "how accurate are our ETAs?": typical error in seconds/minutes
 (median absolute), how often we were more than 2 min late, how that compares to TransLoc's own ETAs
 (tl_* fields) when present, the worst route if any, and the number of predictions scored. If there was
-no data, say so instead."""
+no data, say so instead.
+Then, whenever any route is off or there is a breach, a last line starting "WHY:" that says in plain words whether
+the BUSES ran slower than expected (road or dwell; nothing to fix) or the ENGINE got it wrong (ours to fix). Take it
+from the "causes" field, which the checker works out: BUSES SLOW = slower than usual for this slot today; ENGINE LEAN =
+the same gap most days, our history is too fast there; ENGINE = wrong for a reason that is not the bus's pace. Name
+the routes on each side. Do not blame traffic for anything "causes" calls ENGINE, and do not call a run a PROBLEM when
+every cause is BUSES SLOW. Leave the WHY line out only when nothing is off."""
 
 
 def review(last):
@@ -54,7 +60,8 @@ def review(last):
     if d.get("error"):
         return f"NOTE: health check failed to run: {d['error']}"
     if d.get("breaches"):
-        return "PROBLEM: " + "; ".join(d["breaches"])[:300]
+        why = ("\nWHY: " + "; ".join(d["causes"])) if d.get("causes") else ""
+        return ("PROBLEM: " + "; ".join(d["breaches"])[:300] + why)[:900]
     return "ALL CLEAR (Claude review unavailable)."
 
 

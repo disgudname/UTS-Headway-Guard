@@ -43,6 +43,15 @@ Checked against the entries below on 2026-10-06. Everything not listed here is b
 - **Card build is not repeatable:** `scripts/build_block_cards.py` breaks ties in a bus card's top-5 blocks (and its route mix) by set order, so two runs on the same data give a slightly different `scripts/cards-data.js`. Block cards are stable.
 - **Branches:** three merged `claude/*` branches can be deleted; `claude/late-dwell` is an unmerged prototype (see §3).
 
+### 2026-10-09 · [home] · ETA notifications now say WHOSE fault a miss is: buses slow vs the engine (scripts only, NOT the engine; the 10-14 test week is not restarted)
+- **User asked** for the phone pushes to say plainly whether ETAs were off because buses ran slower than expected or because the ETA engine got it wrong.
+- **`scripts/eta_health_check.py`:** each result line gets a `causes` list from the new `diagnose()`, one plain line per route whose median error is over 60 s and per engine-type breach. `BUSES SLOW today` = bus arrived after our ETA, close-in ETAs (under 3 min out) fine, and the gap is 45+ s worse than the same slot usually runs. `ENGINE LEAN` = same pattern but about the same as most days in that slot (our history is too fast there). `ENGINE` = off even under 3 min out, buses arriving BEFORE our ETA, full-lap flips, missing predictions, emptied history. Purple's late share is labelled as staging. Routes also get `close_in_median_err_s`.
+- **"Usual" = the median of that route's `median_err_s` over the last 10 earlier runs of the same slot** (same start time and length, Mon-Fri together / Sat / Sun, same service level; runs from before the level was logged count as Full). Under 3 earlier runs it says so and does not guess today vs every day.
+- **Why close-in vs far out:** a slow bus gives an error that grows with how far out the prediction was (10-08 17:00 Gold: -14 s under 3 min, -95 s at 3-10, -174 s at 10-20). TransLoc can NOT be the witness: it runs 2-6 min early every day.
+- **`scripts/eta_health_notify.py`:** the prompt asks for a last `WHY:` line taken from `causes`, and not to call a run a PROBLEM when every cause is BUSES SLOW. The no-Claude fallback appends the causes too.
+- **Checked:** re-scored the last 11 runs. 10-08 17:00 -> Gold and Silver BUSES SLOW (123 s vs usual 34, 167 vs 80), Orange ENGINE LEAN (95 vs 57). 10-09 01:30 Night Pilot -> BUSES SLOW (134 s, usually on time) + ENGINE for the 161-row gap. Dry-ran the real Claude verdict on 10-08 17:00 and 17:30: both ended with a correct WHY line. 6 new tests, suite 447 passed. **NOT seen yet:** a real scheduled push (next run is the first), and a weekend slot (few Full Service weekend runs to compare with).
+- **Limit:** "usual" mixes runs from before and after the 10-02 history change, so for a week or two an ENGINE LEAN can read as BUSES SLOW on routes that change moved. It fixes itself as runs accumulate.
+
 ### 2026-10-08 · [home] · ETA day check (8 runs, first full day on v2071): late target met on every run, incl. the 17:30 route change (1.8%). No code changed
 - **>2 min late without Purple:** 00:00 0.0 / 01:30 0.0 / 05:00 0.0 / 08:30 0.9 / 12:30 0.1 / 17:00 0.1 / 17:30 (60 min) 1.8%. Median |error| 27-65 s, 96 s at 17:00. Wed 19:30 (read today): 0.0%, no breaches.
 - **Late-bus hold fix (`db376ba`) seen live:** 05:00 had 0 flips (22 on 10-07). At 17:30 bus 2 [11] had 0 late rows on both day and evening Gold (946 on 10-07); no phantom hold at BAR/CHP/LIB.
@@ -1070,6 +1079,7 @@ share is a scorer artifact until proven otherwise; (3) early misses are the less
   `pythonw.exe` from the repo root, only if the machine is awake/online (missed runs start when available).
   Manage: `Get-ScheduledTask ETA-Health-*` / `Unregister-ScheduledTask -TaskName ETA-Health-Sunday -Confirm:$false`.
   A `git pull` on the home server updates the script the tasks run.
+- **`causes` field + `WHY:` line (2026-10-09):** every result says per route whether buses ran slow or the engine was wrong (`diagnose()` in `eta_health_check.py`; board entry 2026-10-09).
 - Claude review + ntfy push: **built 2026-09-19 [home]** (`scripts/eta_health_notify.py`, see board); "Requested next" below is the original spec.
 - **Tested 2026-09-19 [home]: headless `claude -p` cannot ping the phone.** Run from Task Scheduler (nobody at the
   terminal), with and without `--remote-control`, `PushNotification` returned "Not sent - this terminal is active",
