@@ -26,6 +26,7 @@ const STOP_ETAS_URL = `${API_BASE}/v1/testmap/cat/stop-etas`;
 
 const VEHICLES_POLL_MS = 8_000;
 const META_POLL_MS = 5 * 60_000;
+const META_RETRY_MS = 5_000; // routes failed to load: try again soon, not in 5 minutes
 const ALERTS_POLL_MS = 60_000;
 
 const ENABLED_KEY = 'livemap.cat.enabled';
@@ -63,6 +64,7 @@ const hidden = loadHidden(); // Set<RouteID str> the picker has switched off
 let catRoutes = []; // [{ id, name, abbr, color }] from /routes — the picker's list
 let routeShapes = []; // [{ id (patternId), routeId, name, color, coords:[[lng,lat],...] }]
 let stops = []; // [{ key, lat, lng, name, stopId, routeIds:[str], members:[{routeStopId, routeId, stopId}] }]
+let rawVehicles = []; // the last poll before route colours/names are applied (see paintVehicles)
 let vehicles = []; // [{ id, lat, lng, heading, routeId, inService, color, label, routeName, routeAbbr, speed }]
 let alerts = []; // [{ id, title, message, routes }]
 
@@ -78,6 +80,7 @@ export const isCatRouteHidden = (routeId) => hidden.has(String(routeId));
 let started = false;
 let vehTimer = 0;
 let metaTimer = 0;
+let metaRetryTimer = 0;
 let alertTimer = 0;
 
 /** Begin the feed machinery. Safe to call once; only actually polls if enabled. */
@@ -157,9 +160,11 @@ export function setCatAllHidden(hide) {
 }
 
 function spin() {
-  loadMeta();
+  // Routes first: a bus is coloured (and counted as in service) by looking its
+  // route up in the route list, so a position poll that lands before the routes
+  // would paint every bus black.
+  loadMeta().finally(pollVehicles);
   loadAlerts();
-  pollVehicles();
   if (!metaTimer) metaTimer = setInterval(loadMeta, META_POLL_MS);
   if (!alertTimer) alertTimer = setInterval(loadAlerts, ALERTS_POLL_MS);
   if (!vehTimer) vehTimer = setInterval(pollVehicles, VEHICLES_POLL_MS);
@@ -169,29 +174,43 @@ function idle() {
   clearInterval(metaTimer);
   clearInterval(alertTimer);
   clearInterval(vehTimer);
-  metaTimer = alertTimer = vehTimer = 0;
+  clearTimeout(metaRetryTimer);
+  metaTimer = metaRetryTimer = alertTimer = vehTimer = 0;
+  kin.clear(); // positions from before the overlay went off are no basis for speed/heading
+  rawVehicles = [];
   vehicles = [];
   bus.emit('vehicles', vehicles);
 }
 
 // --- metadata (routes + pattern shapes + stops) ------------------------------
 
-async function loadMeta() {
+/** One metadata request. null on any failure, so a bad response never wipes
+ *  what an earlier load got. */
+async function fetchJson(url) {
   try {
-    const [routesRes, patternsRes, stopsRes] = await Promise.all([
-      fetch(ROUTES_URL, { cache: 'no-store' }),
-      fetch(PATTERNS_URL, { cache: 'no-store' }),
-      fetch(STOPS_URL, { cache: 'no-store' }),
-    ]);
-    const routesJson = routesRes.ok ? await routesRes.json() : { routes: [] };
-    const patternsJson = patternsRes.ok ? await patternsRes.json() : { patterns: [] };
-    const stopsJson = stopsRes.ok ? await stopsRes.json() : { stops: [] };
+    const r = await fetch(url, { cache: 'no-store' });
+    return r.ok ? await r.json() : null;
+  } catch (err) {
+    console.warn('[livemap] CAT metadata load failed', url, err);
+    return null;
+  }
+}
 
+async function loadMeta() {
+  const [routesJson, patternsJson, stopsJson] = await Promise.all([
+    fetchJson(ROUTES_URL),
+    fetchJson(PATTERNS_URL),
+    fetchJson(STOPS_URL),
+  ]);
+  if (!enabled) return; // switched off while this was in flight
+
+  const rawRoutes = routesJson?.routes;
+  if (Array.isArray(rawRoutes) && rawRoutes.length) {
     routeColor.clear();
     routeName.clear();
     routeAbbr.clear();
     catRoutes = [];
-    for (const r of routesJson.routes || []) {
+    for (const r of rawRoutes) {
       const id = String(r.RouteID ?? r.RouteId ?? r.id ?? '');
       if (!id) continue;
       const col = normHex(r.Color);
@@ -206,10 +225,19 @@ async function loadMeta() {
       });
     }
     pruneHidden();
+    // Buses already on the map were painted from the old route list.
+    paintVehicles();
     bus.emit('routeVis', catRouteGroups());
+  } else if (!metaRetryTimer) {
+    metaRetryTimer = setTimeout(() => {
+      metaRetryTimer = 0;
+      if (enabled) loadMeta();
+    }, META_RETRY_MS);
+  }
 
+  if (Array.isArray(patternsJson?.patterns)) {
     routeShapes = [];
-    for (const p of patternsJson.patterns || []) {
+    for (const p of patternsJson.patterns) {
       const enc = p.encLine || p.EncLine || p.EncodedPolyline || '';
       const coords = decodePolyline(enc);
       if (coords.length < 2) continue;
@@ -226,11 +254,11 @@ async function loadMeta() {
       });
     }
     bus.emit('routes', routeShapes);
+  }
 
-    stops = foldStops(stopsJson.stops || []);
+  if (Array.isArray(stopsJson?.stops)) {
+    stops = foldStops(stopsJson.stops);
     bus.emit('stops', stops);
-  } catch (err) {
-    console.warn('[livemap] CAT metadata load failed', err);
   }
 }
 
@@ -271,6 +299,7 @@ async function pollVehicles() {
     const r = await fetch(VEHICLES_URL, { cache: 'no-store' });
     if (!r.ok) throw new Error(`CAT vehicles HTTP ${r.status}`);
     const data = await r.json();
+    if (!enabled) return; // switched off while this was in flight
     const list = Array.isArray(data?.vehicles) ? data.vehicles : [];
     const out = [];
     const now = Date.now();
@@ -280,9 +309,6 @@ async function pollVehicles() {
       const lng = Number(v.Longitude);
       if (!Number.isFinite(lat) || !Number.isFinite(lng)) continue;
       const rid = String(v.RouteID ?? v.routeID ?? '');
-      const inService = !!rid && rid !== OUT_OF_SERVICE_ROUTE_ID && routeColor.has(rid);
-      // Out-of-service units are kept but flagged + drawn black (like a UTS
-      // no-route bus). The public/authed gate for these lives in plan step 11.
       const equip = v.EquipmentID != null ? String(v.EquipmentID) : '';
       const name = String(v.Name || v.VehicleID || equip || '?');
       const id = String(v.VehicleID || equip || `${lat.toFixed(5)},${lng.toFixed(5)}`);
@@ -308,22 +334,45 @@ async function pollVehicles() {
         lat,
         lng,
         heading,
-        routeId: inService ? rid : '',
-        inService,
-        color: inService ? catRouteColor(rid) : OUT_OF_SERVICE_COLOR,
+        rid,
         label: equip || name,
-        routeName: inService ? v.RouteName || catRouteName(rid) || `Route ${rid}` : 'Not in service',
-        routeAbbr: inService ? v.RouteAbbreviation || catRouteAbbr(rid) : '',
+        feedRouteName: v.RouteName || '',
+        feedRouteAbbr: v.RouteAbbreviation || '',
         speed: Math.round(speedMph),
-        speedEstimated: true,
       });
     }
     for (const id of [...kin.keys()]) if (!seen.has(id)) kin.delete(id);
-    vehicles = out;
-    bus.emit('vehicles', vehicles);
+    rawVehicles = out;
+    paintVehicles();
   } catch (err) {
     console.warn('[livemap] CAT vehicle poll failed', err);
   }
+}
+
+/** Apply the route list (colour, name, in service or not) to the last poll and
+ *  emit it. Runs after every poll and again whenever the route list reloads. */
+function paintVehicles() {
+  vehicles = rawVehicles.map((v) => {
+    const rid = v.rid;
+    const inService = !!rid && rid !== OUT_OF_SERVICE_ROUTE_ID && routeColor.has(rid);
+    // Out-of-service units are kept but flagged + drawn black (like a UTS
+    // no-route bus). The public/authed gate for these lives in plan step 11.
+    return {
+      id: v.id,
+      lat: v.lat,
+      lng: v.lng,
+      heading: v.heading,
+      routeId: inService ? rid : '',
+      inService,
+      color: inService ? catRouteColor(rid) : OUT_OF_SERVICE_COLOR,
+      label: v.label,
+      routeName: inService ? v.feedRouteName || catRouteName(rid) || `Route ${rid}` : 'Not in service',
+      routeAbbr: inService ? v.feedRouteAbbr || catRouteAbbr(rid) : '',
+      speed: v.speed,
+      speedEstimated: true,
+    };
+  });
+  bus.emit('vehicles', vehicles);
 }
 
 // --- alerts ---------------------------------------------------------------
