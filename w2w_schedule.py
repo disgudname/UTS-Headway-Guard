@@ -10,10 +10,10 @@ W2W does not push every unassigned shift to that calendar: the unassigned COPY i
 (DailyPositionTotals), so `missing_open_shifts` compares that count with the feed and, where the feed is short, takes
 the missing shift's times from the assigned shift it was copied from. See HANDOFF.md 2026-10-09.
 
-Better than both: W2W's own "Export Schedule" CSV (the W2W_EXPORT_URL secret, a keyed URL made in W2W's export popup)
-lists every shift of the current week, unassigned ones included, with their real times and descriptions. When it has
-been read recently it IS the list of open shifts for the days it covers; the feed (plus the fill above) is what is
-used for other days and whenever the export cannot be read.
+Better than both: W2W's own "Unassigned Shifts" export (Reports > Custom Reports; the W2W_EXPORT_URL secret is a keyed
+URL made in its export popup) lists every unassigned shift in a date range with its real times and description. When
+it has been read recently AND agrees with the API's count for a day, it IS the list of open shifts for that day; the
+feed (plus the fill above) is what is used for every other day and whenever the export cannot be read.
 
 Files (in the data directory): w2w_schedule_snapshot.json, w2w_schedule_changes.jsonl.
 """
@@ -145,30 +145,24 @@ def _api_dt(day: str, clock: str) -> datetime:
     return datetime(year, month, dom, hour, int(match.group(2) or 0), tzinfo=NY)
 
 
-def parse_export_csv(text: str) -> Tuple[List[Dict[str, Any]], List[str]]:
-    """W2W "Export Schedule" CSV -> (unassigned shifts, the days the file covers as YYYY-MM-DD).
-
-    The shifts are snapshot-shaped (employee "", position, position_name, start, end, note) plus "shift_id". A shift is
-    unassigned when its Employee Name is empty. The file holds one whole week, so every day from its first date to its
-    last counts as covered, including a day on which nothing is scheduled. Raises ValueError when the text is not that
-    export (a sign-in page, an error, a file without the needed columns), so a bad read is never taken for "no OB"."""
+def parse_export_csv(text: str) -> List[Dict[str, Any]]:
+    """W2W "Unassigned Shifts" export CSV -> snapshot-shaped unassigned shifts (employee "", position, position_name,
+    start, end, note) plus "shift_id". A file that also has an Employee Name column (the all-shifts export) works too:
+    only its rows with no employee are kept. A header with no rows is a valid "nothing unassigned". Raises ValueError
+    when the text is not such an export (a sign-in page, "not authorized", missing columns)."""
     reader = csv.DictReader(io.StringIO(text.lstrip(chr(0xFEFF))))
-    needed = {"Position Name", "Shift Description", "Date", "Start Time", "End Time", "Employee Name"}
+    needed = {"Position Name", "Shift Description", "Date", "Start Time", "End Time"}
     if not reader.fieldnames or not needed <= set(reader.fieldnames):
-        raise ValueError("not a W2W schedule export (needs Position Name, Shift Description, Date, Start/End Time, Employee Name)")
+        raise ValueError("not a W2W shift export (needs Position Name, Shift Description, Date, Start Time, End Time)")
     open_shifts: List[Dict[str, Any]] = []
-    days: List[date] = []
-    rows = 0
     for row in reader:
+        if (row.get("Employee Name") or "").strip():
+            continue
         try:
             start = _api_dt(row["Date"].strip(), row["Start Time"])
             end = _api_dt(row["Date"].strip(), row["End Time"])
         except (ValueError, AttributeError):
-            continue
-        rows += 1
-        days.append(start.date())
-        if (row["Employee Name"] or "").strip():
-            continue
+            raise ValueError("W2W shift export has a row with an unreadable date or time")
         if end <= start:
             end += timedelta(days=1)
         name = (row["Position Name"] or "").strip()
@@ -178,10 +172,7 @@ def parse_export_csv(text: str) -> Tuple[List[Dict[str, Any]], List[str]]:
             "start": start.isoformat(timespec="minutes"), "end": end.isoformat(timespec="minutes"),
             "note": (row["Shift Description"] or "").strip(), "modified": "", "shift_id": (row.get("Shift ID") or "").strip(),
         })
-    if not rows:
-        raise ValueError("W2W schedule export had no shifts")
-    first, last = min(days), max(days)
-    return open_shifts, [(first + timedelta(days=n)).isoformat() for n in range((last - first).days + 1)]
+    return open_shifts
 
 
 def _hours(shift: Dict[str, Any]) -> float:
@@ -286,6 +277,7 @@ class W2WScheduleLog:
         self._export_days: set = set()
         self._export_at: Optional[datetime] = None
         self.last_export_error: Optional[str] = None
+        self.export_mismatch: List[str] = []  # days the export and W2W's API count disagreed on at the last read
 
     def _load_snapshot(self) -> Optional[Dict[str, Dict[str, Any]]]:
         if self._snapshot is not None:
@@ -358,10 +350,27 @@ class W2WScheduleLog:
                 return event.get("note_before", "")
         return ""
 
-    def apply_export(self, csv_text: str, now: Optional[datetime] = None) -> None:
-        """Take one read of W2W's schedule export. Raises ValueError (and keeps the last good read) on a bad file."""
-        self._export_open, days = parse_export_csv(csv_text)
-        self._export_days = set(days)
+    def apply_export(self, csv_text: str, days: List[str], totals: List[Dict[str, Any]], now: Optional[datetime] = None) -> None:
+        """Take one read of W2W's Unassigned Shifts export for `days` (YYYY-MM-DD). A day is only taken from the export
+        when it lists exactly as many unassigned shifts as W2W's API counts for that day (`totals`, DailyPositionTotals
+        rows from the same poll): an export that silently came back short or empty must never read as "No OB". Days
+        that do not agree are listed in `export_mismatch` and stay on the feed. Raises ValueError on a bad file."""
+        shifts = parse_export_csv(csv_text)
+        counted: Dict[str, int] = {}
+        for row in totals:
+            try:
+                month, dom, year = (int(part) for part in row["SCHEDULE_DATE"].split("/"))
+                day = date(year, month, dom).isoformat()
+                counted[day] = counted.get(day, 0) + int(row["UNASSIGNED_SHIFTS"])
+            except (KeyError, ValueError):
+                continue
+        listed: Dict[str, int] = {}
+        for shift in shifts:
+            listed[shift["start"][:10]] = listed.get(shift["start"][:10], 0) + 1
+        agreed = {day for day in days if day in counted and counted[day] == listed.get(day, 0)}
+        self._export_open = [s for s in shifts if s["start"][:10] in agreed]
+        self._export_days = agreed
+        self.export_mismatch = sorted(set(days) - agreed)
         self._export_at = now or datetime.now(timezone.utc)
         self.last_export_error = None
 
@@ -369,7 +378,7 @@ class W2WScheduleLog:
         """Where open shifts are coming from right now: "export" (W2W's own list) or "feed" (calendar + API fill)."""
         now = now or datetime.now(timezone.utc)
         fresh = self._export_at is not None and (now - self._export_at).total_seconds() <= API_FILL_MAX_AGE_S
-        return "export" if fresh else "feed"
+        return "export" if fresh and self._export_days else "feed"
 
     def _open_shifts(self, now: Optional[datetime] = None) -> List[Dict[str, Any]]:
         """Every unassigned shift. Days covered by a recent W2W export come from the export alone; every other day comes

@@ -129,9 +129,9 @@ W2W_ASSIGNMENT_TTL_S = int(os.getenv("W2W_ASSIGNMENT_TTL_S", "45"))
 # Secret iCal address of the W2W "Complete Schedule" Google Calendar. Unlike the API it includes UNASSIGNED shifts.
 W2W_ICAL_URL = (os.getenv("W2W_ICAL_URL") or "").strip()
 W2W_ICAL_POLL_S = int(os.getenv("W2W_ICAL_POLL_S", "300"))
-# Keyed URL of W2W's "Export Schedule" CSV (a credential: never print or commit it). Made in W2W: Schedules > Export >
-# All Shifts, CSV, with Position Name, Shift Description, Date, Start/End Time and Employee Name ticked, then
-# "Generate API Access Token". Read on every poll; the source of open shifts whenever it answers.
+# Keyed URL of W2W's "Unassigned Shifts" export CSV (a credential: never print or commit it). Made in W2W: Reports >
+# Custom Reports > Unassigned Shifts > export, CSV, default columns, then "Generate API Access Token". The key only
+# works for that one report. StartDate/EndDate in it are replaced on every poll.
 W2W_EXPORT_URL = (os.getenv("W2W_EXPORT_URL") or "").strip()
 # How many days ahead the feed's unassigned shifts are checked against W2W's API on every poll
 W2W_OPEN_FILL_DAYS = int(os.getenv("W2W_OPEN_FILL_DAYS", "7"))
@@ -6849,25 +6849,10 @@ async def startup():
             except Exception as exc:
                 w2w_schedule_log.last_error = _redact_w2w_error(str(exc))
                 print(f"[w2w-schedule] poll failed: {w2w_schedule_log.last_error}")
-            # W2W's own schedule export: every shift of the current week, unassigned ones included, with real times
-            # and descriptions. When it reads, it is the list of open shifts for that week (w2w_schedule.apply_export).
-            if W2W_EXPORT_URL:
-                try:
-                    async with httpx.AsyncClient(follow_redirects=True) as client:
-                        resp = await client.get(W2W_EXPORT_URL, timeout=60)
-                    record_api_call("GET", _redact_w2w_error(W2W_EXPORT_URL), resp.status_code)
-                    resp.raise_for_status()
-                    was = w2w_schedule_log.open_source()
-                    await asyncio.to_thread(w2w_schedule_log.apply_export, resp.text)
-                    if was != "export":
-                        print("[w2w-schedule] open shifts now come from the W2W schedule export")
-                except Exception as exc:
-                    first_failure = w2w_schedule_log.last_export_error is None
-                    w2w_schedule_log.last_export_error = _redact_w2w_error(str(exc))
-                    if first_failure:
-                        print(f"[w2w-schedule] schedule export failed, using the calendar feed: {w2w_schedule_log.last_export_error}")
-            # The feed misses the unassigned copy of a called-out shift until someone re-saves it in W2W; W2W's API
-            # counts it, so fill those in (w2w_schedule.missing_open_shifts).
+            # The feed misses the unassigned copy of a called-out shift until someone re-saves it in W2W. Two things
+            # cover that, both read here: W2W's API counts unassigned shifts per position and day (used to fill the
+            # gap by deduction, w2w_schedule.missing_open_shifts), and W2W's Unassigned Shifts export lists them
+            # outright (w2w_schedule.apply_export, trusted for a day only when it agrees with the API's count).
             if W2W_KEY:
                 try:
                     today = datetime.now(ZoneInfo("America/New_York")).date()
@@ -6891,8 +6876,34 @@ async def startup():
                     if after != before:
                         print(f"[w2w-schedule] open shifts filled from the API: {after[0]}, unexplained gaps: {after[1]}")
                 except Exception as exc:
+                    rows = {}
                     w2w_schedule_log.last_api_error = _redact_w2w_error(str(exc))
                     print(f"[w2w-schedule] API open-shift check failed: {w2w_schedule_log.last_api_error}")
+                if W2W_EXPORT_URL and rows:
+                    try:
+                        export_url = httpx.URL(W2W_EXPORT_URL)
+                        export_params = {
+                            **dict(export_url.params),
+                            "StartDate": first.strftime("%m/%d/%Y"), "EndDate": last.strftime("%m/%d/%Y"),
+                        }
+                        async with httpx.AsyncClient(follow_redirects=True) as client:
+                            resp = await client.get(export_url.copy_with(query=None), params=export_params, timeout=60)
+                        record_api_call(
+                            "GET", str(httpx.URL(export_url.copy_with(query=None), params={**export_params, "key": "***"})),
+                            resp.status_code,
+                        )
+                        resp.raise_for_status()
+                        days = [(first + timedelta(days=n)).isoformat() for n in range((last - first).days + 1)]
+                        was = w2w_schedule_log.open_source(), list(w2w_schedule_log.export_mismatch)
+                        await asyncio.to_thread(w2w_schedule_log.apply_export, resp.text, days, rows["DailyPositionTotals"])
+                        now_is = w2w_schedule_log.open_source(), list(w2w_schedule_log.export_mismatch)
+                        if now_is != was:
+                            print(f"[w2w-schedule] open shifts source: {now_is[0]}; days where the export and the API count disagree: {now_is[1] or 'none'}")
+                    except Exception as exc:
+                        first_failure = w2w_schedule_log.last_export_error is None
+                        w2w_schedule_log.last_export_error = _redact_w2w_error(str(exc))[:300]
+                        if first_failure:
+                            print(f"[w2w-schedule] unassigned-shift export failed, using the calendar feed: {w2w_schedule_log.last_export_error}")
             await asyncio.sleep(max(60, W2W_ICAL_POLL_S))
 
     asyncio.create_task(w2w_schedule_poller())
@@ -7895,6 +7906,7 @@ async def w2w_open_blocks(request: Request):
         # "export" = W2W's own schedule export (exact); "feed" = calendar feed + API fill (the fallback)
         "source": log.open_source() if log else None,
         "last_export_error": getattr(log, "last_export_error", None),
+        "export_mismatch": getattr(log, "export_mismatch", []),
         **data,
     }
 

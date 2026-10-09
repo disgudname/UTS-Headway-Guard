@@ -400,45 +400,73 @@ def test_a_filled_shift_has_no_note_when_the_log_never_saw_the_original_edited(t
     assert [s["note"] for s in log.filled] == [""]
 
 
-# --- W2W's own "Export Schedule" CSV: the exact list of open shifts for the week it covers ---
+# --- W2W's own "Unassigned Shifts" export CSV: the exact list of open shifts, checked against the API's count ---
 
-EXPORT_HEAD = '"Shift ID","Schedule ID","Employee Number","Position ID","Position Name","Category","Shift Description","Date","Start Time","End Time","Duration","Day Of Week","Employee Name","Shift Color"'
+EXPORT_HEAD = '"Shift ID","Schedule ID","Position ID","Position Name","Cat","Shift Description","Date","Start Time","End Time","Duration","Day Of Week"'
 EXPORT = CRLF.join([
     EXPORT_HEAD,
-    '1,9,,7,"[08]",,"OFF - Relieve @ 1040 MP",9/4/2026,10:30 AM,06:30 PM,   8.0,4,"Gene Kirby",14',
-    '2,9,,7,"[08]",,"OFF - Relieve @ 1040 MP",9/4/2026,10:30 AM,06:30 PM,   8.0,4,,0',
-    '3,9,,7,"[03]",,"OFF - Relieve [05] @ ~2210 HER",9/4/2026,10:00 PM,02:30 AM,   4.5,4,,0',
-    '4,9,,7,"OnDemand Driver",,"OFF, JPJ staging",9/2/2026,09:30 PM,05:30 AM,   8.0,2,,0',
-    '5,9,,7,"[01]",,"OFF",9/6/2026,07:00 AM,11:00 AM,   4.0,6,"Ann Lee",0',
+    '2,9,7,"[08]",,"OFF - Relieve @ 1040 MP",9/4/2026,10:30 AM,06:30 PM,   8.0,4',
+    '3,9,7,"[03]",,"OFF - Relieve [05] @ ~2210 HER",9/4/2026,10:00 PM,02:30 AM,   4.5,4',
+    '4,9,7,"OnDemand Driver",,"OFF, JPJ staging",9/2/2026,09:30 PM,05:30 AM,   8.0,2',
 ]) + CRLF
+EXPORT_DAYS = ["2026-09-02", "2026-09-03", "2026-09-04"]
+EXPORT_TOTALS = [_total("[08]", 1, 8.0), _total("[03]", 1, 4.5), _total("OnDemand Driver", 1, 8.0, day="9/2/2026"),
+                 _total("[01]", 0, 0.0, day="9/3/2026")]
 
 
 def test_the_export_lists_unassigned_shifts_with_their_own_times_and_notes():
-    shifts, days = w.parse_export_csv(EXPORT)
+    shifts = w.parse_export_csv(EXPORT)
     assert [(s["position"], s["position_name"], s["start"], s["end"], s["note"], s["shift_id"]) for s in shifts] == [
         ("08", "[08]", "2026-09-04T10:30-04:00", "2026-09-04T18:30-04:00", "OFF - Relieve @ 1040 MP", "2"),
         ("03", "[03]", "2026-09-04T22:00-04:00", "2026-09-05T02:30-04:00", "OFF - Relieve [05] @ ~2210 HER", "3"),
         ("OnDemand Driver", "OnDemand Driver", "2026-09-02T21:30-04:00", "2026-09-03T05:30-04:00", "OFF, JPJ staging", "4"),
     ]
-    assert days == ["2026-09-02", "2026-09-03", "2026-09-04", "2026-09-05", "2026-09-06"]  # 9-03 and 9-05 have no shift but are covered
+    assert w.parse_export_csv(EXPORT_HEAD + CRLF) == []  # a header with no rows: nothing unassigned
+    # the all-shifts export has an Employee Name column: rows with a name are skipped
+    both = EXPORT_HEAD + ',"Employee Name"' + CRLF + '1,9,7,"[08]",,"OFF",9/4/2026,06:00 AM,10:00 AM,4.0,4,"Gene Kirby"' + CRLF +         '2,9,7,"[08]",,"OFF",9/4/2026,10:00 AM,02:00 PM,4.0,4,' + CRLF
+    assert [s["start"][11:16] for s in w.parse_export_csv(both)] == ["10:00"]
 
 
-def test_something_that_is_not_the_export_is_an_error_not_an_empty_board(tmp_path):
+def test_something_that_is_not_the_export_is_an_error(tmp_path):
     import pytest
-    for bad in ("<html><body>Sign in</body></html>", EXPORT_HEAD + CRLF, '"Shift ID","Date"' + CRLF + "1,9/4/2026" + CRLF):
+    for bad in ("<html><body>Sign in</body></html>", "Report type=exportunassigned is not authorized!",
+                '"Shift ID","Date"' + CRLF + "1,9/4/2026" + CRLF, EXPORT_HEAD + CRLF + '2,9,7,"[08]",,"OFF",soon,10:30 AM,06:30 PM,8.0,4' + CRLF):
         with pytest.raises(ValueError):
             w.parse_export_csv(bad)
     log = w.W2WScheduleLog(tmp_path)
-    log.apply_export(EXPORT)
+    log.apply_export(EXPORT, EXPORT_DAYS, EXPORT_TOTALS)
     with pytest.raises(ValueError):
-        log.apply_export("<html>401</html>")
+        log.apply_export("<html>401</html>", EXPORT_DAYS, EXPORT_TOTALS)
     assert log.open_source() == "export" and len(log._export_open) == 3  # the last good read is kept
+
+
+def test_a_day_is_only_taken_from_the_export_when_it_agrees_with_the_api_count(tmp_path):
+    log = w.W2WScheduleLog(tmp_path)
+    now = datetime(2026, 9, 4, 16, 0, tzinfo=timezone.utc)
+    stale = _event("s1", "20260904T143000Z", "20260904T223000Z", "", "09", "10:30am-6:30pm", "Sep 4, 2026", "OFF")
+    log.apply(_feed(ASSIGNED, stale), NOW)
+
+    def board(at=now):
+        return [(s["position"], s["start"][11:16]) for s in log.open_blocks(at)["bus"]["shifts"]]
+
+    # an export that came back EMPTY while W2W counts open shifts must not read as "No OB": every day stays on the feed
+    log.apply_export(EXPORT_HEAD + CRLF, EXPORT_DAYS, EXPORT_TOTALS, now=now)
+    assert log.export_mismatch == ["2026-09-02", "2026-09-04"] and board() == [("09", "10:30")]
+    # 9-03 agreed (0 = 0), so the export still counts as the source for that day
+    assert log.open_source(now) == "export"
+    # W2W counts one more [08] than the export lists: 9-04 stays on the feed, the other days come from the export
+    short = EXPORT_TOTALS + [_total("[10]", 1, 3.5)]
+    log.apply_export(EXPORT, EXPORT_DAYS, short, now=now)
+    assert log.export_mismatch == ["2026-09-04"] and board() == [("09", "10:30")]
+    # a day the API said nothing about is not trusted either
+    log.apply_export(EXPORT, EXPORT_DAYS + ["2026-09-05"], EXPORT_TOTALS, now=now)
+    assert log.export_mismatch == ["2026-09-05"]
 
 
 def test_the_export_replaces_the_feed_on_the_days_it_covers_and_only_while_it_is_fresh(tmp_path):
     log = w.W2WScheduleLog(tmp_path)
     now = datetime(2026, 9, 4, 16, 0, tzinfo=timezone.utc)
-    # feed: a nameless [09] on 9-04 that W2W no longer has, and a nameless [08] on 9-10 (outside the export's week)
+    # feed: a nameless [09] on 9-04 that W2W no longer has, and a nameless [08] on 9-10 (outside the export's days)
     stale = _event("s1", "20260904T143000Z", "20260904T223000Z", "", "09", "10:30am-6:30pm", "Sep 4, 2026", "OFF")
     later = _event("s2", "20260910T143000Z", "20260910T223000Z", "", "08", "10:30am-6:30pm", "Sep 10, 2026", "OFF")
     log.apply(_feed(ASSIGNED, stale, later), NOW)
@@ -447,13 +475,13 @@ def test_the_export_replaces_the_feed_on_the_days_it_covers_and_only_while_it_is
         return [(s["position"], s["start"][11:16], s["note"]) for s in log.open_blocks(at)["bus"]["shifts"]]
 
     assert log.open_source(now) == "feed" and board(now) == [("09", "10:30", "OFF")]
-    log.apply_export(EXPORT, now=now)
-    assert log.open_source(now) == "export"
+    log.apply_export(EXPORT, EXPORT_DAYS, EXPORT_TOTALS, now=now)
+    assert log.open_source(now) == "export" and log.export_mismatch == []
     assert board(now) == [("08", "10:30", "OFF - Relieve @ 1040 MP"), ("03", "22:00", "OFF - Relieve [05] @ ~2210 HER")]
     # the feed still supplies days the export does not cover
-    log.apply_export(EXPORT)
+    log.apply_export(EXPORT, EXPORT_DAYS, EXPORT_TOTALS)
     assert [(r["date"], r["position"]) for r in log.unassigned(date(2026, 9, 10), days=1)] == [("2026-09-10", "08")]
     # export unread for longer than API_FILL_MAX_AGE_S: back to the feed
     late = datetime(2026, 9, 4, 16, 30, tzinfo=timezone.utc)
-    log.apply_export(EXPORT, now=now)
+    log.apply_export(EXPORT, EXPORT_DAYS, EXPORT_TOTALS, now=now)
     assert log.open_source(late) == "feed" and board(late) == [("09", "10:30", "OFF")]
