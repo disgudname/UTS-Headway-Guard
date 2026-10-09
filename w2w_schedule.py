@@ -151,7 +151,7 @@ def missing_open_shifts(
     and day where W2W counts more unassigned shifts than the feed holds, the missing ones are unassigned copies of
     assigned shifts on that position that day, so their times are taken from the assigned shifts whose lengths add up
     to the missing hours (ignoring any whose copy is already in the feed). `filled` are snapshot-shaped shifts with
-    "filled": True and no note (the original's note may say why it is open). A gap that no single choice of shifts
+    "filled": True and an empty note (W2WScheduleLog.apply_api looks the note up in the change log). A gap that no single choice of shifts
     explains goes to `unresolved` and nothing is made up for it. Days W2W has not published are skipped: the feed
     only carries published shifts."""
     feed_open: Dict[tuple, List[Dict[str, Any]]] = {}
@@ -234,6 +234,7 @@ class W2WScheduleLog:
         self._filled_at: Optional[datetime] = None
         self.unresolved: List[Dict[str, Any]] = []
         self.last_api_error: Optional[str] = None
+        self._fill_notes: Dict[tuple, str] = {}  # (position_name, start, end) -> note, kept while the shift stays filled
 
     def _load_snapshot(self) -> Optional[Dict[str, Dict[str, Any]]]:
         if self._snapshot is not None:
@@ -274,9 +275,37 @@ class W2WScheduleLog:
     def apply_api(self, totals: List[Dict[str, Any]], assigned: List[Dict[str, Any]], now: Optional[datetime] = None) -> None:
         """Take one read of W2W's API (DailyPositionTotals + AssignedShiftList rows for the same days) and work out which
         unassigned shifts the feed is missing. Memory only: the change log stays a record of the feed itself."""
-        self.filled, self.unresolved = missing_open_shifts(self._load_snapshot() or {}, totals, assigned)
+        filled, self.unresolved = missing_open_shifts(self._load_snapshot() or {}, totals, assigned)
+        notes: Dict[tuple, str] = {}
+        for shift in filled:
+            key = (shift["position_name"], shift["start"], shift["end"])
+            # Looked up once and kept, so a later edit to the original's note cannot change what the board shows
+            notes[key] = self._fill_notes[key] if key in self._fill_notes else self._note_before_last_edit(shift)
+            shift["note"] = notes[key]
+        self.filled, self._fill_notes = filled, notes
         self._filled_at = now or datetime.now(timezone.utc)
         self.last_api_error = None
+
+    def _note_before_last_edit(self, shift: Dict[str, Any]) -> str:
+        """The note an unassigned copy carries: what the original shift's note was BEFORE the edit that made the copy.
+        W2W copies the shift as it stood, then dispatch often adds why it is open ("DNS(Sick)", "callout") to the
+        original only; that reason must never reach the board. The feed shows the edit as the named shift being
+        removed and added again, so this is the note on the latest such removal. "" when the log has none."""
+        try:
+            lines = self.log_path.read_text(encoding="utf-8").splitlines()
+        except OSError:
+            return ""
+        for line in reversed(lines):
+            try:
+                event = json.loads(line)
+            except ValueError:
+                continue
+            if (event.get("kind") in ("removed", "changed") and event.get("employee_before")
+                    and event.get("position") == shift["position"]
+                    and event.get("start_before", event.get("start")) == shift["start"]
+                    and event.get("end_before", event.get("end")) == shift["end"]):
+                return event.get("note_before", "")
+        return ""
 
     def _open_shifts(self, now: Optional[datetime] = None) -> List[Dict[str, Any]]:
         """Every unassigned shift: the feed's, plus the ones filled in from the API that the feed still lacks."""

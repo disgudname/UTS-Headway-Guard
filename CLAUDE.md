@@ -807,8 +807,10 @@ feed (`W2W_ICAL_URL`) lists every shift, unassigned ones with an empty employee 
   (`UNASSIGNED_SHIFTS`, `UNASSIGNED_HOURS`). After every feed poll `app.py` reads that and `AssignedShiftList` for
   yesterday to `W2W_OPEN_FILL_DAYS` (7) days ahead, and `w2w_schedule.missing_open_shifts` adds any shift W2W counts
   that the feed lacks, with the times of the assigned shift it was copied from (same position and day, same length, its
-  copy not already in the feed; red `COLOR_ID` 9 only breaks a tie between equal candidates). Filled shifts have no note
-  (the original's note can say why it is open), live in memory only (the change log stays a record of the feed), go
+  copy not already in the feed; red `COLOR_ID` 9 only breaks a tie between equal candidates). Filled shifts carry the note
+  the original had BEFORE its last edit, read from the change log (`_note_before_last_edit`): W2W copies the shift as it
+  stood and dispatch then adds the reason ("DNS(Sick)", "callout") to the original only, and that reason must never
+  reach the board. They live in memory only (the change log stays a record of the feed), go
   away when the feed catches up, and are dropped if the API has been unreadable for 20 minutes. Unpublished days are
   skipped. A gap nothing explains is listed in `unresolved` on `GET /v1/w2w/ob` and nothing is shown for it. The nine
   `/api/export*` payroll endpoints and `detail=Y` were tried and carry assigned shifts only (HANDOFF.md 2026-10-09).

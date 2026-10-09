@@ -374,3 +374,27 @@ def test_a_filled_shift_shows_on_the_board_until_the_feed_has_it_or_the_api_goes
     # the copy reaches the feed before the next API read: one row, not two
     log.apply(_feed(ASSIGNED.replace("UID:a1", "UID:a0"), UNASSIGNED), now)
     assert board(now) == [("08", "2026-09-04T10:30-04:00")]
+
+
+def test_a_filled_shift_carries_the_note_from_before_the_callout_edit_never_the_reason(tmp_path):
+    log = w.W2WScheduleLog(tmp_path)
+    log.apply(_feed(ASSIGNED), NOW)
+    # the callout: W2W re-creates the named shift (new UID) with the reason added to its note
+    sick = ASSIGNED.replace("UID:a1", "UID:a2").replace("1040 MP", "1040 MP - DNS(Sick)")
+    log.apply(_feed(sick), NOW)
+    api = ([_total("[08]", 1, 8.0)], [_api_shift("[08]", "10:30am", "6:30pm", 8.0, color="9")])
+    log.apply_api(*api)
+    assert [s["note"] for s in log.filled] == ["OFF - Relieve @ 1040 MP"]
+    board = log.open_blocks(datetime(2026, 9, 4, 16, 0, tzinfo=timezone.utc))["bus"]["shifts"]
+    assert [s["note"] for s in board] == ["OFF - Relieve @ 1040 MP"]
+    # a later edit to the original does not change the note already chosen
+    log.apply(_feed(sick.replace("UID:a2", "UID:a3").replace("DNS(Sick)", "DNS(Sick) - spoke to driver")), NOW)
+    log.apply_api(*api)
+    assert [s["note"] for s in log.filled] == ["OFF - Relieve @ 1040 MP"]
+
+
+def test_a_filled_shift_has_no_note_when_the_log_never_saw_the_original_edited(tmp_path):
+    log = w.W2WScheduleLog(tmp_path)
+    log.apply(_feed(ASSIGNED), NOW)
+    log.apply_api([_total("[08]", 1, 8.0)], [_api_shift("[08]", "10:30am", "6:30pm", 8.0, color="9")])
+    assert [s["note"] for s in log.filled] == [""]
