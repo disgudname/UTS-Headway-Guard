@@ -40,9 +40,21 @@ Checked against the entries below on 2026-10-06. Everything not listed here is b
 - **ETA, Green bus 22 leaving Gooch/Dillard ~3-4 min before we expected (10-05 17:30):** one bus, one evening; compare with the 10-06 17:30 run before touching anything. Not looked at yet.
 - **`/onboard`:** the tablet-GPS path has never run on a real bus, nobody has listened to the voice, and a bus on its last run still lists stops it will not serve (no out-of-service cut-off, no evening route-change hiding).
 - **`/boxscore`:** the before/after-kickoff split has only a unit test; the first real game with a kick time is Syracuse, Sat 10-10 19:30.
+- **`/vdot-cams` (10-10):** Virginia fix is in the working tree on [home], NOT committed or deployed, waiting for the user. Arkansas video is locked by their side (bot check); user to decide whether to drop Arkansas from the page.
 - **`/livemap` off-route badge (09-24):** deployed, never looked at on a real off-route bus.
 - **Card build is not repeatable:** `scripts/build_block_cards.py` breaks ties in a bus card's top-5 blocks (and its route mix) by set order, so two runs on the same data give a slightly different `scripts/cards-data.js`. Block cards are stable.
 - **Branches:** three merged `claude/*` branches can be deleted; `claude/late-dwell` is an unmerged prototype (see §3).
+
+### 2026-10-10 · [home] · `/vdot-cams`: Virginia list was dead (VDOT moved the URL), fixed in `app.py` (NOT committed, NOT deployed: working tree on [home], waiting for the user's go-ahead). Arkansas video is dead and is NOT fixable
+
+User: "check on vdot cams and try to fix". Checked all five states against prod, list + one stream down to a video segment.
+
+- **Virginia: broken, fixed.** `/api/vdot/cameras` returned 0 cameras: `511.vdot.virginia.gov/services/map/layers/map/cams` now 404s. Same GeoJSON, same fields, is at `/services/511/map/layers/map/cams` (found in the new site's JS). One-line URL change. The fixed function run here against the live source returns 1,706 cameras; a Virginia stream through prod's existing `/api/vdot/stream/` proxy plays to a `.ts` segment, so nothing else needs changing.
+- **Arkansas: broken, left alone.** List loads (552), every stream is 403. IDrive Arkansas moved video to `cdn.idrivearkansas.com` behind CloudFront signed cookies, and their site only gets the cookies after an AWS WAF browser challenge / CAPTCHA. That is a deliberate bot lock; not worked around, and the next session should not either. Still snapshots sit behind the same lock. Arkansas is still in the page's state list and shows blank cells. **Open for the user:** take Arkansas off the page, or leave it.
+- **West Virginia (132), Maryland (552): fine**, list and video through our proxies.
+- **Tennessee (668): fine, but not the way the code thinks.** TDOT's URLs lost their `:443`, so the regex in `tndot_cameras` no longer matches and the page gets the direct skyvdn.com URL instead of our proxy. skyvdn sends `Access-Control-Allow-Origin: *`, so it plays. Not changed.
+- Suite 471 passed. **NOT checked:** the page itself in a browser after the fix (nothing is deployed). `CLAUDE.md` camera section updated for Virginia and Arkansas (also in the working tree).
+- Not ETA engine code: does not restart the 10-14 test week.
 
 ### 2026-10-09 · [home] · ETA day check (Fri, 6 runs so far, v2071 engine unchanged): 12:30 missed the 3% late target (4.3%) because of ONE bus that skipped North Grounds; Silver 5 min slow at 17:30 is JPA traffic. No code changed
 - **>2 min late without Purple:** 01:30 0.0 / 05:00 0.7 / 08:30 0.0 / 12:30 **4.3** / 17:00 0.0 / 17:30 (60 min) 2.4%. The 19:30 run is not in yet.
