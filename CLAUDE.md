@@ -476,17 +476,18 @@ Admin-managed alerts (`/v1/system-notices` CRUD, edited at `/system-notices`). `
 Multi-state traffic camera dashboard with HLS video streams. Frontend at `html/vdot-cams.html`.
 
 **Architecture:**
-- States with coordinates use Leaflet map picker (VA, MD, TN, AR)
+- States with coordinates use Leaflet map picker (VA, MD, TN)
 - States without coordinates use dropdown picker (WV)
-- All streams proxied through backend to handle CORS
+- Streams are proxied through the backend to handle CORS, except Tennessee: TDOT's URLs lost their `:443`, so `tndot_cameras` hands out the direct skyvdn.com URL, which allows any origin and plays fine (checked 2026-10-10)
 - Grid layout configurable (columns × rows), persisted in localStorage
 
 #### Virginia (VDOT 511)
-- **Camera API:** `https://www.511virginia.org/data/geojson/icons-702702.geojson`
-- **Stream pattern:** Direct HLS URLs in GeoJSON `properties.https_url`
-- **Proxy:** `/api/vdot/stream/{stream_path}` - not currently needed (CORS allowed)
+- **Camera API:** `/api/vdot/cameras`
+- **Source:** `https://511.vdot.virginia.gov/services/511/map/layers/map/cams` (GeoJSON; VDOT moved it under `/services/511/` in 2026, the path without it 404s. If it moves again, the site's JS builds it as `NODE_ENDPOINT.foo` + `/map/layers/map/` + `cams`)
+- **Stream pattern:** `https://media-sfsN.vdotcameras.com/rtplive/{name}/playlist.m3u8` in `properties.https_url`
+- **Proxy:** `/api/vdot/stream/{server}/{path}`
 - **Coords:** Yes (`geometry.coordinates = [lng, lat]`)
-- **Count:** ~1,669 cameras
+- **Count:** ~1,706 cameras
 
 #### West Virginia (WV511)
 - **Camera API:** `/api/wv511/cameras` (backend aggregates 24 routes)
@@ -519,36 +520,14 @@ Multi-state traffic camera dashboard with HLS video streams. Frontend at `html/v
 - **Coords:** Yes (`lat`, `lng` fields)
 - **Count:** ~667 cameras
 
-#### Arkansas (IDrive Arkansas)
-- **Camera API:** `/api/ardot/cameras`
-- **Source:** `https://layers.idrivearkansas.com/cameras.geojson`
-- **Data format:** GeoJSON FeatureCollection
-- **Stream flow (important!):**
-  1. `hls_stream_protected` field contains `https://actis.idrivearkansas.com/index.php/api/cameras/feed/{id}.m3u8`
-  2. This URL returns **302 redirect** to CDN: `https://7212406.r.worldssl.net/...?token=xxx`
-  3. CDN serves actual HLS playlist with time-sensitive token
-  4. **Tokens expire after ~30-60 seconds** - must be refreshed automatically
-- **Proxy (primary):** `/api/ardot/cam/{camera_id}/{filename}`
-  - Camera-based endpoint with **automatic token management**
-  - Maintains per-camera token cache, refreshed every 25 seconds
-  - Playlist URLs rewritten to `/api/ardot/cam/{id}/chunklist.m3u8` (no tokens in URLs)
-  - On 403, force-refreshes token and retries automatically
-  - Video playback is uninterrupted during token refresh
-- **Proxy (legacy):** `/api/ardot/stream/{server}/{path}`
-  - Kept for backwards compatibility
-  - Actis requests redirect to new `/api/ardot/cam/` endpoint
-- **Required headers:** `Origin: https://idrivearkansas.com`, `Referer: https://idrivearkansas.com/`
-- **Coords:** Yes (GeoJSON Point `geometry.coordinates = [lng, lat]`)
-- **Count:** ~544 cameras
+#### Arkansas (IDrive Arkansas): REMOVED 2026-10-10, do not add back
+- Their video (`cdn.idrivearkansas.com`, CloudFront signed cookies) only unlocks after an AWS WAF browser challenge / CAPTCHA on idrivearkansas.com. That is a bot lock aimed at proxies like this one; do not try to get around it. Snapshots are behind the same lock.
+- There is no alternate source (no public API or feed), and ARDOT's camera terms of use (site.idrivearkansas.com/index.php/policies/camera-terms-of-use/) forbid embedding camera images in, or linking to a camera from, another site or app. Only a link to the IDrive Arkansas homepage is allowed.
+- The `/api/ardot/*` endpoints and the page's AR state are gone. A grid cell saved with an Arkansas camera just shows empty.
 
 **Common proxy patterns:**
 ```python
-# Arkansas uses camera-based proxy for automatic token management:
-# /api/ardot/cam/{camera_id}/playlist.m3u8 -> fetches with current token
-# /api/ardot/cam/{camera_id}/chunklist.m3u8 -> uses same cached token
-# /api/ardot/cam/{camera_id}/media_123.ts -> uses same cached token
-
-# Other states rewrite m3u8 playlists to route sub-requests through proxy:
+# The proxies rewrite m3u8 playlists to route sub-requests through proxy:
 # Relative URLs: /api/{state}/stream/{server}/{base_path}/{chunk.m3u8}
 # Absolute URLs: Extract server/path and rewrite to proxy path
 ```
