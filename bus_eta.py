@@ -278,6 +278,11 @@ OOS_CUTOFF_TOL_M = 40.0
 # A bus this long after its scheduled last departure that is not on its last-run stretch has finished (a lap is ~30-40
 # min), even if this process never saw it there (e.g. the server restarted mid-run).
 OOS_DONE_AFTER_S = 45 * 60.0
+# A bus between its last departure stop and the cut-off is only taken to be on its last trip from this long before the
+# scheduled departure. Earlier than that it is on the lap BEFORE: Night Pilot [04] ("leave PIN at 0200, in service until
+# HER") is on that stretch at 01:50 every night it runs, and lost its ETAs for Maury, the JPA stops and Pinn Hall for
+# its last ten minutes (2026-10-09). A bus still approaching its departure is flagged by the walk reaching that visit.
+OOS_POSITION_TRUST_BEFORE_S = 60.0
 
 OosPlan = Tuple[str, float, str, float]
 
@@ -285,20 +290,21 @@ OosPlan = Tuple[str, float, str, float]
 def out_of_service_phase(line: Line, vehicle_s_pos: float, plan: Optional[OosPlan], when: float) -> str:
     """Where a bus is relative to its block's out-of-service plan (uts_blocks.out_of_service_plan):
       "na"      no usable plan (none, unmapped stop, or a full-lap cut-off, which has no separate "past it" region)
-      "before"  the active window (10 min before the last scheduled departure) has not opened yet
+      "before"  too early for position to mean anything (the plan's window has not opened, or it is more than
+                OOS_POSITION_TRUST_BEFORE_S before the last scheduled departure)
       "run"     between the last departure stop and the cut-off stop (or sitting at the cut-off): on its last trip
       "outside" anywhere else -- either still approaching its last departure, or already past the cut-off and
                 heading to the lot. Position alone cannot tell those two apart; see out_of_service_finished."""
     if plan is None or not line.shape_cum or len(line.shape_cum) < 2:
         return "na"
-    leave_id, _leave_epoch, cut_id, active_from = str(plan[0]), plan[1], str(plan[2]), plan[3]
+    leave_id, leave_epoch, cut_id, active_from = str(plan[0]), plan[1], str(plan[2]), plan[3]
     if leave_id == cut_id:
         return "na"
     by_id = {str(st.id): st for st in line.stops}
     leave_stop, cut_stop = by_id.get(leave_id), by_id.get(cut_id)
     if leave_stop is None or cut_stop is None or leave_stop.arc_pos is None or cut_stop.arc_pos is None:
         return "na"
-    if when < active_from:
+    if when < max(active_from, leave_epoch - OOS_POSITION_TRUST_BEFORE_S):
         return "before"
     length = line.shape_cum[-1]
     span = _forward_distance(leave_stop.arc_pos, cut_stop.arc_pos, length)
@@ -757,7 +763,7 @@ def estimate_stop_eta_s(
                         or (when >= leave_epoch + 600.0 and past > 0.85 * span)
                     )
                 else:
-                    on_lap = 0.0 < past <= span + OOS_CUTOFF_TOL_M
+                    on_lap = when >= leave_epoch - OOS_POSITION_TRUST_BEFORE_S and 0.0 < past <= span + OOS_CUTOFF_TOL_M
                 if on_lap or (dwelling_at_prev and str(prev_stop.id) == leave_id):
                     in_final = True
                     at_cutoff_overshoot = (not full_lap) and past > span

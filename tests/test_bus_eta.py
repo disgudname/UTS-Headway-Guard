@@ -714,6 +714,18 @@ def test_out_of_service_not_applied_before_the_active_window_or_without_a_plan()
     assert not_final is not None
 
 
+def test_out_of_service_bus_on_the_stretch_minutes_before_the_departure_is_on_the_lap_before():
+    # Night Pilot [04] 2026-10-09 01:50: "leave PIN at 0200, in service until HER". Ten minutes before, the bus is
+    # between PIN and HER on the lap BEFORE that departure and still has to serve the stops past HER on its way round.
+    line, plan, leave_epoch = _oos_setup()
+    kw = dict(hop_time_fn=_flat_hop_time_fn(60.0), vehicle_block_id="B1", out_of_service_fn=_oos_fn(plan))
+    assert eta.estimate_stop_eta_s(line, 400.0, 5.0, line.stops[4], when=leave_epoch - 300.0, **kw) is not None
+    assert eta.out_of_service_phase(line, 400.0, plan, leave_epoch - 300.0) == "before"
+    # from a minute before the scheduled departure, position counts again (a driver leaving a little early)
+    assert eta.estimate_stop_eta_s(line, 400.0, 5.0, line.stops[4], when=leave_epoch - 30.0, **kw) is None
+    assert eta.out_of_service_phase(line, 400.0, plan, leave_epoch - 30.0) == "run"
+
+
 def test_timestop_cap_receives_the_time_the_bus_reaches_the_stop():
     line = _line([0, 300, 900, 1200])
     seen = []

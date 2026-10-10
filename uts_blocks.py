@@ -421,10 +421,12 @@ def out_of_service_plan(
 # after which the bus is predicted against the new route's own stops; this just covers a slow flip.
 ROUTE_CHANGE_ACTIVE_AFTER_S = 10 * 60.0
 ROUTE_CHANGE_ACTIVE_BEFORE_S = 60 * 60.0
-# A block with no "EVENING ROUTE CHANGE" note whose OUT-OF-SERVICE note has it leave at about 18:00 (Orange [06]/[08]:
-# "leave MP/CSW at 1800, stay in service until LIB/MP, return to lot") starts that final trip on the post-1800 route, so
-# its leave stop and time act as the change point. Bus tracks 2026-09-21..24 show [06] on the post-1800 Orange path
-# (Grady, Rugby, Library) and [08] on Alderman Rd right after 18:00.
+# A block with no "EVENING ROUTE CHANGE" note whose OUT-OF-SERVICE note has it leave at about 18:00 for a stop the
+# pre-6PM route does not have (Orange [06]: "leave MP at 1800, stay in service until LIB, return to lot") makes that
+# final trip on the post-1800 route, so its leave stop and time act as the change point. Bus tracks 2026-09-21..10-09
+# show [06] on the post-1800 Orange path (Grady, Rugby, Library) every day. Orange [08] ("leave CSW at 1800, stay in
+# service until MP") is NOT one: MP is on the pre-6PM route and the bus drives that route there (Stadium Rd, Maury,
+# JPA, 14th St; 9 of 10 weekday tracks 2026-09-25..10-09), so its Stadium Rd stops must not be hidden.
 ROUTE_CHANGE_OOS_LEAVE_MIN_S = 17.5 * 3600
 ROUTE_CHANGE_OOS_LEAVE_MAX_S = 18.5 * 3600
 
@@ -451,7 +453,10 @@ def route_change_plan(
         note = group.get("route_change")
         if not note:
             oos = group.get("out_of_service")
-            if oos and ROUTE_CHANGE_OOS_LEAVE_MIN_S <= oos.get("leave_s", 0) <= ROUTE_CHANGE_OOS_LEAVE_MAX_S:
+            if (
+                oos and ROUTE_CHANGE_OOS_LEAVE_MIN_S <= oos.get("leave_s", 0) <= ROUTE_CHANGE_OOS_LEAVE_MAX_S
+                and _stop_for_code(route_id, oos.get("last_code") or oos.get("until_code")) is None
+            ):
                 note = oos
         if not note:
             continue

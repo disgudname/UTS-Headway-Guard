@@ -35,6 +35,11 @@ ETA engine commits since {base} (empty = none):
 Runs (late% = predictions more than 2 min late, Purple left out; target under {target}%):
 {runs}
 
+One engine change is exempt by the user's decision (2026-10-09) and does NOT count as "engine code changed":
+the fix to when ETAs are blanked for a block's last trip (Orange [08]'s Stadium Rd stops, Night Pilot [04]'s
+last ten minutes; bus_eta.py OOS_POSITION_TRUST_BEFORE_S and uts_blocks.route_change_plan). Any other engine
+commit still counts.
+
 Purple is not part of the test. Lot shuttles on game day Sat 2026-10-10 do not count. A run over the target
 still passes if a board entry (or its breach list) pins it on one bus, one driver, or traffic.
 
