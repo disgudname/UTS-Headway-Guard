@@ -44,12 +44,13 @@ Checked against the entries below on 2026-10-06. Everything not listed here is b
 - **Card build is not repeatable:** `scripts/build_block_cards.py` breaks ties in a bus card's top-5 blocks (and its route mix) by set order, so two runs on the same data give a slightly different `scripts/cards-data.js`. Block cards are stable.
 - **Branches:** three merged `claude/*` branches can be deleted; `claude/late-dwell` is an unmerged prototype (see §3).
 
-### 2026-10-11 · [dev] · `/livemap` shows bus battery: Battery section in the popup, low-battery badge on the marker (NOT committed, NOT deployed: in the working tree on [dev])
+### 2026-10-11 · [dev] · `/livemap` shows bus battery: Battery section in the popup, low-battery badge on the marker (`a172adc`, DEPLOYED v2089 10-11 ~18:50 ET)
 
 - **Asked:** `/livemap` had no state of charge at all (only `/map`, `/servicecrew`, `/socdisplay` and the low-SoC web push used it).
 - **Built:** `scripts/livemap/core/data/soc.js` polls `/api/viriciti/soc` every 60 s, only while a dispatcher is signed in, keyed by bus number (= TransLoc vehicle name). `core/layers/vehicles.js`: a "Battery" popup section (bar, percent, "charging", and the reading's age once it is 30+ min old; amber at the 35% low mark, red from 20%) and an amber bolt badge on the pin's LEFT for a low bus, baked into the composite image like the red off-route "!" on the right. Dispatcher-only, both.
 - **Checked** on a local server with `?mock=1&dispatcher=1&bus=6100` (mock 6100 is low at 22%, 6101 is charging): popup section and badge both draw. **Not checked:** a real electric bus in service with a dispatcher login.
 - The badge is as small as the off-route one (the marker image is scaled down by zoom). vandispatch2 is not affected (it runs the vehicle layer without UTS buses).
+- ↳ [dev] 2026-10-11: deployed v2089, health 200, `/livemap-src/core/data/soc.js` served, `/api/viriciti/soc` still connected with 4 buses after the restart (so the dashboard login worked a second time). Still not seen on prod: the popup section and badge on a real bus, signed in as a dispatcher.
 
 ### 2026-10-11 · [dev] · BEB state of charge is back: the app logs in to the ViriCiti (ChargePoint) dashboard instead of using an SDK key
 
