@@ -44,13 +44,13 @@ Checked against the entries below on 2026-10-06. Everything not listed here is b
 - **Card build is not repeatable:** `scripts/build_block_cards.py` breaks ties in a bus card's top-5 blocks (and its route mix) by set order, so two runs on the same data give a slightly different `scripts/cards-data.js`. Block cards are stable.
 - **Branches:** three merged `claude/*` branches can be deleted; `claude/late-dwell` is an unmerged prototype (see §3).
 
-### 2026-10-11 · [dev] · The Fly app itself now pushes ntfy: over-height bus at the bridge (NOT deployed, `NTFY_TOPIC` not yet a Fly secret)
+### 2026-10-11 · [dev] · The Fly app itself now pushes ntfy: over-height bus at the bridge (`b6c570d`, DEPLOYED v2085 10-11 ~17:57 ET)
 
 - **Asked:** can the Fly machine use ntfy; start with over-height buses, at ntfy's highest urgency.
 - **Built (`app.py`):** `send_ntfy()` (a plain POST to `https://ntfy.sh/<NTFY_TOPIC>`, does nothing with no topic set) and `notify_overheight_buses()`, called from the vehicle updater on every poll with the non-stale vehicles. Same test as the maps' on-screen alert: a bus on `OVERHEIGHT_BUSES` within `BRIDGE_RADIUS` of `BRIDGE_LAT/LON` (read live, so `/v1/config` edits apply). Priority `urgent` (5, ntfy's top).
 - **One push per approach:** a bus is pushed again only after it has been out of the radius for `OVERHEIGHT_NTFY_REARM_S` (300). A bus parked inside it is pushed once. State is in memory, so a restart with a bus inside pushes once more.
 - **Tests:** `tests/test_overheight_ntfy.py`; suite 477 passed. No real push was sent: the topic is only on [home], [dev] does not have it.
-- **To turn it on (user):** `fly secrets set NTFY_TOPIC=<the same topic the phone subscribes to>` (this restarts the machine), then deploy this commit. Never put the topic in git.
+- ↳ [dev] 2026-10-11: user set the `NTFY_TOPIC` Fly secret; deployed v2085, health 200. A normal-priority test push sent from the Fly machine with its own topic got a 200 from ntfy. **Not yet seen:** a real over-height push (needs one of the four buses at the bridge), and the user has not confirmed the test reached the phone. Never put the topic in git.
 - **Next events the user may want pushed** (offered, not asked for yet): a block going OPEN, `/v1/w2w/ob` `source` dropping to `feed`, TransLoc not answering, TomTom near its cap. Reuse `send_ntfy()` and give each its own repeat limit. "Is prod alive" checks stay on [home]: the app cannot report its own death.
 
 ### 2026-10-11 · [dev] · W2W's API serves shift history back to 2014; pulled the user's own shifts for a personal project. No code changed
