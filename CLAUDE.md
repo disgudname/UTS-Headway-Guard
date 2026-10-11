@@ -218,6 +218,10 @@ QUICK_DEPARTURE_MIN_DURATION_S = 5.0          # Quick departure threshold
 **Phone push (ntfy):**
 - `NTFY_TOPIC` - secret ntfy.sh topic (the topic name is the password: never print or commit it). With it set, `app.py` pushes at top priority when a bus on `OVERHEIGHT_BUSES` comes within `BRIDGE_RADIUS` of the bridge (`notify_overheight_buses`, once per approach; `OVERHEIGHT_NTFY_REARM_S=300`). `send_ntfy()` is the helper for any other event
 
+**ViriCiti / ChargePoint (bus state of charge):**
+- `VIRICITI_API_KEY` - SDK key (secret). Not set in prod: the account cannot generate one
+- `VIRICITI_USERNAME` / `VIRICITI_PASSWORD` - secret dashboard.viriciti.com login, used when there is no API key: `viriciti_client.py` logs in through the site's HTML forms and polls the dashboard's own state endpoint every `VIRICITI_POLL_S` (30). It logs in again when the session ends and waits 30 minutes after a failed login
+
 **Storage:**
 - `DATA_DIRS=/data` - Persistent storage location (colon-separated)
 - `VEH_LOG_DIRS=/data/vehicle_logs` - Vehicle log storage

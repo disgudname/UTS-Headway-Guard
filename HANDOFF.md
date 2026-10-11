@@ -44,6 +44,15 @@ Checked against the entries below on 2026-10-06. Everything not listed here is b
 - **Card build is not repeatable:** `scripts/build_block_cards.py` breaks ties in a bus card's top-5 blocks (and its route mix) by set order, so two runs on the same data give a slightly different `scripts/cards-data.js`. Block cards are stable.
 - **Branches:** three merged `claude/*` branches can be deleted; `claude/late-dwell` is an unmerged prototype (see §3).
 
+### 2026-10-11 · [dev] · BEB state of charge is back: the app logs in to the ViriCiti (ChargePoint) dashboard instead of using an SDK key
+
+- **Why it was off:** prod had no `VIRICITI_API_KEY` (`/api/viriciti/soc` said `enabled: false`). The user's ChargePoint login gets "Forbidden" on `portal.viriciti.com/sdk`, so no new key. The SDK itself (`sdk.viriciti.com`) still answers.
+- **Built (`viriciti_client.py`, two lines in `app.py`):** with secrets `VIRICITI_USERNAME` + `VIRICITI_PASSWORD` and no API key, the client logs in like a browser (plain HTML forms at `accounts.viriciti.com`: email, then password; no CAPTCHA, account `loginType` is `password`), keeps the session cookies, and polls the dashboard's own `POST /api/v1/viostate` every `VIRICITI_POLL_S` (30). Bus list from `GET /api/v2/portal/assets`. Both return the SDK's shapes, so everything downstream (SSE, low-SoC push, map badges) is unchanged. No headless Chromium needed.
+- **Session ends (401/403):** logs in again by itself. **Login fails:** waits 30 min (`LOGIN_RETRY_S`) so a bad password cannot lock the account; log line `[viriciti] login rejected`.
+- **An API key still wins** if one is ever set. These are unofficial endpoints of the dashboard web app and can change without notice.
+- **Check a login by hand:** `python viriciti_client.py` with the two env vars set prints each bus and its charge. Never put the login in git or in a chat.
+- Four buses on the account: 25131, 25231, 25331, 25431 (`gillig_1430`, `1441`-`1443`).
+
 ### 2026-10-11 · [dev] · The Fly app itself now pushes ntfy: over-height bus at the bridge (`b6c570d`, DEPLOYED v2085 10-11 ~17:57 ET)
 
 - **Asked:** can the Fly machine use ntfy; start with over-height buses, at ntfy's highest urgency.

@@ -152,7 +152,10 @@ W2W_POSITION_RE = re.compile(r"\[(\d{1,2})(?:\s*(AM|PM))?\]", re.IGNORECASE)
 AM_PM_BLOCKS: set[str] = {f"{number:02d}" for number in range(20, 27)}
 # ViriCiti EV telemetry (optional - disabled if VIRICITI_API_KEY not set)
 VIRICITI_API_KEY = os.getenv("VIRICITI_API_KEY", "").strip()
-VIRICITI_ENABLED = bool(VIRICITI_API_KEY)
+# VIRICITI_USERNAME / VIRICITI_PASSWORD (secrets) are the fallback: a dashboard.viriciti.com login
+VIRICITI_ENABLED = bool(
+    VIRICITI_API_KEY or (os.getenv("VIRICITI_USERNAME", "").strip() and os.getenv("VIRICITI_PASSWORD", ""))
+)
 W2W_TIME_RE = re.compile(
     r"^\s*(\d{1,2})(?::(\d{2}))?(?::(\d{2}))?\s*([AP])?M?\s*$",
     re.IGNORECASE,
@@ -2077,7 +2080,7 @@ async def init_transloc_client() -> None:
 async def init_viriciti_client() -> None:
     """Initialize ViriCiti client for EV telemetry (SOC, odometer)."""
     if not VIRICITI_ENABLED:
-        print("[viriciti] VIRICITI_API_KEY not set, SOC tracking disabled")
+        print("[viriciti] VIRICITI_API_KEY or VIRICITI_USERNAME/VIRICITI_PASSWORD not set, SOC tracking disabled")
         app.state.viriciti_client = None
         return
     try:
