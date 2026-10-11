@@ -93,7 +93,7 @@ button{margin-top:12px;padding:10px 14px;border-radius:6px;border:1px solid #2a3
       </label>
       <label id="noticeTargetStopIdsLabel" style="display:none;">Target Stops
         <div style="position:relative;">
-          <input type="text" id="noticeStopSearch" placeholder="Start typing a stop name..." autocomplete="off">
+          <input type="text" id="noticeStopSearch" placeholder="Start typing a stop name, or a stop ID..." autocomplete="off">
           <div id="noticeStopSuggestions" style="display:none;position:absolute;top:100%;left:0;right:0;z-index:20;background:#10151c;border:1px solid #2a3442;border-radius:4px;max-height:220px;overflow-y:auto;margin-top:2px;"></div>
         </div>
         <div id="noticeStopChips" style="display:flex;flex-wrap:wrap;gap:6px;margin-top:8px;"></div>
@@ -471,6 +471,12 @@ function renderStopSuggestions(query){
     .filter(s => !selectedStopIds.includes(String(s.id)))
     .filter(s => String(s.name).toLowerCase().includes(q) || String(s.id).toLowerCase().includes(q))
     .slice(0, 8);
+  // A stop TransLoc has not published yet (a sign put up before its stop opens) is not in
+  // the directory, so a bare number that is no known stop's ID can be added as typed.
+  const rawId = query.trim();
+  if(/^\d+$/.test(rawId) && !selectedStopIds.includes(rawId) && !stopNamesById[rawId]){
+    matches.unshift({id: rawId, name: `Use stop ID ${rawId} (not in the stop list)`, source: ''});
+  }
   if(!matches.length){
     noticeStopSuggestions.innerHTML = '<div style="padding:6px 8px;color:#9fb0c9;font-size:12px;">No matching stops</div>';
     noticeStopSuggestions.style.display = 'block';
