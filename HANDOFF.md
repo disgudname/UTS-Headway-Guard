@@ -52,6 +52,7 @@ Checked against the entries below on 2026-10-06. Everything not listed here is b
 - **An API key still wins** if one is ever set. These are unofficial endpoints of the dashboard web app and can change without notice.
 - **Check a login by hand:** `python viriciti_client.py` with the two env vars set prints each bus and its charge. Never put the login in git or in a chat.
 - Four buses on the account: 25131, 25231, 25331, 25431 (`gillig_1430`, `1441`-`1443`).
+- ↳ [dev] 2026-10-11: committed `f4a7bea`, deployed v2086 ~18:26 ET, health 200. **NOT WORKING YET:** `flyctl secrets list` shows `VIRICITI_USERNAME` and `VIRICITI_PASSWORD` as Deployed, but neither name is in the running machine's environment (checked in the uvicorn process, also after `flyctl secrets deploy`), so `/api/viriciti/soc` still says `enabled: false`. Other secrets (`NTFY_TOPIC`) are there. Best guess: the values were stored empty. Waiting on the user to set them again. A real login has still never been run.
 
 ### 2026-10-11 · [dev] · The Fly app itself now pushes ntfy: over-height bus at the bridge (`b6c570d`, DEPLOYED v2085 10-11 ~17:57 ET)
 
