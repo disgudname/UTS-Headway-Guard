@@ -1813,6 +1813,74 @@ out center;
         items.append({"lat": lat, "lon": lon, "maxheight": mh})
     return items
 
+
+# Phone push (ntfy) when an over-height bus comes within BRIDGE_RADIUS of the bridge:
+# the same test the maps' on-screen alert uses (scripts/livemap/core/layers/overheight.js),
+# run here so it reaches a phone with no map open. The topic name is the password on
+# ntfy's free tier, so it is a secret; with none set nothing is sent.
+NTFY_TOPIC = (os.getenv("NTFY_TOPIC") or "").strip()
+# A bus is pushed once per approach: again only after it has been out of the radius this long.
+OVERHEIGHT_NTFY_REARM_S = int(os.getenv("OVERHEIGHT_NTFY_REARM_S", "300"))
+_overheight_last_inside: Dict[str, float] = {}
+
+
+def overheight_buses_to_notify(
+    vehicles: List[Dict[str, Any]], now: Optional[float] = None
+) -> List[Tuple[str, float]]:
+    """(bus, metres from the bridge) for each over-height bus that just entered the radius."""
+    now = time.time() if now is None else now
+    watched = {normalize_bus_name(str(b)) for b in (OVERHEIGHT_BUSES or [])}
+    watched.discard("")
+    out: List[Tuple[str, float]] = []
+    for v in vehicles or []:
+        bus = normalize_bus_name(v.get("Name"))
+        if bus not in watched:
+            continue
+        try:
+            pos = (float(v.get("Latitude")), float(v.get("Longitude")))
+        except (TypeError, ValueError):
+            continue
+        dist = haversine(pos, (BRIDGE_LAT, BRIDGE_LON))
+        if dist > float(BRIDGE_RADIUS):
+            continue
+        last = _overheight_last_inside.get(bus)
+        _overheight_last_inside[bus] = now
+        if last is None or now - last > OVERHEIGHT_NTFY_REARM_S:
+            out.append((bus, dist))
+    return out
+
+
+async def send_ntfy(message: str, *, title: str = "", priority: str = "default", tags: str = "") -> bool:
+    if not NTFY_TOPIC:
+        return False
+    headers = {"Priority": priority}
+    if title:
+        headers["Title"] = title
+    if tags:
+        headers["Tags"] = tags
+    try:
+        async with httpx.AsyncClient(timeout=15) as client:
+            r = await client.post(
+                f"https://ntfy.sh/{NTFY_TOPIC}", content=message.encode("utf-8"), headers=headers
+            )
+        record_api_call("POST", "https://ntfy.sh/<topic>", r.status_code)
+        r.raise_for_status()
+        return True
+    except Exception as e:
+        print(f"[ntfy] send failed: {type(e).__name__}")
+        return False
+
+
+def notify_overheight_buses(vehicles: List[Dict[str, Any]]) -> None:
+    for bus, dist in overheight_buses_to_notify(vehicles):
+        print(f"[overheight] bus {bus} is {dist:.0f} m from the bridge")
+        asyncio.create_task(send_ntfy(
+            f"Bus {bus} is {dist:.0f} m from the 14th Street bridge.",
+            title=f"OVERHEIGHT BUS {bus} AT BRIDGE",
+            priority="urgent",
+            tags="rotating_light",
+        ))
+
 # ---------------------------
 # Core maths (abridged but functional)
 # ---------------------------
@@ -6163,6 +6231,10 @@ async def startup():
                                 fresh_all.append(v)
                                 if v.get("RouteID") and v.get("RouteID") != 0:
                                     fresh.append(v)
+                        try:
+                            notify_overheight_buses(fresh_all)
+                        except Exception as e:
+                            print(f"[updater] overheight notify error: {e}")
                         active_ids = {v["RouteID"] for v in fresh}
                         now_ts = time.time()
                         for rid in active_ids:

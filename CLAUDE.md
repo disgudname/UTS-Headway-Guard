@@ -215,6 +215,9 @@ QUICK_DEPARTURE_MIN_DURATION_S = 5.0          # Quick departure threshold
 - `TOMTOM_MONTHLY_CAP=195000` - stop fetching for the rest of the month (count in `/data/tomtom_usage.json`, shown at `/admin` via `GET /api/traffic/usage`)
 - `TOMTOM_VECTOR_TTL_S=90` / `TOMTOM_VECTOR_MONTHLY_CAP=195000` - same, for the separate 200k vector-tile allowance. Both maps use vector: `/livemap` renders `/api/traffic/vector/{z}/{x}/{y}.pbf` (z11-13 over the service area, 6 tiles) directly, and `/map` (Leaflet) draws `/api/traffic/flow.geojson`, the same cached z13 tiles decoded server-side. The raster endpoint `/api/traffic/tile` is unused, kept as a fallback
 
+**Phone push (ntfy):**
+- `NTFY_TOPIC` - secret ntfy.sh topic (the topic name is the password: never print or commit it). With it set, `app.py` pushes at top priority when a bus on `OVERHEIGHT_BUSES` comes within `BRIDGE_RADIUS` of the bridge (`notify_overheight_buses`, once per approach; `OVERHEIGHT_NTFY_REARM_S=300`). `send_ntfy()` is the helper for any other event
+
 **Storage:**
 - `DATA_DIRS=/data` - Persistent storage location (colon-separated)
 - `VEH_LOG_DIRS=/data/vehicle_logs` - Vehicle log storage
