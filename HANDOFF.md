@@ -52,6 +52,7 @@ User: "can you confirm the system notice to CAP feed pipeline is setup".
 - **Run here with fake notices against the real functions:** an "all" notice, a stop-targeted one and a route-targeted one all reached the stop they cover; a notice for another stop, a staff-only one and an expired one did not. Severity stayed `Minor`. The identifier stayed the same while the text did, and changed when the alert text changed.
 - **Prod:** `/api/cap/stop_arrivals/NGPG` is 200 with live arrivals; `/v1/system-notices` has NO active notice right now, so `/v1/transloc/stop_alert/NGPG` is `null`. **NOT checked:** a real notice on prod or on a physical sign (would have put test text on live signs).
 - Two small things, not fixed: stripping a non-ASCII character can leave a double space or a cut word ("detour — café" -> "detour  caf"), and no test in `tests/` covers any of this.
+- ↳ [home] 2026-10-11, user: **the North Grounds Parking Garage sign is deployed and active, and it is the Novanex (OnAlert) sign** the CAP formatting was built for. So the CAP feed has a real rider-facing sign on it now: a notice that is system-wide, targets stop 26, or targets a route serving it shows on that sign. The user did not say which feed URL the sign polls (the `NGPG` code is the likely one, not confirmed).
 
 ### 2026-10-10 · [home] · `/vdot-cams`: Virginia list was dead (VDOT moved the URL), fixed; Arkansas removed from the page and backend (`5d05bca`, DEPLOYED v2083 10-10 ~13:39 ET)
 
