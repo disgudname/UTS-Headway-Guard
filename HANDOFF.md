@@ -44,6 +44,13 @@ Checked against the entries below on 2026-10-06. Everything not listed here is b
 - **Card build is not repeatable:** `scripts/build_block_cards.py` breaks ties in a bus card's top-5 blocks (and its route mix) by set order, so two runs on the same data give a slightly different `scripts/cards-data.js`. Block cards are stable.
 - **Branches:** three merged `claude/*` branches can be deleted; `claude/late-dwell` is an unmerged prototype (see §3).
 
+### 2026-10-11 · [dev] · W2W's API serves shift history back to 2014; pulled the user's own shifts for a personal project. No code changed
+
+- **Asked:** the user's own W2W shift history, for a personal project outside this repo (`Documents\patify` on [dev]). Read-only probe on the Fly machine using the machine's `W2W_KEY`; nothing in this repo or on prod changed.
+- **Learned about `AssignedShiftList`:** it answers for any past month (rows come back for 2014; the user's own start 2018-09-10). A range over about a month is refused (`400` for 90 days), so history is read one calendar month per request. Rows carry `W2W_EMPLOYEE_ID`, which stayed the same for the user across all 8 years, so it is a safer filter than the name.
+- **`COLOR_ID` 9 is the red "did not work" shift** (user, 10-11: red usually but not always means a callout). `OFF` in `DESCRIPTION` does NOT mean a day off; it is on ~900 of the user's ordinary worked shifts.
+- **[dev] `flyctl` login had expired** (config last written 09-27); the user logged in again 10-11.
+
 ### 2026-10-11 · [home] · System notice -> CAP feed: checked, it is wired up and working. No code changed
 
 User: "can you confirm the system notice to CAP feed pipeline is setup".
