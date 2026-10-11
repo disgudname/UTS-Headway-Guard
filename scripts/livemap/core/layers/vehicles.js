@@ -52,6 +52,7 @@ import {
   vanManifest,
 } from '../data/microtransit.js';
 import { startBusEtaFeed, onBusEta, getBusEtaForVehicle } from '../data/bus-eta.js';
+import { startSocFeed, onSoc, getSoc } from '../data/soc.js';
 import { isRouteHidden, onRouteVisibility } from './routes.js';
 import {
   VEHICLE_SOURCE_ID as SRC,
@@ -157,6 +158,9 @@ export function installVehicleLayer(opts = {}) {
     // checkbox toggle that may never come this load.
     if (staleShown) setShowStaleVehicles(true);
     startBusEtaFeed(); // idempotent; UTS-only second-opinion ETAs (see bus_eta.py)
+    // Electric-bus battery (dispatcher-only): popup section + low-battery badge.
+    startSocFeed();
+    onSoc(rederiveAll);
     onBusEta(() => {
       if (popupId) refreshPopupContent();
     });
@@ -382,6 +386,7 @@ function fromUts(v) {
     onboard: v.onboard,
     capacity: v.capacity,
     ageS: v.ageS,
+    soc: getSoc(v.name),
   };
 }
 
@@ -618,6 +623,7 @@ function deriveProps(v) {
   return {
     offRoute: offRouteM != null && offRouteM > OFF_ROUTE_THRESHOLD_M,
     offRouteM,
+    soc: v.soc || null, // { soc, charging, low, at } for an electric bus
     routeId: v.routeId, // needed by bus_eta.js's per-vehicle lookup (popupHTML)
     routeColor: v.routeColor,
     routeName: v.routeName,
@@ -722,10 +728,12 @@ function syncSource(now, animating) {
     // An off-route dispatcher bus always gets a composite (pills optional) so
     // its red "!" badge is baked into the same single image as the pin.
     const offRoute = !!p.offRoute && isDispatcher();
-    if (wantPills || offRoute) {
+    // Same for a low battery: an amber battery badge on the pin's left.
+    const lowBatt = !!(p.soc && p.soc.low) && isDispatcher();
+    if (wantPills || offRoute || lowBatt) {
       icon = ensureComposite(
         p.routeColor, p.stopped, p.dim, s.heading,
-        wantPills ? p.nameLabel : '', wantPills ? p.subLabel : '', offRoute,
+        wantPills ? p.nameLabel : '', wantPills ? p.subLabel : '', offRoute, lowBatt,
       );
     }
     if (!icon) {
@@ -891,9 +899,9 @@ function pillGapsPx(headingDeg, ink) {
   return { up: -minY + PILL_MARGIN_PX, down: maxY + PILL_MARGIN_PX };
 }
 
-function compositeId(color, stopped, dim, bucket, nameText, subText, offRoute) {
+function compositeId(color, stopped, dim, bucket, nameText, subText, offRoute, lowBatt) {
   const t = (s) => String(s || '').replace(/[^A-Za-z0-9]+/g, '_');
-  return `livemap-vhc-${color}-${stopped ? 's' : 'm'}${dim ? 'd' : ''}-${bucket}-${t(nameText)}-${t(subText)}${offRoute ? '-off' : ''}`;
+  return `livemap-vhc-${color}-${stopped ? 's' : 'm'}${dim ? 'd' : ''}-${bucket}-${t(nameText)}-${t(subText)}${offRoute ? '-off' : ''}${lowBatt ? '-low' : ''}`;
 }
 
 function lruAdd(id) {
@@ -915,10 +923,10 @@ function lruTouch(id) {
 /** Get (building if needed) the composite image id for this vehicle's current
  *  look. Returns null until the underlying pin has finished rasterising — the
  *  caller falls back to the bare pin for a frame. */
-function ensureComposite(color, stopped, dim, headingDeg, nameText, subText, offRoute) {
+function ensureComposite(color, stopped, dim, headingDeg, nameText, subText, offRoute, lowBatt) {
   const step = COMPOSITE_HEADING_STEP;
   const bucket = (((Math.round((Number(headingDeg) || 0) / step) * step) % 360) + 360) % 360;
-  const id = compositeId(color, stopped, dim, bucket, nameText, subText, !!offRoute);
+  const id = compositeId(color, stopped, dim, bucket, nameText, subText, !!offRoute, !!lowBatt);
   const map = getMap();
   if (!map) return null;
   if (map.hasImage(id)) {
@@ -932,6 +940,7 @@ function ensureComposite(color, stopped, dim, headingDeg, nameText, subText, off
     nameText: String(nameText || ''),
     subText: String(subText || ''),
     offRoute: !!offRoute,
+    lowBatt: !!lowBatt,
   };
   compositeSpecs.set(id, spec);
   try {
@@ -985,7 +994,9 @@ function buildComposite(id, spec, pinCv) {
   // centre (clear of the pills above/below), baked into this same image.
   const badgeR = 9 * DPR;
   const badgeX = Math.round(pinReach * 0.72);
-  const halfW = Math.max(pinReach, nameW / 2, subW / 2, spec.offRoute ? badgeX + badgeR + 2 : 0);
+  // Low-battery badge: the same disc mirrored to the pin's left, in amber.
+  const hasBadge = spec.offRoute || spec.lowBatt;
+  const halfW = Math.max(pinReach, nameW / 2, subW / 2, hasBadge ? badgeX + badgeR + 2 : 0);
   const W = Math.ceil(2 * halfW);
   const H = Math.ceil(2 * Math.max(topExt, botExt));
 
@@ -1019,6 +1030,29 @@ function buildComposite(id, spec, pinCv) {
     c.textAlign = 'center';
     c.textBaseline = 'middle';
     c.fillText('!', bx, cy + 0.5 * DPR);
+  }
+
+  if (spec.lowBatt) {
+    const bx = cx - badgeX;
+    c.beginPath();
+    c.arc(bx, cy, badgeR, 0, Math.PI * 2);
+    c.fillStyle = '#d97706';
+    c.fill();
+    c.lineWidth = 2 * DPR;
+    c.strokeStyle = '#ffffff';
+    c.stroke();
+    // A white bolt: a battery outline is unreadable at marker size.
+    const u = DPR;
+    c.beginPath();
+    c.moveTo(bx + 1.5 * u, cy - 6.5 * u);
+    c.lineTo(bx - 4 * u, cy + 1 * u);
+    c.lineTo(bx - 0.5 * u, cy + 1 * u);
+    c.lineTo(bx - 1.5 * u, cy + 6.5 * u);
+    c.lineTo(bx + 4 * u, cy - 1 * u);
+    c.lineTo(bx + 0.5 * u, cy - 1 * u);
+    c.closePath();
+    c.fillStyle = '#ffffff';
+    c.fill();
   }
 
   const data = c.getImageData(0, 0, W, H);
@@ -1343,6 +1377,33 @@ function popupHTML(id) {
         'Occupancy (approximate)',
         `<div class="lv-occ-bar"><span class="${occClass}" style="width:${pct}%"></span></div>
         <div class="lv-occ-label">${label} aboard</div>`,
+      ),
+    );
+  }
+
+  // Electric buses: battery state of charge (ViriCiti), dispatcher-only.
+  if (dispatch && p.soc) {
+    const pct = clamp(Math.round(p.soc.soc), 0, 100);
+    const bits = [`${pct}%`];
+    if (p.soc.charging) bits.push('charging');
+    // The buses only report while they are awake, so say when a reading is old.
+    const ageMin = p.soc.at ? (Date.now() - p.soc.at) / 60_000 : 0;
+    if (ageMin >= 30) {
+      bits.push(
+        ageMin < 90
+          ? `${Math.round(ageMin)} min ago`
+          : ageMin < 48 * 60
+            ? `${Math.round(ageMin / 60)} hr ago`
+            : `${Math.round(ageMin / 1440)} days ago`,
+      );
+    }
+    // Same low mark as the push alerts (35%); red from 20%.
+    const socClass = pct <= 20 ? 'is-full' : p.soc.low ? 'is-busy' : '';
+    sections.push(
+      section(
+        'Battery',
+        `<div class="lv-occ-bar"><span class="${socClass}" style="width:${pct}%"></span></div>
+        <div class="lv-occ-label">${bits.join(' · ')}</div>`,
       ),
     );
   }
