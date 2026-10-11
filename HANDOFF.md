@@ -53,6 +53,7 @@ Checked against the entries below on 2026-10-06. Everything not listed here is b
 - **Check a login by hand:** `python viriciti_client.py` with the two env vars set prints each bus and its charge. Never put the login in git or in a chat.
 - Four buses on the account: 25131, 25231, 25331, 25431 (`gillig_1430`, `1441`-`1443`).
 - ↳ [dev] 2026-10-11: committed `f4a7bea`, deployed v2086 ~18:26 ET, health 200. **NOT WORKING YET:** `flyctl secrets list` shows `VIRICITI_USERNAME` and `VIRICITI_PASSWORD` as Deployed, but neither name is in the running machine's environment (checked in the uvicorn process, also after `flyctl secrets deploy`), so `/api/viriciti/soc` still says `enabled: false`. Other secrets (`NTFY_TOPIC`) are there. Best guess: the values were stored empty. Waiting on the user to set them again. A real login has still never been run.
+- ↳ [dev] 2026-10-11 ~18:35 ET: **WORKING.** The user set the two secrets again and they reached the machine; the first real login succeeded in prod. `/api/viriciti/soc`: `enabled` and `connected` true, 4 buses with SoC. The readings themselves are 2 to 5 days old (newest 10-10 03:57 UTC): that is what ViriCiti has, the buses have not reported since. **Not yet seen:** a session ending and the automatic re-login. Set these secrets with `flyctl secrets import` (stdin), not `secrets set` with quotes.
 
 ### 2026-10-11 · [dev] · The Fly app itself now pushes ntfy: over-height bus at the bridge (`b6c570d`, DEPLOYED v2085 10-11 ~17:57 ET)
 
