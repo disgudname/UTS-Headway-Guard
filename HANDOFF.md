@@ -44,6 +44,15 @@ Checked against the entries below on 2026-10-06. Everything not listed here is b
 - **Card build is not repeatable:** `scripts/build_block_cards.py` breaks ties in a bus card's top-5 blocks (and its route mix) by set order, so two runs on the same data give a slightly different `scripts/cards-data.js`. Block cards are stable.
 - **Branches:** three merged `claude/*` branches can be deleted; `claude/late-dwell` is an unmerged prototype (see §3).
 
+### 2026-10-11 · [home] · System notice -> CAP feed: checked, it is wired up and working. No code changed
+
+User: "can you confirm the system notice to CAP feed pipeline is setup".
+
+- **Code path is complete:** `/v1/system-notices` -> `/data/system_notices.json` -> `_active_notice_texts()` (time window, staff-only, stop/route targeting, ASCII strip) -> `_cap_feed_response()` appends the text after the arrivals in `<headline>` and `<description>`.
+- **Run here with fake notices against the real functions:** an "all" notice, a stop-targeted one and a route-targeted one all reached the stop they cover; a notice for another stop, a staff-only one and an expired one did not. Severity stayed `Minor`. The identifier stayed the same while the text did, and changed when the alert text changed.
+- **Prod:** `/api/cap/stop_arrivals/NGPG` is 200 with live arrivals; `/v1/system-notices` has NO active notice right now, so `/v1/transloc/stop_alert/NGPG` is `null`. **NOT checked:** a real notice on prod or on a physical sign (would have put test text on live signs).
+- Two small things, not fixed: stripping a non-ASCII character can leave a double space or a cut word ("detour — café" -> "detour  caf"), and no test in `tests/` covers any of this.
+
 ### 2026-10-10 · [home] · `/vdot-cams`: Virginia list was dead (VDOT moved the URL), fixed; Arkansas removed from the page and backend (`5d05bca`, DEPLOYED v2083 10-10 ~13:39 ET)
 
 User: "check on vdot cams and try to fix". Checked all five states against prod, list + one stream down to a video segment.
