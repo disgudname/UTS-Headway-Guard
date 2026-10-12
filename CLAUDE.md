@@ -47,6 +47,7 @@ This document provides comprehensive guidance for AI assistants working with the
 ├── ondemand_client.py          # On-demand service client integration
 ├── uva_athletics.py            # UVA athletics event feed integration
 ├── HANDOFF.md                  # Shared notes between machines/sessions (read at the start of every session)
+├── HANDOFF-archive.md          # Older HANDOFF message-board entries (search it, never read it whole)
 ├── requirements.txt            # Python dependencies (FastAPI, uvicorn, httpx, pycryptodome)
 ├── package.json                # Node.js dependencies (Express)
 ├── Dockerfile                  # Multi-stage build with Python 3.12-slim
