@@ -3,6 +3,7 @@
 import asyncio
 import json
 import os
+import time
 from typing import Any, Dict, List, Optional, Callable
 from dataclasses import dataclass
 from datetime import datetime, timezone
@@ -87,6 +88,12 @@ class ViriCitiClient:
         self._soc_cache: Dict[str, VehicleSOC] = {}  # bus_number -> SOC data
         self._connected = False
         self._on_soc_update: Optional[Callable[[VehicleSOC], None]] = None
+        # Dashboard login bookkeeping, served by status() (epoch seconds)
+        self._login_count = 0
+        self._last_login = 0.0
+        self._last_poll_ok = 0.0
+        self._last_error = ""       # short, never a URL or a page body
+        self._last_error_at = 0.0
 
     @classmethod
     def from_env(cls) -> "ViriCitiClient":
@@ -162,6 +169,8 @@ class ViriCitiClient:
         if not await self._session_ok():
             raise ViriCitiLoginError(
                 f"login did not reach a session (stopped at {resp.url.host}{resp.url.path}, HTTP {resp.status_code})")
+        self._login_count += 1
+        self._last_login = time.time()
 
     async def fetch_vehicle_list(self) -> list[dict]:
         """Fetch available vehicles from Static API and build vid->bus mapping."""
@@ -317,6 +326,7 @@ class ViriCitiClient:
                 if not self._connected:
                     print(f"[viriciti] dashboard polling OK, {len(self._soc_cache)} vehicles")
                 self._connected = True
+                self._last_poll_ok = time.time()
                 for bus, soc_data in self._soc_cache.items():
                     key = (soc_data.soc, soc_data.power, soc_data.timestamp)
                     if sent.get(bus) != key:
@@ -326,10 +336,12 @@ class ViriCitiClient:
             except ViriCitiLoginError as e:
                 self._connected = False
                 self._http = None
+                self._note_error("login failed")
                 print(f"[viriciti] {e}; next try in {int(self.LOGIN_RETRY_S / 60)} min")
                 delay = self.LOGIN_RETRY_S
             except httpx.HTTPStatusError as e:
                 self._connected = False
+                self._note_error(f"HTTP {e.response.status_code}")
                 if e.response.status_code in (401, 403):
                     print(f"[viriciti] dashboard session ended ({e.response.status_code}), logging in again")
                     self._http = None
@@ -337,6 +349,7 @@ class ViriCitiClient:
                     print(f"[viriciti] dashboard poll failed: HTTP {e.response.status_code}")
             except Exception as e:
                 self._connected = False
+                self._note_error(type(e).__name__)
                 print(f"[viriciti] dashboard poll failed: {e}")
             await asyncio.sleep(delay)
 
@@ -410,6 +423,26 @@ class ViriCitiClient:
     def vehicle_count(self) -> int:
         """Number of vehicles being tracked."""
         return len(self._vid_to_bus)
+
+    def _note_error(self, text: str) -> None:
+        self._last_error = text
+        self._last_error_at = time.time()
+
+    def status(self) -> Dict[str, Any]:
+        """How the connection is doing right now (no secrets), for /api/viriciti/soc."""
+        def iso(ts: float) -> Optional[str]:
+            return datetime.fromtimestamp(ts, tz=timezone.utc).isoformat(timespec="seconds") if ts else None
+
+        return {
+            "connected": self._connected,
+            "vehicle_count": self.vehicle_count,
+            "mode": "dashboard" if self._use_dashboard else "sdk",
+            "logins": self._login_count,  # since the app started; more than 1 means a session ended
+            "last_login": iso(self._last_login),
+            "last_poll_ok": iso(self._last_poll_ok),
+            "last_error": self._last_error or None,
+            "last_error_at": iso(self._last_error_at),
+        }
 
 
 if __name__ == "__main__":

@@ -5788,13 +5788,18 @@ def _load_cached_uva_events(now: datetime) -> List[Dict[str, Any]]:
 @app.get("/api/viriciti/soc")
 async def get_viriciti_soc():
     """Get current SOC for all ViriCiti-tracked vehicles (keyed by bus number)."""
-    return {
+    out = {
         "enabled": VIRICITI_ENABLED,
         "connected": state.viriciti_connected,
         "vehicle_count": state.viriciti_vehicle_count,
         "last_update": state.viriciti_last_update,
         "vehicles": state.vehicle_soc  # {bus_number: {soc, odo, timestamp, vid}}
     }
+    # state.viriciti_connected only moves when a reading changes; ask the client how it is NOW
+    client: Optional[ViriCitiClient] = getattr(app.state, "viriciti_client", None)
+    if client:
+        out.update(client.status())
+    return out
 
 
 @app.get("/api/viriciti/soc/{bus_number}")
