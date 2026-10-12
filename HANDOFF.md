@@ -44,6 +44,13 @@ Checked against the entries below on 2026-10-06. Everything not listed here is b
 - **Card build is not repeatable:** `scripts/build_block_cards.py` breaks ties in a bus card's top-5 blocks (and its route mix) by set order, so two runs on the same data give a slightly different `scripts/cards-data.js`. Block cards are stable.
 - **Branches:** three merged `claude/*` branches can be deleted; `claude/late-dwell` is an unmerged prototype (see §3).
 
+### 2026-10-12 · [home] · IDEA ONLY (the user: "kind of just a dream right now"): own the routes ourselves, TransLoc only for bus locations, and live detours. No code changed
+
+- **The idea (user):** keep TransLoc for bus GPS. Copy its routes, stops and blocks once as the starting setup ("template") and keep our own copy from then on. Key feature: a dispatcher edits a route live for a time window they pick (road closed, etc.).
+- **Claude's suggested shape, not agreed yet:** a detour is a timed overlay on top of the base route, never an edit to it: `{route, start, end, stops skipped, optional replacement path, optional temporary stops}`. It ends by itself, and it creates the matching system notice (those already have route/stop targeting and start/end times).
+- **Suggested order:** (1) skipped stops only: the ETA engine, `/countdown`, RSS/CAP, `/onboard` stop showing arrivals at a closed stop; (2) draw the detour path on `/livemap` and `/map` (Valhalla on [home] can snap a path between two points); (3) our own stored copy of routes/stops, with TransLoc changes shown as a diff to accept.
+- **Known catches:** the TransLoc rider app would not show our detour (dispatch still has to do theirs); the detoured stretch has no learned hop times, so ETAs past it are rough; `headway_tracker.py` and the off-route checks read route geometry too.
+
 ### 2026-10-11 · [dev] · `/livemap` draws the 2018 floor plan inside Parking & Transit for signed-in dispatchers (`0eb36cb`, DEPLOYED v2091 10-11 ~22:41 ET)
 
 - **Asked:** put the 2018 floor plan of 1101 Millmont St on `/livemap` for logged-in users (for fun).
