@@ -44,14 +44,15 @@ Checked against the entries below on 2026-10-06. Everything not listed here is b
 - **Card build is not repeatable:** `scripts/build_block_cards.py` breaks ties in a bus card's top-5 blocks (and its route mix) by set order, so two runs on the same data give a slightly different `scripts/cards-data.js`. Block cards are stable.
 - **Branches:** three merged `claude/*` branches can be deleted; `claude/late-dwell` is an unmerged prototype (see §3).
 
-### 2026-10-11 · [dev] · `/livemap` draws the 2018 floor plan inside Parking & Transit for signed-in dispatchers (committed, NOT deployed, plan file NOT on the prod volume yet)
+### 2026-10-11 · [dev] · `/livemap` draws the 2018 floor plan inside Parking & Transit for signed-in dispatchers (`0eb36cb`, DEPLOYED v2091 10-11 ~22:41 ET)
 
 - **Asked:** put the 2018 floor plan of 1101 Millmont St on `/livemap` for logged-in users (for fun).
 - **The plan is not in the repo and must never be:** the repo is public and the plan is behind the dispatcher login. It is one GeoJSON file, `pt_floorplan_2018.geojson`, in the data dir (`/data` in prod, `data-local/` locally, git-ignored). `GET /v1/livemap/floorplan` serves it with dispatcher auth (401 without the cookie, 404 when the file is missing, and the map then just shows nothing).
 - **Built:** `scripts/build_pt_floorplan.py <folder> <out.geojson>` turns the digitized drawing (`old_floorplan_rooms.csv` + `old_floorplan_walls.json`, feet, in `C:\Users\Pat Cox\Documents\New folder` on [dev]) into GeoJSON. It places the plan with a rotation + shift only, fitted against UVA's own footprint of the building (facility 0583 in PublicFacilitiesSearch); the outline sits a median 0.4 ft from it. `scripts/livemap/core/layers/floorplan-style.js` + `floorplan.js`: baked source and layers (floor, rooms coloured by department, walls, labels), from zoom 16.5, labels from 18.6, fetched once after sign-in, above the basemap and aerial, under routes and buses.
 - **Checked** on a local server with a dispatcher cookie, Day and Night: 58 rooms draw in the right place. Tests pass (477).
-- **To go live:** copy `data-local/pt_floorplan_2018.geojson` to `/data/pt_floorplan_2018.geojson` on the Fly volume, then deploy. Both wait for the user's OK.
+- **The plan file is on the prod volume** (`/data/pt_floorplan_2018.geojson`, put there with `flyctl ssh sftp put`). A new volume or a rebuilt plan needs it copied again; a deploy does not touch it.
 - UVA's indoor floor plan service (`Indoors` folder on fm-atlas) needs a token; left alone. The 2026 plan is digitized in the same folder and in the same coordinates, so the same transform places it.
+- ↳ [dev] 2026-10-11: deployed v2091, health 200. From outside: `/v1/livemap/floorplan` is 401 with no login, the two new JS files are served. From inside the machine with a dispatcher cookie: 200, all 58 rooms. Not seen on prod: the plan in a browser, signed in.
 
 ### 2026-10-11 · [dev] · `/livemap` shows bus battery: Battery section in the popup, low-battery badge on the marker (`a172adc`, DEPLOYED v2089 10-11 ~18:50 ET)
 
