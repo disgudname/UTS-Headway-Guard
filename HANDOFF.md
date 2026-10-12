@@ -48,6 +48,16 @@ Checked against the entries below on 2026-10-06. Everything not listed here is b
 - **Card build is not repeatable:** `scripts/build_block_cards.py` breaks ties in a bus card's top-5 blocks (and its route mix) by set order, so two runs on the same data give a slightly different `scripts/cards-data.js`. Block cards are stable.
 - **Branch `claude/late-dwell`:** unmerged prototype (see §3). Keep or delete is the user's call.
 
+### 2026-10-12 · [home] · Code prune: dead Python, four pages nothing served, stray root files removed (committed, NOT deployed)
+
+- **How it was found:** `vulture` over the Python (not installed in the repo; run from a temp folder), then every flagged name checked for any other mention in `.py` / `.js` / `.html`. Route handlers are flagged by vulture and are NOT dead; only undecorated names with no other mention were removed.
+- **`app.py` (-175 lines):** `_parse_sheet_date`, `_get_ride_info`, `_require_sync_secret`, `_get_transloc_arrivals` + `_fetch_transloc_arrivals_for_base` + `_trim_arrivals_payload` + `transloc_arrivals_cache`, `_get_transloc_blocks_raw` + `_fetch_transloc_blocks_raw_for_base` + `_build_block_mapping_raw`, the unused `CONFIG_FILE` / `MILEAGE_FILE` / `MAP_HTML`, one unreachable `return`.
+- **`vehicle_drivers/` package deleted** (~900 lines). `app.py` imported it and never used it; `/v1/dispatch/vehicle-drivers` and `tests/test_vehicle_drivers.py` are all `app.py`'s own code.
+- **Pages deleted, none had a route:** `html/map.html` (548 KB, loaded into memory at startup and never served; `/map` is `testmap.html`), `html/index-legacy.html`, `html/testmap-minimal.html`, `html/dispatcher-demo.html`. The sitemap's links to the last two were 404s and are gone.
+- **Root files deleted:** seven `dispatcher-*.png` screenshots (1.5 MB, they shipped in the Docker image) and `vehicle-drivers.txt`, an April API dump with real driver names in it. It is still in git history.
+- **Tests:** 477 passed before and after. Not deployed; the next deploy carries it. After that deploy, check `/v1/health`, `/map` and `/busdispatch`.
+- **Left alone, the user's call:** the pages the sitemap marks dead but "kept for reference" (`/cattestmap` 548 KB, `/ips` 583 KB, `/madmap`, `/metromap`, `/dashmaptester`, `/overlap-demo`, `/debug`); the Node ticket service (`src/`, `scripts/acceptance.sh`, the express dependency), which `start.sh` never starts; `spare_openapi_spec.json` (1.8 MB, ships in the image, only a planning doc mentions it); old notes in the root (`CONFIG_FORMAT.md`, `TESTMAP_EXTRACTION.md`, `PLANNING_van_dispatch.md`, the `eink-*.txt` / `push-notifications-*.txt` / `stop-eta-endpoints.txt` files). Dead code inside the big JS files was not looked at.
+
 ### 2026-10-12 · [home] · Cleanup: old board entries moved to `HANDOFF-archive.md`, three merged branches deleted. No code changed
 
 - **This file went from 296 KB to ~100 KB.** The 87 board entries dated 2026-09-19 to 2026-10-06 are in `HANDOFF-archive.md`, word for word. The rule in "How to use this doc" changed to match: keep about a week here, move the rest, never read the archive whole.

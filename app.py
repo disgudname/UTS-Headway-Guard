@@ -76,8 +76,6 @@ from tickets_store import TicketStore
 from push_subscriptions import PushSubscriptionStore
 from ondemand_client import OnDemandClient
 from spare_client import SpareClient
-from vehicle_drivers import VehicleDriversProvider
-from vehicle_drivers.uva import UVAVehicleDriversProvider, UVAProviderConfig
 from uva_athletics import (
     NY_TZ as UVA_TZ,
     ensure_uva_athletics_cache,
@@ -2158,7 +2156,6 @@ def _load_html(name: str) -> str:
 
 DRIVER_HTML = _load_html("driver.html")
 DISPATCHER_HTML = _load_html("dispatcher.html")
-MAP_HTML = _load_html("map.html")
 TESTMAP_HTML = _load_html("testmap.html")
 LIVEMAP_HTML = _load_html("livemap.html")
 LIVEMAP_KIOSK_HTML = _load_html("livemap-kiosk.html")
@@ -2346,7 +2343,6 @@ CONFIG_KEYS = [
     "LOW_CLEARANCE_RADIUS","BRIDGE_RADIUS","ALL_BUSES"
 ]
 CONFIG_NAME = "config.json"
-CONFIG_FILE = PRIMARY_DATA_DIR / CONFIG_NAME
 
 CONFIG_METADATA: Dict[str, Any] = {}
 
@@ -2950,9 +2946,7 @@ class State:
 
 state = State()
 MILEAGE_NAME = "mileage.json"
-MILEAGE_FILE = PRIMARY_DATA_DIR / MILEAGE_NAME
 
-transloc_arrivals_cache = TTLCache(TRANSLOC_ARRIVALS_TTL_S)
 transloc_blocks_cache = TTLCache(TRANSLOC_BLOCKS_TTL_S)
 transloc_vehicle_estimates_cache = PerKeyStaleWhileRevalidateCache(
     TRANSLOC_VEHICLE_ESTIMATES_TTL_S
@@ -3416,13 +3410,6 @@ async def receive_sync(payload: dict):
     return {"ok": True}
 
 
-def _require_sync_secret(payload: Dict[str, Any]) -> None:
-    if SYNC_SECRET is None:
-        return
-    if payload.get("secret") != SYNC_SECRET:
-        raise HTTPException(status_code=403, detail="forbidden")
-
-
 # ---------------------------
 # Health
 # ---------------------------
@@ -3606,17 +3593,6 @@ def _resolve_ride_status(
             return mapped
     status_raw = ride.get("status")
     return status_raw if status_raw not in {None, ""} else None
-
-
-def _get_ride_info(
-    ride_id: str, rides_map: Mapping[str, Any]
-) -> Optional[Dict[str, Any]]:
-    """Get full ride info from the rides map."""
-    ride_id_normalized = _normalize_ride_id(ride_id)
-    if not ride_id_normalized:
-        return None
-    info = rides_map.get(ride_id_normalized)
-    return info if isinstance(info, dict) else None
 
 
 async def fetch_ondemand_rides(
@@ -7440,67 +7416,6 @@ def _find_down_date_index(headers: Sequence[Any]) -> int:
     return -1
 
 
-def _parse_sheet_date(value: Any) -> Optional[datetime]:
-    if value is None:
-        return None
-    text = str(value).strip()
-    if not text:
-        return None
-
-    normalized = text.replace("T", " ").replace("Z", "").strip()
-    try:
-        # datetime.fromisoformat handles many common cases
-        parsed = datetime.fromisoformat(normalized)
-        return parsed
-    except (TypeError, ValueError):
-        pass
-
-    date_patterns = [
-        "%m/%d/%Y",
-        "%m/%d/%y",
-        "%Y/%m/%d",
-        "%Y-%m-%d",
-        "%m-%d-%Y",
-        "%m-%d-%y",
-        "%b %d %Y",
-        "%b %d, %Y",
-    ]
-    datetime_patterns = [
-        "%m/%d/%Y %H:%M",
-        "%m/%d/%Y %H:%M:%S",
-        "%m/%d/%y %H:%M",
-        "%m/%d/%y %H:%M:%S",
-        "%Y-%m-%d %H:%M",
-        "%Y-%m-%d %H:%M:%S",
-        "%m-%d-%Y %H:%M",
-        "%m-%d-%Y %H:%M:%S",
-        "%m-%d-%y %H:%M",
-        "%m-%d-%y %H:%M:%S",
-    ]
-
-    for fmt in datetime_patterns:
-        try:
-            return datetime.strptime(normalized, fmt)
-        except (TypeError, ValueError):
-            continue
-
-    for fmt in date_patterns:
-        try:
-            return datetime.strptime(normalized, fmt)
-        except (TypeError, ValueError):
-            continue
-
-    first_token = normalized.split()[0]
-    if first_token != normalized:
-        for fmt in date_patterns:
-            try:
-                return datetime.strptime(first_token, fmt)
-            except (TypeError, ValueError):
-                continue
-
-    return None
-
-
 def _get_preferred_status(values: Sequence[Any], status_indices: Sequence[int]) -> str:
     if not status_indices:
         return ""
@@ -9236,41 +9151,6 @@ def _serialize_stop_approach_config(
     return serialized
 
 
-def _trim_arrivals_payload(data: Any) -> List[Dict[str, Any]]:
-    items = data if isinstance(data, list) else data.get("d") or data.get("Arrivals") or []
-    trimmed: List[Dict[str, Any]] = []
-    for entry in items:
-        route_stop_id = entry.get("RouteStopId") or entry.get("RouteStopID")
-        route_id = entry.get("RouteId") or entry.get("RouteID")
-        times = []
-        for t in entry.get("Times") or []:
-            seconds = t.get("Seconds")
-            if seconds is None:
-                continue
-            times.append({"Seconds": seconds})
-        trimmed.append(
-            {
-                "RouteStopId": route_stop_id,
-                "RouteId": route_id,
-                "RouteDescription": entry.get("RouteDescription") or entry.get("RouteName"),
-                "Times": times,
-            }
-        )
-    return trimmed
-
-
-async def _fetch_transloc_arrivals_for_base(
-    base_url: Optional[str], *, client: Optional[httpx.AsyncClient] = None
-) -> List[Dict[str, Any]]:
-    resolved_client = _get_transloc_client(client)
-    url = build_transloc_url(base_url, f"GetStopArrivalTimes?APIKey={TRANSLOC_KEY}")
-    resp = await resolved_client.get(url)
-    record_api_call("GET", url, resp.status_code)
-    resp.raise_for_status()
-    data = resp.json()
-    return _trim_arrivals_payload(data)
-
-
 async def _get_transloc_stops(
     base_url: Optional[str] = None, *, client: Optional[httpx.AsyncClient] = None
 ) -> List[Dict[str, Any]]:
@@ -9285,16 +9165,6 @@ async def _get_transloc_stops(
     except Exception as exc:
         print(f"[_get_transloc_stops] fetch error: {exc}")
         return []
-
-
-async def _get_transloc_arrivals(base_url: Optional[str] = None) -> List[Dict[str, Any]]:
-    if is_default_transloc_base(base_url):
-        async def fetch():
-            return await _fetch_transloc_arrivals_for_base(DEFAULT_TRANSLOC_BASE)
-
-        return await transloc_arrivals_cache.get(fetch)
-
-    return await _fetch_transloc_arrivals_for_base(base_url)
 
 
 def _build_block_mapping(block_groups: List[Dict[str, Any]]) -> Dict[str, str]:
@@ -9331,32 +9201,6 @@ def _build_block_mapping(block_groups: List[Dict[str, Any]]) -> Dict[str, str]:
             if vid is None:
                 continue
             mapping[str(vid)] = block_name
-    return mapping
-
-
-def _build_block_mapping_raw(block_groups: List[Dict[str, Any]]) -> Dict[str, str]:
-    """
-    Build a vehicle-to-block mapping using raw block IDs without interlining.
-
-    This version does not apply the alias dictionary that combines blocks like
-    "[01]" and "[04]" into "[01]/[04]". Instead, it returns the raw BlockGroupId
-    as provided by TransLoc, matching how WhenToWork tracks individual blocks.
-    """
-    mapping: Dict[str, str] = {}
-    for group in block_groups or []:
-        raw_block = str(group.get("BlockGroupId") or "").strip()
-        if not raw_block:
-            continue
-        # Use raw_block directly without aliasing
-        vehicle_ids: List[Any] = []
-        vehicle_ids.append(group.get("VehicleId") or group.get("VehicleID"))
-        for block in group.get("Blocks") or []:
-            for trip in block.get("Trips") or []:
-                vehicle_ids.append(trip.get("VehicleID") or trip.get("VehicleId"))
-        for vid in vehicle_ids:
-            if vid is None:
-                continue
-            mapping[str(vid)] = raw_block
     return mapping
 
 
@@ -9761,13 +9605,6 @@ async def _fetch_transloc_blocks_for_base(base_url: Optional[str]) -> Dict[str, 
     return _build_block_mapping(block_groups)
 
 
-async def _fetch_transloc_blocks_raw_for_base(base_url: Optional[str]) -> Dict[str, str]:
-    """Fetch TransLoc blocks without interlining, matching WhenToWork's block structure."""
-    client = _get_transloc_client(None)
-    block_groups = await fetch_block_groups(client, base_url=base_url)
-    return _build_block_mapping_raw(block_groups)
-
-
 async def _get_transloc_blocks(base_url: Optional[str] = None) -> Dict[str, str]:
     if is_default_transloc_base(base_url):
         async def fetch():
@@ -9776,17 +9613,6 @@ async def _get_transloc_blocks(base_url: Optional[str] = None) -> Dict[str, str]
         return await transloc_blocks_cache.get(fetch)
 
     return await _fetch_transloc_blocks_for_base(base_url)
-
-
-async def _get_transloc_blocks_raw(base_url: Optional[str] = None) -> Dict[str, str]:
-    """Get TransLoc blocks without interlining, matching WhenToWork's block structure."""
-    if is_default_transloc_base(base_url):
-        async def fetch():
-            return await _fetch_transloc_blocks_raw_for_base(DEFAULT_TRANSLOC_BASE)
-
-        return await transloc_blocks_cache.get(fetch)
-
-    return await _fetch_transloc_blocks_raw_for_base(base_url)
 
 
 def _describe_transloc_source(base_url: Optional[str]) -> str:
@@ -18656,7 +18482,6 @@ def _normalize_dispatch_password(password: Optional[str]) -> Optional[Tuple[str,
             return display_label, access_type
 
     return matches[0]
-    return None
 
 
 def _normalized_dispatch_key(label: Optional[str], access_type: Optional[str]) -> Optional[str]:
