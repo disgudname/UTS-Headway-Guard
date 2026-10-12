@@ -18,6 +18,7 @@ import { RouteLegend } from '../ui/route-legend.js';
 import { installMarkerMenu } from '../core/marker-menu.js';
 import { installSatelliteLayer } from '../core/layers/satellite.js';
 import { installBuildingHighlight } from '../core/layers/building-highlight.js';
+import { installFloorplanLayer } from '../core/layers/floorplan.js';
 import { installRouteLayer } from '../core/layers/routes.js';
 import { installStopLayer } from '../core/layers/stops.js';
 import { installVehicleLayer } from '../core/layers/vehicles.js';
@@ -100,6 +101,7 @@ async function boot() {
 
   installSatelliteLayer();
   installBuildingHighlight();
+  installFloorplanLayer();
   installRouteLayer();
   installStopLayer();
   installCatLayer();

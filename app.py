@@ -14575,6 +14575,24 @@ async def livemap_src_asset(path: str):
     )
 
 
+# The 2018 floor plan of Parking & Transit (1101 Millmont St), drawn inside the
+# building on /livemap for signed-in dispatchers. The file lives in the data dir
+# and never in the repo (the repo is public); scripts/build_pt_floorplan.py makes it.
+_PT_FLOORPLAN_FILE = PRIMARY_DATA_DIR / "pt_floorplan_2018.geojson"
+
+
+@app.get("/v1/livemap/floorplan", include_in_schema=False)
+async def livemap_floorplan(request: Request):
+    _require_dispatcher_access(request)
+    if not _PT_FLOORPLAN_FILE.is_file():
+        raise HTTPException(status_code=404, detail="Not found")
+    return FileResponse(
+        _PT_FLOORPLAN_FILE,
+        media_type="application/geo+json",
+        headers={"Cache-Control": "private, no-store"},
+    )
+
+
 # City of Charlottesville GIS cartographic basemap (real road/sidewalk/alley
 # polygons) for the livemap. It's a cached ArcGIS raster service whose LOD
 # numbering is offset from the standard XYZ scheme by 12 (City LOD N == web

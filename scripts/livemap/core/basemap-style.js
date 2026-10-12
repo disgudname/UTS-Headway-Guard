@@ -21,6 +21,11 @@ import {
   OVERHEIGHT_SOURCE_DEF,
   overheightLayerDefs,
 } from './layers/overheight-style.js';
+import {
+  FLOORPLAN_SOURCE_ID,
+  FLOORPLAN_SOURCE_DEF,
+  floorplanLayerDefs,
+} from './layers/floorplan-style.js';
 import { ROUTE_SOURCE_ID, ROUTE_SOURCE_DEF, routeLayerDefs } from './layers/route-style.js';
 import {
   TRIP_PLANNER_SOURCE_ID,
@@ -175,6 +180,7 @@ function normalizeBase(style) {
   // ever setData() them.
   s.sources[VEHICLE_SOURCE_ID] = clone(VEHICLE_SOURCE_DEF);
   s.sources[OVERHEIGHT_SOURCE_ID] = clone(OVERHEIGHT_SOURCE_DEF);
+  s.sources[FLOORPLAN_SOURCE_ID] = clone(FLOORPLAN_SOURCE_DEF);
   s.sources[ROUTE_SOURCE_ID] = clone(ROUTE_SOURCE_DEF);
   s.sources[STOP_SOURCE_ID] = clone(STOP_SOURCE_DEF);
   s.sources[CAT_ROUTE_SOURCE_ID] = clone(CAT_ROUTE_SOURCE_DEF);
@@ -305,6 +311,12 @@ function addVandispatchRouteLayer(style) {
       paint: { ...base.paint, 'line-dasharray': [2, 3] },
     },
   );
+}
+
+/** Parking & Transit floor plan (dispatchers only) — over the basemap and the
+ *  aerial view, under everything else. Empty until layers/floorplan.js feeds it. */
+function addFloorplanLayers(style, theme) {
+  for (const def of floorplanLayerDefs(theme)) style.layers.push(clone(def));
 }
 
 /** A single highlighted building footprint (search result). Above the basemap,
@@ -460,6 +472,7 @@ function buildLight(raw) {
   addTrafficFlowLayers(s, 'light');
   addMicroZoneLayers(s, 'light');
   addVandispatchOverlayLayers(s, 'light');
+  addFloorplanLayers(s, 'light');
   addBuildingHighlightLayers(s);
   addRouteLayers(s, 'light');
   addStopLayers(s, 'light');
@@ -775,6 +788,7 @@ function buildDark(raw) {
   addTrafficFlowLayers(s, 'dark');
   addMicroZoneLayers(s, 'dark');
   addVandispatchOverlayLayers(s, 'dark');
+  addFloorplanLayers(s, 'dark');
   addBuildingHighlightLayers(s);
   addRouteLayers(s, 'dark');
   addStopLayers(s, 'dark');
