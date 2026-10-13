@@ -48,6 +48,16 @@ Checked against the entries below on 2026-10-06. Everything not listed here is b
 - **Card build is not repeatable:** `scripts/build_block_cards.py` breaks ties in a bus card's top-5 blocks (and its route mix) by set order, so two runs on the same data give a slightly different `scripts/cards-data.js`. Block cards are stable.
 - **Branch `claude/late-dwell`:** unmerged prototype (see §3). Keep or delete is the user's call.
 
+### 2026-10-13 · [home] · `/vandispatch`: Active Trips (and the duty roster) blanked whenever one Spare call failed. Fixed in `app.py` (NOT committed, NOT deployed: in the working tree on [home], waiting for the user)
+
+- **Symptom (user):** active trips keep vanishing from `/vandispatch` and come back on their own.
+- **Cause:** the fetchers behind `/api/spare/requests`, `/api/spare/duties` and `/api/spare/vehicles` returned `[]` on ANY error, and `TTLCache` kept that `[]` for its whole TTL (30 s / 60 s / 120 s). The page takes the list as it comes, so one failed call read as "No active trips right now" until the next refresh.
+- **Evidence (prod, 10-13 10:05-10:15 ET):** the app logged `[spare] duties fetch failed:` with an EMPTY message at 10:06:21 (httpx timeouts and read errors print empty). Over the same 9 minutes a fresh client on the prod machine polled Spare `/requests` 97 times, 5 s apart: 0 errors, and no trip left the list. So Spare's own list is steady; the failures are on the app's long-lived connection. Seen once for duties; not caught for requests in that window (same client, same code).
+- **Ruled out:** the 200-row cap (Spare had 25 requests for the day, `total` in the response; note Spare rejects `limit` over 200 on `/requests`), and a trip flipping to a "terminal" status and back.
+- **Fix:** `_spare_cached()` in `app.py`: the fetchers raise, a failure is retried once, then the last good list is served; with nothing cached it is a 502, which the page already treats as "keep what you have". The log line now names the exception type and HTTP status. `tests/test_spare_cached.py`, 480 passed.
+- **After the deploy:** `fly logs` for `[spare] ... fetch failed (try N) <Type>` to learn what the error really is. Many `try 2` lines would mean the Spare connection needs more than a retry.
+- **Not touched:** the OnDemand half of the board (`/api/ondemand`, 19:30-05:30 only) has the same weakness in one place: a failed rides fetch returns `{}` and `ondemand_rides_cache` keeps it for 30 s (cards lose status/addresses, they do not vanish). A failed positions fetch does drop every OnDemand card for up to 5 s.
+
 ### 2026-10-12 · [home] · Code prune: dead Python, four pages nothing served, stray root files removed (committed, NOT deployed)
 
 - **How it was found:** `vulture` over the Python (not installed in the repo; run from a temp folder), then every flagged name checked for any other mention in `.py` / `.js` / `.html`. Route handlers are flagged by vulture and are NOT dead; only undecorated names with no other mention were removed.
