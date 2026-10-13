@@ -19410,6 +19410,24 @@ def _get_spare_client() -> Optional[SpareClient]:
     return getattr(app.state, "spare_client", None)
 
 
+async def _spare_cached(cache: TTLCache, fetch, label: str):
+    """cache.get(fetch) for a Spare list, where a failed fetch must never read as an
+    empty list. The fetchers used to return [] on any error and the cache kept that
+    [] for its whole TTL, so one timed-out call blanked /vandispatch's Active Trips
+    (or the duty roster) until the next refresh. Now a failure is retried once, then
+    answered with the last good list; with nothing to fall back on it is a 502, which
+    the page treats as "keep what you have"."""
+    for attempt in (1, 2):
+        try:
+            return await cache.get(fetch)
+        except Exception as exc:
+            status = exc.response.status_code if isinstance(exc, httpx.HTTPStatusError) else ""
+            print(f"[spare] {label} fetch failed (try {attempt}) {type(exc).__name__} {status}: {exc}")
+    if cache.value is not None:
+        return cache.value
+    raise HTTPException(status_code=502, detail=f"Spare {label} unavailable")
+
+
 def _normalize_van_display_name(name: Optional[str]) -> str:
     """Text before the first ':' (matches extractOnDemandDisplayName() client-side),
     uppercased/trimmed so OnDemand call names ("VAN 16: ...") and Spare vehicle
@@ -19492,22 +19510,15 @@ async def api_spare_requests(request: Request):
 
     async def fetch():
         start_ts, end_ts = _spare_today_range()
-        try:
-            requests = await client.get_requests(
-                fromRequestedPickupTs=start_ts,
-                toRequestedPickupTs=end_ts,
-                limit=200,
-            )
-        except httpx.HTTPStatusError as exc:
-            print(f"[spare] requests fetch error {exc.response.status_code}: {exc}")
-            return []
-        except Exception as exc:
-            print(f"[spare] requests fetch failed: {exc}")
-            return []
+        requests = await client.get_requests(
+            fromRequestedPickupTs=start_ts,
+            toRequestedPickupTs=end_ts,
+            limit=200,
+        )
         terminal = {"completed", "cancelled", "noDriversAvailable", "serviceDisruption"}
         return [r for r in requests if r.get("status") not in terminal]
 
-    return await spare_requests_cache.get(fetch)
+    return await _spare_cached(spare_requests_cache, fetch, "requests")
 
 
 _SPARE_REQUEST_ID_RE = re.compile(r"^[0-9a-fA-F-]{36}$")
@@ -19607,21 +19618,14 @@ async def api_spare_duties(request: Request):
         raise HTTPException(status_code=503, detail="Spare client not configured (set SPARE_API_KEY)")
 
     async def fetch():
-        try:
-            # Ask Spare for only the two statuses the roster shows. An unfiltered
-            # limit=100 returned an arbitrary slice of all history (hundreds of
-            # completed duties), which silently dropped today's in-progress ones.
-            in_prog, sched = await asyncio.gather(
-                client.get_duties(status="inProgress", limit=1000),
-                client.get_duties(status="scheduled", limit=1000),
-            )
-            duties = [*in_prog, *sched]
-        except httpx.HTTPStatusError as exc:
-            print(f"[spare] duties fetch error {exc.response.status_code}: {exc}")
-            return []
-        except Exception as exc:
-            print(f"[spare] duties fetch failed: {exc}")
-            return []
+        # Ask Spare for only the two statuses the roster shows. An unfiltered
+        # limit=100 returned an arbitrary slice of all history (hundreds of
+        # completed duties), which silently dropped today's in-progress ones.
+        in_prog, sched = await asyncio.gather(
+            client.get_duties(status="inProgress", limit=1000),
+            client.get_duties(status="scheduled", limit=1000),
+        )
+        duties = [*in_prog, *sched]
         _, end_ts = _spare_today_range()
         now_ts = int(datetime.now(ZoneInfo("America/New_York")).timestamp())
         active = {"inProgress", "scheduled"}
@@ -19650,7 +19654,7 @@ async def api_spare_duties(request: Request):
 
         return result
 
-    return await spare_duties_cache.get(fetch)
+    return await _spare_cached(spare_duties_cache, fetch, "duties")
 
 
 @app.get("/api/spare/duties/debug")
@@ -19749,16 +19753,9 @@ async def api_spare_vehicles(request: Request):
         raise HTTPException(status_code=503, detail="Spare client not configured (set SPARE_API_KEY)")
 
     async def fetch_roster():
-        try:
-            return await client.get_vehicles()
-        except httpx.HTTPStatusError as exc:
-            print(f"[spare] vehicles fetch error {exc.response.status_code}: {exc}")
-            return []
-        except Exception as exc:
-            print(f"[spare] vehicles fetch failed: {exc}")
-            return []
+        return await client.get_vehicles()
 
-    roster = await spare_vehicles_cache.get(fetch_roster)
+    roster = await _spare_cached(spare_vehicles_cache, fetch_roster, "vehicles")
 
     # Roster metadata (make/model/color/etc) rarely changes and is fine to cache for
     # SPARE_VEHICLES_TTL_S, but location is live webhook-pushed data -- merging it
