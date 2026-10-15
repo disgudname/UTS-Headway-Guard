@@ -47,7 +47,20 @@ the BUSES ran slower than expected (road or dwell; nothing to fix) or the ENGINE
 from the "causes" field, which the checker works out: BUSES SLOW = slower than usual for this slot today; ENGINE LEAN =
 the same gap most days, our history is too fast there; ENGINE = wrong for a reason that is not the bus's pace. Name
 the routes on each side. Do not blame traffic for anything "causes" calls ENGINE, and do not call a run a PROBLEM when
-every cause is BUSES SLOW. Leave the WHY line out only when nothing is off."""
+every cause is BUSES SLOW. Leave the WHY line out only when nothing is off.
+
+A "suspects" field is the checker's own dig into the watch log behind each breach: which bus the bad predictions came
+from (bus number, block, route, time), what the run would score without it, what TransLoc did on the same predictions,
+and what the bus itself was doing (just pulled out, sat still somewhere, left a timestop before its sheet time, went off
+the route, drove against the route, GPS froze). Each line starts with a verdict:
+  ONE BUS / ONE OF A FEW BUSES / A FEW BUSES = the breach is that bus doing something nobody could predict. NOT a
+    PROBLEM: line 1 is "NOTE: one bus" (or "NOTE: a few buses"), not "PROBLEM".
+  ENGINE, ONE BUS = one bus, but TransLoc had it right and nothing odd was seen: a PROBLEM worth a look; say so.
+  ONE BUS? / SEVERAL BUSES = not pinned on one bus; judge it from the rest as before.
+Whenever "suspects" is present, add a line starting "BUS:" per suspect (most two): bus number, block, route, time,
+and what it did, in plain words (e.g. "BUS: 20131 [09] Gold 08:30-08:49 sat 5 min at Runk and left 1 min before its
+08:50 sheet time; TransLoc was as wrong. Without it the run is 0.3%."). If "causes" says ONE BUS for a breach, the WHY
+line must not call that breach the engine."""
 
 
 def review(last):

@@ -17,6 +17,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import eta_compare  # noqa: E402
+import eta_suspects  # noqa: E402
 import eta_watch  # noqa: E402
 
 OUT_DIR = Path("data-local/eta_watch")
@@ -321,13 +322,68 @@ def diagnose(summary, earlier=()):
         else:
             out.append(f"{name}: ENGINE LEAN -- buses arrive {-med} s after our ETA, about the same as most days in this "
                        f"slot ({-usual[name]} s): our history is too fast here, it is not today's traffic")
+    verdicts = dict()
+    for kind, verdict in summary.get("suspect_verdicts") or []:
+        verdicts.setdefault(kind, set()).add(verdict)
+
+    def whose(kind):
+        """Who a breach of this kind is on, from eta_suspects' look at the buses behind it."""
+        v = verdicts.get(kind, set())
+        if "A FEW BUSES" in v or (v and v <= {"ONE BUS", "ONE OF A FEW BUSES"}):
+            return "ONE BUS (not the engine; see suspects)"
+        if "LOT SHUTTLES" in v:
+            return "LOT SHUTTLES (game day, don't count; see suspects)"
+        if v == {"SMALL"}:
+            return "SMALL (a few scattered rows, nothing to chase; see suspects)"
+        if v == {"PURPLE"}:
+            return "PURPLE (scorer edge case at a stop, not the engine; see suspects)"
+        if "ENGINE, ONE BUS" in v:
+            return "ENGINE, ONE BUS (TransLoc had it right and the bus did nothing odd: worth a look; see suspects)"
+        if "ONE BUS?" in v:
+            return "PROBABLY ONE BUS (see suspects)"
+        return "ENGINE"
+
     for b in summary.get("breaches") or []:
         if "late" in b and "bias" not in b:
-            who = "Purple staging (buses leaving a hold early), known" if b.startswith(NEAR_TERM_ONLY_ROUTE_PREFIXES) else "ENGINE"
+            who = "Purple staging (buses leaving a hold early), known" if b.startswith(NEAR_TERM_ONLY_ROUTE_PREFIXES) else whose("late")
             out.append(f"{who} -- buses came more than 2 min before our ETA: {b}")
-        elif "full-lap" in b or "TransLoc predicted" in b or "real history" in b:
+        elif "full-lap" in b:
+            out.append(f"{whose('full-lap flip')} -- {b}")
+        elif "TransLoc predicted" in b:
+            out.append(f"{whose('TransLoc-only')} -- {b}")
+        elif "real history" in b:
             out.append(f"ENGINE -- {b}")
     return out
+
+
+def bus_names():
+    """TransLoc vehicle id -> bus number ("21" -> "12432"), from prod's vehicle list. {} if it can't be read."""
+    out = {}
+
+    def walk(o):
+        if isinstance(o, dict):
+            if "id" in o and "name" in o:
+                out[str(o["id"])] = str(o["name"])
+            for v in o.values():
+                walk(v)
+        elif isinstance(o, list):
+            for v in o:
+                walk(v)
+    try:
+        walk(eta_watch.fetch("/v1/vehicles"))
+    except Exception:
+        pass
+    return out
+
+
+def find_suspects(rows, polls, stops, lines, names):
+    """eta_suspects.find_suspects, never raising: a bug in the digging must not lose the run."""
+    try:
+        return eta_suspects.find_suspects(rows, polls, stops, lines, names, bus_names(),
+                                          late_limit_pct=MAX_LATE_MISS_PCT,
+                                          skip_route_prefixes=NEAR_TERM_ONLY_ROUTE_PREFIXES)
+    except Exception as exc:
+        return [{"kind": "error", "verdict": "ERROR", "text": f"suspect search failed: {type(exc).__name__}: {exc}"}]
 
 
 def earlier_results():
@@ -362,6 +418,7 @@ def main():
         rows = eta_compare.score_rows(polls, stops, lines)
         warmup_until = polls[min(WARMUP_POLLS, len(polls)) - 1]["t"] if polls else None
         stats, problems = analyze(rows, names, warmup_until)
+        suspects = find_suspects(rows, polls, stops, lines, names) if problems else []
     except Exception as exc:  # network down, prod down, scorer bug...
         summary.update(error=f"{type(exc).__name__}: {exc}", breaches=[])
         with RESULTS.open("a", encoding="utf-8") as f:
@@ -371,6 +428,10 @@ def main():
 
     summary.update(stats)
     summary["breaches"] = problems
+    if suspects:
+        summary["suspects"] = [d["text"] for d in suspects]
+        # (kind, verdict) for every breach kind a suspect covers, including ones folded into its line ("also").
+        summary["suspect_verdicts"] = sorted({(k, d["verdict"]) for d in suspects for k in [d["kind"], *d.get("also", [])]})
     summary["causes"] = diagnose(summary, earlier_results())
     RESULTS.parent.mkdir(parents=True, exist_ok=True)
     with RESULTS.open("a", encoding="utf-8") as f:

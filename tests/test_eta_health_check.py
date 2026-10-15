@@ -210,3 +210,60 @@ def test_an_after_midnight_run_reads_the_calendar_of_the_evening_before(monkeypa
     assert "start=2026-10-10" in asked[0]
     assert cal["service_date"] == "2026-10-10" and cal["services"]["Night Pilot"] == "No Service"
     assert h.is_game_day({"calendar": cal})
+
+
+def test_a_breach_pinned_on_one_bus_is_not_called_the_engine():
+    # 2026-10-13 08:30: [09] left Runk a minute before its sheet time; eta_suspects said ONE BUS.
+    run = _run(-30, breaches=["4.5% of predictions >2 min late (limit 3.0%)",
+                              "3 full-lap flip(s): our ETA >20 min off while TransLoc was within 2 min"],
+               suspect_verdicts=[("late", "ONE BUS"), ("full-lap flip", "ENGINE, ONE BUS")])
+    causes = h.diagnose(run, [])
+    assert causes[0].startswith("ONE BUS (not the engine")
+    assert causes[1].startswith("ENGINE, ONE BUS")
+
+
+def test_a_few_explained_buses_together_are_not_the_engine():
+    run = _run(-30, breaches=["9.5% of predictions >2 min late (limit 3.0%)"],
+               suspect_verdicts=[("late", "ONE OF A FEW BUSES"), ("late", "A FEW BUSES")])
+    assert h.diagnose(run, [])[0].startswith("ONE BUS (not the engine")
+
+
+def test_late_spread_over_several_buses_is_still_the_engine():
+    run = _run(-30, breaches=["9.5% of predictions >2 min late (limit 3.0%)"],
+               suspect_verdicts=[("late", "SEVERAL BUSES")])
+    assert h.diagnose(run, [])[0].startswith("ENGINE --")
+
+
+def _polls(track, ours_block="[09]"):
+    """Watch-log polls for one bus (vehicle 21, route 67) from [(t, lat, lon)]."""
+    return [{"t": t, "veh": [["21", "67", lat, lon, 0.0]], "ours": [["67", "s1", "21", 60.0, "historical", ours_block]],
+             "tl": []} for t, lat, lon in track]
+
+
+def test_suspects_see_a_gps_freeze_and_not_a_stop():
+    import eta_suspects as s
+    # Same fix for 5 min, then 1.1 km on: the Emmet/McCormick dead spot (2026-10-13 12:30, 25231 [12]).
+    track = [(1000.0 + 15 * i, 38.0300 + 0.0002 * i, -78.5) for i in range(5)]
+    track += [(1075.0 + 15 * i, 38.0308, -78.5) for i in range(21)]
+    track += [(1075.0 + 15 * 21, 38.0408, -78.5)]
+    stops = {("67", "s1"): (38.0308, -78.5, "Emmet St @ Contemplative Commons", 0.0)}
+    lines = {"67": ([(38.02, -78.5), (38.05, -78.5)], [0.0, 3336.0])}
+    tags = s.bus_tags("21", "67", 1100.0, 1350.0, _polls(track), stops, lines)
+    assert any(t.startswith("GPS froze") for t in tags)
+    assert not any(t.startswith("sat still") for t in tags)
+
+
+def test_suspects_see_a_bus_leave_a_timestop_before_its_sheet_time(monkeypatch):
+    import eta_suspects as s
+    # Sat at the stop 08:43:45-08:48:45, sheet 08:50 (2026-10-13 08:30, 20131 [09] at Runk).
+    track = [(1000.0 + 15 * i, 38.0300, -78.5) for i in range(21)] + [(1315.0, 38.0320, -78.5)]
+    stops = {("67", "s1"): (38.0300, -78.5, "Hereford Dr @ Runk Dining Hall", 1000.0)}
+    lines = {"67": ([(38.02, -78.5), (38.05, -78.5)], [0.0, 3336.0])}
+
+    class Blocks:
+        @staticmethod
+        def scheduled_hold_epoch(route, stop, block, ts):
+            return 1375.0
+    monkeypatch.setattr(s, "uts_blocks", Blocks)
+    tags = s.bus_tags("21", "67", 1000.0, 1300.0, _polls(track), stops, lines, block="[09]")
+    assert any("BEFORE its sheet time" in t for t in tags)
