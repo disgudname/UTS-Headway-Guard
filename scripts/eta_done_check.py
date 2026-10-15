@@ -2,7 +2,7 @@
 
     python scripts/eta_done_check.py [--dry-run]
 
-Run once by the Task Scheduler job ETA-Done-2026-10-14, after the last run of the test week (HANDOFF.md,
+Run once by the Task Scheduler job ETA-Done-2026-10-21, after the last run of the test week (HANDOFF.md,
 "ETA DONE DATE" in the open list). Collects every health-check result from SINCE to UNTIL, checks whether the
 ETA engine files changed since BASE_COMMIT, has a headless `claude -p` judge the week against the three
 conditions, and POSTs the verdict to https://ntfy.sh/<NTFY_TOPIC>. Read-only: it edits nothing.
@@ -16,9 +16,11 @@ import urllib.request
 
 import eta_health_notify as notify
 
-SINCE = "2026-10-08"
-UNTIL = "2026-10-14"
-BASE_COMMIT = "db376ba"
+# The week restarted at the v2096 deploy (first-poll pass fix, 76c5842), Thu 2026-10-15 11:53 ET: runs before it
+# that morning do not count.
+SINCE = "2026-10-15T11:53"
+UNTIL = "2026-10-21"
+BASE_COMMIT = "76c5842"
 ENGINE_FILES = ["bus_eta.py", "trip_planner_history.py", "uts_blocks.py", "config/uts_blocks.json",
                 "config/uts_timestops.json", "config/uts_active_sheets.json"]
 LATE_TARGET_PCT = 3.0
@@ -35,12 +37,7 @@ ETA engine commits since {base} (empty = none):
 Runs (late% = predictions more than 2 min late, Purple left out; target under {target}%):
 {runs}
 
-One engine change is exempt by the user's decision (2026-10-09) and does NOT count as "engine code changed":
-the fix to when ETAs are blanked for a block's last trip (Orange [08]'s Stadium Rd stops, Night Pilot [04]'s
-last ten minutes; bus_eta.py OOS_POSITION_TRUST_BEFORE_S and uts_blocks.route_change_plan). Any other engine
-commit still counts.
-
-Purple is not part of the test. Lot shuttles on game day Sat 2026-10-10 do not count. A run over the target
+Purple is not part of the test. Game-day lot shuttles do not count. A run over the target
 still passes if a board entry (or its breach list) pins it on one bus, one driver, or traffic.
 
 Reply with ONLY the notification text, plain language, no markdown, max 5 short lines. Line 1 starts with
@@ -54,7 +51,7 @@ def week_runs():
         if not line.strip():
             continue
         r = json.loads(line)
-        if SINCE <= r.get("when", "")[:10] <= UNTIL:
+        if SINCE <= r.get("when", "")[:16] and r.get("when", "")[:10] <= UNTIL:
             rows.append(r)
     return rows
 
