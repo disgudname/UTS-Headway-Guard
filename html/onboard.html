@@ -214,7 +214,7 @@
     const POLL_MS = Math.max(1000, Number(params.get('poll')) || (REPLAY ? 3000 : 5000));
     const AVA = params.get('ava') !== '0';   // stop announcements; ?ava=0 mutes
     const MAX_ROWS = 6;
-    const ARRIVING_S = 30;       // next stop this close: "Arriving"
+    const ARRIVING_S = 15;       // next stop this close: "Arriving" (and "This is ..." is announced)
     const HOLD_ANNOUNCE_MIN_MS = 120000;   // a scheduled hold at least this long is announced
     const HOLD_ANNOUNCE_MAX_MIN = 20;      // longest hold there is a clip for (scripts/build_ava_clips.py)
     const GPS_MAX_AGE_MS = 15000;
