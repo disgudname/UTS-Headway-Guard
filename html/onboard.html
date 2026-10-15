@@ -290,42 +290,42 @@
       file: `${lead}--${clipSlug(stop.name)}`, fallback: [LEAD_IN[lead], clipSlug(stop.name)], name: stop.name,
     });
 
-    // Plays clips back to back; each part is a clip file name or a line().
+    // Plays clips back to back, after anything still playing; each part is a clip file name or a line().
+    const queue = [];
     function say(parts) {
       console.info('[onboard] AVA: ' + parts.map((p) => (typeof p === 'string' ? p : p.name)).join(' | '));
       if (!AVA) return;
-      if (playing) playing.pause();
-      const queue = parts.map((p) => (typeof p === 'string' ? { file: p } : p));
-      const step = () => {
-        const item = queue.shift();
-        if (!item) { playing = null; return; }
-        const audio = clip(item.file);
-        let failed = false;
-        const fail = () => {
-          if (failed) return;
-          failed = true;
-          if (item.fallback) { queue.unshift(...item.fallback.map((file) => ({ file }))); step(); return; }
-          console.warn('[onboard] AVA clip missing', audio.src);
-          playing = null;
-        };
-        if (audio.error) return fail();
-        playing = audio;
-        audio.currentTime = 0;
-        audio.onended = step;
-        audio.onerror = fail;
-        audio.play().then(() => { audioBlocked = false; }, (err) => {
-          // Browsers refuse to play sound until the page has been touched once.
-          if (err.name === 'NotAllowedError') { audioBlocked = true; playing = null; } else fail();
-        });
+      queue.push(...parts.map((p) => (typeof p === 'string' ? { file: p } : p)));
+      if (!playing) step();
+    }
+    function step() {
+      const item = queue.shift();
+      if (!item) { playing = null; return; }
+      const audio = clip(item.file);
+      let failed = false;
+      const fail = () => {
+        if (failed) return;
+        failed = true;
+        if (item.fallback) { queue.unshift(...item.fallback.map((file) => ({ file }))); step(); return; }
+        console.warn('[onboard] AVA clip missing', audio.src);
+        step();
       };
-      step();
+      if (audio.error) return fail();
+      playing = audio;
+      audio.currentTime = 0;
+      audio.onended = step;
+      audio.onerror = fail;
+      audio.play().then(() => { audioBlocked = false; }, (err) => {
+        // Browsers refuse to play sound until the page has been touched once.
+        if (err.name === 'NotAllowedError') { audioBlocked = true; playing = null; queue.length = 0; } else fail();
+      });
     }
 
-    // NYC-subway style. Stopped at a stop: "This is X. The next stop is Y.", with "To maintain even
-    // spacing of buses, this bus will be held at this stop for approximately N minutes." in between
-    // when the schedule holds it there two minutes or more. A stop the bus drives past
-    // gets no "This is"; once it is behind, just "The next stop is Y." Nothing is said twice: the next
-    // stop is not repeated on pulling out, and GPS wobble back into a stop already left stays quiet.
+    // NYC-subway style. When the sign reads ARRIVING AT X (or the bus is already at X, if that was
+    // missed): "This is X.", then "To maintain even spacing of buses, this bus will be held at this stop
+    // for approximately N minutes." when the schedule holds it there two minutes or more. "The next stop
+    // is Y." follows once the bus stops at X, or, if it drives past, once X is behind it. Nothing is said
+    // twice: Y is not repeated on pulling out, and GPS wobble back into a stop already left stays quiet.
     // Whole minutes a bus reaching `stop` at arriveMs is scheduled to hold there, when that is long
     // enough to be worth telling riders about (and there is a clip for it); else null.
     function holdMinutes(stop, arriveMs) {
@@ -335,23 +335,21 @@
       return ms >= HOLD_ANNOUNCE_MIN_MS && mins <= HOLD_ANNOUNCE_MAX_MIN ? mins : null;
     }
 
-    function announce(at, next) {
-      if (at) {
-        lastAt = at.id;
-        if (at.stopped && at.id !== thisSaid) {
-          thisSaid = at.id;
-          const parts = [line('this-is', at)];
-          const hold = holdMinutes(at, signNow());
-          if (hold !== null) parts.push(`_hold-${hold}`);
-          if (next && next.id !== nextSaid) {
-            nextSaid = next.id;
-            parts.push(line('next-stop', next));
-          }
-          say(parts);
-        }
-      } else if (next && next.id !== nextSaid && next.id !== lastAt) {
-        nextSaid = next.id;
-        say([line('next-stop', next)]);
+    // `arriving`: the bus is ARRIVING AT `next` (no `at`).
+    function announce(at, next, arriving) {
+      const here = at || (arriving ? next : null);
+      if (at) lastAt = at.id;
+      if (here && here.id !== thisSaid) {
+        thisSaid = here.id;
+        const parts = [line('this-is', here)];
+        const hold = holdMinutes(here, signNow() + (at ? 0 : (here.seconds || 0) * 1000));
+        if (hold !== null) parts.push(`_hold-${hold}`);
+        say(parts);
+      }
+      const then = at ? (at.stopped ? next : null) : (arriving ? null : next);
+      if (then && then.id !== nextSaid && then.id !== lastAt) {
+        nextSaid = then.id;
+        say([line('next-stop', then)]);
       }
     }
 
@@ -415,7 +413,7 @@
       $('routeName').textContent = route.name;
       $('routeInfo').textContent = route.info || '';
 
-      let label, name, sub = '', listed;
+      let label, name, sub = '', listed, arriving = false;
       if (at) {
         label = 'NOW AT';
         name = at.name;
@@ -425,7 +423,7 @@
         listed = stops;
       } else if (next) {
         const s = left(next);
-        const arriving = s !== null && s <= ARRIVING_S;
+        arriving = s !== null && s <= ARRIVING_S;
         label = arriving ? 'ARRIVING AT' : 'NEXT STOP';
         name = next.name;
         if (!arriving && s !== null) sub = `in <b>${Math.max(1, Math.round(s / 60))} min</b>`;
@@ -435,7 +433,7 @@
         name = '';
         listed = [];
       }
-      announce(at, next);
+      announce(at, next, arriving);
       $('nowLabel').textContent = label;
       $('nowLabel').classList.toggle('live', label !== 'NEXT STOP');
       $('nowSub').innerHTML = sub;
@@ -454,7 +452,7 @@
       rows.forEach((r, i) => { etaCells[i].innerHTML = minutes(left(r)); });
       // Fetch the clips for the stops coming up while there is a connection to fetch them over.
       if (AVA) {
-        if (at) clip(line('this-is', at).file);
+        [at, next].forEach((s) => s && clip(line('this-is', s).file));
         stops.slice(0, 3).forEach((s) => clip(line('next-stop', s).file));
         const hold = at ? holdMinutes(at, now) : holdMinutes(next, now + (left(next) || 0) * 1000);
         if (hold !== null) clip(`_hold-${hold}`);
