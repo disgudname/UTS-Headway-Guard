@@ -117,10 +117,13 @@ def main() -> None:
         del clips[key]  # a lead-in the page no longer uses
         (OUT_DIR / f"{key}.mp3").unlink(missing_ok=True)
 
+    recorded = set(manifest.get("recorded") or [])  # recordings placed from data-local/segments: never re-render
     voice = PiperVoice.load(args.voice)
     made = 0
     for key, text in wanted.items():
         out_path = OUT_DIR / f"{key}.mp3"
+        if key in recorded:
+            continue
         if not redo_all and clips.get(key) == text and out_path.exists():
             continue
         render(voice, text, out_path, tail_pause_s=0.35 if text.endswith(".") else 0.05)
@@ -128,7 +131,8 @@ def main() -> None:
         made += 1
         print(f"  {key}.mp3  <- {text}")
     manifest_path.write_text(
-        json.dumps({"voice": voice_name, "clips": dict(sorted(clips.items()))}, indent=1, ensure_ascii=False) + "\n",
+        json.dumps({"voice": voice_name, "clips": dict(sorted(clips.items())), "recorded": sorted(recorded)},
+                   indent=1, ensure_ascii=False) + "\n",
         encoding="utf-8",
     )
     print(f"{made} clip(s) rendered, {len(clips)} in {OUT_DIR}")

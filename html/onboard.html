@@ -263,8 +263,8 @@
       }
     }
 
-    // ---- AVA: stop announcements, from clips pre-rendered by scripts/build_ava_clips.py
-    // (lead-in phrases and one clip per stop name). No browser text-to-speech.
+    // ---- AVA: stop announcements, from recorded clips in media/ava/ (one per sentence; manifest.json
+    // "recorded") with scripts/build_ava_clips.py's TTS clips as the fallback. No browser text-to-speech.
     const clipSlug = (name) => String(name).toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '');
     const clips = new Map();   // url -> Audio, kept so a clip is already downloaded when it is needed
     let playing = null;
@@ -283,23 +283,39 @@
       return clips.get(url);
     }
 
-    // Plays clips back to back; each part is a clip file name or a stop (its name's clip).
+    // A stop line is one recorded sentence (media/ava/this-is--<slug>.mp3, next-stop--<slug>.mp3). A stop with
+    // no recording yet falls back to the lead-in clip + its TTS name clip.
+    const LEAD_IN = { 'this-is': '_this-is', 'next-stop': '_the-next-stop-is' };
+    const line = (lead, stop) => ({
+      file: `${lead}--${clipSlug(stop.name)}`, fallback: [LEAD_IN[lead], clipSlug(stop.name)], name: stop.name,
+    });
+
+    // Plays clips back to back; each part is a clip file name or a line().
     function say(parts) {
       console.info('[onboard] AVA: ' + parts.map((p) => (typeof p === 'string' ? p : p.name)).join(' | '));
       if (!AVA) return;
       if (playing) playing.pause();
-      const queue = parts.map((p) => clip(typeof p === 'string' ? p : clipSlug(p.name)));
+      const queue = parts.map((p) => (typeof p === 'string' ? { file: p } : p));
       const step = () => {
-        const audio = queue.shift();
-        if (!audio) { playing = null; return; }
+        const item = queue.shift();
+        if (!item) { playing = null; return; }
+        const audio = clip(item.file);
+        let failed = false;
+        const fail = () => {
+          if (failed) return;
+          failed = true;
+          if (item.fallback) { queue.unshift(...item.fallback.map((file) => ({ file }))); step(); return; }
+          console.warn('[onboard] AVA clip missing', audio.src);
+          playing = null;
+        };
+        if (audio.error) return fail();
         playing = audio;
         audio.currentTime = 0;
         audio.onended = step;
-        audio.onerror = () => { console.warn('[onboard] AVA clip missing', audio.src); playing = null; };
+        audio.onerror = fail;
         audio.play().then(() => { audioBlocked = false; }, (err) => {
           // Browsers refuse to play sound until the page has been touched once.
-          if (err.name === 'NotAllowedError') audioBlocked = true;
-          playing = null;
+          if (err.name === 'NotAllowedError') { audioBlocked = true; playing = null; } else fail();
         });
       };
       step();
@@ -324,18 +340,18 @@
         lastAt = at.id;
         if (at.stopped && at.id !== thisSaid) {
           thisSaid = at.id;
-          const parts = ['_this-is', at];
+          const parts = [line('this-is', at)];
           const hold = holdMinutes(at, signNow());
           if (hold !== null) parts.push(`_hold-${hold}`);
           if (next && next.id !== nextSaid) {
             nextSaid = next.id;
-            parts.push('_the-next-stop-is', next);
+            parts.push(line('next-stop', next));
           }
           say(parts);
         }
       } else if (next && next.id !== nextSaid && next.id !== lastAt) {
         nextSaid = next.id;
-        say(['_the-next-stop-is', next]);
+        say([line('next-stop', next)]);
       }
     }
 
@@ -438,7 +454,8 @@
       rows.forEach((r, i) => { etaCells[i].innerHTML = minutes(left(r)); });
       // Fetch the clips for the stops coming up while there is a connection to fetch them over.
       if (AVA) {
-        [at, ...stops.slice(0, 3)].forEach((s) => s && clip(clipSlug(s.name)));
+        if (at) clip(line('this-is', at).file);
+        stops.slice(0, 3).forEach((s) => clip(line('next-stop', s).file));
         const hold = at ? holdMinutes(at, now) : holdMinutes(next, now + (left(next) || 0) * 1000);
         if (hold !== null) clip(`_hold-${hold}`);
       }
