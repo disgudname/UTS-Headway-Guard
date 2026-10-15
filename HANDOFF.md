@@ -42,11 +42,17 @@ Checked against the entries below on 2026-10-06. Everything not listed here is b
 - **ETA, two blanked-ETA fixes (`55c4fec`, DEPLOYED v2082 10-09 ~20:21 ET; user: do not restart the test week), NOT yet seen in a run:** (1) [08] gets its ETAs back at Stadium Rd @ Stadium Garage / @ Alderman Rd before 18:01 on weekdays; (2) Night Pilot [04] gets them back at Maury + the JPA stops + Pinn Hall 01:50-02:00 on Thu-Sat nights. After a deploy check: a weekday 17:30 run (only-TransLoc should drop by ~200-270 rows) and a Thu-Sat 01:30 run (by ~120-180). Details in the 10-09 ETA day check entry.
 - **ETA, flip on [07] at ~17:53-17:56 as it joins Orange Loop:** explained 10-09 (TransLoc puts it on route 55 while it is still off that line at Scott Stadium). 1-2 polls, cosmetic, leave it.
 - **ETA, Green bus 22 leaving Gooch/Dillard ~3-4 min before we expected (10-05 17:30):** one bus, one evening; compare with the 10-06 17:30 run before touching anything. Not looked at yet.
-- **`/onboard`:** the tablet-GPS path has never run on a real bus, nobody has listened to the voice, and a bus on its last run still lists stops it will not serve (no out-of-service cut-off, no evening route-change hiding).
+- **`/onboard`:** the tablet-GPS path has never run on a real bus, nobody has listened to the new recorded voice (10-14) on a tablet, and a bus on its last run still lists stops it will not serve (no out-of-service cut-off, no evening route-change hiding).
 - **`/boxscore`:** the before/after-kickoff split ran on its first real game (Syracuse, Sat 10-10 19:30) and prod has numbers for it, but nobody has checked them. Night Pilot shows 133 riders in the 5p column that day, which looks wrong (see the 10-12 cleanup entry).
 - **`/livemap` off-route badge (09-24):** deployed, never looked at on a real off-route bus.
 - **Card build is not repeatable:** `scripts/build_block_cards.py` breaks ties in a bus card's top-5 blocks (and its route mix) by set order, so two runs on the same data give a slightly different `scripts/cards-data.js`. Block cards are stable.
 - **Branch `claude/late-dwell`:** unmerged prototype (see §3). Keep or delete is the user's call.
+
+### 2026-10-14 · [home] · `/onboard` AVA now plays recorded full sentences instead of spliced Piper clips (`aa22536`, DEPLOYED v2093 10-14)
+- **User recorded every line with an outside TTS engine** from a 153-line script (67 "This is X.", 67 "The next stop is X.", `_hold-2`..`_hold-20`; "Lile-Maupin" read as "Lyle Maupin"). Export (MP3s + `metadata.csv`) is in `data-local/segments/` (not committed).
+- **Placed in `media/ava/` as `this-is--<slug>.mp3` / `next-stop--<slug>.mp3`** (slug = TransLoc stop name, same as `clipSlug()`; a direction-only pair like Northbound/Southbound shares one recording, so 175 files), re-encoded mono 22.05 kHz 48 kbps with the ends trimmed. Mapped by `metadata.csv` text, not file order. `manifest.json` lists them under `"recorded"`; `build_ava_clips.py` never re-renders those.
+- **Page:** each line plays one sentence clip; a stop without one (added since) falls back to `_this-is` / `_the-next-stop-is` + the Piper name clip. **A new stop needs two new recordings** (or it keeps the robot voice).
+- **Tested:** the announce/fallback logic with a stub Audio in node; prod serves the clips. Not listened to on a tablet.
 
 ### 2026-10-13 · [home] · ETA day check (Tue, 05:00 / 08:30 / 12:30): all three missed the 3% late target (9.5 / 3.0 / 4.5%), each from ONE bus over one stretch; nothing new in the engine. No code changed
 - **User asked "how are the ETAs doing", then "dig into it".** Three misses in one day had not happened in the last week (most runs are under 1.5%), so each was traced in its watch log.
