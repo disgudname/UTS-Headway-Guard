@@ -1917,6 +1917,22 @@ CONTINUITY_PENALTY_M = 25.0
 # move 100 m between polls.
 STATIONARY_JUMP_M = 100.0
 
+# A bus's FIRST poll on a route has no previous position on it, so neither continuity nor a fresh heading can pick
+# the pass. It used the bus's cached heading, which for a bus pulling out of the garage is from whenever it last
+# moved on a route (the night before; buses on route 0 never update it). Confirmed 2026-10-12..14 05:00 (Gold [09] /
+# [11] on Massie Rd, Emmet St, McCormick/O-Hill): the wrong pass put the stops ahead a detour away, 6-8 min too long,
+# and a bus that then sat still stayed there (STATIONARY_JUMP_M). Instead, the heading comes from where the bus was
+# in the last FIRST_POLL_TRACK_S, on any route or none (state.recent_positions); a bus that has not moved that much
+# is placed by its block's next timestop (_schedule_pass_hint). Replayed on every first poll in 195 watch logs with a
+# clear answer (where the bus was 1-4 min later), this picked the right pass 42 of 42 times (41 by heading, 1 by
+# schedule); plain nearest point got 22. The old cached heading isn't in the logs, so it couldn't be replayed.
+FIRST_POLL_TRACK_S = 300.0
+FIRST_POLL_TRACK_MIN_MOVE_M = 20.0
+# Passes within this many metres of the nearest one count as a tie the schedule may break.
+FIRST_POLL_PASS_TIE_M = 20.0
+# Arriving early at the timestop costs a quarter of arriving late: an early bus can wait, a late one can't catch up.
+FIRST_POLL_EARLY_WEIGHT = 0.25
+
 
 def _heading_mismatch_penalty_m(diff_deg: float) -> float:
     """0 for a segment within 60 deg of the vehicle's heading, the full penalty at 120+
@@ -1980,6 +1996,88 @@ def project_vehicle_to_route(v: Vehicle, route: Route, prev_idx: Optional[int] =
         if take:
             best_cost = cost; best_s = s; best_i = i
     return best_s, best_i
+
+
+def _record_recent_positions(vehicles_raw: List[Dict[str, Any]], now_ts: float) -> None:
+    """Append this poll's fix for every vehicle (assigned to a route or not) to state.recent_positions, keeping the
+    last FIRST_POLL_TRACK_S."""
+    cutoff = now_ts - FIRST_POLL_TRACK_S
+    for v in vehicles_raw:
+        raw_vid, lat, lon = v.get("VehicleID"), v.get("Latitude"), v.get("Longitude")
+        if raw_vid is None or lat is None or lon is None:
+            continue
+        try:
+            vid = int(raw_vid)
+        except (TypeError, ValueError):
+            vid = raw_vid
+        track = state.recent_positions.setdefault(vid, [])
+        if not track or (track[-1][1], track[-1][2]) != (lat, lon):
+            track.append((now_ts, float(lat), float(lon)))
+    for vid in list(state.recent_positions):
+        track = [p for p in state.recent_positions[vid] if p[0] >= cutoff]
+        if track:
+            state.recent_positions[vid] = track
+        else:
+            del state.recent_positions[vid]
+
+
+def _recent_track_heading(track: List[Tuple[float, float, float]], lat: float, lon: float) -> Optional[float]:
+    """Heading from the bus's own recent (ts, lat, lon) fixes: from the latest one at least
+    FIRST_POLL_TRACK_MIN_MOVE_M from where it is now, else the latest step that long. None if it hasn't moved."""
+    for _ts, plat, plon in reversed(track):
+        if haversine((plat, plon), (lat, lon)) >= FIRST_POLL_TRACK_MIN_MOVE_M:
+            return bearing_between((plat, plon), (lat, lon))
+    for (_a, alat, alon), (_b, blat, blon) in reversed(list(zip(track, track[1:]))):
+        if haversine((alat, alon), (blat, blon)) >= FIRST_POLL_TRACK_MIN_MOVE_M:
+            return bearing_between((alat, alon), (blat, blon))
+    return None
+
+
+def _route_pass_candidates(route: Route, lat: float, lon: float) -> List[Tuple[float, float]]:
+    """[(arc position, distance m)] of each separate stretch of the route within FIRST_POLL_PASS_TIE_M of the
+    nearest point to (lat, lon)."""
+    best: List[Tuple[float, float]] = []
+    for i in range(len(route.poly) - 1):
+        a_lat, a_lon = route.poly[i]
+        b_lat, b_lon = route.poly[i + 1]
+        bx, by = ll_to_xy(b_lat, b_lon, a_lat, a_lon)
+        px, py = ll_to_xy(lat, lon, a_lat, a_lon)
+        vv = bx * bx + by * by
+        t = 0.0 if vv <= 0 else max(0.0, min(1.0, (px * bx + py * by) / vv))
+        best.append((math.hypot(px - t * bx, py - t * by), route.cum[i] + t * haversine((a_lat, a_lon), (b_lat, b_lon))))
+    if not best:
+        return []
+    dmin = min(d for d, _ in best)
+    picked: List[Tuple[float, float]] = []
+    for d, s in sorted(best):
+        if d > dmin + FIRST_POLL_PASS_TIE_M:
+            break
+        if all(abs(s - ps) > 150.0 for ps, _ in picked):
+            picked.append((s, d))
+    return picked
+
+
+def _schedule_pass_hint(route: Route, block_id: Optional[str], lat: float, lon: float, now_ts: float) -> Optional[float]:
+    """Arc position of the pass that gets the bus to its block's next timestop closest to the sheet time, when the
+    bus is near two passes and has no heading. None when there is nothing to choose or no schedule to choose by."""
+    if not block_id or not uts_blocks.is_loaded():
+        return None
+    passes = _route_pass_candidates(route, lat, lon)
+    if len(passes) < 2:
+        return None
+    nxt = uts_blocks.next_block_timestop(str(route.id), block_id, now_ts)
+    if nxt is None:
+        return None
+    sched_ts, stop_id = nxt
+    stop_s = _bus_eta_stop_arcs.get(str(route.id), {}).get(str(stop_id))
+    if stop_s is None or route.length_m <= 0:
+        return None
+
+    def miss(s: float) -> float:
+        arrive = now_ts + ((stop_s - s) % route.length_m) / bus_eta.TYPICAL_BUS_SPEED_MPS
+        return arrive - sched_ts if arrive > sched_ts else FIRST_POLL_EARLY_WEIGHT * (sched_ts - arrive)
+
+    return min(passes, key=lambda p: miss(p[0]))[0]
 
 def distance_to_segment_m(lat: float, lon: float, route: Route, seg_idx: int) -> float:
     """Metres from (lat, lon) to segment seg_idx of the route polyline."""
@@ -2877,6 +2975,9 @@ class State:
         # can restore orientation immediately on reload.
         self.last_headings: Dict[int, Dict[str, Any]] = {}
         self.last_headings_dirty: bool = False
+        # vehicle id -> [(ts, lat, lon)] for the last FIRST_POLL_TRACK_S, on any route or none (route 0, e.g.
+        # pulling out of the garage), so a bus's first poll on a route can tell which way it is going.
+        self.recent_positions: Dict[Any, List[Tuple[float, float, float]]] = {}
         self.lock = asyncio.Lock()
         self.last_overpass_note: str = ""
         # Added: error surfacing & active route tracking
@@ -6215,6 +6316,7 @@ async def startup():
                                 fresh_all.append(v)
                                 if v.get("RouteID") and v.get("RouteID") != 0:
                                     fresh.append(v)
+                        _record_recent_positions(fresh_all, time.time())
                         try:
                             notify_overheight_buses(fresh_all)
                         except Exception as e:
@@ -6258,6 +6360,7 @@ async def startup():
                         # Vehicles per route: rebuild from fresh data only to avoid lingering assignments
                         prev_map = getattr(state, 'vehicles_by_route', {})
                         new_map: Dict[int, Dict[int, Vehicle]] = {rid: {} for rid in keep_ids}
+                        block_windows = None  # read once, only if a bus needs _schedule_pass_hint this poll
                         for v in fresh:
                             rid = v["RouteID"]
                             if rid not in keep_ids or rid not in state.routes:
@@ -6298,9 +6401,20 @@ async def startup():
                             # while moving (and can be 180 deg off once it pulls out
                             # again), so don't let it pick a pass -- continuity with the
                             # previous poll's position decides instead.
-                            match_heading = heading if (prev is None or mps > DIR_SIGN_STATIONARY_MPS) else None
+                            match_heading = heading if (prev is not None and mps > DIR_SIGN_STATIONARY_MPS) else None
+                            prev_s = prev.s_pos if prev else None
+                            if prev is None and lat is not None and lon is not None:
+                                # First poll on this route: see FIRST_POLL_TRACK_S.
+                                match_heading = _recent_track_heading(state.recent_positions.get(vid, []), lat, lon)
+                                if match_heading is None:
+                                    if block_windows is None:
+                                        block_windows = _vehicle_block_windows()
+                                    prev_s = _schedule_pass_hint(
+                                        state.routes[rid], _current_block_id_for_vehicle(block_windows, vid, time.time()),
+                                        lat, lon, time.time(),
+                                    )
                             s_pos, seg_idx = project_vehicle_to_route(
-                                veh, state.routes[rid], prev_idx, match_heading, prev.s_pos if prev else None,
+                                veh, state.routes[rid], prev_idx, match_heading, prev_s,
                             )
                             prev_sign = prev.dir_sign if prev else state.last_dir_sign.get(vid, 0)
                             ema = prev.ema_mps if prev else (mps if mps > 0 else 6.0)
@@ -16978,6 +17092,8 @@ _BUS_ETA_SMOOTH_WINDOW = 3
 _BUS_ETA_SMOOTH_MAX_GAP_S = 60.0   # history older than this is stale (bus left service, no one polling)
 _BUS_ETA_SMOOTH_SKIP_BELOW_S = 20.0  # never delay an "arriving now" reading
 _bus_eta_history: Dict[Tuple[str, str, str], List[float]] = {}
+# route id -> {stop id: arc position (m)} from the last ETA pass's lines, for _schedule_pass_hint.
+_bus_eta_stop_arcs: Dict[str, Dict[str, float]] = {}
 # (vehicle id, block id, scheduled last-departure epoch) of buses seen on their out-of-service last-run stretch (see
 # bus_eta.out_of_service_phase). Once such a bus is past its cut-off it serves nothing more and gets no ETAs.
 _oos_run_seen: set = set()
@@ -17041,6 +17157,9 @@ async def _compute_bus_eta_arrivals() -> Dict[str, Any]:
         entry["id"]: _trip_planner_line_from_graph(entry, source="uts", loop=True)
         for entry in uts_lines_raw
     }
+    for rid, line in lines_by_id.items():
+        if line.shape_cum:
+            _bus_eta_stop_arcs[str(rid)] = {str(s.id): s.arc_pos for s in line.stops if s.arc_pos is not None}
 
     hop_time_fn = None
     headway_storage = getattr(app.state, "headway_storage", None)

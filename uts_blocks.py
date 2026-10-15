@@ -259,6 +259,29 @@ def next_scheduled_arrival_epoch(route_id: str, stop_id: str, after_ts: float) -
     return best
 
 
+def next_block_timestop(
+    route_id: str, block_id: Optional[str], after_ts: float, slack_s: float = 120.0,
+) -> Optional[Tuple[float, str]]:
+    """(scheduled epoch, StopID) of block_id's earliest sheet entry at or after after_ts - slack_s that is a mapped
+    timestop on route_id. app.py uses it to tell which pass of a two-way road a bus that has just joined a route is
+    on, when it has not moved recently enough to have a heading (2026-10-13 05:00, Gold [09] parked overnight)."""
+    block = _blocks.get(block_id) if block_id else None
+    if not block or not _block_serves_route(block, route_id):
+        return None
+    d = datetime.fromtimestamp(after_ts, tz=NY_TZ).date()
+    midnight_ts = datetime.combine(d, dtime.min, tzinfo=NY_TZ).timestamp()
+    best: Optional[Tuple[float, str]] = None
+    for group in _groups_for_day(block, d):
+        for time_s, code in group.get("stops", []):
+            epoch = midnight_ts + time_s
+            stop_id = _stop_for_code(route_id, code)
+            if stop_id is None or epoch < after_ts - slack_s:
+                continue
+            if best is None or epoch < best[0]:
+                best = (epoch, stop_id)
+    return best
+
+
 def best_matching_block(route_id: str, stop_id: str, reference_ts: float) -> Optional[str]:
     """Which block is most plausibly the one due at (route_id, stop_id) closest
     to reference_ts -- lets a caller with no live vehicle to ask (trip
