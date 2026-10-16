@@ -2276,6 +2276,7 @@ ETA_TICKER_HTML = _load_html("eta_ticker.html")
 SITEMAP_HTML = _load_html("sitemap.html")
 FEEDS_HTML = _load_html("feeds.html")
 FEED_CODES_HTML = _load_html("feed-codes.html")
+ONBOARD_ANNOUNCE_HTML = _load_html("onboard-announce.html")
 ROUTE_DESTINATIONS_HTML = _load_html("route-destinations.html")
 SYSTEM_NOTICES_HTML = _load_html("system-notices.html")
 KIOSK_FLEET_HTML = _load_html("kiosk-fleet.html")
@@ -17606,9 +17607,10 @@ def _onboard_route_label(line_name: str) -> str:
 def _onboard_add_transfers(
     rows: List[Dict[str, Any]], own_line: trip_planner.Line,
     lines_all: Dict[str, trip_planner.Line], running_route_ids: Set[str],
-) -> None:
+) -> Dict[str, str]:
     """Give each stop row `transfers`: the other routes running now that stop at it, or within
-    ONBOARD_TRANSFER_RADIUS_M of it (the stop across the street counts), as [{"name", "color"}]."""
+    ONBOARD_TRANSFER_RADIUS_M of it (the stop across the street counts), as [{"name", "color"}].
+    Returns every other route running now (name -> color), which an "always" rule can add."""
     own = _onboard_route_label(own_line.name)
     others: Dict[str, Tuple[str, List[Any]]] = {}
     for rid, line in lines_all.items():
@@ -17627,6 +17629,7 @@ def _onboard_add_transfers(
                    or bus_eta.haversine_m(stop.lat, stop.lon, o.lat, o.lon) <= ONBOARD_TRANSFER_RADIUS_M
                    for o in stops)
         ]
+    return {label: color for label, (color, _stops) in others.items()}
 
 
 async def _jaunt_get(service: str, params: Dict[str, str]) -> Any:
@@ -17694,11 +17697,15 @@ def _afton_serves(cfg: Dict[str, Any], stop_name: str, when_ts: float) -> bool:
 def _onboard_add_connections(
     rows: List[Dict[str, Any]], own_line: trip_planner.Line,
     points: Dict[str, List[Tuple[float, float]]], when_ts: float,
-) -> None:
+) -> Set[str]:
     """Give each stop row `connections`: [{"key", "name", "color"}] for CAT, Jaunt Connect and the Afton
-    Express when one running now stops within ONBOARD_TRANSFER_RADIUS_M of it."""
+    Express when one running now stops within ONBOARD_TRANSFER_RADIUS_M of it. Returns the keys of the
+    services running now anywhere, which an "always" rule can add."""
     by_id = {str(s.id): s for s in own_line.stops}
     afton = _afton_config()
+    running = {key for key, pts in points.items() if pts}
+    if any(_afton_serves(afton, name, when_ts) for name in afton.get("stops") or {}):
+        running.add("afton-express")
     for row in rows:
         stop = by_id.get(row["id"])
         keys = [] if stop is None else [
@@ -17707,10 +17714,80 @@ def _onboard_add_connections(
         ]
         if _afton_serves(afton, row["name"], when_ts):
             keys.append("afton-express")
-        row["connections"] = [
-            {"key": k, "name": ONBOARD_CONNECTIONS[k][0], "color": ONBOARD_CONNECTIONS[k][1]}
-            for k in ONBOARD_CONNECTIONS if k in keys
-        ]
+        row["connections"] = [_onboard_connection_item(k) for k in ONBOARD_CONNECTIONS if k in keys]
+    return running
+
+
+def _onboard_connection_item(key: str) -> Dict[str, Any]:
+    return {"key": key, "name": ONBOARD_CONNECTIONS[key][0], "color": ONBOARD_CONNECTIONS[key][1]}
+
+
+ONBOARD_ANNOUNCE_PATH = PRIMARY_DATA_DIR / "onboard_announce.json"
+# off: not shown or said. quiet: shown on the sign, not said. always: shown and said even when the
+# automatic pick (distance, timetable) leaves it out, as long as that route/service is running now.
+ONBOARD_ANNOUNCE_MODES = ("off", "quiet", "always")
+_onboard_announce_cache: Dict[str, Any] = {"mtime": None, "rules": []}
+
+
+def _onboard_announce_rules() -> List[Dict[str, str]]:
+    """Hand-set exceptions from /onboard-announce: [{"stop", "route", "target", "mode"}], "*" = any."""
+    try:
+        mtime = ONBOARD_ANNOUNCE_PATH.stat().st_mtime
+    except OSError:
+        return []
+    if _onboard_announce_cache["mtime"] != mtime:
+        try:
+            rules = json.loads(ONBOARD_ANNOUNCE_PATH.read_text(encoding="utf-8")).get("rules") or []
+        except (OSError, ValueError, AttributeError):
+            rules = []
+        _onboard_announce_cache.update(mtime=mtime, rules=rules)
+    return _onboard_announce_cache["rules"]
+
+
+def _onboard_rule_mode(rules: List[Dict[str, str]], stop: str, route: str, target: str) -> Optional[str]:
+    """The mode of the most specific rule matching: stop + route beats stop, beats route, beats neither;
+    a named target beats "*"; among equals the later rule wins."""
+    best, best_score = None, -1
+    for rule in rules:
+        r_stop, r_route, r_target = rule.get("stop") or "*", rule.get("route") or "*", rule.get("target") or "*"
+        if r_stop not in ("*", stop) or r_route not in ("*", route) or r_target not in ("*", target):
+            continue
+        score = 4 * (r_stop != "*") + 2 * (r_route != "*") + (r_target != "*")
+        if score >= best_score:
+            best, best_score = rule.get("mode"), score
+    return best
+
+
+def _onboard_apply_announce_rules(
+    rows: List[Dict[str, Any]], own_route: str, running_transfers: Dict[str, str], running_conns: Set[str],
+    rules: List[Dict[str, str]],
+) -> None:
+    """Apply the /onboard-announce rules to each row's `transfers` and `connections` (see
+    ONBOARD_ANNOUNCE_MODES). A quiet item keeps its pill and gets "silent": true so the page skips it."""
+    if not rules:
+        return
+    extra = {
+        "transfers": {name: {"name": name, "color": color} for name, color in running_transfers.items()},
+        "connections": {ONBOARD_CONNECTIONS[k][0]: _onboard_connection_item(k)
+                        for k in ONBOARD_CONNECTIONS if k in running_conns},
+    }
+    for row in rows:
+        for field, candidates in extra.items():
+            items = []
+            for item in row.get(field) or []:
+                mode = _onboard_rule_mode(rules, row["name"], own_route, item["name"])
+                if mode == "off":
+                    continue
+                items.append({**item, "silent": True} if mode == "quiet" else item)
+            have = {item["name"] for item in items}
+            items += [dict(item) for name, item in candidates.items()
+                      if name not in have and _onboard_rule_mode(rules, row["name"], own_route, name) == "always"]
+            if field == "transfers":
+                items.sort(key=lambda item: item["name"])
+            else:
+                order = list(ONBOARD_CONNECTIONS)
+                items.sort(key=lambda item: order.index(item["key"]))
+            row[field] = items
 
 
 def _onboard_stop_rows(
@@ -17867,8 +17944,10 @@ async def onboard_state(
         speed if speed is not None and out["position"]["source"] == "device" else veh.ground_mps,
     )
     rows = ([out["at_stop"]] if out["at_stop"] else []) + out["stops"]
-    _onboard_add_transfers(rows, line, lines_all, running)
-    _onboard_add_connections(rows, line, await _onboard_connection_points(when_ts, at is None), when_ts)
+    running_transfers = _onboard_add_transfers(rows, line, lines_all, running)
+    running_conns = _onboard_add_connections(rows, line, await _onboard_connection_points(when_ts, at is None), when_ts)
+    _onboard_apply_announce_rules(
+        rows, _onboard_route_label(line.name), running_transfers, running_conns, _onboard_announce_rules())
     notices = _active_notice_texts([str(s.id) for s in line.stops])
     out["alert"] = " ".join(text for _id, text in notices) if notices else None
     return out
@@ -17921,6 +18000,61 @@ async def feed_codes_page(request: Request):
     if _has_dispatcher_access(request):
         return HTMLResponse(FEED_CODES_HTML)
     return _login_redirect(request)
+
+
+@app.get("/onboard-announce")
+async def onboard_announce_page(request: Request):
+    _refresh_dispatch_passwords()
+    if _has_dispatcher_access(request):
+        return HTMLResponse(ONBOARD_ANNOUNCE_HTML)
+    return _login_redirect(request)
+
+
+@app.get("/v1/onboard/announce-rules")
+async def get_onboard_announce_rules(request: Request):
+    """The /onboard transfer/connection rules, plus the stop, route and target names to pick from."""
+    _require_dispatcher_access(request)
+    stops: Set[str] = set()
+    routes: Set[str] = set()
+    try:
+        for line in (await _onboard_live_lines()).values():
+            label = _onboard_route_label(line.name)
+            if label and not _ONBOARD_NO_TRANSFER_RE.search(label):
+                routes.add(label)
+                stops.update(s.name for s in line.stops if s.name)
+    except Exception as exc:
+        print(f"[onboard] announce-rules: live lines unavailable: {exc}")
+    return {
+        "rules": _onboard_announce_rules(),
+        "modes": list(ONBOARD_ANNOUNCE_MODES),
+        "stops": sorted(stops),
+        "routes": sorted(routes),
+        "connections": [name for name, _color in ONBOARD_CONNECTIONS.values()],
+    }
+
+
+@app.put("/v1/onboard/announce-rules")
+async def put_onboard_announce_rules(request: Request):
+    """Replace the rules. Body: {"rules": [{"stop", "route", "target", "mode"}]}; "*" (or blank) = any."""
+    _require_dispatcher_access(request)
+    body = await request.json()
+    rules = []
+    for raw in (body.get("rules") if isinstance(body, dict) else None) or []:
+        if not isinstance(raw, dict):
+            continue
+        rule = {k: str(raw.get(k) or "").strip() or "*" for k in ("stop", "route", "target")}
+        rule["mode"] = str(raw.get("mode") or "").strip()
+        if rule["mode"] not in ONBOARD_ANNOUNCE_MODES:
+            raise HTTPException(status_code=400, detail=f"mode must be one of {', '.join(ONBOARD_ANNOUNCE_MODES)}")
+        if rule["mode"] == "always" and rule["target"] == "*":
+            raise HTTPException(status_code=400, detail="an 'always' rule needs a route or service to add")
+        rules.append(rule)
+    ONBOARD_ANNOUNCE_PATH.parent.mkdir(parents=True, exist_ok=True)
+    tmp = ONBOARD_ANNOUNCE_PATH.with_suffix(".tmp")
+    tmp.write_text(json.dumps({"rules": rules, "updated_at": datetime.now(timezone.utc).isoformat()}, indent=2),
+                   encoding="utf-8")
+    os.replace(tmp, ONBOARD_ANNOUNCE_PATH)
+    return {"rules": rules}
 
 
 @app.get("/route-destinations")

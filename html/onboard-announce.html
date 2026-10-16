@@ -1,0 +1,157 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>On-Board Transfer Rules - UVATransit Operations Dashboard</title>
+  <link rel="icon" type="image/png" href="/media/favicon.ico" />
+  <link rel="apple-touch-icon" sizes="120x120" href="/media/apple-touch-icon-120.png" />
+  <link rel="apple-touch-icon" sizes="152x152" href="/media/apple-touch-icon-152.png" />
+  <link rel="apple-touch-icon" sizes="180x180" href="/media/apple-touch-icon-180.png" />
+  <script defer src="/nav-bar.js"></script>
+  <style>
+    body { font-family: Arial, sans-serif; max-width: 1060px; margin: 2rem auto; padding: 0 1.5rem; color: #1a1a1a; line-height: 1.6; }
+    h1 { color: #232D4B; margin-bottom: 0.25rem; }
+    .subtitle { color: #555; margin-top: 0; }
+    ul.help { color: #444; margin-top: 0.25rem; }
+    code { background: #f0f0f0; border-radius: 4px; font-family: monospace; padding: 2px 6px; }
+    table { border-collapse: collapse; width: 100%; margin-top: 1rem; }
+    th, td { border: 1px solid #ccc; padding: 0.4rem 0.6rem; text-align: left; vertical-align: middle; }
+    th { background: #232D4B; color: #fff; }
+    tr:nth-child(even) { background: #f8f8f8; }
+    input[type="text"], select { font-size: 0.95rem; padding: 4px 6px; width: 100%; box-sizing: border-box; }
+    button { font-size: 0.9rem; padding: 4px 10px; cursor: pointer; }
+    .danger { background: #b91c1c; color: #fff; border: none; border-radius: 4px; }
+    .primary { background: #232D4B; color: #fff; border: none; border-radius: 4px; }
+    #add-row td { background: #eef4ff; }
+    #empty td { color: #777; font-style: italic; }
+    #status { margin-top: 0.75rem; font-size: 0.9rem; color: #555; min-height: 1.2em; }
+    #status.error { color: #b91c1c; }
+    .mode-off { color: #b91c1c; font-weight: bold; }
+    .mode-quiet { color: #a16207; font-weight: bold; }
+    .mode-always { color: #15803d; font-weight: bold; }
+  </style>
+</head>
+<body>
+
+  <h1>On-Board Transfer Rules</h1>
+  <p class="subtitle">
+    By default <a href="/onboard?bus=18432">/onboard</a> picks transfers and connections by itself: any other
+    route with a bus running that stops within 80&nbsp;m, CAT and Connect stops within 80&nbsp;m on a route
+    running now, and the Afton Express by its timetable. Add a rule here to override that at a stop.
+    Changes reach the buses on their next update, no redeploy needed.
+  </p>
+  <ul class="help">
+    <li><b class="mode-off">Off</b>: not shown and not said.</li>
+    <li><b class="mode-quiet">Show only</b>: the pill stays on the screen, the voice doesn't say it.</li>
+    <li><b class="mode-always">Always</b>: shown and said at this stop even when it isn't picked
+      automatically, as long as that route or service has something running.</li>
+    <li>Leave <b>Stop</b> or <b>Bus's route</b> blank for "any". The most specific rule wins
+      (stop + route, then stop, then route, then neither).</li>
+  </ul>
+
+  <table>
+    <thead>
+      <tr>
+        <th style="width: 34%">Stop (being announced)</th>
+        <th style="width: 17%">Bus's route</th>
+        <th style="width: 19%">Transfer / connection</th>
+        <th style="width: 15%">Rule</th>
+        <th style="width: 15%"></th>
+      </tr>
+    </thead>
+    <tbody id="rows"></tbody>
+    <tbody>
+      <tr id="add-row">
+        <td><input type="text" id="new-stop" list="stop-names" placeholder="any stop"></td>
+        <td><select id="new-route"></select></td>
+        <td><select id="new-target"></select></td>
+        <td><select id="new-mode"></select></td>
+        <td><button class="primary" id="add-btn">Add rule</button></td>
+      </tr>
+    </tbody>
+  </table>
+  <datalist id="stop-names"></datalist>
+
+  <div id="status"></div>
+
+  <script>
+  (function () {
+    const MODE_LABELS = { off: 'Off', quiet: 'Show only', always: 'Always' };
+    const $ = (id) => document.getElementById(id);
+    const statusEl = $('status');
+    let rules = [];
+
+    const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+    const any = (v) => (!v || v === '*' ? '<i>any</i>' : esc(v));
+    function setStatus(text, isError) {
+      statusEl.textContent = text;
+      statusEl.className = isError ? 'error' : '';
+    }
+    function fillSelect(el, values, anyLabel) {
+      el.innerHTML = (anyLabel ? `<option value="*">${anyLabel}</option>` : '') +
+        values.map((v) => `<option value="${esc(v.value ?? v)}">${esc(v.label ?? v)}</option>`).join('');
+    }
+
+    function render() {
+      $('rows').innerHTML = rules.length ? rules.map((r, i) => `
+        <tr>
+          <td>${any(r.stop)}</td>
+          <td>${any(r.route)}</td>
+          <td>${any(r.target)}</td>
+          <td class="mode-${esc(r.mode)}">${esc(MODE_LABELS[r.mode] || r.mode)}</td>
+          <td><button class="danger" data-i="${i}">Delete</button></td>
+        </tr>`).join('') : '<tr id="empty"><td colspan="5">No rules: everything is picked automatically.</td></tr>';
+    }
+
+    async function save(next) {
+      setStatus('Saving…');
+      const r = await fetch('/v1/onboard/announce-rules', {
+        method: 'PUT', credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ rules: next }),
+      });
+      if (!r.ok) {
+        const err = await r.json().catch(() => ({}));
+        setStatus(`Not saved: ${err.detail || r.status}`, true);
+        return;
+      }
+      rules = (await r.json()).rules;
+      render();
+      setStatus('Saved. Buses pick it up on their next update.');
+    }
+
+    $('rows').addEventListener('click', (e) => {
+      const i = e.target.dataset && e.target.dataset.i;
+      if (i === undefined) return;
+      save(rules.filter((_, j) => j !== Number(i)));
+    });
+    $('add-btn').addEventListener('click', () => {
+      const rule = {
+        stop: $('new-stop').value.trim() || '*',
+        route: $('new-route').value,
+        target: $('new-target').value,
+        mode: $('new-mode').value,
+      };
+      if (rule.mode === 'always' && rule.target === '*') {
+        setStatus('An "Always" rule needs a route or service to add.', true);
+        return;
+      }
+      save([...rules, rule]).then(() => { $('new-stop').value = ''; });
+    });
+
+    (async () => {
+      const r = await fetch('/v1/onboard/announce-rules', { credentials: 'include' });
+      if (!r.ok) { setStatus(`Could not load the rules (${r.status}).`, true); return; }
+      const data = await r.json();
+      rules = data.rules || [];
+      $('stop-names').innerHTML = data.stops.map((s) => `<option value="${esc(s)}">`).join('');
+      fillSelect($('new-route'), data.routes, 'any route');
+      fillSelect($('new-target'), [...data.routes, ...data.connections], 'everything');
+      fillSelect($('new-mode'), data.modes.map((m) => ({ value: m, label: MODE_LABELS[m] || m })));
+      render();
+    })();
+  })();
+  </script>
+</body>
+</html>

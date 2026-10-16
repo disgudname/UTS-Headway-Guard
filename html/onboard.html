@@ -312,9 +312,11 @@
       parts.push(files[files.length - 1]);
       return parts;
     }
-    const transferParts = (transfers) => listParts('_transfer-is-available-to', transfers.map(routeClip));
+    // An item set to "show only" at /onboard-announce comes with silent: true: a pill, never said.
+    const spoken = (items) => items.filter((t) => !t.silent);
+    const transferParts = (transfers) => listParts('_transfer-is-available-to', spoken(transfers).map(routeClip));
     // Other agencies (CAT, Jaunt Connect, Afton Express): "Connection is available to" + conn--<key>.mp3 ...
-    const connectionParts = (conns) => listParts('_connection-is-available-to', conns.map(connClip));
+    const connectionParts = (conns) => listParts('_connection-is-available-to', spoken(conns).map(connClip));
 
     // Plays clips back to back, after anything still playing; each part is a clip file name or a line().
     const queue = [];
