@@ -17337,6 +17337,17 @@ ONBOARD_STOPPED_MPS = 1.0           # at a stop and no faster than this: the bus
 ONBOARD_TRANSFER_RADIUS_M = 80.0    # another running route stopping this close (either side of the street) is a transfer
 # Routes never announced as a transfer. Each one that is needs a recorded media/ava/route--<slug>.mp3.
 _ONBOARD_NO_TRANSFER_RE = re.compile(r"shuttle|training|orientation|test|charter", re.IGNORECASE)
+# Other agencies' services announced as "Connection is available to ...": key -> (pill text, color). Each key
+# needs a recorded media/ava/conn--<key>.mp3.
+ONBOARD_CONNECTIONS = {"cat": ("CAT", "#1f5aa6"), "connect": ("Connect", "#2e9e44"), "afton-express": ("Afton Express", "#f39200")}
+CAT_NOT_IN_SERVICE_ROUTE_ID = 777  # what CAT's feed puts on a bus that is not on a route
+# Jaunt's CONNECT commuter routes: a separate RideSystems/TransLoc client from UTS (admin.ridesystems.net client 1284).
+JAUNT_TRANSLOC_BASE = os.getenv("JAUNT_TRANSLOC_BASE", "https://jaunt.transloc.com/Services/JSONPRelay.svc")
+AFTON_EXPRESS_CONFIG = BASE_DIR / "config" / "afton_express.json"
+AFTON_LEAD_S = 30 * 60.0     # an Afton stop counts as served from this long before its first trip of a run of trips
+AFTON_RUN_GAP_S = 90 * 60.0  # trips at a stop further apart than this are separate runs (morning vs afternoon)
+_jaunt_routes_cache = TTLCache(3600.0)
+_jaunt_vehicles_cache = TTLCache(60.0)
 _onboard_lines_cache = TTLCache(60.0)
 _onboard_models_cache = TTLCache(60.0)
 _onboard_log_first_ts: Dict[str, int] = {}
@@ -17618,6 +17629,90 @@ def _onboard_add_transfers(
         ]
 
 
+async def _jaunt_get(service: str, params: Dict[str, str]) -> Any:
+    async with httpx.AsyncClient(timeout=10.0) as client:
+        resp = await client.get(f"{JAUNT_TRANSLOC_BASE}/{service}", params={"apiKey": TRANSLOC_KEY, **params})
+        resp.raise_for_status()
+        return resp.json()
+
+
+async def _onboard_connection_points(when_ts: float, live: bool) -> Dict[str, List[Tuple[float, float]]]:
+    """Connection key -> (lat, lon) of the other agencies' stops served by a service running now. CAT and
+    Connect come from their live feeds, so a replay gets neither; Afton has no feed, so its timetable is
+    used and keyed by our own stop names instead (see _onboard_add_connections)."""
+    points: Dict[str, List[Tuple[float, float]]] = {}
+    if not live:
+        return points
+    try:
+        vehicles, stops = await asyncio.gather(_get_cat_vehicles(), _get_cat_stops())
+        running = {v.get("RouteID") for v in vehicles if v.get("RouteID") not in (None, 0, CAT_NOT_IN_SERVICE_ROUTE_ID)}
+        points["cat"] = [(float(s["Latitude"]), float(s["Longitude"])) for s in stops if s.get("RouteID") in running]
+    except Exception as exc:
+        print(f"[onboard] CAT connections unavailable: {exc}")
+    try:
+        routes, vehicles = await asyncio.gather(
+            _jaunt_routes_cache.get(lambda: _jaunt_get("GetRoutesForMapWithScheduleWithEncodedLine", {})),
+            _jaunt_vehicles_cache.get(lambda: _jaunt_get(
+                "GetMapVehiclePoints", {"returnVehiclesNotAssignedToRoute": "true"})),
+        )
+        running = {v.get("RouteID") for v in vehicles or [] if v.get("RouteID")}
+        points["connect"] = [
+            (float(s["Latitude"]), float(s["Longitude"]))
+            for r in routes or [] if r.get("RouteID") in running for s in r.get("Stops") or []
+        ]
+    except Exception as exc:
+        print(f"[onboard] Jaunt Connect connections unavailable: {exc}")
+    return points
+
+
+def _afton_config() -> Dict[str, Any]:
+    try:
+        return json.loads(AFTON_EXPRESS_CONFIG.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return {}
+
+
+def _afton_serves(cfg: Dict[str, Any], stop_name: str, when_ts: float) -> bool:
+    """True when the Afton Express timetable (config/afton_express.json) has this stop of ours in a run of
+    trips going on now: from AFTON_LEAD_S before the run's first trip to its last, on weekdays."""
+    entry = (cfg.get("stops") or {}).get(stop_name)
+    now = datetime.fromtimestamp(when_ts, ZoneInfo("America/New_York"))
+    if not entry or (cfg.get("weekdays_only", True) and now.weekday() >= 5):
+        return False
+    secs = sorted(int(t[:2]) * 3600 + int(t[3:5]) * 60 for t in entry.get("times") or [])
+    now_s = now.hour * 3600 + now.minute * 60 + now.second
+    start = None
+    for i, t in enumerate(secs):
+        if start is None or t - secs[i - 1] > AFTON_RUN_GAP_S:
+            start = t
+        last = i + 1 == len(secs) or secs[i + 1] - t > AFTON_RUN_GAP_S
+        if last and start - AFTON_LEAD_S <= now_s <= t:
+            return True
+    return False
+
+
+def _onboard_add_connections(
+    rows: List[Dict[str, Any]], own_line: trip_planner.Line,
+    points: Dict[str, List[Tuple[float, float]]], when_ts: float,
+) -> None:
+    """Give each stop row `connections`: [{"key", "name", "color"}] for CAT, Jaunt Connect and the Afton
+    Express when one running now stops within ONBOARD_TRANSFER_RADIUS_M of it."""
+    by_id = {str(s.id): s for s in own_line.stops}
+    afton = _afton_config()
+    for row in rows:
+        stop = by_id.get(row["id"])
+        keys = [] if stop is None else [
+            key for key, pts in points.items()
+            if any(bus_eta.haversine_m(stop.lat, stop.lon, lat, lon) <= ONBOARD_TRANSFER_RADIUS_M for lat, lon in pts)
+        ]
+        if _afton_serves(afton, row["name"], when_ts):
+            keys.append("afton-express")
+        row["connections"] = [
+            {"key": k, "name": ONBOARD_CONNECTIONS[k][0], "color": ONBOARD_CONNECTIONS[k][1]}
+            for k in ONBOARD_CONNECTIONS if k in keys
+        ]
+
+
 def _onboard_stop_rows(
     line: trip_planner.Line, route_id: str, veh_s_pos: float, ema_mps: float, dir_sign: int,
     lat: float, lon: float, block_id: Optional[str], when_ts: float, models: Tuple[Any, Any, Any, Any],
@@ -17771,7 +17866,9 @@ async def onboard_state(
         block_id, when_ts, models, dwell_elapsed_s,
         speed if speed is not None and out["position"]["source"] == "device" else veh.ground_mps,
     )
-    _onboard_add_transfers(([out["at_stop"]] if out["at_stop"] else []) + out["stops"], line, lines_all, running)
+    rows = ([out["at_stop"]] if out["at_stop"] else []) + out["stops"]
+    _onboard_add_transfers(rows, line, lines_all, running)
+    _onboard_add_connections(rows, line, await _onboard_connection_points(when_ts, at is None), when_ts)
     notices = _active_notice_texts([str(s.id) for s in line.stops])
     out["alert"] = " ".join(text for _id, text in notices) if notices else None
     return out
