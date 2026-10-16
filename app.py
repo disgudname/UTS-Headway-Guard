@@ -3085,6 +3085,7 @@ spare_route_cache = PerKeyTTLCache(SPARE_ROUTE_TTL_S)
 # Service-area zones change ~never; poll them at most hourly.
 spare_service_area_cache = TTLCache(int(os.getenv("SPARE_SERVICE_AREA_TTL_S", "3600")))
 ondemand_color_by_name_cache = TTLCache(ONDEMAND_COLOR_BY_NAME_TTL_S)
+_ondemand_colors_last_good: Dict[str, str] = {}
 
 
 def _is_within_ondemand_operating_window(now: Optional[datetime] = None) -> bool:
@@ -19624,7 +19625,7 @@ async def _get_ondemand_color_by_display_name() -> Dict[str, str]:
             )
         except Exception as exc:
             print(f"[spare] ondemand color lookup failed: {exc}")
-            return {}
+            return dict(_ondemand_colors_last_good)
         roster = roster_result if isinstance(roster_result, list) else []
         positions = positions_result if isinstance(positions_result, list) else []
         if isinstance(roster_result, Exception):
@@ -19658,7 +19659,12 @@ async def _get_ondemand_color_by_display_name() -> Dict[str, str]:
             )
             if display_name:
                 color_by_name[display_name] = color_value
-        return color_by_name
+        # A failed or partial OnDemand read used to come back {} and stay cached for
+        # the TTL, turning every van the default color until the next read. A van's
+        # color is a roster property, so keep the last color seen for each name and
+        # let a fresh read only add or change entries.
+        _ondemand_colors_last_good.update(color_by_name)
+        return dict(_ondemand_colors_last_good)
 
     return await ondemand_color_by_name_cache.get(fetch)
 
