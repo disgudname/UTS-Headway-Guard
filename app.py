@@ -19719,6 +19719,7 @@ async def traffic_flow_geojson():
     """Slow / closed road segments over the service area as GeoJSON, for maps
     that can't render vector tiles (/map is Leaflet). Built from the same cached
     z13 vector tiles /livemap uses, so it costs no extra TomTom requests.
+    Slow means level < 0.75 on major roads (_ROAD_WEIGHT), < 0.5 on local ones.
     Properties: level (speed / free-flow speed, 0-1), closed, weight (road
     class, 0.5-1), one_side (one direction of a two-way road, drawn in its
     direction of travel). Slowest segments come last so they draw on top.
@@ -19746,7 +19747,11 @@ async def traffic_flow_geojson():
                 closed = bool(p.get("road_closure"))
                 level = p.get("traffic_level")
                 level = float(level) if isinstance(level, (int, float)) else 1.0
-                if not closed and level >= 0.75:
+                # Local roads only count below half their free-flow speed: their
+                # free flow is so low that a crosswalk or a bus at a stop drops
+                # them under 0.75 (same rule as safety-style.js FLOW_SLOW)
+                major = p.get("road_type") in _ROAD_WEIGHT
+                if not closed and level >= (0.75 if major else 0.5):
                     continue
                 lines = feat["lines"]
                 features.append({

@@ -65,7 +65,14 @@ const FLOW_LEVEL = ['to-number', ['get', 'traffic_level'], 1];
 // Only slowdowns are drawn, in reds only: the route palette already uses
 // green / orange / yellow / purple / gray, so traffic green or orange would
 // read as a bus line.
-const FLOW_SLOW = ['any', ['to-boolean', ['get', 'road_closure']], ['<', FLOW_LEVEL, 0.75]];
+// Local roads (anything below "Connecting road") must drop under half their
+// free-flow speed, not 3/4: their free flow is so low (Culbreth Rd: 14 mph)
+// that one crosswalk or a bus at a stop is enough to fall under 0.75.
+// Keep in step with _ROAD_WEIGHT / flow.geojson in app.py.
+const FLOW_MAJOR_ROAD = ['in', ['get', 'road_type'],
+  ['literal', ['Motorway', 'International road', 'Major road', 'Secondary road', 'Connecting road']]];
+const FLOW_SLOW = ['any', ['to-boolean', ['get', 'road_closure']],
+  ['<', FLOW_LEVEL, ['case', FLOW_MAJOR_ROAD, 0.75, 0.5]]];
 const FLOW_COLOR = ['case',
   ['to-boolean', ['get', 'road_closure']], '#4a0d12',
   ['<', FLOW_LEVEL, 0.25], '#8f1420',
