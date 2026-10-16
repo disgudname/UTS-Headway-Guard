@@ -259,6 +259,7 @@
  },
  "recorded": [
   "_and",
+  "_connection-is-available-to",
   "_hold-10",
   "_hold-11",
   "_hold-12",
@@ -279,6 +280,9 @@
   "_hold-8",
   "_hold-9",
   "_transfer-is-available-to",
+  "conn--afton-express",
+  "conn--cat",
+  "conn--connect",
   "next-stop--14th-street-john-st",
   "next-stop--14th-street-virginia-ave",
   "next-stop--14th-street-wertland-st-northbound",
