@@ -49,6 +49,11 @@ Checked against the entries below on 2026-10-06. Everything not listed here is b
 - **Card build is not repeatable:** `scripts/build_block_cards.py` breaks ties in a bus card's top-5 blocks (and its route mix) by set order, so two runs on the same data give a slightly different `scripts/cards-data.js`. Block cards are stable.
 - **Branch `claude/late-dwell`:** unmerged prototype (see §3). Keep or delete is the user's call.
 
+### 2026-10-16 · [home] · Traffic flow: local roads need < 0.5 to draw (DEPLOYED, `ed8050a`)
+- User saw Culbreth Rd red all day while empty. `traffic_level` is speed / TomTom free-flow (probe-derived, NOT the speed limit). Culbreth's free flow is 14 mph, so a 14 s delay over the whole road (crosswalk, bus at the stop) took it under 0.75. Google Maps doesn't colour Culbreth at all.
+- Fix: road types outside `_ROAD_WEIGHT` (local roads) only count as slow below 0.5; major roads keep 0.75. `app.py` flow.geojson (covers `/map`) and `safety-style.js` `FLOW_SLOW` (`/livemap`). On one snapshot 169 -> 142 segments.
+- Segment detail: TomTom segments are its own road units (150-900 m on University Ave), and z16 tiles carry the same segments and levels as z13 (just clipped). Fetching higher zooms gives no finer slowdowns.
+
 ### 2026-10-16 · [home] · `/onboard-announce`: hand-set exceptions to /onboard transfers and connections (DEPLOYED v2102, prod round trip checked)
 - Rules `{stop, route, target, mode}` in `/data/onboard_announce.json` (dispatcher auth; `GET`/`PUT /v1/onboard/announce-rules`). `stop` = the stop being announced (our name), `route` = the bus's own route label, `target` = a transfer route name or a connection pill name (CAT / Connect / Afton Express); `*` = any. Most specific wins (stop+route > stop > route > neither; named target > `*`; later rule on a tie).
 - Modes: `off` drops it; `quiet` ("Show only") keeps the pill with `silent: true` and the page leaves it out of the voice; `always` adds it when the automatic pick missed it, only while that route/service runs (Afton: when its timetable has any stop in a run now). Applied after `_onboard_add_transfers` / `_onboard_add_connections` (`_onboard_apply_announce_rules`), so replays obey them too. Tests: `tests/test_onboard_announce.py`.
