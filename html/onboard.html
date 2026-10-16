@@ -75,6 +75,15 @@
     #nowName { font-size: calc(13 * var(--u)); font-weight: 800; line-height: 1.08; text-wrap: balance; }
     #nowSub { font-size: calc(5 * var(--u)); color: var(--dim); min-height: 1.3em; }
     #nowSub b { color: var(--ink); font-weight: 800; }
+    #nowXfer { font-size: calc(3.8 * var(--u)); color: var(--dim); margin-top: calc(1.5 * var(--u)); min-height: 1.6em; }
+    .pill {
+      display: inline-block;
+      padding: 0.1em 0.6em;
+      margin: 0.15em 0.3em 0.15em 0;
+      border-radius: 999px;
+      font-weight: 800;
+      white-space: nowrap;
+    }
 
     #list {
       background: var(--panel);
@@ -190,6 +199,7 @@
       <div id="nowLabel"></div>
       <div id="nowNameBox"><div id="nowName"></div></div>
       <div id="nowSub"></div>
+      <div id="nowXfer"></div>
     </section>
     <section id="list"></section>
   </main>
@@ -289,6 +299,18 @@
     const line = (lead, stop) => ({
       file: `${lead}--${clipSlug(stop.name)}`, fallback: [LEAD_IN[lead], clipSlug(stop.name)], name: stop.name,
     });
+    // "Transfer is available to" + "the Gold Line" + "the Silver Line" + "and" + "the Green Loop", spliced from
+    // recorded clips (_transfer-is-available-to.mp3, route--<slug>.mp3, _and.mp3). A route with no clip yet is
+    // left out of the sentence rather than leaving a gap in it.
+    const routeClip = (t) => `route--${clipSlug(t.name)}`;
+    function transferParts(transfers) {
+      const routes = transfers.map(routeClip).filter((f) => !clip(f).error);
+      if (!routes.length) return [];
+      const parts = ['_transfer-is-available-to', ...routes.slice(0, -1)];
+      if (routes.length > 1) parts.push('_and');
+      parts.push(routes[routes.length - 1]);
+      return parts;
+    }
 
     // Plays clips back to back, after anything still playing; each part is a clip file name or a line().
     const queue = [];
@@ -342,6 +364,7 @@
       if (here && here.id !== thisSaid) {
         thisSaid = here.id;
         const parts = [line('this-is', here)];
+        parts.push(...transferParts(here.transfers || []));
         const hold = holdMinutes(here, signNow() + (at ? 0 : (here.seconds || 0) * 1000));
         if (hold !== null) parts.push(`_hold-${hold}`);
         say(parts);
@@ -413,8 +436,9 @@
       $('routeName').textContent = route.name;
       $('routeInfo').textContent = route.info || '';
 
-      let label, name, sub = '', listed, arriving = false;
+      let label, name, sub = '', listed, arriving = false, shown = null;
       if (at) {
+        shown = at;
         label = 'NOW AT';
         name = at.name;
         const departs = at.timestop && at.scheduled && at.scheduled * 1000 > now + 30000 ? clockText(at.scheduled * 1000) : null;
@@ -422,6 +446,7 @@
         else if (next) sub = `Next: <b>${escapeHtml(next.name)}</b>`;
         listed = stops;
       } else if (next) {
+        shown = next;
         const s = left(next);
         arriving = s !== null && s <= ARRIVING_S;
         label = arriving ? 'ARRIVING AT' : 'NEXT STOP';
@@ -437,6 +462,9 @@
       $('nowLabel').textContent = label;
       $('nowLabel').classList.toggle('live', label !== 'NEXT STOP');
       $('nowSub').innerHTML = sub;
+      const xfer = (shown && shown.transfers) || [];
+      $('nowXfer').innerHTML = xfer.length ? 'Transfer to ' + xfer.map((t) =>
+        `<span class="pill" style="background:${t.color};color:${inkFor(t.color)}">${escapeHtml(t.name)}</span>`).join('') : '';
 
       const rows = listed.slice(0, MAX_ROWS);
       const key = [route.id, name, rows.map((r) => r.id).join(',')].join('|');
@@ -453,6 +481,7 @@
       // Fetch the clips for the stops coming up while there is a connection to fetch them over.
       if (AVA) {
         [at, next].forEach((s) => s && clip(line('this-is', s).file));
+        [at, next].forEach((s) => s && (s.transfers || []).forEach((t) => clip(routeClip(t))));
         stops.slice(0, 3).forEach((s) => clip(line('next-stop', s).file));
         const hold = at ? holdMinutes(at, now) : holdMinutes(next, now + (left(next) || 0) * 1000);
         if (hold !== null) clip(`_hold-${hold}`);
@@ -501,7 +530,7 @@
     keepAwake();
     document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') keepAwake(); });
     addEventListener('pointerdown', () => { audioBlocked = false; });
-    if (AVA) { clip('_this-is'); clip('_the-next-stop-is'); }
+    if (AVA) { clip('_this-is'); clip('_the-next-stop-is'); clip('_transfer-is-available-to'); clip('_and'); }
     addEventListener('resize', () => { renderedKey = ''; render(); });
 
     render();

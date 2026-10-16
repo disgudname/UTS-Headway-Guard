@@ -17333,6 +17333,9 @@ ONBOARD_REPLAY_MAX_GAP_S = 60.0     # newest log sample older than this: no posi
 ONBOARD_DEVICE_MAX_OFFSET_M = 500.0  # tablet GPS further than this from TransLoc's fix: wrong ?bus=, ignore it
 ONBOARD_AT_STOP_ARC_M = 150.0       # a stop within the dwell radius but this far along the line is the other pass
 ONBOARD_STOPPED_MPS = 1.0           # at a stop and no faster than this: the bus has stopped there, not driven past
+ONBOARD_TRANSFER_RADIUS_M = 80.0    # another running route stopping this close (either side of the street) is a transfer
+# Routes never announced as a transfer. Each one that is needs a recorded media/ava/route--<slug>.mp3.
+_ONBOARD_NO_TRANSFER_RE = re.compile(r"shuttle|training|orientation|test|charter", re.IGNORECASE)
 _onboard_lines_cache = TTLCache(60.0)
 _onboard_models_cache = TTLCache(60.0)
 _onboard_log_first_ts: Dict[str, int] = {}
@@ -17565,6 +17568,9 @@ def _onboard_replay_state(bus: str, at_ms: int) -> Dict[str, Any]:
                 break
             since_ts = ts
 
+    lines_all = {r: pair[0] for r, pair in _onboard_snapshot_lines(snapshot).items()}
+    running = {str(v.get("RouteID")) for v in window[-1].get("vehicles") or [] if v.get("RouteID") is not None}
+
     # The log keeps the dispatch group ("[05]/[03]"); the schedule wants the one block on this route.
     group = (window[-1].get("blocks") or {}).get(str(last.get("VehicleID"))) or ""
     numbers = re.findall(r"\[\d+\]", group)
@@ -17574,8 +17580,41 @@ def _onboard_replay_state(bus: str, at_ms: int) -> Dict[str, Any]:
     state_out.update({
         "status": "in_service", "line": line, "route_id": str(rid), "vehicle": prev,
         "block_id": block_id, "dwell_elapsed_s": (track[-1][0] - since_ts) / 1000.0,
+        "lines_all": lines_all, "running_route_ids": running,
     })
     return state_out
+
+
+def _onboard_route_label(line_name: str) -> str:
+    """"Gold Line — Post-6PM/Weekends" -> "Gold Line"; "Orange Line DETOUR" -> "Orange Line"."""
+    desc = (line_name or "").partition(" — ")[0]
+    return re.sub(r"\s+detour\b", "", desc, flags=re.IGNORECASE).strip()
+
+
+def _onboard_add_transfers(
+    rows: List[Dict[str, Any]], own_line: trip_planner.Line,
+    lines_all: Dict[str, trip_planner.Line], running_route_ids: Set[str],
+) -> None:
+    """Give each stop row `transfers`: the other routes running now that stop at it, or within
+    ONBOARD_TRANSFER_RADIUS_M of it (the stop across the street counts), as [{"name", "color"}]."""
+    own = _onboard_route_label(own_line.name)
+    others: Dict[str, Tuple[str, List[Any]]] = {}
+    for rid, line in lines_all.items():
+        label = _onboard_route_label(line.name)
+        if rid not in running_route_ids or not label or label == own or _ONBOARD_NO_TRANSFER_RE.search(label):
+            continue
+        color, stops = others.setdefault(label, (f"#{(line.color or '888888').lstrip('#')}", []))
+        stops.extend(s for s in line.stops if s.lat is not None and s.lon is not None)
+    by_id = {str(s.id): s for s in own_line.stops}
+    for row in rows:
+        stop = by_id.get(row["id"])
+        row["transfers"] = [] if stop is None else [
+            {"name": label, "color": color}
+            for label, (color, stops) in sorted(others.items())
+            if any(str(o.id) == row["id"]
+                   or bus_eta.haversine_m(stop.lat, stop.lon, o.lat, o.lon) <= ONBOARD_TRANSFER_RADIUS_M
+                   for o in stops)
+        ]
 
 
 def _onboard_stop_rows(
@@ -17681,6 +17720,7 @@ async def onboard_state(
         out["status"] = found["status"]
         line, veh, route_id, block_id = found.get("line"), found.get("vehicle"), found.get("route_id"), found.get("block_id")
         dwell_elapsed_s = found.get("dwell_elapsed_s", 0.0)
+        lines_all, running = found.get("lines_all") or {}, found.get("running_route_ids") or set()
         if "lat" in found:
             out["position"] = {"lat": found["lat"], "lon": found["lon"], "source": "replay"}
         pos_lat, pos_lon = found.get("lat"), found.get("lon")
@@ -17688,7 +17728,9 @@ async def onboard_state(
     else:
         when_ts = time.time()
         veh = route = route_id = line = block_id = None
+        lines_all = {}
         async with state.lock:
+            running = {str(rid) for rid, vehs in state.vehicles_by_route.items() if vehs}
             for rid, vehs in state.vehicles_by_route.items():
                 veh = next((v for v in vehs.values() if str(v.name) == bus), None)
                 if veh is not None:
@@ -17698,7 +17740,8 @@ async def onboard_state(
             out["status"] = "not_in_service"
             pos_lat, pos_lon, s_pos, source = veh.lat, veh.lon, veh.s_pos, "transloc"
             offset_m = haversine((lat, lon), (veh.lat, veh.lon)) if lat is not None and lon is not None else None
-            line = (await _onboard_live_lines()).get(route_id)
+            lines_all = await _onboard_live_lines()
+            line = lines_all.get(route_id)
             if line is not None and route is not None and line.shape_cum and len(line.stops) >= 2:
                 out["status"] = "in_service"
                 block_id = _current_block_id_for_vehicle(_vehicle_block_windows(), veh.id, when_ts)
@@ -17727,6 +17770,7 @@ async def onboard_state(
         block_id, when_ts, models, dwell_elapsed_s,
         speed if speed is not None and out["position"]["source"] == "device" else veh.ground_mps,
     )
+    _onboard_add_transfers(([out["at_stop"]] if out["at_stop"] else []) + out["stops"], line, lines_all, running)
     notices = _active_notice_texts([str(s.id) for s in line.stops])
     out["alert"] = " ".join(text for _id, text in notices) if notices else None
     return out
