@@ -906,3 +906,20 @@ def test_post_hold_hop_cap_is_only_raised_by_slower_drive_history():
     assert be._post_hold_hop_cap_s("58", "726", "727", 861, 0.0, lambda *a: 360.0) == 360.0   # slow street: real drive
     assert be._post_hold_hop_cap_s("58", "726", "727", 861, 0.0, lambda *a: 60.0) == cap      # faster history never lowers it
     assert be._post_hold_hop_cap_s("58", "726", "727", 861, 0.0, lambda *a: None) == cap      # no history: typical speed
+
+
+def test_arriving_radius_does_not_fire_round_a_hairpin():
+    # Regression, 2026-10-17: Gold at Runk read "Due" for Johnson House, 126 m away in a straight line but 304 m by
+    # road round the end of the loop (same at Barracks Road Shopping Center's loop). A hairpin: east 150 m, north
+    # 100 m, back west 150 m (then on round a 3.4 km loop); the stop is 100 m from the bus straight across but 400 m
+    # ahead by road.
+    d = 1.0 / 111_320.0
+    pts_m = [(0, 0), (50, 0), (100, 0), (150, 0), (150, 50), (150, 100), (100, 100), (50, 100), (0, 100), (-50, 100), (-3000, 100)]
+    shape = [(y * d, x * d) for x, y in pts_m]
+    cum = [0.0, 50, 100, 150, 200, 250, 300, 350, 400, 450, 3400]
+    stops = [Stop(id="a", name="a", lat=0.0, lon=0.0, source="uts", arc_pos=0.0),
+             Stop(id="b", name="b", lat=100 * d, lon=0.0, source="uts", arc_pos=400.0)]
+    line = Line(id="67", name="Loop", color="#fff", source="uts", stops=stops, loop=True, shape=shape, shape_cum=cum)
+    assert haversine_m(0.0, 0.0, stops[1].lat, stops[1].lon) < eta.ARRIVING_RADIUS_M
+    result = eta.estimate_stop_eta_s(line, 0.0, 5.0, stops[1], hop_time_fn=None, when=0.0, vehicle_lat=0.0, vehicle_lon=0.0)
+    assert result is not None and result.seconds > 30.0

@@ -141,7 +141,15 @@ ARRIVING_RADIUS_M = 150.0
 # Line, Massie Rd): a bus driving OUT along Massie Rd passes within metres of
 # "Massie Rd @ JPJ South Lot", a stop on the RETURN pass ~3.5km of route ahead, and
 # was reported as "Due" for it -- the road is the same physical road, both ways.
-ARRIVING_ARC_WINDOW_M = 600.0
+# 600 m until 2026-10-17, which still let "Due" fire where the road doubles back: Gold
+# at Runk (the loop's last stop, the layover) read "Due" for Johnson House, 126 m away
+# straight but 304 m by road, and Arlington Blvd's loop round Barracks Road Shopping
+# Center put the Barracks stop 20-135 m from points 250-410 m back. Across every logged
+# "Due", the bus took over a minute longer 3% of the time under 100 m of road, 18-30% at
+# 150-300 m and 59-100% beyond. Re-running the live engine's "Due"s since 10-07 with
+# 200 m: 2,388 changed, median error 61 -> 12 s, 2,285 better / 103 worse. Not below
+# ~180 m: the behind-the-stop side has to cover the wrong-pass case above.
+ARRIVING_ARC_WINDOW_M = 200.0
 
 # Below this real-world distance, skip the forward-sweep sanity check entirely
 # -- the vehicle is essentially standing on the stop's own coordinates.
