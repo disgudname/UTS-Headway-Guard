@@ -527,6 +527,20 @@ def elapsed_dwell_fn(
     return fn
 
 
+def release_dwell_fn(
+    dwell_fn: Callable[[str, str, float], float], stop_id: str, release_epoch: float, now: float
+) -> Callable[[str, str, float], float]:
+    """dwell_fn, but the bus sitting at `stop_id` leaves at `release_epoch` (a staged Purple bus
+    released by the bus ahead, see purple_release.py) instead of after its typical hold. Never
+    less than a normal stop's dwell; the same stop a lap later gets its normal dwell."""
+    def fn(route_id: str, s_id: str, when: float) -> float:
+        if str(s_id) == stop_id and when - now <= ELAPSED_DWELL_HORIZON_S:
+            return max(TYPICAL_DWELL_S, release_epoch - when)
+        return dwell_fn(route_id, s_id, when)
+
+    return fn
+
+
 def estimate_stop_eta_s(
     line: Line,
     vehicle_s_pos: float,

@@ -58,6 +58,7 @@ import trip_planner
 import trip_planner_history
 import cat_gtfs
 import bus_eta
+import purple_release
 import uts_blocks
 
 from fastapi import Body, FastAPI, HTTPException, Request, Response, Query
@@ -17136,6 +17137,9 @@ BUS_ETA_DWELL_MODE_ROUTE_PREFIXES = tuple(
 # _BUS_ETA_STOP_ZONE_MAX_GAP_S between computations means we don't know how long it has been there: start over.
 _bus_eta_stop_zone: Dict[str, Tuple[str, float, float]] = {}
 _BUS_ETA_STOP_ZONE_MAX_GAP_S = 90.0
+# Purple anti-bunching release (purple_release.py): a bus staged at Lower JPA / Lane leaves when the bus ahead
+# reaches Fontaine / Lee St. PURPLE_RELEASE=0 turns it off (back to the dwell history alone).
+PURPLE_RELEASE_ENABLED = os.getenv("PURPLE_RELEASE", "1").strip().lower() not in ("0", "false", "no", "off")
 
 
 def _bus_eta_stop_zone_elapsed(key: str, stop_id: Optional[str], now_ts: float) -> float:
@@ -17216,6 +17220,46 @@ async def _compute_bus_eta_arrivals() -> Dict[str, Any]:
     _bus_eta_history_at = when_ts
     seen_keys: set = set()
 
+    # Dwell-mode (Purple) buses first: where each is sitting, its dwell function, and, for a bus staged at
+    # Lower JPA / Lane, when the bus ahead releases it (purple_release.py).
+    dwell_mode_ctx: Dict[Tuple[str, str], Tuple[Any, Any]] = {}  # (route, vid) -> (hop fn, dwell fn)
+    if dwell_mode_route_ids and drive_model is not None and dwell_model is not None:
+        release_buses = []
+        for route_id_int, vehs in vehicles_by_route.items():
+            route_id = str(route_id_int)
+            line = lines_by_id.get(route_id)
+            if route_id not in dwell_mode_route_ids or line is None or not line.shape_cum or len(line.stops) < 2:
+                continue
+            for vid, veh in vehs.items():
+                at_stop = bus_eta.stop_zone_at(line, veh.lat, veh.lon)
+                elapsed = _bus_eta_stop_zone_elapsed(f"{vid}|{route_id}", at_stop, when_ts)
+                veh_dwell = bus_eta.elapsed_dwell_fn(dwell_model.lookup, at_stop, elapsed, when_ts)
+                dwell_mode_ctx[(route_id, str(vid))] = (drive_model.lookup, veh_dwell)
+                ema = veh.ema_mps if veh.ema_mps < MAX_SPEED_CEIL else bus_eta.TYPICAL_BUS_SPEED_MPS
+
+                def _release_eta(stop, release, _line=line, _veh=veh, _ema=ema, _dwell=veh_dwell):
+                    d = _dwell if release is None else bus_eta.release_dwell_fn(_dwell, release[0], release[1], when_ts)
+                    r = bus_eta.estimate_stop_eta_s(
+                        _line, _veh.s_pos, _ema, stop, drive_model.lookup, when_ts, dwell_fn=d,
+                        vehicle_lat=_veh.lat, vehicle_lon=_veh.lon, vehicle_dir_sign=getattr(_veh, "dir_sign", 0),
+                    )
+                    return None if r is None else r.seconds
+
+                release_buses.append((route_id, purple_release.Bus(
+                    vid=str(vid), stops=line.stops, at_stop_id=at_stop, since=when_ts - elapsed, eta=_release_eta,
+                )))
+        if PURPLE_RELEASE_ENABLED and release_buses:
+            try:
+                releases = purple_release.release_epochs([b for _, b in release_buses], when_ts)
+            except Exception as exc:
+                print(f"[bus-eta] purple release skipped: {exc}")
+                releases = {}
+            for route_id, b in release_buses:
+                if b.vid in releases:
+                    hop, dwell = dwell_mode_ctx[(route_id, b.vid)]
+                    stop_id, release_epoch = releases[b.vid]
+                    dwell_mode_ctx[(route_id, b.vid)] = (hop, bus_eta.release_dwell_fn(dwell, stop_id, release_epoch, when_ts))
+
     # "{route_id}|{stop_id}" -> {"RouteId", "RouteStopId", "StopDescription", "Times": [...]}
     out: Dict[str, Dict[str, Any]] = {}
     for route_id_int, vehs in vehicles_by_route.items():
@@ -17256,12 +17300,7 @@ async def _compute_bus_eta_arrivals() -> Dict[str, Any]:
                         _oos_handover[str(vid)] = (block_id, route_id, oos_plan[1])
                     elif bus_eta.out_of_service_finished(oos_phase, oos_key in _oos_run_seen, when_ts, oos_plan[1]):
                         continue  # past its cut-off, heading to the lot / becoming Night Pilot: serves nothing more
-            veh_hop_fn, veh_dwell_fn = hop_time_fn, None
-            if route_id in dwell_mode_route_ids and drive_model is not None and dwell_model is not None:
-                at_stop = bus_eta.stop_zone_at(line, veh.lat, veh.lon)
-                elapsed = _bus_eta_stop_zone_elapsed(f"{vid}|{route_id}", at_stop, when_ts)
-                veh_hop_fn = drive_model.lookup
-                veh_dwell_fn = bus_eta.elapsed_dwell_fn(dwell_model.lookup, at_stop, elapsed, when_ts)
+            veh_hop_fn, veh_dwell_fn = dwell_mode_ctx.get((route_id, str(vid)), (hop_time_fn, None))
 
             def _estimate(target_stop, _line=line, _veh=veh, _ema=ema_mps, _block=block_id, _hop=veh_hop_fn, _dwell=veh_dwell_fn):
                 return bus_eta.estimate_stop_eta_s(
