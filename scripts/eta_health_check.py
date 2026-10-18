@@ -65,6 +65,11 @@ NEAR_TERM_MAX_LATE_MISS_PCT = 12.0
 # engine (position, hold, timetable). Whether slow is TODAY or every day comes from the same slot's earlier runs: the
 # engine's history is summarised below the median on purpose (10-02), so some lean toward "bus after our ETA" is normal.
 CLOSE_IN_S = 180
+# "On target" windows (the MBTA's bus prediction accuracy windows, the nearest thing to an industry standard, 2026-10-17):
+# (shown up to, may come this early, may come this late), seconds. A prediction counts if the bus came within its
+# window; predictions shown 15+ min out aren't judged. Error here is the scorer's: positive = the bus left before the
+# time shown, so "early" is the positive side.
+ON_TARGET_WINDOWS = ((180, 60, 60), (360, 90, 120), (600, 150, 210), (900, 240, 360))
 CLOSE_IN_OK_S = 45
 SLOWER_THAN_USUAL_S = 45
 USUAL_RUNS = 10
@@ -175,6 +180,20 @@ def transloc_only_gaps(rows, warmup_until=None):
     return persistent, warmup, single, gaps
 
 
+def on_target(pairs):
+    """% of (shown seconds, error) pairs inside ON_TARGET_WINDOWS, or None if none were judgeable."""
+    hit = n = 0
+    for shown, err in pairs:
+        if shown is None or err is None:
+            continue
+        w = next(((early, late) for upto, early, late in ON_TARGET_WINDOWS if shown < upto), None)
+        if w is None:
+            continue
+        n += 1
+        hit += -w[1] <= err <= w[0]
+    return round(100.0 * hit / n, 1) if n else None
+
+
 def analyze(rows, names, warmup_until=None):
     both = [r for r in rows if r["ours"] is not None and r["tl"] is not None]
     ours = [r["ours"] for r in rows if r["ours"] is not None]
@@ -188,6 +207,10 @@ def analyze(rows, names, warmup_until=None):
         median_abs_err_s=round(statistics.median(abs(e) for e in ours)),
         late_over_2min_pct=round(late, 1),
     )
+    judged = [r for r in both if "shuttle" not in names.get(r["key"][0], "").lower()]
+    if judged:
+        out["on_target_pct"] = on_target((r["ours_s"], r["ours"]) for r in judged)
+        out["tl_on_target_pct"] = on_target((r["tl_s"], r["tl"]) for r in judged)
     tl = [r["tl"] for r in both]
     if tl:
         out["tl_median_err_s"] = round(statistics.median(tl))
@@ -216,6 +239,9 @@ def analyze(rows, names, warmup_until=None):
         for rid, e in by_route.items()
     }
     for rid in by_route:
+        pct = on_target((r["ours_s"], r["ours"]) for r in rows if r["key"][0] == rid)
+        if pct is not None:
+            out["routes"][names.get(rid, rid)]["on_target_pct"] = pct
         close = [r["ours"] for r in rows if r["ours"] is not None and r["key"][0] == rid and r["remaining"] < CLOSE_IN_S]
         if len(close) >= MIN_ROUTE_ROWS:
             out["routes"][names.get(rid, rid)]["close_in_median_err_s"] = round(statistics.median(close))

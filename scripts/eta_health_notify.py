@@ -1,6 +1,6 @@
 """Have Claude review the newest ETA health-check result and push a verdict to the phone via ntfy.
 
-    python scripts/eta_health_notify.py [--dry-run]
+    python scripts/eta_health_notify.py [--dry-run] [--result N]
 
 Called at the end of eta_health_check.py (HANDOFF.md section 7). Reads the last line of
 data-local/eta_watch/health_results.jsonl, asks a headless `claude -p` for a 1-3 line verdict, and
@@ -19,48 +19,49 @@ REPO = Path(__file__).resolve().parent.parent
 RESULTS = REPO / "data-local" / "eta_watch" / "health_results.jsonl"
 CLAUDE = Path.home() / ".local" / "bin" / "claude.exe"
 
-PROMPT = """You are reviewing one scheduled ETA health check for the UVA transit dashboard.
-Do NOT edit files, commit, or run anything except reading. Read HANDOFF.md section 7 for the
-thresholds and baseline, then judge this result:
+PROMPT = """You are writing a phone notification about one scheduled check of the UVA transit dashboard's bus arrival
+times ("ETAs"). The reader runs transit operations and drives buses but is NOT a statistician or programmer: write the
+way you would tell a coworker, in plain words. Do NOT edit files, commit, or run anything except reading. Read
+HANDOFF.md section 7 for what the fields and limits mean, then write about this result:
 
 {result}
 
-A "notes" field is informational only (e.g. thin weekend history that should improve on its own): mention it in
-one short clause if present, but it is NOT a PROBLEM and must not change an ALL CLEAR into one.
-
-A "calendar" field is the public service calendar's row for this run's service day (a service day runs to 04:00, so
-the 00:00 and 01:30 runs carry the day before): what each service is scheduled to do, plus "notes" such as a home
-football game or route service ending early. Use it to explain the result: if there is little or no data and the
-calendar says why (a service listed "No Service", route service already ended, a game day running only lot shuttles),
-say "expected" with that reason in a few words and do not call it a PROBLEM. If the calendar says a route should be
-running and we have nothing for it, that IS worth saying. Mention a game day whenever the notes show one.
-
-Reply with ONLY the notification text, plain language, no markdown, max 5 short lines:
-line 1 starts with "ALL CLEAR:", "PROBLEM:" (a real breach, not one delayed bus or a scorer artifact) or
-"NOTE:" (inconclusive/odd, e.g. error, too little data, Purple off-hours), plus a few-word verdict.
-Then an ACCURACY SUMMARY answering "how accurate are our ETAs?": typical error in seconds/minutes
-(median absolute), how often we were more than 2 min late, how that compares to TransLoc's own ETAs
-(tl_* fields) when present, the worst route if any, and the number of predictions scored. If there was
-no data, say so instead.
-Then, whenever any route is off or there is a breach, a last line starting "WHY:" that says in plain words whether
-the BUSES ran slower than expected (road or dwell; nothing to fix) or the ENGINE got it wrong (ours to fix). Take it
-from the "causes" field, which the checker works out: BUSES SLOW = slower than usual for this slot today; ENGINE LEAN =
-the same gap most days, our history is too fast there; ENGINE = wrong for a reason that is not the bus's pace. Name
-the routes on each side. Do not blame traffic for anything "causes" calls ENGINE, and do not call a run a PROBLEM when
-every cause is BUSES SLOW. Leave the WHY line out only when nothing is off.
-
-A "suspects" field is the checker's own dig into the watch log behind each breach: which bus the bad predictions came
-from (bus number, block, route, time), what the run would score without it, what TransLoc did on the same predictions,
-and what the bus itself was doing (just pulled out, sat still somewhere, left a timestop before its sheet time, went off
-the route, drove against the route, GPS froze). Each line starts with a verdict:
-  ONE BUS / ONE OF A FEW BUSES / A FEW BUSES = the breach is that bus doing something nobody could predict. NOT a
-    PROBLEM: line 1 is "NOTE: one bus" (or "NOTE: a few buses"), not "PROBLEM".
-  ENGINE, ONE BUS = one bus, but TransLoc had it right and nothing odd was seen: a PROBLEM worth a look; say so.
-  ONE BUS? / SEVERAL BUSES = not pinned on one bus; judge it from the rest as before.
-Whenever "suspects" is present, add a line starting "BUS:" per suspect (most two): bus number, block, route, time,
-and what it did, in plain words (e.g. "BUS: 20131 [09] Gold 08:30-08:49 sat 5 min at Runk and left 1 min before its
-08:50 sheet time; TransLoc was as wrong. Without it the run is 0.3%."). If "causes" says ONE BUS for a breach, the WHY
-line must not call that breach the engine."""
+FORMAT: plain text, no markdown, at most 5 short lines.
+Line 1 starts with exactly one of:
+  "ALL GOOD:"  nothing needs anyone's attention (including a run where one odd bus explains everything);
+  "HEADS UP:"  worth knowing but not ours to fix, or the check could not tell (no buses, too little data, it failed);
+  "PROBLEM:"   our ETAs went wrong in a way we should fix (see WHO below).
+then a few words saying why, e.g. "ALL GOOD: Saturday evening".
+Line 2 is the headline score, from on_target_pct / tl_on_target_pct: "On target: 89 of every 100 ETAs (TransLoc: 56)."
+"On target" means the bus came within about a minute of the time shown when it was close, and within a few minutes when
+it was 10-15 min away. If those fields are missing, say instead how far off a typical ETA was, in seconds or minutes
+(median_abs_err_s), and leave TransLoc out unless tl_median_err_s is there.
+Line 3 is the missed-bus risk, from late_over_2min_pct (use late_over_2min_pct_excl_near_term_only when present, which
+leaves Purple out): it is the share of ETAs where the bus LEFT more than 2 minutes BEFORE the time shown, i.e. a rider
+trusting it could have missed the bus. Say it as "1 in N" ETAs (round to a friendly number: 1 in 1,000, 1 in 50...),
+or "none" at 0. The target is under 3 in 100. NEVER call this "late": in plain words it is the bus coming early.
+Then at most two lines on anything off, by route name ("Gold", "Green", "Night Pilot"...), giving the route's own on
+target score (routes[...].on_target_pct) and WHO is behind it, taken from the "causes" and "suspects" fields:
+  the buses: they ran slower or faster than usual (traffic, long stops). Nothing to fix. ("causes" says BUSES SLOW);
+  our lean: we deliberately plan on buses going a bit quicker than usual so nobody misses one, so some routes read a
+    bit behind every day. Expected, nothing to fix. ("causes" says ENGINE LEAN);
+  one bus: one bus did something nobody could predict; name the bus number, block in brackets like [09], the time,
+    and what it did in plain words ("sat 5 min at Runk, then left a minute before its scheduled time"). Not ours to fix.
+    ("suspects" verdict ONE BUS / ONE OF A FEW BUSES / A FEW BUSES);
+  our system: the ETAs were wrong for a reason that is not the buses' pace, so it is ours to fix: say what went wrong
+    in plain words. ("causes" says ENGINE, or a suspect verdict ENGINE, ONE BUS). Only this one makes line 1 PROBLEM.
+Other things that make line 1 PROBLEM: "full_lap_flips" above 0 (an ETA was ~20 minutes off while TransLoc was right),
+or "only_transloc" above 0 (stops where TransLoc showed a time and we showed nothing): say it as "we showed no time at
+N stops where TransLoc had one", with the bus numbers if the suspects name them.
+"historical_pct" below 5 is a PROBLEM too ("our trip-time history looks empty"); otherwise never mention it.
+Purple Line staging holds change daily: judge Purple only on what the fields say about it, and never let Purple alone
+make line 1 PROBLEM.
+The "calendar" field is the public service calendar for the day (a service day runs to 04:00, so the 00:00-01:30 runs
+belong to the day before). If there were few or no buses and the calendar says why ("No Service", service ended, a
+game day running only lot shuttles), it is HEADS UP with that reason, not a PROBLEM; mention a home game whenever its
+notes show one. Game-day lot shuttles never count against the ETAs: never quote a score for them.
+Words to avoid: median, percentile, breach, threshold, scorer, slot, horizon, engine, model, history, flip, poll,
+log, field names. Use whole numbers. Do not repeat a number twice."""
 
 
 def review(last):
@@ -98,6 +99,8 @@ def user_env(name):
 def main():
     lines = [l for l in RESULTS.read_text(encoding="utf-8").splitlines() if l.strip()]
     last = lines[-1]
+    if "--result" in sys.argv:  # --result N: review line N of the results file instead (testing; -1 = the last)
+        last = lines[int(sys.argv[sys.argv.index("--result") + 1])]
     msg = review(last)
     problem = msg.upper().startswith("PROBLEM")
     if "--dry-run" in sys.argv:
@@ -110,7 +113,7 @@ def main():
     req = urllib.request.Request(
         f"https://ntfy.sh/{topic}", data=msg.encode("utf-8"), method="POST",
         headers={
-            "Title": "ETA check: PROBLEM" if problem else "ETA check",
+            "Title": "Bus ETAs: PROBLEM" if problem else "Bus ETAs",
             "Priority": "high" if problem else "default",
             "Tags": "rotating_light" if problem else "bus",
         },
