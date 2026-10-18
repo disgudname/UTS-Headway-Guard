@@ -600,8 +600,13 @@ share is a scorer artifact until proven otherwise; (3) early misses are the less
   too little data — that's not a breach). Exit code 0 clean/inconclusive, 2 breach, 1 check couldn't run.
   Thresholds are the constants at the top of the script (the §7 numbers) — edit them there once weekday data exists.
 - Scheduled via Windows Task Scheduler on the home server (local Eastern time, `ETA-Health-*` tasks):
-  Mon–Fri 05:00, 08:30, 12:30, 17:00, 19:30 · Sat+Sun 07:30, 11:30 (60 min, to 12:30), 14:00, 17:00, 20:00 ·
-  every day 00:00 and 01:30. (Updated 2026-09-19 at the user's request; the earlier Saturday-only 12:00 task was
+  Mon–Fri 05:00, 08:30 (120 min, to 10:30), 12:30, 15:00 (90 min, to 16:30), 17:00 (90 min, to 18:30), 19:30 ·
+  Sat+Sun 07:30, 11:30 (60 min, to 12:30), 14:00, 17:00, 20:00 · every day 21:45 (165 min, to 00:30: Night Pilot's
+  lead-up and first trips; replaced the 00:00 run) and 01:30. Others are 30 min. **Changed 2026-10-17 at the user's
+  request** to cover hours never logged (9-10, 15-16, 18, 21-23), merging into existing runs instead of adding
+  overlapping ones (user: keep notifications down). Long runs have `ExecutionTimeLimit` raised (3-4 h; the default
+  1 h would kill them). A longer run is its own slot for `diagnose()`'s "usual", so those slots have no baseline for
+  their first 3 runs. (Updated 2026-09-19 at the user's request; the earlier Saturday-only 12:00 task was
   folded into the Sat+Sun noon task; the Sunday-only 14:00 became Sat+Sun. Night Pilot runs until 2 AM every night while classes are in session, so the overnight runs should catch it.) They run under
   `pythonw.exe` from the repo root, only if the machine is awake/online (missed runs start when available).
   Manage: `Get-ScheduledTask ETA-Health-*` / `Unregister-ScheduledTask -TaskName ETA-Health-Sunday -Confirm:$false`.
