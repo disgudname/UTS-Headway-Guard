@@ -1,6 +1,7 @@
 {
   "_comment": "Purple Line anti-bunching: a bus sitting at `stage` leaves about offset_s after the bus ahead of it reaches `trigger` (stop names matched by substring). Hours are local start hours, inclusive. Offsets are the medians measured 2026-08-20..09-30 (weekdays) minus 30 s, an early lean so fewer riders miss a bus that goes before the rule says (replay 2026-10-18, see purple_release.py). Hours not listed fall back to the dwell history.",
   "rules": [
+    {"stage": "West Complex", "trigger": "Scott Stadium", "hours": [6, 6], "offset_s": -65},
     {"stage": "West Complex", "trigger": "Fontaine", "hours": [7, 7], "offset_s": -166},
     {"stage": "West Complex", "trigger": "Fontaine", "hours": [8, 8], "offset_s": -56},
     {"stage": "West Complex", "trigger": "Fontaine", "hours": [9, 9], "offset_s": -30},

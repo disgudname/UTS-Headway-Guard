@@ -2,14 +2,15 @@
 
 Purple has no block package. Its written anti-bunching rules say a bus waiting at a staging stop
 leaves when the bus ahead of it reaches a set stop: Lower JPA (Jefferson Park Ave @ West Complex)
-when the bus ahead gets to Fontaine (mornings, middays), Lane Rd @ MR-5 when it gets to Lee St
+when the bus ahead gets to Scott Stadium (06h) or Fontaine (07-13h), Lane Rd @ MR-5 when it gets to Lee St
 (afternoons). Drivers follow it loosely, but well enough to beat the dwell history: over the
 weekday headway logs 2026-08-20..09-30, a staged bus left a median 0-90 s after the bus ahead
 reached the trigger (middle half within ~1-2 min), and predicting the departure that way was off
 by 40-65 s against 57-98 s for the typical hold. The per-hour lags in config/purple_release.json
 are those measured medians minus 30 s; hours where the rule did no better (early morning, the
-evening, PM holds at Lower JPA) have no rule and keep the dwell history. 06h would fit (bus ahead
-at Scott Stadium, -35 s) but route 72's Scott Stadium stop has no position on the shape.
+evening, PM holds at Lower JPA) have no rule and keep the dwell history. 06h uses the bus ahead
+at Scott Stadium (route 72; measured -35 s, 30 s vs 114 s error on the late-September half). No
+October log covers 06h, so that hour was not replayed.
 
 Offline replay of the October weekday logs (scripts/eta_replay_purple.py, history before 10-01),
 on predictions from the buses it released: median |error| 89 -> 71 s, within 2 min 59 -> 68%,
