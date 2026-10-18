@@ -2,13 +2,22 @@
 
     python scripts/eta_compare.py data-local/eta_watch/run1.jsonl [more.jsonl ...]
 
-"Actual arrival" = the moment a bus's position ALONG ITS ROUTE (not just its GPS point)
-crosses the stop's position along the route. Each bus's logged GPS track is matched to the
-route polyline with a Viterbi pass that prefers steady forward motion, so a bus driving out
+"Actual arrival" = the stretch of time the bus was AT the stop: from when its position ALONG ITS
+ROUTE (not just its GPS point) reached ARRIVE_M short of the stop to when it passed the stop. A
+prediction that lands inside that stretch scores 0; one before it is measured from the arrival (the
+bus came later than shown) and one after it from the departure (the bus left before the time shown).
+So a "Due" shown while a bus dwells or holds at the stop is not counted as late, and a bus that pulls
+up early and holds until the time shown is not counted as early (2026-10-17: scoring everything from
+the moment it pulled past the stop had put 0-3 min accuracy ten points too low; scoring everything
+from the arrival instead counted every early-and-holding bus as a missed bus). A bus already at the
+stop when the prediction was made counts as arriving at that moment.
+
+Each bus's logged GPS track is matched to the route polyline with a Viterbi pass that prefers steady forward motion, so a bus driving out
 along a road the route also returns on can never be mistaken for one passing the return-side
 stop. Each logged prediction is then matched to that vehicle's next real crossing of that
 stop; predictions whose crossing never happened inside the logging window are skipped.
-Error = predicted arrival - actual arrival, so positive means the estimate was too late.
+Error = predicted time - that stretch, so positive means the estimate was too late (the bus left
+before it), negative that the bus came after it.
 """
 import json
 import math
@@ -22,6 +31,8 @@ OFF_ROUTE_M = 60.0      # GPS samples farther than this from the route shape are
 CAND_SLACK_M = 40.0     # keep route-position candidates within this of the closest one
 MAX_MPS = 25.0          # fastest plausible bus, for the transition model
 MERGE_S = 90.0          # crossings of the same stop this close together are one visit
+ARRIVE_M = 30.0         # a bus has arrived once it is this close short of the stop along the route (15-50 m score the same)
+MAX_DWELL_S = 1800.0    # an arrival more than this before the bus's pass of the stop belongs to an earlier visit
 BUCKETS = [(0, 120, "<2 min"), (120, 300, "2-5 min"), (300, 600, "5-10 min"), (600, 1200, "10-20 min"), (1200, 1e9, "20+ min")]
 
 
@@ -185,8 +196,9 @@ def summarize(name, errs):
             f"mean |err| {statistics.mean(abs_e):5.0f}s   within 1min {within(60):3.0f}%  2min {within(120):3.0f}%  5min {within(300):3.0f}%")
 
 
-def score_rows(polls, stops, lines):
-    """One row per (poll, route, stop, veh) whose real crossing was observed later in the log."""
+def score_rows(polls, stops, lines, by="visit"):
+    """One row per (poll, route, stop, veh) whose real crossing was observed later in the log. `by="departure"`
+    scores against the pass of the stop only (the scorer before 2026-10-17)."""
     tracks = {}
     for p in polls:
         for veh, route, lat, lon, _mps in p["veh"]:
@@ -194,6 +206,10 @@ def score_rows(polls, stops, lines):
     wanted = {(x[0], x[1], x[2]) for p in polls for x in p["ours"] + p["tl"]}
     unwrapped = build_unwrapped(tracks, lines)
     crossings = find_crossings(tracks, stops, lines, wanted, unwrapped)
+    arrivals = {}
+    if by == "visit":
+        short = {k: (*v[:3], (v[3] - ARRIVE_M) % lines[k[0]][1][-1]) for k, v in stops.items() if k[0] in lines}
+        arrivals = find_crossings(tracks, short, lines, wanted, unwrapped)
     rows = []
     for p in polls:
         t = p["t"]
@@ -201,9 +217,15 @@ def score_rows(polls, stops, lines):
         tl = {(x[0], x[1], x[2]): x[3] for x in p["tl"]}
         src = {(x[0], x[1], x[2]): (x[4] if len(x) > 4 else None) for x in p["ours"]}
         for key in set(ours) | set(tl):
-            actual = next((a for a in crossings.get(key, []) if a >= t - 1.0), None)
-            if actual is None or actual - t > 3600:
+            passed = next((a for a in crossings.get(key, []) if a >= t - 1.0), None)
+            if passed is None or passed - t > 3600:
                 continue
+            arrived = [a for a in arrivals.get(key, []) if passed - MAX_DWELL_S <= a <= passed]
+            arrive = max(arrived[-1], t) if arrived else passed
+
+            def err(pred):  # 0 inside [arrive, passed], else the distance to the nearer end
+                at = t + pred
+                return at - min(max(at, arrive), passed)
             # How far the bus's route position is BEYOND the stop right now (metres; positive = it has
             # already passed the stop, within half a lap). A "Due" reading a few seconds after the bus
             # went by looks like a full-lap error to the scorer, because the next crossing is a lap away.
@@ -214,9 +236,9 @@ def score_rows(polls, stops, lines):
                 length = lines[route][1][-1]
                 past_m = ((pos - stops[(route, stop)][3] + length / 2.0) % length) - length / 2.0
             rows.append({
-                "t": t, "key": key, "remaining": max(0.0, actual - t), "past_m": past_m,
-                "ours": (t + ours[key] - actual) if key in ours else None,
-                "tl": (t + tl[key] - actual) if key in tl else None,
+                "t": t, "key": key, "remaining": max(0.0, arrive - t), "past_m": past_m,
+                "ours": err(ours[key]) if key in ours else None,
+                "tl": err(tl[key]) if key in tl else None,
                 "ours_s": ours.get(key), "tl_s": tl.get(key), "source": src.get(key),
             })
     return rows
