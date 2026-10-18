@@ -29,6 +29,7 @@ This document provides comprehensive guidance for AI assistants working with the
 ├── headway_storage.py          # Persistence layer for headway events
 ├── fullbus_tracker.py          # Full-bus (passenger load) tracking + fullbus_storage.py
 ├── bus_eta.py                  # Live stop-ETA engine (GET /v1/eta/uts_stop_arrivals), see HANDOFF.md §4
+├── purple_release.py           # Purple: a staged bus leaves when the bus ahead reaches a trigger stop (config/purple_release.json)
 ├── trip_planner.py             # /livemap trip planner (walk -> ride -> walk)
 ├── trip_planner_history.py     # Stop-to-stop travel time history the ETA engine and planner read
 ├── uts_blocks.py               # Block package timetable (timestop holds); compiled by build_uts_blocks.py
@@ -139,7 +140,7 @@ This document provides comprehensive guidance for AI assistants working with the
 - `tickets_store.py` - Python interface to maintenance ticket data
 - `ondemand_client.py` - Integration with on-demand service providers
 - `uva_athletics.py` - ICS feed parser for UVA home games (cached daily at 03:00 ET)
-- `bus_eta.py` / `trip_planner_history.py` / `uts_blocks.py` - live stop ETAs: position + learned hop times + scheduled timestop holds
+- `bus_eta.py` / `trip_planner_history.py` / `uts_blocks.py` - live stop ETAs: position + learned hop times + scheduled timestop holds; `purple_release.py` releases staged Purple buses by the bus ahead (Purple has no block package)
 - `boxscore.py` / `block_attribution.py` - the daily box score; `block_attribution.py` is the single copy of the rules for placing a boarding on a block, also imported by `scripts/build_block_cards.py`
 - `w2w_schedule.py`, `service_schedule.py`, `service_levels.py` - W2W calendar poller, service-level calendar scrape, permanent service-level log
 

@@ -20,7 +20,9 @@ import eta_health_notify as notify
 # after v2104 (pass heading from the recent track, 45c753b, 22:08): runs before it do not count.
 SINCE = "2026-10-17T22:21"
 UNTIL = "2026-10-23"
-BASE_COMMIT = "82cc460"
+# Moved from 82cc460 to 9c4eab0 (2026-10-18, Purple release by the bus ahead): that commit's bus_eta.py change
+# (release_dwell_fn) only runs for Purple, which is not part of this test, so the week was not restarted.
+BASE_COMMIT = "9c4eab0"
 ENGINE_FILES = ["bus_eta.py", "trip_planner_history.py", "uts_blocks.py", "config/uts_blocks.json",
                 "config/uts_timestops.json", "config/uts_active_sheets.json"]
 LATE_TARGET_PCT = 3.0
