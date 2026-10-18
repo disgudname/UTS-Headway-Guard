@@ -2,7 +2,7 @@
 
     python scripts/eta_done_check.py [--dry-run]
 
-Run once by the Task Scheduler job ETA-Done-2026-10-21, after the last run of the test week (HANDOFF.md,
+Run once by the Task Scheduler job ETA-Done-2026-10-23, after the last run of the test week (HANDOFF.md,
 "ETA DONE DATE" in the open list). Collects every health-check result from SINCE to UNTIL, checks whether the
 ETA engine files changed since BASE_COMMIT, has a headless `claude -p` judge the week against the three
 conditions, and POSTs the verdict to https://ntfy.sh/<NTFY_TOPIC>. Read-only: it edits nothing.
@@ -16,11 +16,11 @@ import urllib.request
 
 import eta_health_notify as notify
 
-# The week restarted at the v2096 deploy (first-poll pass fix, 76c5842), Thu 2026-10-15 11:53 ET: runs before it
-# that morning do not count.
-SINCE = "2026-10-15T11:53"
-UNTIL = "2026-10-21"
-BASE_COMMIT = "76c5842"
+# The week restarted at the v2104 deploy (pass heading from the recent track, 45c753b), Sat 2026-10-17 22:08 ET:
+# runs before it do not count. (Before that: v2096, 76c5842, Thu 10-15 11:53.)
+SINCE = "2026-10-17T22:08"
+UNTIL = "2026-10-23"
+BASE_COMMIT = "45c753b"
 ENGINE_FILES = ["bus_eta.py", "trip_planner_history.py", "uts_blocks.py", "config/uts_blocks.json",
                 "config/uts_timestops.json", "config/uts_active_sheets.json"]
 LATE_TARGET_PCT = 3.0
