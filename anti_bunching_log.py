@@ -22,7 +22,9 @@ _DATE_RE = re.compile(r"/Date\((-?\d+)")
 
 
 def transloc_epoch(value: Any) -> Optional[float]:
-    """'/Date(1792380738960-0600)/' -> epoch seconds (the number is UTC ms; the offset is display only)."""
+    """'/Date(1792380738960-0600)/' -> the number as seconds. NOT a true epoch: on prod 2026-10-18 it ran
+    exactly 6 h ahead of the real time (TransLoc stamps local Central time as if UTC). Kept raw as `tl_ts`;
+    every comparison uses our own poll time `t`."""
     m = _DATE_RE.search(str(value or ""))
     return int(m.group(1)) / 1000.0 if m else None
 

@@ -29,6 +29,7 @@ This document provides comprehensive guidance for AI assistants working with the
 ├── headway_storage.py          # Persistence layer for headway events
 ├── fullbus_tracker.py          # Full-bus (passenger load) tracking + fullbus_storage.py
 ├── bus_eta.py                  # Live stop-ETA engine (GET /v1/eta/uts_stop_arrivals), see HANDOFF.md §4
+├── anti_bunching_log.py        # Logs TransLoc's anti-bunching guidance for Purple (/data/anti_bunching/), see scripts/anti_bunching_compare.py
 ├── purple_release.py           # Purple: a staged bus leaves when the bus ahead reaches a trigger stop (config/purple_release.json)
 ├── trip_planner.py             # /livemap trip planner (walk -> ride -> walk)
 ├── trip_planner_history.py     # Stop-to-stop travel time history the ETA engine and planner read

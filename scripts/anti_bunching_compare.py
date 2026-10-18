@@ -37,7 +37,8 @@ def pull(remote: str, local: Path) -> bool:
     local.parent.mkdir(parents=True, exist_ok=True)
     env = dict(os.environ, MSYS_NO_PATHCONV="1")
     r = subprocess.run(["fly", "ssh", "sftp", "get", remote, str(local)], cwd=ROOT, env=env,
-                       capture_output=True, text=True, timeout=300)
+                       capture_output=True, text=True, timeout=300,
+                       creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))  # runs under pythonw from Task Scheduler
     if r.returncode != 0 or not local.exists():
         print(f"  could not pull {remote}: {(r.stderr or r.stdout).strip()[:200]}")
         return False
