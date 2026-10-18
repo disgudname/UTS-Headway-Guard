@@ -59,6 +59,7 @@ import trip_planner_history
 import cat_gtfs
 import bus_eta
 import purple_release
+import anti_bunching_log
 import uts_blocks
 
 from fastapi import Body, FastAPI, HTTPException, Request, Response, Query
@@ -13261,6 +13262,48 @@ def _compute_anti_bunching_status(routes: List[Dict[str, Any]]) -> Dict[str, Any
         "eligible_units": eligible_units,
         "units_with_guidance": units_with_guidance,
     }
+
+
+# TransLoc's anti-bunching guidance, logged for the routes named in ANTI_BUNCHING_LOG_ROUTES (comma-separated
+# name keywords; default "Purple Line", since "Purple" alone also matches Purple Lots Shuttle) so it can be
+# compared with what the buses actually did (scripts/anti_bunching_compare.py). Polled every
+# ANTI_BUNCHING_LOG_S; 0 turns logging off.
+ANTI_BUNCHING_LOG_S = float(os.getenv("ANTI_BUNCHING_LOG_S", "15"))
+ANTI_BUNCHING_LOG = anti_bunching_log.AntiBunchingLog(
+    PRIMARY_DATA_DIR / "anti_bunching",
+    tuple(k.strip() for k in os.getenv("ANTI_BUNCHING_LOG_ROUTES", "Purple Line").split(",") if k.strip()),
+)
+
+
+async def _anti_bunching_log_loop() -> None:
+    failures = 0
+    while True:
+        await asyncio.sleep(ANTI_BUNCHING_LOG_S)
+        try:
+            routes = await anti_bunching_raw()
+            await asyncio.to_thread(ANTI_BUNCHING_LOG.record, routes, time.time())
+            failures = 0
+        except Exception as exc:
+            failures += 1
+            if failures in (1, 20) or failures % 240 == 0:
+                print(f"[anti-bunching-log] poll failed ({failures} in a row): {exc}")
+
+
+@app.on_event("startup")
+async def start_anti_bunching_log() -> None:
+    if ANTI_BUNCHING_LOG_S > 0:
+        asyncio.create_task(_anti_bunching_log_loop())
+
+
+@app.get("/v1/transloc/anti_bunching/log")
+async def anti_bunching_log_day(request: Request, date: Optional[str] = Query(None, description="YYYY-MM-DD, local")):
+    """One day of logged anti-bunching guidance (one row per route per change). Dispatcher auth."""
+    _require_dispatcher_access(request)
+    if date is None:
+        return {"days": ANTI_BUNCHING_LOG.days()}
+    if not re.fullmatch(r"\d{4}-\d{2}-\d{2}", date):
+        raise HTTPException(status_code=400, detail="date must be YYYY-MM-DD")
+    return {"date": date, "rows": await asyncio.to_thread(ANTI_BUNCHING_LOG.read, date)}
 
 
 @app.get("/v1/transloc/anti_bunching/status")
