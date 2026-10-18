@@ -16,11 +16,11 @@ import urllib.request
 
 import eta_health_notify as notify
 
-# The week restarted at the v2104 deploy (pass heading from the recent track, 45c753b), Sat 2026-10-17 22:08 ET:
-# runs before it do not count. (Before that: v2096, 76c5842, Thu 10-15 11:53.)
-SINCE = "2026-10-17T22:08"
+# The week restarted at the v2105 deploy (Due only within 200 m by road, 82cc460), Sat 2026-10-17 22:21 ET, right
+# after v2104 (pass heading from the recent track, 45c753b, 22:08): runs before it do not count.
+SINCE = "2026-10-17T22:21"
 UNTIL = "2026-10-23"
-BASE_COMMIT = "45c753b"
+BASE_COMMIT = "82cc460"
 ENGINE_FILES = ["bus_eta.py", "trip_planner_history.py", "uts_blocks.py", "config/uts_blocks.json",
                 "config/uts_timestops.json", "config/uts_active_sheets.json"]
 LATE_TARGET_PCT = 3.0
