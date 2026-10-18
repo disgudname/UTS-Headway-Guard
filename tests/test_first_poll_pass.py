@@ -85,3 +85,22 @@ def test_next_block_timestop_on_the_real_sheet():
     epoch, stop_id = uts_blocks.next_block_timestop("67", "[09]", ts)
     assert stop_id == "889"
     assert datetime.fromtimestamp(epoch, NY).strftime("%H:%M") == "05:10"
+
+
+def test_gps_hop_of_a_stopped_bus_does_not_flip_the_pass():
+    # Regression, 2026-10-11 07:56 and 10-15 18:09: Gold buses sitting at McCormick Rd @ UVA Chapel. The fix hopped
+    # ~15 m back down the road at 2-3 mph; this poll's step pointed at the other pass, which won, and everything
+    # ahead read 8-15 min late. The heading now comes from the recent track, which still says the bus came north.
+    route = _route()
+    at_stop = 0.0025
+    hop = at_stop - 15.0 / 111_000.0
+    prev_s, prev_idx = project_vehicle_to_route(
+        Vehicle(id=2, name="2", lat=at_stop, lon=0.0, ts_ms=0, ground_mps=0.0, age_s=0), route, None, 0.0, None)
+    assert prev_s < route.length_m / 2
+    veh = Vehicle(id=2, name="2", lat=hop, lon=0.0, ts_ms=0, ground_mps=1.3, age_s=0)
+    step = app.bearing_between((at_stop, 0.0), (hop, 0.0))
+    s_old, _ = project_vehicle_to_route(veh, route, prev_idx, step, prev_s)
+    assert s_old > route.length_m / 2  # the old rule: one hop flips it
+    track = [(0.0, 0.0015, 0.0), (15.0, 0.0020, 0.0), (30.0, at_stop, 0.0), (180.0, hop, 0.0)]
+    s_new, _ = project_vehicle_to_route(veh, route, prev_idx, _recent_track_heading(track, hop, 0.0), prev_s)
+    assert s_new < route.length_m / 2

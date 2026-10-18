@@ -1928,6 +1928,13 @@ STATIONARY_JUMP_M = 100.0
 # schedule); plain nearest point got 22. The old cached heading isn't in the logs, so it couldn't be replayed.
 FIRST_POLL_TRACK_S = 300.0
 FIRST_POLL_TRACK_MIN_MOVE_M = 20.0
+# PASS_HEADING_FROM_TRACK: the same goes for every later poll. The heading that picks the pass used to be this poll's
+# step, from a move as small as HEADING_JITTER_M, so one GPS hop of a stopped bus could point it at the other pass
+# and STATIONARY_JUMP_M then held it there. Confirmed 2026-10-11 07:56 (bus 2) and 10-15 18:09 (bus 25 [10]), both
+# Gold 57 sitting at McCormick Rd @ UVA Chapel: the fix hopped ~15 m south at 2-3 mph, the southbound pass past
+# Shannon Library (4 m away) won, and everything to Arlington Blvd read 8-15 min late for 3-6 min. It now comes
+# from the recent track (_recent_track_heading). Replayed on all 213 watch logs against the scorer's track: wrong-pass
+# polls 360 -> 345; it fixed 22 (both Chapel hops among them) and was a poll or two slower off a pass at 4 corners.
 # Passes within this many metres of the nearest one count as a tie the schedule may break.
 FIRST_POLL_PASS_TIE_M = 20.0
 # Arriving early at the timestop costs a quarter of arriving late: an early bus can wait, a late one can't catch up.
@@ -6403,7 +6410,13 @@ async def startup():
                             # while moving (and can be 180 deg off once it pulls out
                             # again), so don't let it pick a pass -- continuity with the
                             # previous poll's position decides instead.
-                            match_heading = heading if (prev is not None and mps > DIR_SIGN_STATIONARY_MPS) else None
+                            # The heading that picks the pass comes from the bus's recent track (a move of at least
+                            # FIRST_POLL_TRACK_MIN_MOVE_M), not this poll's step: see PASS_HEADING_FROM_TRACK.
+                            match_heading = (
+                                _recent_track_heading(state.recent_positions.get(vid, []), lat, lon)
+                                if prev is not None and mps > DIR_SIGN_STATIONARY_MPS and lat is not None and lon is not None
+                                else None
+                            )
                             prev_s = prev.s_pos if prev else None
                             if prev is None and lat is not None and lon is not None:
                                 # First poll on this route: see FIRST_POLL_TRACK_S.
