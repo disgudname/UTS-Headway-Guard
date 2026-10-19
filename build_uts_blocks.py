@@ -163,6 +163,35 @@ def _time_to_seconds(value: Any) -> Optional[int]:
     return None
 
 
+_YEAR_RE = re.compile(r"\b(20\d{2})\b")
+
+
+def _current_section_columns(rows: List[Tuple[Any, ...]], header_row: int) -> Optional[Tuple[List[int], List[int]]]:
+    """Some sheets keep OLD timetables next to the current one: "OR Fall 2026 Wkday" has two "*Full* Fall 2023
+    Service" tables (columns A-AH) and then the real "*Full* Fall 2026 Service" table (AP onward), each under its own
+    title cell above the header row. Merging them gave every Orange weekday block two or three visits per stop, some
+    5-15 min off (found 2026-10-19). A table starts at its title cell; only the tables whose title names the newest
+    year are kept. Returns (first column of every table, first column of every kept table), or None (keep everything)
+    when the titles name fewer than two different years -- Gold's "Part 1"/"Part 2" are both 2026 and both kept."""
+    titles = []
+    for row in rows[:header_row]:
+        for col, cell in enumerate(row):
+            m = _YEAR_RE.search(cell) if isinstance(cell, str) else None
+            if m:
+                titles.append((col, int(m.group(1))))
+        if titles:
+            break
+    if len({year for _, year in titles}) < 2:
+        return None
+    newest = max(year for _, year in titles)
+    return sorted(col for col, _ in titles), [col for col, year in sorted(titles) if year == newest]
+
+
+def _section_start(col: int, starts: List[int]) -> Optional[int]:
+    before = [s for s in starts if s <= col]
+    return max(before) if before else None
+
+
 def parse_sheet(rows: List[Tuple[Any, ...]]) -> Tuple[Optional[List[int]], Dict[str, List[Tuple[int, str]]]]:
     """Returns (weekdays, {block_id: [(time_s, code), ...]}) for one sheet.
 
@@ -184,6 +213,10 @@ def parse_sheet(rows: List[Tuple[Any, ...]]) -> Tuple[Optional[List[int]], Dict[
         return None, {}
     weekdays = _find_weekdays(rows, header_row_idx)
     clusters = _clusters(rows[header_row_idx])
+    sections = _current_section_columns(rows, header_row_idx)
+    if sections is not None:
+        all_starts, kept = sections
+        clusters = [c for c in clusters if _section_start(c[0], all_starts) in kept]
     data_rows = rows[header_row_idx + 1:]
     per_block: Dict[str, List[Tuple[int, str]]] = {}
     for time_col, block_cols in clusters:

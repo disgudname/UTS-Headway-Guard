@@ -87,3 +87,42 @@ def test_evening_route_change_notes_give_the_leave_stop_and_time():
     }
     # the out-of-service box is not an evening-change box, and vice versa
     assert b.parse_out_of_service_notes(text[:2]) == {}
+
+
+def _sheet(title_cols, cells):
+    """A minimal sheet: titles in row 0, weekday text in row 1, a header row, then time rows."""
+    from datetime import time as dtime
+    width = max(title_cols) + 3
+    rows = [[None] * width for _ in range(3 + len(cells))]
+    for col, text in title_cols.items():
+        rows[0][col] = text
+        rows[1][col] = "MONDAY through FRIDAY"
+    for col in title_cols:
+        rows[2][col], rows[2][col + 1], rows[2][col + 2] = "Time", "[05]", "Time"
+    for i, row in enumerate(cells):
+        for col, (hh, mm, code) in row:
+            rows[3 + i][col] = dtime(hh, mm)
+            rows[3 + i][col + 1] = code
+            rows[3 + i][col + 2] = dtime(hh, mm)
+    return [tuple(r) for r in rows]
+
+
+def test_old_year_tables_on_the_same_sheet_are_ignored():
+    # "OR Fall 2026 Wkday" carries two Fall 2023 tables beside the real Fall 2026 one
+    rows = _sheet(
+        {0: "*Full* Fall 2023 Service", 4: "*Full* Fall 2026 Service"},
+        [[(0, (7, 30, "CSW")), (4, (7, 30, "MP"))], [(0, (7, 55, "MP")), (4, (7, 50, "CSW"))]],
+    )
+    weekdays, per = b.parse_sheet(rows)
+    assert weekdays == [0, 1, 2, 3, 4]
+    assert per["[05]"] == [(7 * 3600 + 30 * 60, "MP"), (7 * 3600 + 50 * 60, "CSW")]
+
+
+def test_tables_of_the_same_year_are_all_kept():
+    # Gold's "Part 1" / "Part 2" are both 2026
+    rows = _sheet(
+        {0: "*Full* Fall 2026 Service", 4: "*Full* Fall 2026 Service"},
+        [[(0, (7, 30, "BAR")), (4, (18, 0, "CHP"))]],
+    )
+    _, per = b.parse_sheet(rows)
+    assert [code for _, code in per["[05]"]] == ["BAR", "CHP"]
