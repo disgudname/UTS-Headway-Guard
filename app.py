@@ -5921,7 +5921,12 @@ async def stream_viriciti_soc():
             yield f"data: {json.dumps(initial)}\n\n"
 
             while True:
-                encoded = await q.get()
+                try:
+                    encoded = await asyncio.wait_for(q.get(), timeout=20)
+                except asyncio.TimeoutError:
+                    # Buses can go hours without a reading (overnight). A named event, so old
+                    # pages' onmessage ignores it; the signs use it to spot a dead connection.
+                    encoded = "event: ping\ndata: {}\n\n"
                 yield encoded
         finally:
             VIRICITI_SOC_SUBS.discard(q)

@@ -55,8 +55,11 @@
       }).join('');
     }
 
-    const socES = new EventSource('/v1/stream/viriciti/soc');
-    socES.onmessage = (e) => {
+    // The server pings every 20 s. A connection that dies silently (sign's network drops
+    // overnight) never fires onerror, so reconnect ourselves after 60 s of nothing.
+    let socES = null, lastMsg = 0;
+    function onSocMessage(e) {
+      lastMsg = Date.now();
       const msg = JSON.parse(e.data);
       if (msg.type === 'initial') {
         if (!msg.payload.enabled) { document.getElementById('soc-panel').innerHTML = '<span style="color:var(--muted);font-size:18px;">chargepoint turned my api access off :(</span>'; return; }
@@ -66,7 +69,16 @@
         socData[p.bus_number] = p;
       }
       renderSoc();
-    };
+    }
+    function connectSoc() {
+      if (socES) socES.close();
+      lastMsg = Date.now();
+      socES = new EventSource('/v1/stream/viriciti/soc');
+      socES.onmessage = onSocMessage;
+      socES.addEventListener('ping', () => { lastMsg = Date.now(); });
+    }
+    connectSoc();
+    setInterval(() => { if (Date.now() - lastMsg > 60000) connectSoc(); }, 10000);
   </script>
 </body>
 </html>
