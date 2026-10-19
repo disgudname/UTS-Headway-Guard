@@ -2,7 +2,7 @@
 
     python scripts/eta_done_check.py [--dry-run]
 
-Run once by the Task Scheduler job ETA-Done-2026-10-23, after the last run of the test week (HANDOFF.md,
+Run once by the Task Scheduler job ETA-Done-2026-10-26, after the last run of the test week (HANDOFF.md,
 "ETA DONE DATE" in the open list). Collects every health-check result from SINCE to UNTIL, checks whether the
 ETA engine files changed since BASE_COMMIT, has a headless `claude -p` judge the week against the three
 conditions, and POSTs the verdict to https://ntfy.sh/<NTFY_TOPIC>. Read-only: it edits nothing.
@@ -16,13 +16,12 @@ import urllib.request
 
 import eta_health_notify as notify
 
-# The week restarted at the v2105 deploy (Due only within 200 m by road, 82cc460), Sat 2026-10-17 22:21 ET, right
-# after v2104 (pass heading from the recent track, 45c753b, 22:08): runs before it do not count.
-SINCE = "2026-10-17T22:21"
-UNTIL = "2026-10-23"
-# Moved from 82cc460 to 9c4eab0 (2026-10-18, Purple release by the bus ahead): that commit's bus_eta.py change
-# (release_dwell_fn) only runs for Purple, which is not part of this test, so the week was not restarted.
-BASE_COMMIT = "9c4eab0"
+# The week restarted at the v2114 deploy, Mon 2026-10-19 19:51 ET (0b9ac31: Orange weekday blocks rebuilt from the
+# Fall 2026 table only; they had carried two Fall 2023 tables too): runs before it do not count. Earlier restart:
+# v2105 Sat 10-17 22:21 (82cc460), then BASE_COMMIT 9c4eab0 for the Purple-only release change (not a restart).
+SINCE = "2026-10-19T19:51"
+UNTIL = "2026-10-26"
+BASE_COMMIT = "0b9ac31"
 ENGINE_FILES = ["bus_eta.py", "trip_planner_history.py", "uts_blocks.py", "config/uts_blocks.json",
                 "config/uts_timestops.json", "config/uts_active_sheets.json"]
 LATE_TARGET_PCT = 3.0
