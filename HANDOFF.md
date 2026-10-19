@@ -51,6 +51,13 @@ Checked against the entries below on 2026-10-06. Everything not listed here is b
 - **Card build is not repeatable:** `scripts/build_block_cards.py` breaks ties in a bus card's top-5 blocks (and its route mix) by set order, so two runs on the same data give a slightly different `scripts/cards-data.js`. Block cards are stable.
 - **Branch `claude/late-dwell`:** unmerged prototype (see §3). Keep or delete is the user's call.
 
+### 2026-10-18 · [home] · `/onboard` says "This is a Hereford bound Gold Line." once the bus stops (`7fcd268`, DEPLOYED v2109)
+- NYC-subway line. Once the bus has really stopped at a stop (`at_stop.stopped`), the page plays the line right before "The next stop is ...". It is said once per stop and never when the bus passes through.
+- Destination = `_next_destination_label(route_id, at_stop id)`: the next landmark tagged at `/route-destinations` past this stop, the same one the arrival feeds use (onboard stop ids are RouteStopIDs, so it works as-is). Server sends `at_stop.bound = {route, to}`; the page plays `bound--<route slug>--<label slug>.mp3`.
+- User recorded 27 sentences (every route + label pair on prod today), source in `data-local/segments (2)/`, placed under manifest `"recorded"`. **Adding or renaming a label, or a new route, needs a new recording**, otherwise it is silently skipped. Red/Blue Line and Snow Special have no labels. "Hereford" is spelled "Herriford" in the TTS script, or it reads "here ford".
+- Hereford Dr stop lines (Johnson House N/S, Runk) re-recorded the same way (`data-local/segments (3)/`).
+- Prod checked: Night Pilot 18732 stopped at JPA @ Shamrock NB -> `{Night Pilot, Cntrl Grnds}`; clip serves 200. Not heard on a tablet yet.
+
 ### 2026-10-18 · [home] · Weekend Orange reads ~1-1.5 min early: no history rebuild (decision, no code)
 - User asked whether to rebuild history as weekend Orange settles. Every weekend run since 10-10: Orange buses arrive 64-155 s after our ETA, close-in (<3 min) ETAs right. That is mostly the deliberate early lean (`HOP_QUANTILE = 0.33`; §2: don't fix a small early lean by pushing ETAs later). History already rebuilds nightly from 60 days with weekends grouped apart, so a manual rebuild changes nothing; game days only make history slower. Revisit after the 10-23 verdict if wanted; an engine change would restart that test.
 
