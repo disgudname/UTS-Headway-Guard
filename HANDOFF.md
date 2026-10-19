@@ -51,6 +51,9 @@ Checked against the entries below on 2026-10-06. Everything not listed here is b
 - **Card build is not repeatable:** `scripts/build_block_cards.py` breaks ties in a bus card's top-5 blocks (and its route mix) by set order, so two runs on the same data give a slightly different `scripts/cards-data.js`. Block cards are stable.
 - **Branch `claude/late-dwell`:** unmerged prototype (see §3). Keep or delete is the user's call.
 
+### 2026-10-19 · [home] · `/vandispatch`: Spare stops numbered per duty; a van on the road shows only its running duty's stops (DEPLOYED v2111)
+That same driverless 17:00 ride showed as stops 5 and 6: `computeVehicleStopGroups` (data.js) numbered all of a van's stops together across duties. Now each duty counts from 1 (`group.order`), stops of two duties never merge, and `renderStopMarkers` hides another duty's stops on a van with an inProgress duty unless that duty is clicked in the roster or one of its trips on the trip board. The fallback route line uses only the running duty's stops. Checked offline against live Spare trips (Van 13: Jaquan's duty 1-4, the driverless duty 1-2); not checked in the browser (prod login).
+
 ### 2026-10-19 · [home] · `/vandispatch`: a Spare duty with no driver showed the van's other driver (`f06cf0b`, DEPLOYED v2110)
 Van 13 had a driverless 16:25-19:10 duty carrying a 17:00 ride; Active Trips said "Jaquan" (his 10:25-13:00 duty on the same van). `trip-board.js` skipped driverless duties when building its by-duty map, so the per-van fallback won. Now a known duty is trusted: no driver -> "no driver assigned" (amber). The roster says "No driver assigned" instead of "—". Frontend only; the served file was checked on prod.
 
