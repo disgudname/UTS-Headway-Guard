@@ -38,6 +38,7 @@ import {
   getOdStops,
   getOdVehicles,
   computeVehicleStopGroups,
+  activeDutyByVehicle,
   OD_ACTIVE,
 } from './data.js';
 import {
@@ -233,13 +234,29 @@ function renderStopMarkers() {
 
   // Spare — infer each van's ordered stop sequence (data.js already merges
   // same-spot stops and numbers them the way the trip cards do).
+  // A van on the road shows only the duty it is running; its other duties' stops
+  // (another driver's, numbered from 1 again) appear only when that duty is
+  // clicked in the roster or one of its trips is clicked on the trip board.
   const byVehicle = computeVehicleStopGroups();
+  const activeDuty = activeDutyByVehicle();
+  const sel = getSelected();
+  const shownDuty = (vehicleId, group) => {
+    const cur = activeDuty[vehicleId];
+    if (!cur || !group.dutyId || group.dutyId === cur) return true;
+    if (sel && sel.source === 'spare' && sel.dutyId === group.dutyId) return true;
+    return (
+      !!tripFocus &&
+      tripFocus.kind === 'spare' &&
+      group.stops.some((s) => s.requestId === tripFocus.ref)
+    );
+  };
   for (const vehicleId of Object.keys(byVehicle)) {
     const v = getVehicleData()[vehicleId] || {};
     const label = v.identifier || 'Van';
     const color = getVanColor(label, v.markerColor || '#E57200');
-    byVehicle[vehicleId].forEach((group, idx) => {
-      const order = idx + 1;
+    byVehicle[vehicleId].forEach((group) => {
+      if (!shownDuty(vehicleId, group)) return;
+      const order = group.order;
       pending.push({
         order,
         lngLat: group.lngLat,
@@ -987,7 +1004,9 @@ async function showVanFullRoute(vehicleId, opts) {
     return;
   }
   // Fallback: road-route from the van through its own ordered stop groups.
-  const groups = computeVehicleStopGroups()[vehicleId] || [];
+  const groups = (computeVehicleStopGroups()[vehicleId] || []).filter(
+    (g) => !dutyId || !g.dutyId || g.dutyId === dutyId,
+  );
   if (!here || !groups.length) {
     clearRequestRoute();
     return;

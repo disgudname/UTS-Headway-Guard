@@ -187,11 +187,14 @@ async function loadOnDemand() {
 // Spare's /requests carries no explicit per-van stop sequence, so order is
 // inferred by sorting each van's remaining pickups/dropoffs by scheduled time.
 // Stops that land on the same spot within a short window are merged so the map
-// doesn't stack two differently-numbered pins invisibly.
+// doesn't stack two differently-numbered pins invisibly. A van can carry several
+// duties in a day (different drivers), so stops are numbered per duty: each
+// duty's first stop is 1, and stops of two duties are never merged.
 const STOP_COORD_PRECISION = 5; // ~1.1 m
 const STOP_SAME_VISIT_WINDOW_S = 180; // 3 min
 
-/** { vehicleId -> [{ ts, lngLat:[lng,lat], stops:[…] }] } time-ordered. */
+/** { vehicleId -> [{ ts, lngLat:[lng,lat], dutyId, order, stops:[…] }] } time-ordered;
+ *  `order` counts within the group's duty. */
 export function computeVehicleStopGroups() {
   const byVehicle = {};
   for (const t of spareTrips) {
@@ -233,16 +236,24 @@ export function computeVehicleStopGroups() {
     for (const stop of stops) {
       const key = stop.lngLat.map((n) => n.toFixed(STOP_COORD_PRECISION)).join(',');
       const existing = groups.find(
-        (g) => g.key === key && Math.abs(g.ts - stop.ts) <= STOP_SAME_VISIT_WINDOW_S,
+        (g) =>
+          g.key === key &&
+          g.dutyId === stop.dutyId &&
+          Math.abs(g.ts - stop.ts) <= STOP_SAME_VISIT_WINDOW_S,
       );
       if (existing) {
         existing.stops.push(stop);
         existing.ts = Math.min(existing.ts, stop.ts);
       } else {
-        groups.push({ key, ts: stop.ts, lngLat: stop.lngLat, stops: [stop] });
+        groups.push({ key, ts: stop.ts, lngLat: stop.lngLat, dutyId: stop.dutyId, stops: [stop] });
       }
     }
     groups.sort((a, b) => a.ts - b.ts);
+    const countByDuty = {};
+    for (const g of groups) {
+      const dk = g.dutyId || '';
+      g.order = countByDuty[dk] = (countByDuty[dk] || 0) + 1;
+    }
     result[vehicleId] = groups;
   }
   return result;
@@ -253,14 +264,24 @@ export function computeStopOrderLookup() {
   const lookup = {};
   const byVehicle = computeVehicleStopGroups();
   for (const vehicleId of Object.keys(byVehicle)) {
-    byVehicle[vehicleId].forEach((group, idx) => {
-      const order = idx + 1;
+    byVehicle[vehicleId].forEach((group) => {
       group.stops.forEach((stop) => {
-        lookup[`${stop.requestId}-${stop.kind}`] = order;
+        lookup[`${stop.requestId}-${stop.kind}`] = group.order;
       });
     });
   }
   return lookup;
+}
+
+/** { vehicleId -> dutyId } for vans on the road now (their inProgress duty). Not
+ *  the van's last live location: that keeps a finished duty's id. */
+export function activeDutyByVehicle() {
+  const out = {};
+  for (const d of spareDuties) {
+    const vid = d.vehicleId || (d.vehicle && d.vehicle.id);
+    if (vid && d.id && d.status === 'inProgress') out[vid] = d.id;
+  }
+  return out;
 }
 
 // local copy to avoid a circular import with helpers for this one use
