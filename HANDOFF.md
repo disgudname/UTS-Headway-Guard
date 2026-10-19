@@ -51,6 +51,9 @@ Checked against the entries below on 2026-10-06. Everything not listed here is b
 - **Card build is not repeatable:** `scripts/build_block_cards.py` breaks ties in a bus card's top-5 blocks (and its route mix) by set order, so two runs on the same data give a slightly different `scripts/cards-data.js`. Block cards are stable.
 - **Branch `claude/late-dwell`:** unmerged prototype (see §3). Keep or delete is the user's call.
 
+### 2026-10-19 · [home] · `/vandispatch`: a Spare duty with no driver showed the van's other driver (`f06cf0b`, DEPLOYED v2110)
+Van 13 had a driverless 16:25-19:10 duty carrying a 17:00 ride; Active Trips said "Jaquan" (his 10:25-13:00 duty on the same van). `trip-board.js` skipped driverless duties when building its by-duty map, so the per-van fallback won. Now a known duty is trusted: no driver -> "no driver assigned" (amber). The roster says "No driver assigned" instead of "—". Frontend only; the served file was checked on prod.
+
 ### 2026-10-18 · [home] · `/onboard` says "This is a Hereford bound Gold Line." once the bus stops (`7fcd268`, DEPLOYED v2109)
 - NYC-subway line. Once the bus has really stopped at a stop (`at_stop.stopped`), the page plays the line right before "The next stop is ...". It is said once per stop and never when the bus passes through.
 - Destination = `_next_destination_label(route_id, at_stop id)`: the next landmark tagged at `/route-destinations` past this stop, the same one the arrival feeds use (onboard stop ids are RouteStopIDs, so it works as-is). Server sends `at_stop.bound = {route, to}`; the page plays `bound--<route slug>--<label slug>.mp3`.
