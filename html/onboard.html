@@ -281,6 +281,7 @@
     let thisSaid = null;     // stop id last announced as "This is ..."
     let nextSaid = null;     // stop id last announced as "The next stop is ..."
     let lastAt = null;       // stop the bus was last at, stopped or not
+    let boundSaid = null;    // stop id last announced as "This is a ... bound ..."
     let audioBlocked = false;
 
     function clip(file) {
@@ -376,11 +377,20 @@
         if (hold !== null) parts.push(`_hold-${hold}`);
         say(parts);
       }
+      // Once the bus has really stopped: "This is a Hereford bound Gold Line." (one recorded sentence per
+      // route + /route-destinations label; a pair with no recording stays quiet), then the next stop.
+      const parts = [];
+      if (at && at.stopped && at.bound && at.id !== boundSaid) {
+        boundSaid = at.id;
+        const file = `bound--${clipSlug(at.bound.route)}--${clipSlug(at.bound.to)}`;
+        if (!clip(file).error) parts.push(file);
+      }
       const then = at ? (at.stopped ? next : null) : (arriving ? null : next);
       if (then && then.id !== nextSaid && then.id !== lastAt) {
         nextSaid = then.id;
-        say([line('next-stop', then)]);
+        parts.push(line('next-stop', then));
       }
+      if (parts.length) say(parts);
     }
 
     function overlay(title, sub) {

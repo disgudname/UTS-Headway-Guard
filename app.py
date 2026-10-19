@@ -18038,6 +18038,12 @@ async def onboard_state(
         block_id, when_ts, models, dwell_elapsed_s,
         speed if speed is not None and out["position"]["source"] == "device" else veh.ground_mps,
     )
+    if out["at_stop"]:
+        # "This is a Hereford bound Gold Line.": the next landmark tagged at /route-destinations
+        # past this stop, as the arrival feeds show it; the page plays bound--<route>--<label>.mp3.
+        to = _next_destination_label(route_id, out["at_stop"]["id"])
+        if to:
+            out["at_stop"]["bound"] = {"route": _onboard_route_label(line.name), "to": to}
     rows = ([out["at_stop"]] if out["at_stop"] else []) + out["stops"]
     running_transfers = _onboard_add_transfers(rows, line, lines_all, running)
     running_conns = _onboard_add_connections(rows, line, await _onboard_connection_points(when_ts, at is None), when_ts)
