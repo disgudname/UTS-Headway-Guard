@@ -1853,6 +1853,73 @@ def overheight_buses_to_notify(
     return out
 
 
+# Phone push when the TransLoc poll (updater) fails this many times in a row, and again
+# when it comes back. One failed poll is common and clears itself; this is for the
+# outages a kiosk shows as "TransLoc is currently failing to provide bus data".
+TRANSLOC_DOWN_NTFY_POLLS = int(os.getenv("TRANSLOC_DOWN_NTFY_POLLS", "3"))
+
+
+class TranslocOutageWatch:
+    """Counts consecutive failed polls; says when to push "down" and "back"."""
+
+    def __init__(self, threshold: int = TRANSLOC_DOWN_NTFY_POLLS):
+        self.threshold = max(1, threshold)
+        self.failures = 0
+        self.first_failure_ts: Optional[float] = None
+        self.notified = False
+
+    def failed(self, now: float) -> bool:
+        """Record a failed poll. True when this one should push the "down" alert."""
+        if self.failures == 0:
+            self.first_failure_ts = now
+        self.failures += 1
+        if not self.notified and self.failures >= self.threshold:
+            self.notified = True
+            return True
+        return False
+
+    def succeeded(self) -> Optional[Tuple[float, int]]:
+        """Record a good poll. (outage start, failed polls) when a "back" push is due."""
+        out = (self.first_failure_ts, self.failures) if self.notified else None
+        self.failures = 0
+        self.first_failure_ts = None
+        self.notified = False
+        return out
+
+
+_transloc_outage = TranslocOutageWatch()
+
+
+def _local_hm(ts: float) -> str:
+    return datetime.fromtimestamp(ts, ZoneInfo("America/New_York")).strftime("%H:%M:%S")
+
+
+def note_transloc_poll(error: Optional[BaseException], now: Optional[float] = None) -> None:
+    now = time.time() if now is None else now
+    if error is not None:
+        if _transloc_outage.failed(now):
+            reason = f"{type(error).__name__}: {error}".rstrip(": ")
+            print(f"[transloc-outage] down since {_local_hm(_transloc_outage.first_failure_ts)}")
+            asyncio.create_task(send_ntfy(
+                f"{_transloc_outage.failures} polls in a row failed since "
+                f"{_local_hm(_transloc_outage.first_failure_ts)}. {reason}",
+                title="TransLoc is not answering",
+                priority="high",
+                tags="warning",
+            ))
+        return
+    back = _transloc_outage.succeeded()
+    if back:
+        start, polls = back
+        mins = (now - start) / 60
+        print(f"[transloc-outage] back after {mins:.1f} min")
+        asyncio.create_task(send_ntfy(
+            f"Down from {_local_hm(start)} to {_local_hm(now)} ({mins:.1f} min, {polls} failed polls).",
+            title="TransLoc is back",
+            tags="white_check_mark",
+        ))
+
+
 async def send_ntfy(message: str, *, title: str = "", priority: str = "default", tags: str = "") -> bool:
     if not NTFY_TOPIC:
         return False
@@ -6652,6 +6719,9 @@ async def startup():
                 except Exception as inner:
                     print(f"[updater] failed recording last_error: {inner}")
                 print("[updater] error:", e)
+                note_transloc_poll(e)
+            else:
+                note_transloc_poll(None)
             # sleep until next
             dt = max(0.5, VEH_REFRESH_S - (time.time()-start))
             await asyncio.sleep(dt)
