@@ -254,7 +254,8 @@ export function renderDuties() {
 
   const spareRows = spareDuties.map((d) => {
     const driver = d.driver || {};
-    const driverName = [driver.firstName, driver.lastName].filter(Boolean).join(' ') || '—';
+    const realName = [driver.firstName, driver.lastName].filter(Boolean).join(' ');
+    const driverName = realName || 'No driver assigned';
     const vid = d.vehicleId || (d.vehicle && d.vehicle.id);
     const vehName =
       (d.vehicle && d.vehicle.identifier) ||
@@ -268,7 +269,7 @@ export function renderDuties() {
       startTs: d.startRequestedTs || 0,
       endTs: d.endRequestedTs || 0,
       driverName,
-      driverNameNorm: normalizeName(driverName),
+      driverNameNorm: normalizeName(realName),
       assignment: vehName,
       vanColor: vehName !== '—' ? getVanColor(vehName, vObj.markerColor || '#E57200') : null,
       status: d.status || 'unknown',

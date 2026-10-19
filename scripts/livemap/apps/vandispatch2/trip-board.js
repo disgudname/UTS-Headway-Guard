@@ -69,6 +69,8 @@ export function renderTrips() {
   // Driver name per duty, from the duty roster. A van can have several duties in
   // a day (different drivers), so a trip is matched by its own dutyId first; the
   // per-van fallback prefers the duty running right now, never just "the last one".
+  // A known duty with no driver maps to '' so its trips read "no driver" instead of
+  // borrowing the name of whoever drives the same van on another duty.
   const spareDriverByDuty = {};
   const spareDriverByVid = {};
   const nowS = Date.now() / 1000;
@@ -83,8 +85,8 @@ export function renderTrips() {
     const dn = [d.driver && d.driver.firstName, d.driver && d.driver.lastName]
       .filter(Boolean)
       .join(' ');
-    if (!dn) continue;
     if (d.id) spareDriverByDuty[d.id] = dn;
+    if (!dn) continue;
     if (!vid) continue;
     const rank = dutyRank(d);
     if (rankByVid[vid] === undefined || rank > rankByVid[vid]) {
@@ -132,14 +134,22 @@ export function renderTrips() {
     const vanLabel = van ? van.identifier || 'Van' : null;
     const vanColor = van ? getVanColor(vanLabel, van.markerColor || '#E57200') : null;
     const vanDriver =
-      (req.dutyId && spareDriverByDuty[req.dutyId]) ||
-      (req.vehicleId ? spareDriverByVid[req.vehicleId] : null);
+      req.dutyId && req.dutyId in spareDriverByDuty
+        ? spareDriverByDuty[req.dutyId]
+        : req.vehicleId
+          ? spareDriverByVid[req.vehicleId]
+          : null;
+    const noDriver = vanDriver === '';
     const vanLine = van
       ? `<div class="addr" style="color:#aaa;font-size:.72rem;margin-bottom:.15rem">${svgIcon(
           'van',
           vanColor,
         )} <span style="color:${vanColor};font-weight:600">${escHtml(vanLabel)}</span>${
-          vanDriver ? ` · ${escHtml(vanDriver)}` : ''
+          vanDriver
+            ? ` · ${escHtml(vanDriver)}`
+            : noDriver
+              ? ' · <span style="color:#b45309;font-weight:600">no driver assigned</span>'
+              : ''
         }</div>`
       : toLyft
         ? `<div class="addr" style="color:#EA0B8C;font-size:.72rem;margin-bottom:.15rem;font-weight:600">${escHtml(
