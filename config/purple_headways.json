@@ -1,0 +1,44 @@
+{
+  "_comment": "Built by scripts/build_purple_headways.py from Purple's fallback timetable. Planned headways only: Purple runs on anti-bunching, not to these times. Times are seconds after midnight.",
+  "generated_at": "2026-10-19T19:44:20",
+  "source": "Purple Line 03.31.2026.xlsx / Purple 04.29.2026",
+  "weekdays": [
+    0,
+    1,
+    2,
+    3,
+    4
+  ],
+  "bands": [
+    {
+      "start_s": 18000,
+      "end_s": 21600,
+      "headway_s": 360
+    },
+    {
+      "start_s": 21600,
+      "end_s": 25200,
+      "headway_s": 180
+    },
+    {
+      "start_s": 25200,
+      "end_s": 28800,
+      "headway_s": 240
+    },
+    {
+      "start_s": 28800,
+      "end_s": 36000,
+      "headway_s": 360
+    },
+    {
+      "start_s": 36000,
+      "end_s": 52200,
+      "headway_s": 600
+    },
+    {
+      "start_s": 52200,
+      "end_s": 71700,
+      "headway_s": 300
+    }
+  ]
+}

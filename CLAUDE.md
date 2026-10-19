@@ -42,6 +42,7 @@ This document provides comprehensive guidance for AI assistants working with the
 ├── block_attribution.py        # Which block a boarding belongs to (shared by boxscore.py and the card builder)
 ├── slides_mirror.py            # Local copy of a Google Slides deck for /ob-slides
 ├── cat_gtfs.py                 # CAT's published GTFS static schedule
+├── gtfs_feed.py                # OUR GTFS static feed (/gtfs.zip) from the block packages; see Endpoints
 ├── spare_client.py             # Spare Labs (van dispatch) API client
 ├── viriciti_client.py          # ViriCiti WebSocket client (bus state of charge)
 ├── push_subscriptions.py       # Web Push subscription storage
@@ -64,6 +65,8 @@ This document provides comprehensive guidance for AI assistants working with the
 │   ├── uts_active_sheets.json  # Which block-package sheets are active (incl. recess_sheets)
 │   ├── uts_route_ids.json      # Route families -> TransLoc route IDs
 │   ├── uts_landmarks.json      # Landmark names for stops
+│   ├── gtfs.json               # /gtfs.zip settings: agency, which TransLoc routes make each line, name fixes
+│   ├── purple_headways.json    # Purple's planned headways for the GTFS feed (scripts/build_purple_headways.py)
 │   └── evening_route_stops.json # Stops the post-6PM routes skip
 ├── src/                        # Node.js maintenance ticketing service
 │   ├── server.js               # Express app with REST API
@@ -448,6 +451,7 @@ Admin-managed alerts (`/v1/system-notices` CRUD, edited at `/system-notices`). `
 - `GET /api/pulsepoint` - Emergency incidents
 - `GET /api/amtrak` - Train positions
 - `GET /v1/service-schedule?start=&days=` - UTS service level per day (Full/Recess/No Service, per UVA Transit / UVA Ride / Night Pilot / UVA FlexRide + notes), scraped hourly from parking.virginia.edu/serviceschedule via headless Chromium past Cloudflare (`service_schedule.py`)
+- `GET /gtfs.zip` / `GET /v1/gtfs/status` - our own GTFS static feed (`gtfs_feed.py`): block-package timestop times, stops in between spaced by TransLoc's planned seconds, Purple as frequencies from its fallback sheet (never fixed times), days from the UTS service calendar, ending on the calendar's last day. Rebuilt at most every 10 min. TransLoc's own GTFS export is unusable (stacked per-block frequencies, no breaks). See HANDOFF.md 2026-10-19
 - `GET /v1/service-levels?start=&days=` - the level each day actually ran at (`full` / `exam` / `recess` / `summer` / `none`) and which ETA history it feeds (`history_class`), from the permanent log `service_levels.py` keeps; see [Service Levels and Recess History](#service-levels-and-recess-history)
 - `GET /api/rss/stop_arrivals/{code}` / `GET /api/cap/stop_arrivals/{code}` - RSS 2.0 / CAP 1.2 arrival feeds for signage, keyed by a feed code managed at `/feed-codes`
 - `GET /api/rss/stop_arrivals?stopID=` / `GET /api/cap/stop_arrivals?stopID=` - same feeds, legacy raw-stop-ID form

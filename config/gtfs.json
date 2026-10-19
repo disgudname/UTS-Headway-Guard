@@ -1,0 +1,51 @@
+{
+  "_comment": "Settings for the GTFS feed gtfs_feed.py builds (/gtfs.zip). routes: one GTFS route per line riders know, made of the TransLoc RouteIDs that run it (Gold's daytime and post-6PM patterns are one line). Routes not listed (Charter, Training, test routes, game-day lot shuttles) are left out. purple: which TransLoc pattern Purple runs in each part of the day (local seconds after midnight); its headways are config/purple_headways.json. stop_names: fixes for TransLoc stop names, by physical stop id (AddressID). headsigns: what a trip heading to a timestop says.",
+  "agency": {
+    "agency_id": "UTS",
+    "agency_name": "UVA Transit",
+    "agency_url": "https://parking.virginia.edu/",
+    "agency_timezone": "America/New_York",
+    "agency_lang": "en"
+  },
+  "feed_info": {
+    "feed_publisher_name": "UVA Transit",
+    "feed_publisher_url": "https://parking.virginia.edu/",
+    "feed_lang": "en",
+    "feed_contact_url": "https://parking.virginia.edu/"
+  },
+  "days": 60,
+  "routes": [
+    {"route_id": "gold", "name": "Gold Line", "transloc_ids": ["67", "57"]},
+    {"route_id": "green", "name": "Green Line", "transloc_ids": ["68"]},
+    {"route_id": "green-loop", "name": "Green Loop", "transloc_ids": ["54"]},
+    {"route_id": "orange", "name": "Orange Line", "transloc_ids": ["53"]},
+    {"route_id": "orange-loop", "name": "Orange Loop", "transloc_ids": ["55"]},
+    {"route_id": "silver", "name": "Silver Line", "transloc_ids": ["58"]},
+    {"route_id": "night-pilot", "name": "Night Pilot", "transloc_ids": ["59"]},
+    {"route_id": "purple", "name": "Purple Line", "transloc_ids": ["72", "74", "73"]}
+  ],
+  "purple": {
+    "route_id": "purple",
+    "patterns": [
+      {"transloc_id": "72", "from_s": 0, "to_s": 25200},
+      {"transloc_id": "74", "from_s": 25200, "to_s": 52200},
+      {"transloc_id": "73", "from_s": 52200, "to_s": 108000}
+    ]
+  },
+  "stop_names": {
+    "188": "Ray C. Hunt Dr @ 400 Fontaine Bldg",
+    "113": "Madison Ave @ Preston Ave"
+  },
+  "headsigns": {
+    "BAR": "Barracks Road",
+    "CHP": "UVA Chapel",
+    "CSW": "Scott Stadium",
+    "DORMS": "McCormick Rd Dorms",
+    "HER": "Hereford",
+    "JPA": "West Complex",
+    "LIB": "Shannon Library",
+    "MCQ": "JPJ South Lot",
+    "MP": "Madison & Preston",
+    "PIN": "Pinn Hall"
+  }
+}

@@ -200,6 +200,22 @@
     university's actual emergency feed.
   </p>
 
+  <h2 id="gtfs">GTFS Schedule Feed</h2>
+  <p>
+    The whole UTS schedule as a standard GTFS file, for trip planners and anything else that reads GTFS:
+    <a href="/gtfs.zip"><code>/gtfs.zip</code></a> (build details at
+    <a href="/v1/gtfs/status"><code>/v1/gtfs/status</code></a>).
+  </p>
+  <ul>
+    <li>Times come from the block packages: every timestop is at the time the sheet gives, and the stops in between
+      are spaced by TransLoc's planned stop-to-stop times.</li>
+    <li>Purple runs on anti-bunching, so it is listed as a bus every few minutes (as often as the Purple block
+      package plans), not as fixed times.</li>
+    <li>Days follow the UTS service calendar: recess days run the recess sheets, No Service days run nothing, and a
+      Health Commuter day runs Purple only. The feed ends on the last day the calendar shows.</li>
+    <li>Game-day lot shuttles, Charter and Training are left out.</li>
+  </ul>
+
   <h2>Sign Preview</h2>
   <p>
     Enter a stop ID below to preview live arrival data on a pixel-accurate simulation of the Novanex OnAlert

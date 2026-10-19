@@ -61,6 +61,7 @@ import bus_eta
 import purple_release
 import anti_bunching_log
 import uts_blocks
+import gtfs_feed
 
 from fastapi import Body, FastAPI, HTTPException, Request, Response, Query
 from starlette.middleware.gzip import GZipMiddleware
@@ -19792,6 +19793,142 @@ async def service_schedule_status(start: Optional[str] = None, days: int = 14):
     except ValueError:
         raise HTTPException(400, "start must be YYYY-MM-DD")
     return JSONResponse(sched.status(service_day, first, min(max(days, 1), 120)), headers={"Cache-Control": "no-store"})
+
+
+# --- GTFS feed (/gtfs.zip): our own static schedule, see gtfs_feed.py ---------------------------------------------
+GTFS_ROUTES_PATH = PRIMARY_DATA_DIR / "gtfs_routes.json"
+GTFS_REBUILD_MIN_S = 600.0
+_gtfs_cache: Dict[str, Any] = {}
+_gtfs_failed_at = [0.0]
+_gtfs_lock = asyncio.Lock()
+
+
+def _gtfs_service_level(d: date) -> Optional[str]:
+    """The day's level for the GTFS calendar: the scraped UTS calendar first, then the permanent log's entry/default."""
+    sched = getattr(app.state, "service_schedule", None)
+    entry = (sched.day(d) if sched else None) or {}
+    text = str((entry.get("services") or {}).get("UVA Transit") or "")
+    if "health" in text.lower():
+        return gtfs_feed.HEALTH_LEVEL
+    level = service_levels.level_from_calendar(text)
+    if level:
+        return level
+    log = getattr(app.state, "service_level_log", None)
+    return log.level(d) if log else service_levels.default_level(d)
+
+
+def _gtfs_routes() -> List[Dict[str, Any]]:
+    """TransLoc's route list, with every route ever seen kept on disk: a route not listed right now (a daytime
+    pattern late at night) still has its stops and line for the feed."""
+    stored: Dict[str, Any] = {}
+    try:
+        stored = json.loads(GTFS_ROUTES_PATH.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        pass
+    merged = dict(stored)
+    for r in list(getattr(state, "routes_raw", []) or []):
+        if isinstance(r, dict) and r.get("RouteID") is not None and r.get("Stops"):
+            merged[str(r["RouteID"])] = r
+    if merged != stored:
+        try:
+            GTFS_ROUTES_PATH.parent.mkdir(parents=True, exist_ok=True)
+            tmp = GTFS_ROUTES_PATH.with_suffix(".tmp")
+            tmp.write_text(json.dumps(merged), encoding="utf-8")
+            os.replace(tmp, GTFS_ROUTES_PATH)
+        except OSError as exc:
+            print(f"[gtfs] could not save routes: {exc!r}")
+    return [merged[k] for k in sorted(merged, key=lambda k: int(k) if k.isdigit() else 0)]
+
+
+def _gtfs_build_sync() -> Dict[str, Any]:
+    cfg_dir = Path(__file__).resolve().parent / "config"
+
+    def load(name: str) -> Dict[str, Any]:
+        try:
+            return json.loads((cfg_dir / name).read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            return {}
+
+    config = load("gtfs.json")
+    now = datetime.now(ZoneInfo("America/New_York"))
+    service_day = (now - timedelta(hours=2, minutes=30)).date()
+    sched = getattr(app.state, "service_schedule", None)
+    known = [date.fromisoformat(k) for k in (getattr(sched, "days", None) or {}) if re.fullmatch(r"\d{4}-\d{2}-\d{2}", k)]
+    inp = gtfs_feed.Inputs(
+        routes_raw=_gtfs_routes(),
+        blocks=load("uts_blocks.json").get("blocks") or {},
+        timestops=load("uts_timestops.json"),
+        landmarks=load("uts_landmarks.json"),
+        evening_pairs=load("evening_route_stops.json").get("pairs") or {},
+        purple_headways=load("purple_headways.json"),
+        config=config,
+        service_level=_gtfs_service_level,
+        start=service_day,
+        days=int(config.get("days") or 60),
+        version=now.strftime("%Y%m%d-%H%M"),
+        known_until=max(known) if known else None,
+    )
+    tables, warnings = gtfs_feed.build_feed(inp)
+    return {
+        "zip": gtfs_feed.write_zip(tables),
+        "built_at": now.isoformat(timespec="seconds"),
+        "service_day": service_day.isoformat(),
+        "feed_start": inp.start.isoformat(),
+        "feed_end": inp.end.isoformat(),
+        "counts": {name: len(rows) for name, rows in tables.items()},
+        "warnings": warnings,
+    }
+
+
+async def _gtfs_current() -> Dict[str, Any]:
+    """The cached feed, rebuilt (off the event loop: ~0.3 s of CPU) at most every GTFS_REBUILD_MIN_S, and straight
+    away when the service day rolls over."""
+    async with _gtfs_lock:
+        now = time.time()
+        today = (datetime.now(ZoneInfo("America/New_York")) - timedelta(hours=2, minutes=30)).date().isoformat()
+        due = (
+            not _gtfs_cache
+            or now - _gtfs_cache.get("_ts", 0) > GTFS_REBUILD_MIN_S
+            or _gtfs_cache.get("service_day") != today
+        )
+        if due and now - _gtfs_failed_at[0] < 30:
+            due = False  # a build just failed: don't spend the CPU again on every request
+        if due:
+            try:
+                built = await asyncio.to_thread(_gtfs_build_sync)
+                if not built["counts"].get("trips.txt"):
+                    # Right after a restart, before the first TransLoc route poll: keep any good feed, try again soon.
+                    raise RuntimeError("no trips (routes not loaded yet?)")
+                built["_ts"] = now
+                _gtfs_cache.clear()
+                _gtfs_cache.update(built)
+            except Exception as exc:
+                _gtfs_failed_at[0] = now
+                print(f"[gtfs] build failed: {exc!r}")
+        if not _gtfs_cache:
+            raise HTTPException(503, "GTFS feed not ready yet, try again in a minute")
+        return _gtfs_cache
+
+
+@app.get("/gtfs.zip")
+async def gtfs_zip():
+    feed = await _gtfs_current()
+    return Response(
+        content=feed["zip"],
+        media_type="application/zip",
+        headers={
+            "Content-Disposition": 'attachment; filename="uts_gtfs.zip"',
+            "Cache-Control": "public, max-age=600",
+        },
+    )
+
+
+@app.get("/v1/gtfs/status")
+async def gtfs_status():
+    feed = await _gtfs_current()
+    body = {k: v for k, v in feed.items() if k not in ("zip", "_ts")}
+    body["size_bytes"] = len(feed["zip"])
+    return JSONResponse(body, headers={"Cache-Control": "no-store"})
 
 
 # The level each past day actually ran at (service_levels.py), kept for good next to the ETA history it explains.
