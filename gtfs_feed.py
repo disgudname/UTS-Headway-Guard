@@ -310,6 +310,7 @@ class _Feed:
                 self.route_of[str(tid)] = r["route_id"]
         self.evening = {str(v.get("to")) for v in (inp.evening_pairs or {}).values() if v.get("to")}
         self.trips: List[Dict[str, Any]] = []
+        self.trip_index: Dict[str, "IndexedTrip"] = {}
         self.stop_times: List[Dict[str, Any]] = []
         self.frequencies: List[Dict[str, Any]] = []
         self.shapes: Dict[Tuple[str, int, int], str] = {}
@@ -429,6 +430,11 @@ class _Feed:
         }
         self.trips.append(trip)
         self.used_routes.add(gtfs_route)
+        indexed = IndexedTrip(
+            trip_id=trip_id, route_id=gtfs_route, transloc_route_id=route.transloc_id, service_id=service_id,
+            block=(block_id or "").split("-", 1)[0] or None, frequency=frequency, stops=[],
+        )
+        self.trip_index[trip_id] = indexed
         t = depart_s
         for k, stop_idx in enumerate(idx):
             stop = route.stops[stop_idx]
@@ -446,6 +452,9 @@ class _Feed:
             }
             self.stop_times.append(row)
             self.used_stops.setdefault(stop.stop_id, stop)
+            indexed.stops.append(IndexedStop(
+                k + 1, stop.route_stop_id, stop.stop_id, int(round(arrive)), int(round(depart)),
+            ))
             if k < len(hops):
                 t = depart + hops[k] * scale
         if frequency:
@@ -622,6 +631,35 @@ class _Feed:
         }
 
 
+@dataclass
+class IndexedStop:
+    sequence: int
+    route_stop_id: str   # TransLoc RouteStopID, what the live ETA engine keys stops by
+    stop_id: str         # GTFS stop_id (physical stop, AddressID)
+    arrival_s: int       # seconds after the service day's start, as in stop_times.txt
+    departure_s: int
+
+
+@dataclass
+class IndexedTrip:
+    """One trip as the live feeds (gtfs_rt.py) need it: enough to match a bus to it and to name its stops."""
+    trip_id: str
+    route_id: str                        # GTFS route_id
+    transloc_route_id: str
+    service_id: str
+    block: Optional[str]                 # block number as in uts_blocks.json without brackets ("09"); None for Purple
+    frequency: Optional[Tuple[int, int, int]]  # (start_s, end_s, headway_s) for a frequency trip
+    stops: List[IndexedStop]
+
+
+@dataclass
+class FeedIndex:
+    trips: Dict[str, IndexedTrip]
+    services_by_date: Dict[str, set]     # "YYYYMMDD" -> service_ids running that service day
+    route_of: Dict[str, str]             # TransLoc route id -> GTFS route_id
+    agency_id: str
+
+
 def _path(i: int, j: int, n: int) -> List[int]:
     """Stop indices from i forward to j round a loop of n stops; i == j is one whole lap."""
     out = [i]
@@ -635,6 +673,12 @@ def _path(i: int, j: int, n: int) -> List[int]:
 
 def build_feed(inp: Inputs) -> Tuple[Dict[str, List[Dict[str, Any]]], List[str]]:
     """(tables by file name, warnings). Every table is a list of row dicts."""
+    tables, warnings, _ = build_feed_with_index(inp)
+    return tables, warnings
+
+
+def build_feed_with_index(inp: Inputs) -> Tuple[Dict[str, List[Dict[str, Any]]], List[str], FeedIndex]:
+    """build_feed plus the FeedIndex the live GTFS-RT feeds match buses against (same trip ids)."""
     feed = _Feed(inp)
     for block_id in sorted(inp.blocks):
         block = inp.blocks[block_id]
@@ -645,7 +689,15 @@ def build_feed(inp: Inputs) -> Tuple[Dict[str, List[Dict[str, Any]]], List[str]]
     for name in ("stops.txt", "trips.txt", "calendar_dates.txt"):
         if not tables[name]:
             feed.warnings.append(f"{name} is empty")
-    return tables, sorted(set(feed.warnings))
+    services: Dict[str, set] = {}
+    for r in tables["calendar_dates.txt"]:
+        services.setdefault(r["date"], set()).add(r["service_id"])
+    kept = {t["trip_id"] for t in tables["trips.txt"]}
+    index = FeedIndex(
+        trips={tid: t for tid, t in feed.trip_index.items() if tid in kept}, services_by_date=services,
+        route_of=dict(feed.route_of), agency_id=str((inp.config.get("agency") or {}).get("agency_id") or ""),
+    )
+    return tables, sorted(set(feed.warnings)), index
 
 
 # Column order per file (GTFS reference order); a column every row leaves blank is dropped.

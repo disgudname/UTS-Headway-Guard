@@ -43,6 +43,7 @@ This document provides comprehensive guidance for AI assistants working with the
 ├── slides_mirror.py            # Local copy of a Google Slides deck for /ob-slides
 ├── cat_gtfs.py                 # CAT's published GTFS static schedule
 ├── gtfs_feed.py                # OUR GTFS static feed (/gtfs.zip) from the block packages; see Endpoints
+├── gtfs_rt.py                  # GTFS-Realtime (/gtfs-rt/*.pb) on top of it: positions, our ETAs, notices
 ├── spare_client.py             # Spare Labs (van dispatch) API client
 ├── viriciti_client.py          # ViriCiti WebSocket client (bus state of charge)
 ├── push_subscriptions.py       # Web Push subscription storage
@@ -452,6 +453,7 @@ Admin-managed alerts (`/v1/system-notices` CRUD, edited at `/system-notices`). `
 - `GET /api/amtrak` - Train positions
 - `GET /v1/service-schedule?start=&days=` - UTS service level per day (Full/Recess/No Service, per UVA Transit / UVA Ride / Night Pilot / UVA FlexRide + notes), scraped hourly from parking.virginia.edu/serviceschedule via headless Chromium past Cloudflare (`service_schedule.py`)
 - `GET /gtfs.zip` / `GET /v1/gtfs/status` - our own GTFS static feed (`gtfs_feed.py`): block-package timestop times, stops in between spaced by TransLoc's planned seconds, Purple as frequencies from its fallback sheet (never fixed times), days from the UTS service calendar, ending on the calendar's last day. Rebuilt at most every 10 min. TransLoc's own GTFS export is unusable (stacked per-block frequencies, no breaks). See HANDOFF.md 2026-10-19
+- `GET /gtfs-rt/vehicle-positions.pb` / `trip-updates.pb` / `alerts.pb` (`?format=json` for JSON) - GTFS-Realtime (`gtfs_rt.py`) using /gtfs.zip's ids: TransLoc bus positions matched to a trip (bus's block + closest scheduled time at its next stop; Purple by headway band with a worked-back start_time), trip updates from our ETA engine (`/v1/eta/uts_stop_arrivals`), alerts from public system notices. Rebuilt every 10 s; `/v1/gtfs/status` has a `realtime` block (buses, matched, unmatched)
 - `GET /v1/service-levels?start=&days=` - the level each day actually ran at (`full` / `exam` / `recess` / `summer` / `none`) and which ETA history it feeds (`history_class`), from the permanent log `service_levels.py` keeps; see [Service Levels and Recess History](#service-levels-and-recess-history)
 - `GET /api/rss/stop_arrivals/{code}` / `GET /api/cap/stop_arrivals/{code}` - RSS 2.0 / CAP 1.2 arrival feeds for signage, keyed by a feed code managed at `/feed-codes`
 - `GET /api/rss/stop_arrivals?stopID=` / `GET /api/cap/stop_arrivals?stopID=` - same feeds, legacy raw-stop-ID form

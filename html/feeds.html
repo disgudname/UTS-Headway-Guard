@@ -216,6 +216,16 @@
     <li>Game-day lot shuttles, Charter and Training are left out.</li>
   </ul>
 
+  <h3 id="gtfs-rt">GTFS-Realtime</h3>
+  <p>Live feeds on top of the schedule above (same trip, route and stop ids), refreshed every 10 seconds:</p>
+  <table>
+    <tr><th>Feed</th><th>What's in it</th></tr>
+    <tr><td><a href="/gtfs-rt/vehicle-positions.pb"><code>/gtfs-rt/vehicle-positions.pb</code></a></td><td>Every bus on a scheduled line: where it is, which trip it's running and its next stop.</td></tr>
+    <tr><td><a href="/gtfs-rt/trip-updates.pb"><code>/gtfs-rt/trip-updates.pb</code></a></td><td>Predicted arrivals at the stops left on each bus's trip (and its next trip), from our own ETA engine.</td></tr>
+    <tr><td><a href="/gtfs-rt/alerts.pb"><code>/gtfs-rt/alerts.pb</code></a></td><td>Active public system notices, aimed at the routes or stops they name.</td></tr>
+  </table>
+  <p>Add <code>?format=json</code> to any of them for a readable version.</p>
+
   <h2>Sign Preview</h2>
   <p>
     Enter a stop ID below to preview live arrival data on a pixel-accurate simulation of the Novanex OnAlert

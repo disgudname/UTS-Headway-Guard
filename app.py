@@ -62,6 +62,7 @@ import purple_release
 import anti_bunching_log
 import uts_blocks
 import gtfs_feed
+import gtfs_rt
 
 from fastapi import Body, FastAPI, HTTPException, Request, Response, Query
 from starlette.middleware.gzip import GZipMiddleware
@@ -19868,9 +19869,11 @@ def _gtfs_build_sync() -> Dict[str, Any]:
         version=now.strftime("%Y%m%d-%H%M"),
         known_until=max(known) if known else None,
     )
-    tables, warnings = gtfs_feed.build_feed(inp)
+    tables, warnings, index = gtfs_feed.build_feed_with_index(inp)
     return {
         "zip": gtfs_feed.write_zip(tables),
+        "_index": index,
+        "_stop_ids": [r["stop_id"] for r in tables["stops.txt"]],
         "built_at": now.isoformat(timespec="seconds"),
         "service_day": service_day.isoformat(),
         "feed_start": inp.start.isoformat(),
@@ -19926,9 +19929,87 @@ async def gtfs_zip():
 @app.get("/v1/gtfs/status")
 async def gtfs_status():
     feed = await _gtfs_current()
-    body = {k: v for k, v in feed.items() if k not in ("zip", "_ts")}
+    body = {k: v for k, v in feed.items() if k != "zip" and not k.startswith("_")}
     body["size_bytes"] = len(feed["zip"])
+    rt = _gtfs_rt_cache.get("stats")
+    if rt:
+        body["realtime"] = rt
     return JSONResponse(body, headers={"Cache-Control": "no-store"})
+
+
+# --- GTFS-Realtime (/gtfs-rt/*.pb): live buses, our ETAs and notices on top of /gtfs.zip, see gtfs_rt.py ---------
+GTFS_RT_TTL_S = 10.0
+_gtfs_rt_cache: Dict[str, Any] = {}
+_gtfs_rt_lock = asyncio.Lock()
+
+
+def _gtfs_rt_vehicles(blocks: Dict[str, str], now: float) -> List[gtfs_rt.Vehicle]:
+    windows = _vehicle_block_windows()
+    out = []
+    for v in list(getattr(state, "vehicles_raw", []) or []):
+        vid = v.get("VehicleID")
+        if vid is None or v.get("Latitude") is None or v.get("Longitude") is None:
+            continue
+        ts_ms = parse_msajax(v.get("TimeStamp"))
+        if ts_ms is not None and now - ts_ms / 1000.0 > STALE_FIX_S:
+            continue  # no fresh fix: leave the bus out rather than show it where it was
+        rid = v.get("RouteID")
+        out.append(gtfs_rt.Vehicle(
+            vehicle_id=str(vid), label=str(v.get("Name") or vid),
+            transloc_route_id=str(rid) if rid not in (None, 0, "0") else None,
+            lat=float(v["Latitude"]), lon=float(v["Longitude"]),
+            bearing=float(v["Heading"]) if v.get("Heading") is not None else None,
+            speed_mps=float(v.get("GroundSpeed") or 0.0) * MPH_TO_MPS,
+            # TransLoc's clock runs a few seconds ahead of ours; a fix stamped after the feed's own time is invalid
+            timestamp=min(int(ts_ms / 1000), int(now)) if ts_ms else None,
+            block=blocks.get(str(vid)) or _current_block_id_for_vehicle(windows, vid, now),
+        ))
+    return out
+
+
+async def _gtfs_rt_current() -> Dict[str, Any]:
+    async with _gtfs_rt_lock:
+        now = time.time()
+        if _gtfs_rt_cache and now - _gtfs_rt_cache["_ts"] < GTFS_RT_TTL_S:
+            return _gtfs_rt_cache
+        feed = await _gtfs_current()
+        index = feed["_index"]
+        service_day = date.fromisoformat(feed["service_day"])
+        # GTFS times count from "noon minus 12 h" of the service day (the same as midnight except on DST days)
+        noon = datetime.combine(service_day, dtime(12, 0), tzinfo=ZoneInfo("America/New_York"))
+        day_start = noon.timestamp() - 12 * 3600
+        service_date = service_day.strftime("%Y%m%d")
+        try:
+            payload = await eta_uts_stop_arrivals()
+        except Exception as exc:
+            print(f"[gtfs-rt] ETAs unavailable: {exc!r}")
+            payload = {}
+        positions, updates, stats = gtfs_rt.build_realtime(
+            index, service_date, day_start, _gtfs_rt_vehicles(gtfs_rt.blocks_by_vehicle(payload), now),
+            gtfs_rt.etas_by_vehicle(payload), now,
+        )
+        alerts = gtfs_rt.build_alerts(index, _get_active_system_notices(), feed["_stop_ids"], now)
+        stats["alerts"] = len(alerts.entity)
+        stats["trip_updates"] = len(updates.entity)
+        stats["built_at"] = datetime.fromtimestamp(now, ZoneInfo("America/New_York")).isoformat(timespec="seconds")
+        _gtfs_rt_cache.clear()
+        _gtfs_rt_cache.update({
+            "_ts": now, "stats": stats,
+            "vehicle-positions": positions, "trip-updates": updates, "alerts": alerts,
+        })
+        return _gtfs_rt_cache
+
+
+@app.get("/gtfs-rt/{feed_name}.pb")
+async def gtfs_rt_feed(feed_name: str, format: Optional[str] = None):
+    if feed_name not in ("vehicle-positions", "trip-updates", "alerts"):
+        raise HTTPException(404, "feeds: vehicle-positions, trip-updates, alerts")
+    msg = (await _gtfs_rt_current())[feed_name]
+    headers = {"Cache-Control": "public, max-age=10"}
+    if format == "json":
+        from google.protobuf.json_format import MessageToDict
+        return JSONResponse(MessageToDict(msg), headers=headers)
+    return Response(content=msg.SerializeToString(), media_type="application/x-protobuf", headers=headers)
 
 
 # The level each past day actually ran at (service_levels.py), kept for good next to the ETA history it explains.
