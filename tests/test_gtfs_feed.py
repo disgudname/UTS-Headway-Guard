@@ -207,3 +207,12 @@ def test_translocs_name_counters_are_dropped():
     inp.routes_raw[0]["Stops"][0]["Name"] = "McCormick Rd @ Chemistry Building (2)"
     tables, _ = g.build_feed(inp)
     assert {s["stop_id"]: s["stop_name"] for s in tables["stops.txt"]}["1"] == "McCormick Rd @ Chemistry Building"
+
+
+def test_stop_names_come_from_translocs_current_description():
+    # TransLoc's Name went stale when Whitehead Rd became Carl Smith Way; Description has the current name
+    inp = _inputs({"[09]": _block([(7 * H, "AA"), (7 * H + 600, "BB")])})
+    stop = inp.routes_raw[0]["Stops"][0]
+    stop["Name"], stop["Description"] = "Whitehead Rd @ Scott Stadium", "Carl Smith Way @ Scott Stadium"
+    tables, _ = g.build_feed(inp)
+    assert {s["stop_id"]: s["stop_name"] for s in tables["stops.txt"]}["1"] == "Carl Smith Way @ Scott Stadium"

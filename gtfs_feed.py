@@ -159,7 +159,9 @@ def parse_routes(routes_raw: Sequence[Dict[str, Any]]) -> Dict[str, Route]:
                 continue
             stops.append(RouteStop(
                 route_stop_id=str(rsid), stop_id=str(addr),
-                name=str(s.get("Name") or s.get("Description") or s.get("SignVerbiage") or "").strip(),
+                # Description is the name TransLoc keeps current; Name goes stale (still "Whitehead Rd" for Carl Smith
+                # Way, "Ridley Hall" for Contemplative Commons, "(2)" counters, Fontaine's junk name; checked 2026-10-20)
+                name=str(s.get("Description") or s.get("Name") or s.get("SignVerbiage") or "").strip(),
                 lat=float(s["Latitude"]), lon=float(s["Longitude"]),
                 to_next_s=float(s.get("SecondsToNextStop") or 0), dwell_s=float(s.get("SecondsAtStop") or 0),
             ))
