@@ -37,7 +37,11 @@ from typing import Dict, List, Optional, Set, Tuple
 import httpx
 from zoneinfo import ZoneInfo
 
-GTFS_URL = os.getenv("CAT_GTFS_URL", "https://apps.charlottesville.gov/publicfiles/GTFS.zip")
+# ETA SPOT's own copy (the same address pattern it uses for every agency, next to CAT's GTFS-RT feeds there:
+# position_updates.pb / trip_updates.pb / alerts.pb). The city's apps.charlottesville.gov/publicfiles/GTFS.zip is an
+# older upload of the same export: on 2026-10-20 it was version 87 (service to 2027-01-13) vs ETA's 95 (to 2027-10-09),
+# with identical trips and departures.
+GTFS_URL = os.getenv("CAT_GTFS_URL", "https://s3.amazonaws.com/etatransit.gtfs/catpublic.etaspot.net/gtfs.zip")
 CACHE_PATH = Path(os.getenv("CAT_GTFS_CACHE", "/data/cat_gtfs.zip"))
 NY_TZ = ZoneInfo("America/New_York")
 # A full republished export, not a live feed -- daily is plenty, and matches the
