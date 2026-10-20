@@ -100,3 +100,18 @@ def test_alerts_target_what_the_feed_has():
     assert by_id["notice-a"].description_text.translation[0].text == "Long text"
     assert [e.stop_id for e in by_id["notice-b"].informed_entity] == ["2"]
     assert [e.route_id for e in by_id["notice-c"].informed_entity] == ["gold"]  # 10 and 11 are both Gold
+
+
+def test_stop_times_strictly_increase_even_when_two_etas_tie():
+    # Validator E022 on prod (Green [01], 10-19): two neighbouring stops given the same second
+    index = _two_trips()
+    now = DAY + 7 * H + 60
+    etas = {("7", "10"): [("101", 90.2), ("102", 90.4), ("103", 300.0)]}
+    _, updates, _ = rt.build_realtime(index, SERVICE_DATE, DAY, [_bus()], etas, now)
+    times = []
+    for e in updates.entity:
+        for u in e.trip_update.stop_time_update:
+            assert u.departure.time == u.arrival.time
+            times.append(u.arrival.time)
+    assert times == sorted(set(times)) and len(times) == len(set(times))
+    assert int(now + 90) in times and int(now + 300) in times  # the tied stop C is the one left out

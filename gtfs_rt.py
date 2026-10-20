@@ -136,13 +136,17 @@ def match_trip(
         start_time = gtfs_time(min(max(begun, start), end - 1))
     match = Match(trip=trip, start_time=start_time, next_index=k)
     eta_at = {rsid: now + s for rsid, s in etas}
-    last = now
+    last = -1
     for m in range(k, len(trip.stops)):
         t = eta_at.get(trip.stops[m].route_stop_id)
-        if t is None or t < last or any(trip.stops[m].route_stop_id == trip.stops[x].route_stop_id for x in range(k, m)):
+        if t is None or any(trip.stops[m].route_stop_id == trip.stops[x].route_stop_id for x in range(k, m)):
             continue
-        match.updates.append((m, int(round(t))))
-        last = t
+        # GTFS-RT wants each stop strictly later than the one before (validator E022); the engine can give two
+        # neighbouring stops the same second. Such a stop is left out: apps fill it in from its neighbours.
+        if int(round(t)) <= last:
+            continue
+        last = int(round(t))
+        match.updates.append((m, last))
     return match
 
 
@@ -221,13 +225,14 @@ def build_realtime(
             used = {match.trip.stops[m].route_stop_id for m, _ in match.updates}
             last = match.updates[-1][1]
             more = []
+            eta_at = {r: now + s for r, s in bus_etas}
             for m, stop in enumerate(follow.stops):
-                t = dict((r, now + s) for r, s in bus_etas).get(stop.route_stop_id)
-                if t is None or t <= last or stop.route_stop_id in used:
+                t = eta_at.get(stop.route_stop_id)
+                if t is None or int(round(t)) <= last or stop.route_stop_id in used:
                     continue
-                more.append((m, int(round(t))))
+                last = int(round(t))
+                more.append((m, last))
                 used.add(stop.route_stop_id)
-                last = t
             if more:
                 trips.append((follow, None, more))
         for trip, start_time, stop_updates in trips:
@@ -242,11 +247,10 @@ def build_realtime(
                 stu = tu.stop_time_update.add()
                 stu.stop_sequence = trip.stops[m].sequence
                 stu.stop_id = trip.stops[m].stop_id
+                # departure = arrival: the engine predicts arrivals only, and a made-up dwell could pass the next
+                # stop's arrival (E022)
                 stu.arrival.time = t
-                if m > 0:
-                    stu.departure.time = t + max(0, trip.stops[m].departure_s - trip.stops[m].arrival_s)
-                else:
-                    stu.departure.time = t
+                stu.departure.time = t
                 stu.schedule_relationship = pb.TripUpdate.StopTimeUpdate.SCHEDULED
     return positions, updates, stats
 
