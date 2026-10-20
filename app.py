@@ -2353,6 +2353,7 @@ TRANSLOC_TICKER_HTML = _load_html("transloc_ticker.html")
 ETA_TICKER_HTML = _load_html("eta_ticker.html")
 SITEMAP_HTML = _load_html("sitemap.html")
 FEEDS_HTML = _load_html("feeds.html")
+GTFS_HTML = _load_html("gtfs.html")
 FEED_CODES_HTML = _load_html("feed-codes.html")
 ONBOARD_ANNOUNCE_HTML = _load_html("onboard-announce.html")
 ROUTE_DESTINATIONS_HTML = _load_html("route-destinations.html")
@@ -15036,6 +15037,10 @@ async def sitemap_page():
 @app.get("/feeds")
 async def feeds_info_page():
     return HTMLResponse(FEEDS_HTML)
+
+@app.get("/gtfs")
+async def gtfs_info_page():
+    return HTMLResponse(GTFS_HTML)
 
 @app.get("/rss")
 async def rss_redirect():

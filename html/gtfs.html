@@ -1,0 +1,232 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>GTFS &amp; GTFS-Realtime - UVATransit</title>
+  <script defer src="/nav-bar.js"></script>
+  <style>
+    body { font-family: Arial, sans-serif; max-width: 860px; margin: 2rem auto; padding: 0 1.5rem; color: #1a1a1a; line-height: 1.6; }
+    h1 { color: #232D4B; margin-bottom: 0.25rem; }
+    .lede { color: #444; margin-top: 0; }
+    h2 { color: #232D4B; margin-top: 2.5rem; border-bottom: 2px solid #232D4B; padding-bottom: 0.25rem; }
+    h3 { color: #232D4B; margin-top: 1.75rem; }
+    code, pre { background: #f0f0f0; border-radius: 4px; font-family: monospace; }
+    code { padding: 2px 6px; }
+    pre { padding: 1rem; overflow-x: auto; }
+    a { color: #0b63ce; }
+    table { border-collapse: collapse; width: 100%; margin-top: 0.5rem; }
+    th, td { border: 1px solid #ccc; padding: 0.45rem 0.7rem; text-align: left; vertical-align: top; overflow-wrap: anywhere; }
+    @media (max-width: 600px) { th, td { padding: 0.35rem 0.45rem; } body { padding: 0 1rem; } }
+    th { background: #232D4B; color: #fff; }
+    tr:nth-child(even) { background: #f8f8f8; }
+    td.url { font-family: monospace; word-break: break-all; }
+    .note { background: #fff8e6; border-left: 4px solid #E57200; padding: 0.6rem 1rem; border-radius: 0 4px 4px 0; font-size: 0.92rem; margin-top: 1rem; }
+    #status { background: #eef4ff; border-left: 4px solid #232D4B; padding: 0.75rem 1rem; border-radius: 0 4px 4px 0; }
+    #status dl { display: grid; grid-template-columns: max-content 1fr; gap: 0.2rem 1rem; margin: 0; }
+    #status dt { font-weight: bold; color: #232D4B; }
+    #status dd { margin: 0; }
+    .muted { color: #666; font-size: 0.9rem; }
+  </style>
+</head>
+<body>
+
+  <h1>GTFS &amp; GTFS-Realtime</h1>
+  <p class="lede">
+    A static GTFS schedule and GTFS-Realtime feeds for UVA Transit's fixed-route bus service (University Transit
+    Service), built from the block packages UVA Transit operates to rather than from the AVL vendor's export. All IDs are
+    shared between the static and realtime feeds. The feeds are public, need no key, and send
+    <code>Access-Control-Allow-Origin: *</code>.
+  </p>
+
+  <h2 id="urls">Feed URLs</h2>
+  <table>
+    <tr><th>Feed</th><th>URL</th><th>Refresh</th></tr>
+    <tr><td>GTFS (static)</td><td class="url"><a href="/gtfs.zip">https://utsopsdashboard.com/gtfs.zip</a></td><td>Rebuilt at most every 10 min and at each service-day rollover</td></tr>
+    <tr><td>Vehicle Positions</td><td class="url"><a href="/gtfs-rt/vehicle-positions.pb">https://utsopsdashboard.com/gtfs-rt/vehicle-positions.pb</a></td><td>10 s</td></tr>
+    <tr><td>Trip Updates</td><td class="url"><a href="/gtfs-rt/trip-updates.pb">https://utsopsdashboard.com/gtfs-rt/trip-updates.pb</a></td><td>10 s</td></tr>
+    <tr><td>Service Alerts</td><td class="url"><a href="/gtfs-rt/alerts.pb">https://utsopsdashboard.com/gtfs-rt/alerts.pb</a></td><td>10 s</td></tr>
+    <tr><td>Build status (JSON)</td><td class="url"><a href="/v1/gtfs/status">https://utsopsdashboard.com/v1/gtfs/status</a></td><td>Live</td></tr>
+  </table>
+  <p>
+    The realtime feeds are GTFS-RT 2.0, <code>FULL_DATASET</code>, protocol buffers. Append <code>?format=json</code>
+    to any of them for a JSON rendering for debugging (e.g.
+    <a href="/gtfs-rt/vehicle-positions.pb?format=json"><code>vehicle-positions.pb?format=json</code></a>).
+  </p>
+
+  <h3>Current build</h3>
+  <div id="status"><span class="muted">Loading&hellip;</span></div>
+
+  <h2 id="static">Static GTFS</h2>
+
+  <h3>Scope</h3>
+  <ul>
+    <li><strong>Agency:</strong> UVA Transit (<code>agency_id</code> <code>UTS</code>), <code>America/New_York</code>. Fare-free (a single <code>free</code> fare, price 0.00).</li>
+    <li><strong>Routes:</strong> Gold Line, Green Line, Green Loop, Orange Line, Orange Loop, Silver Line, Night Pilot, Purple Line.
+      Route colors are the operator's.</li>
+    <li><strong>Excluded:</strong> game-day lot shuttles, charter, training and test routes. These exist in the AVL system
+      but are not public scheduled service.</li>
+    <li><strong>Files:</strong> <code>agency</code>, <code>routes</code>, <code>stops</code>, <code>trips</code>,
+      <code>stop_times</code>, <code>frequencies</code>, <code>calendar_dates</code>, <code>shapes</code>,
+      <code>fare_attributes</code>, <code>feed_info</code>. There is no <code>calendar.txt</code>: every service day is
+      listed explicitly in <code>calendar_dates.txt</code>.</li>
+  </ul>
+
+  <h3>How the schedule is built</h3>
+  <ul>
+    <li><strong>Times</strong> come from UVA Transit's block packages: each block's sequence of timestop visits. Every pair of
+      consecutive visits is one GTFS trip, so a block's day is a chain of short trips joined by <code>block_id</code>.
+      Timestops carry the published time (<code>timepoint=1</code>).</li>
+    <li><strong>Intermediate stops</strong> (<code>timepoint=0</code>) are spaced by the AVL system's planned stop-to-stop run times,
+      compressed when the block package allows less time than planned. Any remaining time is layover at the next
+      timestop: a bus arriving early holds there.</li>
+    <li><strong>Pattern changes</strong> follow the block package's route-change notes. Most lines switch to an evening pattern
+      around 18:00, published as a separate route where riders know it by a different name (Green Line &rarr; Green Loop,
+      Orange Line &rarr; Orange Loop) and as a different shape on the same route for Gold.</li>
+    <li><strong>End of service</strong> follows each block's out-of-service instructions: the last trip ends at the last stop that
+      block serves before returning to the lot.</li>
+    <li><strong>Purple Line</strong> runs on headway-based dispatching (anti-bunching), not a timetable, so it is published as
+      <code>frequencies.txt</code> with <code>exact_times=0</code>, in bands derived from the planned service levels
+      (roughly every 3&ndash;10 minutes depending on time of day, Monday&ndash;Friday).</li>
+    <li><strong>Service days</strong> come from the UTS service calendar. Recess days run the recess timetables for the lines that
+      have one; "No Service" days have no trips; "Health Commuter" days run the Purple Line only. The feed ends on the
+      last day the published calendar covers (<code>feed_end_date</code>) rather than assuming regular service beyond it.</li>
+  </ul>
+
+  <h3>Identifiers</h3>
+  <table>
+    <tr><th>Field</th><th>Format</th><th>Notes</th></tr>
+    <tr><td><code>stop_id</code></td><td>AVL stop ID, e.g. <code>66</code></td><td>One ID per physical stop, shared by every route that serves it.
+      The same ID the AVL vendor's public arrival API uses. Stable unless the stop is rebuilt in the AVL system.</td></tr>
+    <tr><td><code>route_id</code></td><td><code>gold</code>, <code>green</code>, <code>green-loop</code>, <code>orange</code>,
+      <code>orange-loop</code>, <code>silver</code>, <code>night-pilot</code>, <code>purple</code></td><td>Stable.</td></tr>
+    <tr><td><code>trip_id</code></td><td><code>{block}-{service_id}-{n}-{seq}</code>, e.g. <code>09-full_MTWRF-0-012</code>;
+      Purple <code>purple-{band}</code></td><td>Regenerated when a block package changes; not stable across schedule changes.</td></tr>
+    <tr><td><code>block_id</code></td><td><code>{block}-{service_id}</code>, e.g. <code>09-full_MTWRF</code></td><td>Matches the operator's block numbers.</td></tr>
+    <tr><td><code>service_id</code></td><td><code>{kind}_{days}</code>, e.g. <code>full_MTWRF</code>, <code>recess_MT</code>,
+      <code>daily_RFS</code>, <code>purple_MTWRF</code></td><td>Days: M T W R F S U. <code>full</code> runs on non-recess days,
+      <code>recess</code> on recess days, <code>daily</code> (lines with no recess timetable) on every service day.</td></tr>
+    <tr><td><code>shape_id</code></td><td>One shape per stop-to-stop pattern</td><td><code>shape_dist_traveled</code> in
+      kilometres, in both <code>shapes.txt</code> and <code>stop_times.txt</code>.</td></tr>
+  </table>
+
+  <h2 id="realtime">GTFS-Realtime</h2>
+
+  <h3>Vehicle Positions</h3>
+  <ul>
+    <li>Every bus the AVL system reports on a published route, with a GPS fix less than 90 s old.</li>
+    <li><code>vehicle.id</code> and <code>vehicle.label</code> are the bus number painted on the vehicle (e.g. <code>19232</code>).</li>
+    <li><strong>Trip assignment:</strong> the candidate trips are those of the bus's dispatched block on its current route that run
+      today. The one whose scheduled time at the bus's next stop is closest to its predicted arrival there wins, within
+      15 minutes early to 30 minutes late. A bus with no current trip (e.g. before its first trip of the day) is published
+      with <code>route_id</code> only.</li>
+    <li><code>stop_id</code> / <code>current_stop_sequence</code> name the next stop, with <code>current_status</code>
+      <code>IN_TRANSIT_TO</code>.</li>
+    <li>Purple Line trips are <code>UNSCHEDULED</code> and carry a <code>start_time</code> (required for
+      <code>exact_times=0</code> frequency trips), worked back from the bus's position in its loop. All other trips are
+      <code>SCHEDULED</code>.</li>
+  </ul>
+
+  <h3>Occupancy</h3>
+  <p>
+    <code>occupancy_status</code> and <code>occupancy_percentage</code> come from the automatic passenger counters. The
+    percentage is riders divided by the vehicle's rated capacity and can exceed 100. Status thresholds depend on the vehicle type:
+  </p>
+  <table>
+    <tr><th>Status</th><th>Small bus (12 seats, 18 max)</th><th>Standard bus (31 seats, rated 50)</th></tr>
+    <tr><td><code>EMPTY</code></td><td>0</td><td>0</td></tr>
+    <tr><td><code>MANY_SEATS_AVAILABLE</code></td><td>1&ndash;6</td><td>1&ndash;15</td></tr>
+    <tr><td><code>FEW_SEATS_AVAILABLE</code></td><td>7&ndash;11</td><td>16&ndash;30</td></tr>
+    <tr><td><code>STANDING_ROOM_ONLY</code></td><td>12&ndash;17</td><td>31&ndash;49</td></tr>
+    <tr><td><code>CRUSHED_STANDING_ROOM_ONLY</code></td><td>&mdash;</td><td>50&ndash;59</td></tr>
+    <tr><td><code>FULL</code></td><td>18+ (a hard limit)</td><td>60+</td></tr>
+  </table>
+  <p class="muted">A vehicle the counter system reports no count for omits both fields. Counts are as reported by the
+    counters and are not otherwise checked.</p>
+
+  <h3>Trip Updates</h3>
+  <ul>
+    <li>Predictions come from our own arrival-prediction engine, not the AVL vendor's: live position along the route, learned
+      stop-to-stop travel times by day of week and hour, and the scheduled holds at timestops.</li>
+    <li>Each update gives absolute <code>arrival.time</code> (= <code>departure.time</code>) for the stops remaining on the
+      trip, strictly increasing. A stop the engine cannot predict is omitted, not estimated.</li>
+    <li>Each bus also gets updates for its block's <em>next</em> trip when it continues on the same route, so riders see
+      predictions for a bus that is still finishing its previous trip.</li>
+  </ul>
+  <div class="note">
+    Because of those next-trip updates, a combined check of both realtime feeds reports <strong>W003</strong> ("ID in one
+    feed missing from the other") for trip IDs that are in Trip Updates but not yet in Vehicle Positions. This is expected,
+    and the rule's own documentation says it can be ignored in this case.
+  </div>
+
+  <h3>Service Alerts</h3>
+  <ul>
+    <li>Published from the active, public system notices dispatch maintains.</li>
+    <li><code>informed_entity</code>: the whole agency, specific <code>stop_id</code>s, or <code>route_id</code>s, as the
+      notice is targeted. Notices about services outside this feed are left out.</li>
+    <li><code>header_text</code> is the short form, <code>description_text</code> the full text.
+      <code>active_period</code> follows the notice's start/end. <code>cause</code> and <code>effect</code> are
+      <code>UNKNOWN_*</code>; <code>severity_level</code> is <code>INFO</code>, <code>WARNING</code> or <code>SEVERE</code>.</li>
+  </ul>
+
+  <h2 id="validation">Validation</h2>
+  <ul>
+    <li><strong>Static:</strong> <a href="https://github.com/MobilityData/gtfs-validator">MobilityData GTFS Validator</a> 8.0.1,
+      US rules: no errors, no warnings.</li>
+    <li><strong>Realtime:</strong> <a href="https://github.com/MobilityData/gtfs-realtime-validator">MobilityData GTFS-Realtime Validator</a>,
+      run on consecutive live snapshots of each feed against the static feed: no errors. The only warnings seen are the
+      W003 case above and, for a bus not yet on a trip, a <code>route_id</code>-only trip descriptor.</li>
+  </ul>
+  <p class="muted">Last checked October 2026, against the production feeds.</p>
+
+  <h2 id="limitations">Known limitations</h2>
+  <ul>
+    <li>Times at intermediate stops are interpolated from planned run times. Only timestops are published times.</li>
+    <li>The Purple Line's headways are planned service levels. Actual spacing is managed live.</li>
+    <li>Exam and summer service use the regular timetables. Recess has its own timetables for the lines that have one.</li>
+    <li>Stops, stop locations and route shapes come from the AVL vendor. When a stop moves there, it moves here too.</li>
+    <li>The feed horizon is only as far ahead as the published service calendar.</li>
+  </ul>
+
+  <h2 id="tools">Viewing the feeds</h2>
+  <ul>
+    <li><a href="https://viz.rt.gtfs.zone/#scheduled=https%3A%2F%2Futsopsdashboard.com%2Fgtfs.zip&amp;rt_vp=https%3A%2F%2Futsopsdashboard.com%2Fgtfs-rt%2Fvehicle-positions.pb&amp;rt_tu=https%3A%2F%2Futsopsdashboard.com%2Fgtfs-rt%2Ftrip-updates.pb&amp;rt_al=https%3A%2F%2Futsopsdashboard.com%2Fgtfs-rt%2Falerts.pb&amp;cors=none">viz.rt.gtfs.zone</a>:
+      map of the static feed with all three realtime feeds.</li>
+    <li><a href="https://public-transport.github.io/gtfs-rt-inspector/?feedUrl=https%3A%2F%2Futsopsdashboard.com%2Fgtfs-rt%2Ftrip-updates.pb">GTFS-RT Inspector</a>:
+      table and log view of a realtime feed.</li>
+    <li><a href="https://minitokyo3d.com/?gtfsurl=https%3A%2F%2Futsopsdashboard.com%2Fgtfs.zip&amp;gtfsvpurl=https%3A%2F%2Futsopsdashboard.com%2Fgtfs-rt%2Fvehicle-positions.pb&amp;gtfscolor=888888#15/38.0360/-78.5080/0/45">Mini Tokyo 3D</a>:
+      3D map of the vehicle positions.</li>
+  </ul>
+  <p class="muted">For arrival feeds for signage (RSS/CAP), see <a href="/feeds">Bus Arrival Feeds</a>.</p>
+
+  <script>
+    (async () => {
+      const box = document.getElementById('status');
+      const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({'&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;'}[c]));
+      try {
+        const r = await fetch('/v1/gtfs/status', { cache: 'no-store' });
+        if (!r.ok) throw new Error('HTTP ' + r.status);
+        const s = await r.json();
+        const c = s.counts || {};
+        const rt = s.realtime || {};
+        const rows = [
+          ['Service window', `${esc(s.feed_start)} to ${esc(s.feed_end)}`],
+          ['Built', esc(s.built_at)],
+          ['Routes / stops / trips', `${c['routes.txt'] ?? '?'} / ${c['stops.txt'] ?? '?'} / ${c['trips.txt'] ?? '?'}`],
+          ['Stop times / shape points', `${c['stop_times.txt'] ?? '?'} / ${c['shapes.txt'] ?? '?'}`],
+          ['Zip size', s.size_bytes ? `${Math.round(s.size_bytes / 1024)} KB` : '?'],
+        ];
+        if (rt.built_at) {
+          rows.push(['Buses in service', `${rt.vehicles ?? 0} (${rt.matched ?? 0} matched to a trip)`]);
+          rows.push(['Trip updates / alerts', `${rt.trip_updates ?? 0} / ${rt.alerts ?? 0}`]);
+        }
+        if ((s.warnings || []).length) rows.push(['Build warnings', s.warnings.map(esc).join('<br>')]);
+        box.innerHTML = '<dl>' + rows.map(([k, v]) => `<dt>${k}</dt><dd>${v}</dd>`).join('') + '</dl>';
+      } catch (e) {
+        box.innerHTML = '<span class="muted">Status unavailable right now (' + esc(e.message) + ').</span>';
+      }
+    })();
+  </script>
+
+</body>
+</html>
