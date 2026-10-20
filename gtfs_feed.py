@@ -31,6 +31,7 @@ from __future__ import annotations
 import csv
 import io
 import math
+import re
 import zipfile
 from dataclasses import dataclass, field
 from datetime import date, timedelta
@@ -54,6 +55,7 @@ STOP_SHAPE_WARN_M = 75.0
 # is within this much of the closest pass is the stop's.
 SHAPE_PASS_SLACK_M = 20.0
 
+_NAME_COUNTER_RE = re.compile(r"\s*\(\d+\)\s*$")
 _DAY_LETTERS = "MTWRFSU"  # Monday..Sunday, as in uts_blocks weekday numbers 0..6
 
 
@@ -322,6 +324,12 @@ class _Feed:
     # -- route choice -------------------------------------------------------
 
     def _stop_for(self, route_id: str, code: str) -> Optional[str]:
+        # config "timestop_overrides": {route id: {code: route stop id}} -- where the feed puts a sheet's timestop when
+        # the bus really starts somewhere else (Gold's "CSW" starts are at Chemistry). Feed only; the ETA engine's
+        # config/uts_timestops.json is untouched.
+        override = ((self.inp.config.get("timestop_overrides") or {}).get(route_id) or {}).get(code)
+        if override:
+            return str(override)
         return (self.inp.timestops.get(code) or {}).get(route_id) or (self.inp.landmarks.get(code) or {}).get(route_id)
 
     def _route_for(self, block: Dict[str, Any], a: str, b: str, evening: Optional[bool]) -> Optional[str]:
@@ -474,7 +482,8 @@ class _Feed:
         return None
 
     def _stop_name(self, stop: RouteStop) -> str:
-        return (self.inp.config.get("stop_names") or {}).get(stop.stop_id) or stop.name
+        # TransLoc marks repeated names with a counter ("McCormick Rd @ Chemistry Building (2)"); riders never see that
+        return (self.inp.config.get("stop_names") or {}).get(stop.stop_id) or _NAME_COUNTER_RE.sub("", stop.name)
 
     def add_block_group(self, block_id: str, block: Dict[str, Any], gi: int, group: Dict[str, Any]) -> None:
         kind = "recess" if group.get("service") == "recess" else ("full" if block.get("has_recess") else "daily")

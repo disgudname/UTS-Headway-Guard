@@ -186,3 +186,24 @@ def test_zip_has_the_files_and_drops_empty_columns():
 
 def test_gtfs_time_runs_past_midnight():
     assert g.gtfs_time(26 * H + 61) == "26:01:01"
+
+
+def test_a_timestop_override_moves_where_the_feed_starts_a_block():
+    # Gold's "CSW" starts really begin at Chemistry: the sheet's CSW 07:30 -> BAR 07:40 becomes a timed trip from there.
+    # Here: route 10 has no "YD" timestop, the override puts it at stop B (RouteStopID 101).
+    import copy
+    inp = _inputs({"[09]": _block([(7 * H + 1800, "YD"), (7 * H + 2400, "BB")])})
+    tables, _ = g.build_feed(inp)
+    assert tables["trips.txt"] == []  # without the override it is a deadhead
+    inp.config = copy.deepcopy(CONFIG)
+    inp.config["timestop_overrides"] = {"10": {"YD": "101"}}
+    tables, _ = g.build_feed(inp)
+    (trip,) = tables["trips.txt"]
+    assert _times(tables, trip["trip_id"]) == [("2", "07:30:00", "07:30:00", 1), ("3", "07:32:00", "07:32:00", 1)]
+
+
+def test_translocs_name_counters_are_dropped():
+    inp = _inputs({"[09]": _block([(7 * H, "AA"), (7 * H + 600, "BB")])})
+    inp.routes_raw[0]["Stops"][0]["Name"] = "McCormick Rd @ Chemistry Building (2)"
+    tables, _ = g.build_feed(inp)
+    assert {s["stop_id"]: s["stop_name"] for s in tables["stops.txt"]}["1"] == "McCormick Rd @ Chemistry Building"
