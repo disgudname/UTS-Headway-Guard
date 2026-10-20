@@ -19922,6 +19922,8 @@ async def gtfs_zip():
         headers={
             "Content-Disposition": 'attachment; filename="uts_gtfs.zip"',
             "Cache-Control": "public, max-age=600",
+            # public open data: let browser-based GTFS viewers (e.g. Mini Tokyo 3D) read it
+            "Access-Control-Allow-Origin": "*",
         },
     )
 
@@ -20005,7 +20007,7 @@ async def gtfs_rt_feed(feed_name: str, format: Optional[str] = None):
     if feed_name not in ("vehicle-positions", "trip-updates", "alerts"):
         raise HTTPException(404, "feeds: vehicle-positions, trip-updates, alerts")
     msg = (await _gtfs_rt_current())[feed_name]
-    headers = {"Cache-Control": "public, max-age=10"}
+    headers = {"Cache-Control": "public, max-age=10", "Access-Control-Allow-Origin": "*"}
     if format == "json":
         from google.protobuf.json_format import MessageToDict
         return JSONResponse(MessageToDict(msg), headers=headers)
