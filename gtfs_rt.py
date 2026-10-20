@@ -39,8 +39,8 @@ _SEVERITY = {"red": pb.Alert.SEVERE, "orange": pb.Alert.WARNING, "yellow": pb.Al
 
 @dataclass
 class Vehicle:
-    vehicle_id: str            # TransLoc VehicleID
-    label: str                 # bus number
+    vehicle_id: str            # TransLoc VehicleID: only for matching the bus to its ETAs, never published
+    label: str                 # bus number (19232): what the feeds publish as the vehicle's id and label
     transloc_route_id: Optional[str]
     lat: float
     lon: float
@@ -177,7 +177,10 @@ def _trip_descriptor(desc: Any, trip: IndexedTrip, service_date: str, start_time
     desc.start_date = service_date
     if start_time:
         desc.start_time = start_time
-    desc.schedule_relationship = pb.TripDescriptor.SCHEDULED
+    # A frequency trip with exact_times=0 (Purple) has no timetable to be on: the spec's UNSCHEDULED (validator E013)
+    desc.schedule_relationship = (
+        pb.TripDescriptor.UNSCHEDULED if trip.frequency is not None else pb.TripDescriptor.SCHEDULED
+    )
 
 
 def occupancy(vehicle: Vehicle, steps_by_capacity: Dict[str, Any]) -> Optional[Tuple[int, int]]:
@@ -216,7 +219,7 @@ def build_realtime(
         bus_etas = etas.get((v.vehicle_id, v.transloc_route_id or ""), [])
         match = match_trip(index, service_date, day_start, v, bus_etas, now)
         ent = positions.entity.add()
-        ent.id = f"vehicle-{v.vehicle_id}"
+        ent.id = f"vehicle-{v.label}"
         vp = ent.vehicle
         if match:
             stats["matched"] += 1
@@ -228,7 +231,7 @@ def build_realtime(
         else:
             stats["unmatched"].append(v.label)
             vp.trip.route_id = route_id
-        vp.vehicle.id = v.vehicle_id
+        vp.vehicle.id = v.label  # the bus number, not TransLoc's internal VehicleID (user, 2026-10-20)
         vp.vehicle.label = v.label
         vp.position.latitude = v.lat
         vp.position.longitude = v.lon
@@ -261,10 +264,10 @@ def build_realtime(
                 trips.append((follow, None, more))
         for trip, start_time, stop_updates in trips:
             ent = updates.entity.add()
-            ent.id = f"trip-{trip.trip_id}-{v.vehicle_id}"
+            ent.id = f"trip-{trip.trip_id}-{v.label}"
             tu = ent.trip_update
             _trip_descriptor(tu.trip, trip, service_date, start_time)
-            tu.vehicle.id = v.vehicle_id
+            tu.vehicle.id = v.label
             tu.vehicle.label = v.label
             tu.timestamp = int(now)
             for m, t in stop_updates:

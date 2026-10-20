@@ -25,8 +25,8 @@ def _index(blocks, purple=None):
     return index
 
 
-def _bus(route="10", block="[09]", vid="7"):
-    return rt.Vehicle(vehicle_id=vid, label="18432", transloc_route_id=route, lat=38.0, lon=-78.49, block=block)
+def _bus(route="10", block="[09]", vid="7", label="18432"):
+    return rt.Vehicle(vehicle_id=vid, label=label, transloc_route_id=route, lat=38.0, lon=-78.49, block=block)
 
 
 def _two_trips():
@@ -158,3 +158,27 @@ def test_occupancy_lands_in_the_vehicle_positions_feed():
     positions, _, _ = rt.build_realtime(_two_trips(), SERVICE_DATE, DAY, [bus], {}, DAY + 7 * H, _steps())
     vp = positions.entity[0].vehicle
     assert vp.occupancy_status == rt.pb.VehiclePosition.STANDING_ROOM_ONLY and vp.occupancy_percentage == 80
+
+
+def test_purple_trips_are_unscheduled_and_timetabled_trips_scheduled():
+    # Validator E013 on prod (2026-10-20 morning): a frequency trip with exact_times=0 must not say SCHEDULED
+    purple = {"weekdays": [0, 1, 2, 3, 4], "bands": [{"start_s": 6 * H, "end_s": 7 * H, "headway_s": 300}]}
+    index = _index({"[09]": _block([(6 * H, "AA"), (6 * H + 600, "BB")])}, purple=purple)
+    now = DAY + 6 * H + 60
+    buses = [_bus(), _bus(route="20", block=None, vid="8", label="24012")]
+    etas = {("7", "10"): [("101", 60.0)], ("8", "20"): [("302", 40.0)]}
+    positions, updates, _ = rt.build_realtime(index, SERVICE_DATE, DAY, buses, etas, now)
+    rel = {e.vehicle.vehicle.id: e.vehicle.trip.schedule_relationship for e in positions.entity}
+    assert rel == {"18432": rt.pb.TripDescriptor.SCHEDULED, "24012": rt.pb.TripDescriptor.UNSCHEDULED}
+    for e in updates.entity:
+        want = rt.pb.TripDescriptor.UNSCHEDULED if e.trip_update.trip.trip_id.startswith("purple") else rt.pb.TripDescriptor.SCHEDULED
+        assert e.trip_update.trip.schedule_relationship == want
+
+
+def test_buses_are_published_by_bus_number_not_translocs_id():
+    index = _two_trips()
+    etas = {("7", "10"): [("101", 90.0), ("102", 250.0)]}  # ETAs stay keyed by TransLoc's VehicleID
+    positions, updates, _ = rt.build_realtime(index, SERVICE_DATE, DAY, [_bus()], etas, DAY + 7 * H + 60)
+    vp = positions.entity[0]
+    assert vp.id == "vehicle-18432" and vp.vehicle.vehicle.id == "18432" and vp.vehicle.vehicle.label == "18432"
+    assert {e.trip_update.vehicle.id for e in updates.entity} == {"18432"}
