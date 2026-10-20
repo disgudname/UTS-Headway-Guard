@@ -52,10 +52,13 @@ Checked against the entries below on 2026-10-06. Everything not listed here is b
 - **Branch `claude/late-dwell`:** unmerged prototype (see §3). Keep or delete is the user's call.
 - **Orange weekday holds after the block fix (v2114, 10-19):** the first weekday health runs should show Orange no worse; the old data held a few-min-late daytime bus ~5 min for a 2023 slot (late side). Read Orange in Tue 10-20's runs.
 
-### 2026-10-20 · [home] · GTFS-RT bus crowding (`cfd6848`, DEPLOYED v2118); Purple E013 fix (NOT deployed yet)
+### 2026-10-20 · [home] · GTFS-RT bus crowding (`cfd6848`, DEPLOYED v2118); Purple E013 fix + bus-number ids (`8656544`, DEPLOYED v
+dfw)
 - **Crowding:** each bus in `/gtfs-rt/vehicle-positions.pb` now has `occupancy_status` + `occupancy_percentage` from TransLoc's passenger counter (`state.vehicle_capacities`). TransLoc capacity is 18 for the five 24xxx buses and 50 for the other 49 (checked 10-20). Cut-offs from the user, in `config/gtfs.json` `occupancy`: 24xxx (12 seats, 18 is a hard limit) 0 empty, 1-6 many seats, 7-11 few, 12-17 standing, 18+ full; big buses (31 seats, 50 a rough rating, 60-65 get crammed in) 1-15 many, 16-30 few, 31-49 standing, 50-59 crushed, 60+ full. Percentage = riders / TransLoc capacity, can pass 100. No count or an unlisted capacity: neither field.
 - **E013 (found by validating prod 10-20 morning, the first check with Purple running):** Purple's frequency trips (exact_times=0) went out as `schedule_relationship` SCHEDULED; the spec wants UNSCHEDULED. Fix in the working tree on [home] (`_trip_descriptor`, test added, suite 541 passed), waiting on "cpd".
 - **Bus numbers (user, 10-20):** `vehicle.id` (and entity ids) in both feeds are now the bus number (`Name`, e.g. 19232) instead of TransLoc's internal VehicleID; the VehicleID is still used only to look up the bus's ETAs. Working tree on [home], test added (542 passed), waiting on "cpd" with E013.
+- ↳ [home] 10-20 ~07:30 ET: `8656544` deployed v
+dfw. Prod: 6 snapshots x 3 feeds, realtime validator NO errors (E013 gone); static 0 notices. Only warnings W006/W009 on buses not on a trip yet: a pull-out before its first trip (Gold [12] leaves CSW 07:30, first Gold trip BAR 07:40; the CSW stretch is a deadhead in the feed) is sent with route_id only, no trip_id. Expected; it matches once its first trip starts (Green [02] 17432 did within 2 min).
 
 ### 2026-10-19 · [home] · GTFS-Realtime `/gtfs-rt/*.pb` (`a353f16`, DEPLOYED v2115)
 - **What (`gtfs_rt.py`, pure; `app.py` serves):** `/gtfs-rt/vehicle-positions.pb`, `/gtfs-rt/trip-updates.pb`, `/gtfs-rt/alerts.pb` (`?format=json` too), every id from `/gtfs.zip`. Rebuilt at most every 10 s (`GTFS_RT_TTL_S`), only when someone asks. Apps poll these from their own servers (not per rider), so load is a few requests a minute per app; nobody uses them yet.
