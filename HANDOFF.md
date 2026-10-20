@@ -52,7 +52,7 @@ Checked against the entries below on 2026-10-06. Everything not listed here is b
 - **Branch `claude/late-dwell`:** unmerged prototype (see §3). Keep or delete is the user's call.
 - **Orange weekday holds after the block fix (v2114, 10-19):** the first weekday health runs should show Orange no worse; the old data held a few-min-late daytime bus ~5 min for a 2023 slot (late side). Read Orange in Tue 10-20's runs.
 
-### 2026-10-20 · [home] · `/gtfs`: documentation page for our GTFS + GTFS-RT, aimed at transit data professionals (NOT committed, NOT deployed: waiting on "cpd")
+### 2026-10-20 · [home] · `/gtfs`: documentation page for our GTFS + GTFS-RT, aimed at transit data professionals (`01f2f50`, DEPLOYED v2123; live page checked, status box shows prod numbers)
 - `html/gtfs.html`, served at `/gtfs` (`GTFS_HTML` in `app.py`; the zip stays at `/gtfs.zip`). Feed URLs, a live "current build" box from `/v1/gtfs/status`, how the schedule is built, ID conventions (trip_ids are NOT stable across block-package changes), the matching / trip-update / occupancy / alerts rules, validation results, known limitations, viewer links. Linked from `/sitemap` and the `/feeds` GTFS section. Checked in a headless Chrome at 320-1280 px: no overflow, no script errors.
 - If the feeds change (new fields, thresholds, routes), update this page too: it states the occupancy cut-offs and other specifics by hand.
 - Seen while checking: `/feeds` on a 390 px phone scrolls sideways because the shared nav bar's LOG IN button (`hg-nav__auth`) is ~40 px too wide. Pre-existing, not touched.
