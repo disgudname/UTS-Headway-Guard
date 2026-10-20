@@ -14,6 +14,11 @@
     "feed_contact_url": "https://parking.virginia.edu/"
   },
   "days": 60,
+  "occupancy": {
+    "_comment": "GTFS-RT crowding label per bus, keyed by the capacity TransLoc reports for it (GetVehicleCapacities). steps: [riders at least, label], the last one reached wins. 18 = the 24xxx buses: 12 seats, 18 is a hard limit. 50 = everything else: 31 seats, 50 is a rough rating, 60-65 get crammed in (user, 2026-10-20). occupancy_percentage is riders / TransLoc capacity and may pass 100.",
+    "18": [[0, "EMPTY"], [1, "MANY_SEATS_AVAILABLE"], [7, "FEW_SEATS_AVAILABLE"], [12, "STANDING_ROOM_ONLY"], [18, "FULL"]],
+    "50": [[0, "EMPTY"], [1, "MANY_SEATS_AVAILABLE"], [16, "FEW_SEATS_AVAILABLE"], [31, "STANDING_ROOM_ONLY"], [50, "CRUSHED_STANDING_ROOM_ONLY"], [60, "FULL"]]
+  },
   "routes": [
     {"route_id": "gold", "name": "Gold Line", "transloc_ids": ["67", "57"]},
     {"route_id": "green", "name": "Green Line", "transloc_ids": ["68"]},

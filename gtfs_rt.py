@@ -48,6 +48,8 @@ class Vehicle:
     speed_mps: Optional[float] = None
     timestamp: Optional[int] = None  # epoch seconds of the GPS fix
     block: Optional[str] = None      # "[09]" (dispatch); None when unknown
+    riders: Optional[int] = None     # passengers on board (TransLoc's counter), None when unknown
+    capacity: Optional[int] = None   # TransLoc's capacity for this bus (18 or 50)
 
 
 @dataclass
@@ -178,9 +180,28 @@ def _trip_descriptor(desc: Any, trip: IndexedTrip, service_date: str, start_time
     desc.schedule_relationship = pb.TripDescriptor.SCHEDULED
 
 
+def occupancy(vehicle: Vehicle, steps_by_capacity: Dict[str, Any]) -> Optional[Tuple[int, int]]:
+    """(OccupancyStatus enum value, percentage) for a bus, or None when its count or its kind of bus is unknown.
+    steps_by_capacity is config/gtfs.json "occupancy": {capacity: [[riders at least, status name], ...]}."""
+    if vehicle.riders is None or not vehicle.capacity:
+        return None
+    steps = steps_by_capacity.get(str(vehicle.capacity))
+    if not isinstance(steps, list) or not steps:
+        return None
+    riders = max(0, int(vehicle.riders))
+    status = None
+    for at_least, name in sorted(steps, key=lambda s: s[0]):
+        if riders >= at_least:
+            status = name
+    if status is None:
+        return None
+    return pb.VehiclePosition.OccupancyStatus.Value(status), int(round(100.0 * riders / vehicle.capacity))
+
+
 def build_realtime(
     index: FeedIndex, service_date: str, day_start: float, vehicles: Iterable[Vehicle],
     etas: Dict[Tuple[str, str], List[Tuple[str, float]]], now: float,
+    occupancy_steps: Optional[Dict[str, Any]] = None,
 ) -> Tuple[Any, Any, Dict[str, Any]]:
     """(VehiclePositions FeedMessage, TripUpdates FeedMessage, stats)."""
     positions, updates = pb.FeedMessage(), pb.FeedMessage()
@@ -217,6 +238,9 @@ def build_realtime(
             vp.position.speed = float(v.speed_mps)
         if v.timestamp:
             vp.timestamp = int(v.timestamp)
+        occ = occupancy(v, occupancy_steps or {})
+        if occ is not None:
+            vp.occupancy_status, vp.occupancy_percentage = occ
         if not match or not match.updates:
             continue
         trips = [(match.trip, match.start_time, match.updates)]

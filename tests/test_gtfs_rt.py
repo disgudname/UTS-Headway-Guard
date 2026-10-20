@@ -115,3 +115,46 @@ def test_stop_times_strictly_increase_even_when_two_etas_tie():
             times.append(u.arrival.time)
     assert times == sorted(set(times)) and len(times) == len(set(times))
     assert int(now + 90) in times and int(now + 300) in times  # the tied stop C is the one left out
+
+
+def _steps():
+    import json
+    return json.loads((ROOT_DIR / "config" / "gtfs.json").read_text(encoding="utf-8"))["occupancy"]
+
+
+def _occ(riders, capacity):
+    bus = rt.Vehicle(vehicle_id="1", label="x", transloc_route_id="10", lat=0, lon=0, riders=riders, capacity=capacity)
+    got = rt.occupancy(bus, _steps())
+    return (rt.pb.VehiclePosition.OccupancyStatus.Name(got[0]), got[1]) if got else None
+
+
+def test_small_bus_crowding_labels():
+    # 24xxx: 12 seats, 18 is a hard limit (user, 2026-10-20)
+    assert _occ(0, 18) == ("EMPTY", 0)
+    assert _occ(6, 18)[0] == "MANY_SEATS_AVAILABLE"
+    assert _occ(7, 18)[0] == "FEW_SEATS_AVAILABLE"
+    assert _occ(12, 18)[0] == "STANDING_ROOM_ONLY"
+    assert _occ(18, 18) == ("FULL", 100)
+
+
+def test_big_bus_crowding_labels():
+    # 31 seats, 50 is a rough rating, 60-65 get crammed in
+    assert _occ(15, 50)[0] == "MANY_SEATS_AVAILABLE"
+    assert _occ(16, 50)[0] == "FEW_SEATS_AVAILABLE"
+    assert _occ(31, 50)[0] == "STANDING_ROOM_ONLY"
+    assert _occ(50, 50)[0] == "CRUSHED_STANDING_ROOM_ONLY"
+    assert _occ(62, 50) == ("FULL", 124)  # the percentage may pass 100
+
+
+def test_no_count_or_unknown_bus_kind_sends_nothing():
+    assert _occ(None, 50) is None
+    assert _occ(10, None) is None
+    assert _occ(10, 40) is None  # a capacity the config has no steps for
+
+
+def test_occupancy_lands_in_the_vehicle_positions_feed():
+    bus = _bus()
+    bus.riders, bus.capacity = 40, 50
+    positions, _, _ = rt.build_realtime(_two_trips(), SERVICE_DATE, DAY, [bus], {}, DAY + 7 * H, _steps())
+    vp = positions.entity[0].vehicle
+    assert vp.occupancy_status == rt.pb.VehiclePosition.STANDING_ROOM_ONLY and vp.occupancy_percentage == 80

@@ -19873,6 +19873,7 @@ def _gtfs_build_sync() -> Dict[str, Any]:
     return {
         "zip": gtfs_feed.write_zip(tables),
         "_index": index,
+        "_occupancy": config.get("occupancy") or {},
         "_stop_ids": [r["stop_id"] for r in tables["stops.txt"]],
         "built_at": now.isoformat(timespec="seconds"),
         "service_day": service_day.isoformat(),
@@ -19947,6 +19948,7 @@ _gtfs_rt_lock = asyncio.Lock()
 
 def _gtfs_rt_vehicles(blocks: Dict[str, str], now: float) -> List[gtfs_rt.Vehicle]:
     windows = _vehicle_block_windows()
+    capacities = dict(getattr(state, "vehicle_capacities", {}) or {})
     out = []
     for v in list(getattr(state, "vehicles_raw", []) or []):
         vid = v.get("VehicleID")
@@ -19956,6 +19958,8 @@ def _gtfs_rt_vehicles(blocks: Dict[str, str], now: float) -> List[gtfs_rt.Vehicl
         if ts_ms is not None and now - ts_ms / 1000.0 > STALE_FIX_S:
             continue  # no fresh fix: leave the bus out rather than show it where it was
         rid = v.get("RouteID")
+        cap = capacities.get(vid) or capacities.get(str(vid)) or {}
+        riders, capacity = cap.get("current_occupation"), cap.get("capacity")
         out.append(gtfs_rt.Vehicle(
             vehicle_id=str(vid), label=str(v.get("Name") or vid),
             transloc_route_id=str(rid) if rid not in (None, 0, "0") else None,
@@ -19965,6 +19969,8 @@ def _gtfs_rt_vehicles(blocks: Dict[str, str], now: float) -> List[gtfs_rt.Vehicl
             # TransLoc's clock runs a few seconds ahead of ours; a fix stamped after the feed's own time is invalid
             timestamp=min(int(ts_ms / 1000), int(now)) if ts_ms else None,
             block=blocks.get(str(vid)) or _current_block_id_for_vehicle(windows, vid, now),
+            riders=int(riders) if isinstance(riders, (int, float)) else None,
+            capacity=int(capacity) if isinstance(capacity, (int, float)) and capacity > 0 else None,
         ))
     return out
 
@@ -19988,7 +19994,7 @@ async def _gtfs_rt_current() -> Dict[str, Any]:
             payload = {}
         positions, updates, stats = gtfs_rt.build_realtime(
             index, service_date, day_start, _gtfs_rt_vehicles(gtfs_rt.blocks_by_vehicle(payload), now),
-            gtfs_rt.etas_by_vehicle(payload), now,
+            gtfs_rt.etas_by_vehicle(payload), now, occupancy_steps=feed.get("_occupancy"),
         )
         alerts = gtfs_rt.build_alerts(index, _get_active_system_notices(), feed["_stop_ids"], now)
         stats["alerts"] = len(alerts.entity)
