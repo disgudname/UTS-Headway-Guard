@@ -82,7 +82,7 @@
       timestop: a bus arriving early holds there.</li>
     <li><strong>Pattern changes</strong> follow the block package's route-change notes. Most lines switch to an evening pattern
       around 18:00, published as a separate route where riders know it by a different name (Green Line &rarr; Green Loop,
-      Orange Line &rarr; Orange Loop) and as a different shape on the same route for Gold.</li>
+      Orange Line &rarr; Orange Loop) and as a different shape on the same route for the Gold Line.</li>
     <li><strong>End of service</strong> follows each block's out-of-service instructions: the last trip ends at the last stop that
       block serves before returning to the lot.</li>
     <li><strong>Purple Line</strong> runs on headway-based dispatching (anti-bunching), not a timetable, so it is published as
@@ -101,11 +101,17 @@
     <tr><td><code>route_id</code></td><td><code>gold</code>, <code>green</code>, <code>green-loop</code>, <code>orange</code>,
       <code>orange-loop</code>, <code>silver</code>, <code>night-pilot</code>, <code>purple</code></td><td>Stable.</td></tr>
     <tr><td><code>trip_id</code></td><td><code>{block}-{service_id}-{n}-{seq}</code>, e.g. <code>09-full_MTWRF-0-012</code>;
-      Purple <code>purple-{band}</code></td><td>Regenerated when a block package changes; not stable across schedule changes.</td></tr>
+      Purple Line <code>purple-{band}</code></td><td>Regenerated when a block package changes; not stable across schedule changes.</td></tr>
     <tr><td><code>block_id</code></td><td><code>{block}-{service_id}</code>, e.g. <code>09-full_MTWRF</code></td><td>Matches the operator's block numbers.</td></tr>
     <tr><td><code>service_id</code></td><td><code>{kind}_{days}</code>, e.g. <code>full_MTWRF</code>, <code>recess_MT</code>,
       <code>daily_RFS</code>, <code>purple_MTWRF</code></td><td>Days: M T W R F S U. <code>full</code> runs on non-recess days,
       <code>recess</code> on recess days, <code>daily</code> (lines with no recess timetable) on every service day.</td></tr>
+    <tr><td><code>trip_headsign</code> / <code>stop_headsign</code></td><td>The next major area the bus is heading to,
+      e.g. <code>Central Grounds</code>, <code>Hereford</code>, <code>UVA Hospital</code></td><td>Most routes are loops, so
+      the headsign changes during a trip: <code>stop_headsign</code> gives the area ahead from each stop, and
+      <code>trip_headsign</code> is the one at the trip's first stop. Place names follow the buses' destination signs.
+      For example, a daytime Gold Line bus says "Central Grounds" from Barracks to Alumni Hall, then "Hereford" from
+      Contemplative Commons on.</td></tr>
     <tr><td><code>shape_id</code></td><td>One shape per stop-to-stop pattern</td><td><code>shape_dist_traveled</code> in
       kilometres, in both <code>shapes.txt</code> and <code>stop_times.txt</code>.</td></tr>
   </table>

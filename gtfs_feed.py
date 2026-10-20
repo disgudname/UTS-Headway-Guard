@@ -434,6 +434,15 @@ class _Feed:
             scale = sched_s / run
         shape_id, dists = self._shape(route, i, j)
         gtfs_route = self.route_of[route.transloc_id]
+        zones = self._zone_labels(route)
+        stop_signs: Optional[List[Optional[str]]] = None
+        if zones is not None:
+            # The area the bus is heading to from each stop; at the last stop (nobody boards there) the bus is still
+            # arriving, so it keeps the previous stop's
+            stop_signs = [zones[k] for k in idx]
+            if len(stop_signs) > 1:
+                stop_signs[-1] = stop_signs[-2]
+            headsign = stop_signs[0]
         trip = {
             "route_id": gtfs_route, "service_id": service_id, "trip_id": trip_id,
             "trip_headsign": headsign or "", "block_id": block_id or "", "shape_id": shape_id or "",
@@ -459,6 +468,8 @@ class _Feed:
                 "stop_id": stop.stop_id, "stop_sequence": k + 1,
                 "timepoint": 1 if (first or (last and timepoint_end)) and frequency is None else 0,
                 "shape_dist_traveled": f"{dists[k]:.4f}" if dists else "",
+                # only where it differs from the trip's own headsign
+                "stop_headsign": stop_signs[k] if stop_signs and stop_signs[k] != headsign else "",
             }
             self.stop_times.append(row)
             self.used_stops.setdefault(stop.stop_id, stop)
@@ -473,6 +484,30 @@ class _Feed:
                 "trip_id": trip_id, "start_time": gtfs_time(start), "end_time": gtfs_time(end),
                 "headway_secs": headway, "exact_times": 0,
             })
+
+    def _zone_labels(self, route: Route) -> Optional[List[Optional[str]]]:
+        """config "headsign_zones" for this route: the headsign at each of its stops (index = position in the route's
+        stop list), or None if the route has no zones. A zone starts at its stop and runs, in loop order, to the next
+        zone's stop."""
+        zones = (self.inp.config.get("headsign_zones") or {}).get(route.transloc_id)
+        if not isinstance(zones, list) or not zones:
+            return None
+        starts = {str(stop_id): label for stop_id, label in zones}
+        n = len(route.stops)
+        first = next((k for k in range(n) if route.stops[k].stop_id in starts), None)
+        if first is None:
+            self.warnings.append(f"route {route.transloc_id}: none of its headsign_zones stops are on it")
+            return None
+        missing = [sid for sid in starts if sid not in {s.stop_id for s in route.stops}]
+        if missing:
+            self.warnings.append(f"route {route.transloc_id}: headsign_zones stops not on the route: {missing}")
+        out: List[Optional[str]] = [None] * n
+        label = starts[route.stops[first].stop_id]
+        for step in range(n):
+            k = (first + step) % n
+            label = starts.get(route.stops[k].stop_id, label)
+            out[k] = label
+        return out
 
     def _headsign(self, code: Optional[str], route: Route, idx: Optional[int]) -> Optional[str]:
         names = self.inp.config.get("headsigns") or {}
@@ -719,7 +754,7 @@ _COLUMNS = {
                    "route_text_color", "route_sort_order"],
     "stops.txt": ["stop_id", "stop_name", "stop_lat", "stop_lon", "location_type"],
     "trips.txt": ["route_id", "service_id", "trip_id", "trip_headsign", "block_id", "shape_id"],
-    "stop_times.txt": ["trip_id", "arrival_time", "departure_time", "stop_id", "stop_sequence", "timepoint",
+    "stop_times.txt": ["trip_id", "arrival_time", "departure_time", "stop_id", "stop_sequence", "stop_headsign", "timepoint",
                        "shape_dist_traveled"],
     "frequencies.txt": ["trip_id", "start_time", "end_time", "headway_secs", "exact_times"],
     "calendar_dates.txt": ["service_id", "date", "exception_type"],

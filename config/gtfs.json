@@ -14,6 +14,20 @@
     "feed_contact_url": "https://parking.virginia.edu/"
   },
   "days": 60,
+  "headsign_zones": {
+    "_comment": "{TransLoc route id: [[stop_id, headsign], ...]}: the headsign is the next major area the bus is heading to. Each entry starts at that stop (physical stop_id, in the route's loop order) and runs until the next entry, wrapping round the loop. stop_headsign comes from this; a trip's trip_headsign is the zone of its first stop. Place names follow the bus destination signs, spelled out; the hospital is always 'UVA Hospital' (user, 2026-10-20). Routes not listed fall back to 'headsigns' below. 6 Runk Dining Hall, 102 Chemistry Building, 156 Barracks Road Shopping Center, 30 Contemplative Commons, 66 Shannon Library, 74 UVA Chapel, 113 Madison & Preston, 79 JPA @ West Complex, 11 Carl Smith Way @ Scott Stadium, 55 Pinn Hall, 26 JPJ South Lot, 47 George Welsh Way @ Scott Stadium, 5 Lee St @ UVA Medical Center, 188 Fontaine.",
+    "67": [["6", "Central Grounds"], ["102", "Barracks"], ["156", "Central Grounds"], ["30", "Hereford"]],
+    "57": [["66", "Hereford"], ["6", "Central Grounds"], ["74", "Barracks"], ["156", "Central Grounds"]],
+    "68": [["6", "Central Grounds"], ["102", "Madison/Preston"], ["113", "Central Grounds"], ["30", "Hereford"]],
+    "54": [["74", "Madison/Preston"], ["113", "UVA Hospital"], ["79", "Central Grounds"]],
+    "53": [["113", "UVA Hospital"], ["79", "Scott Stadium"], ["11", "UVA Hospital"], ["55", "Madison/Preston"]],
+    "55": [["66", "UVA Hospital"], ["55", "Madison/Preston"], ["113", "Central Grounds"]],
+    "58": [["55", "JPJ Arena"], ["26", "UVA Hospital"]],
+    "59": [["66", "Hereford"], ["6", "UVA Hospital"], ["55", "Central Grounds"]],
+    "72": [["47", "UVA Hospital"], ["5", "Scott Stadium"]],
+    "74": [["188", "UVA Hospital"], ["5", "Fontaine"]],
+    "73": [["188", "UVA Hospital"], ["5", "Scott Stadium"], ["47", "Fontaine"]]
+  },
   "timestop_overrides": {
     "_comment": "{TransLoc route id: {sheet timestop code: RouteStopID}}: where the feed puts a sheet's timestop on that route. Gold blocks the sheet starts at CSW (Scott Stadium: [09] 05:00, [12] 07:30, [10] 08:30) really start at McCormick Rd @ Chemistry Building, part of a long-term detour the sheet never got (user, 2026-10-20). 879 = Chemistry on daytime Gold (67).",
     "67": {"CSW": "879"}

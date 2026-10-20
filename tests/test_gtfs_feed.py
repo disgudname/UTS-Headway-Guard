@@ -216,3 +216,18 @@ def test_stop_names_come_from_translocs_current_description():
     stop["Name"], stop["Description"] = "Whitehead Rd @ Scott Stadium", "Carl Smith Way @ Scott Stadium"
     tables, _ = g.build_feed(inp)
     assert {s["stop_id"]: s["stop_name"] for s in tables["stops.txt"]}["1"] == "Carl Smith Way @ Scott Stadium"
+
+
+def test_headsign_zones_give_per_stop_headsigns():
+    # "next area the bus is heading to": a zone starts at its stop and runs round the loop to the next zone
+    import copy
+    inp = _inputs({"[09]": _block([(7 * H, "AA"), (7 * H + 900, "AA")])})  # a full lap A -> B -> C -> D -> A
+    inp.config = copy.deepcopy(CONFIG)
+    inp.config["headsign_zones"] = {"10": [["1", "North"], ["3", "South"]]}
+    tables, warnings = g.build_feed(inp)
+    assert not warnings
+    (trip,) = tables["trips.txt"]
+    assert trip["trip_headsign"] == "North"
+    rows = [(r["stop_id"], r["stop_headsign"]) for r in tables["stop_times.txt"]]
+    # A, B in North (same as the trip: left blank); C, D in South; the final A keeps D's (the bus is arriving)
+    assert rows == [("1", ""), ("2", ""), ("3", "South"), ("4", "South"), ("1", "South")]
