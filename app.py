@@ -60,6 +60,7 @@ import cat_gtfs
 import bus_eta
 import purple_release
 import anti_bunching_log
+import onboard_log
 import uts_blocks
 import gtfs_feed
 import gtfs_rt
@@ -18057,7 +18058,26 @@ async def onboard_state(
     """What an on-board sign shows for one bus: its route, the stop it is at, and its upcoming stops with
     ETAs. Position comes from the device (lat/lon), else TransLoc, or from the vehicle logs when `at` is
     given. `status` is in_service / not_in_service (bus known, no route) / unknown_bus / no_data."""
-    bus = bus.strip()
+    out, veh = await _onboard_state(bus.strip(), at, lat, lon, heading, speed)
+    if at is None and ONBOARD_LOG is not None:
+        try:
+            rec = onboard_log.build_record(out, out["time"] / 1000.0, veh,
+                                           {"lat": lat, "lon": lon, "heading": heading, "speed": speed})
+            await asyncio.to_thread(ONBOARD_LOG.record, rec)
+        except Exception as exc:
+            print(f"[onboard] log write failed: {exc}")
+    return out
+
+
+# What live /onboard signs were shown, for scripts/onboard_score.py. ONBOARD_LOG=0 turns it off.
+ONBOARD_LOG = onboard_log.OnboardLog(PRIMARY_DATA_DIR / "onboard_log") if os.getenv("ONBOARD_LOG", "1") != "0" else None
+
+
+async def _onboard_state(
+    bus: str, at: Optional[int], lat: Optional[float], lon: Optional[float],
+    heading: Optional[float], speed: Optional[float],
+) -> Tuple[Dict[str, Any], Any]:
+    """(the /v1/onboard answer, the TransLoc Vehicle it was built from or None)."""
     models = await _onboard_models()
     out: Dict[str, Any] = {
         "bus": bus, "mode": "replay" if at is not None else "live", "status": "unknown_bus",
@@ -18111,7 +18131,7 @@ async def onboard_state(
 
     out["time"] = int(when_ts * 1000)
     if out["status"] != "in_service":
-        return out
+        return out, veh
     desc, _, info = (line.name or "").partition(" — ")
     out["route"] = {"id": route_id, "name": desc.strip(), "info": info.strip(), "color": f"#{line.color.lstrip('#')}"}
     out["block"] = block_id
@@ -18133,7 +18153,7 @@ async def onboard_state(
         rows, _onboard_route_label(line.name), running_transfers, running_conns, _onboard_announce_rules())
     notices = _active_notice_texts([str(s.id) for s in line.stops])
     out["alert"] = " ".join(text for _id, text in notices) if notices else None
-    return out
+    return out, veh
 
 
 @app.get("/v1/metromap/debug")
