@@ -73,9 +73,12 @@ def now_at_check(recs, stops, lines):
             tracks[(r["veh"], str(r["route"]))].append((r["t"], r["tl"][0], r["tl"][1]))
     wanted = {(route, stop, veh) for _t, route, stop, veh in episodes}
     crossings = eta_compare.find_crossings(tracks, stops, lines, wanted)
+    last_seen = {k: max(x[0] for x in v) for k, v in tracks.items()}
     out = []
     for t, route, stop, veh in episodes:
         passes = crossings.get((route, stop, veh), [])
+        if not passes and last_seen.get((veh, route), 0.0) < t + NOW_AT_EARLY_S:
+            continue  # the log ends before the bus could have left: can't judge it
         nearest = min((p - t for p in passes), key=abs, default=None)
         ok = nearest is not None and -NOW_AT_LATE_S <= nearest <= NOW_AT_EARLY_S
         out.append((t, route, stop, veh, ok, nearest))
