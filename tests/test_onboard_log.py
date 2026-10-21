@@ -117,9 +117,9 @@ def test_now_at_matches_the_pass():
 def test_now_at_flags_a_stop_the_bus_never_passed():
     stops, lines = straight_graph()
     recs = drive(stops)
-    recs[3]["at"] = ["999", True]
+    recs[3]["at"] = ["103", True]   # bus at ~150 m, stop 103 is ~1.5 km along
     checks = onboard_score.now_at_check(recs, stops, lines)
-    assert [c[2] for c in checks if not c[4]] == ["999"]
+    assert [c[2] for c in checks if not c[4]] == ["103"]
 
 
 def test_report_runs():

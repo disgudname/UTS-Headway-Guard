@@ -48,10 +48,18 @@ def to_polls(recs):
         if r.get("status") != "in_service" or not r.get("veh") or not r.get("tl") or not r.get("route"):
             continue
         veh, route = r["veh"], str(r["route"])
-        lat, lon, mps = r["tl"][0], r["tl"][1], r["tl"][2]
+        lat, lon, mps = best_fix(r)
         ours = [[route, str(sid), veh, sec, None, r.get("block")] for sid, sec in r.get("eta") or [] if sec is not None]
         out[r["bus"]].append({"t": r["t"], "ours": ours, "tl": [], "veh": [[veh, route, lat, lon, mps]]})
     return out
+
+
+def best_fix(r):
+    """(lat, lon, mps) of the bus for a log line: the tablet's fix when it sent one (fresher than TransLoc's,
+    which ran 10-15 s behind on 10-21), else TransLoc's."""
+    if r.get("dev"):
+        return r["dev"][0], r["dev"][1], r["dev"][3] if r["dev"][3] is not None else r["tl"][2]
+    return r["tl"][0], r["tl"][1], r["tl"][2]
 
 
 def pct(xs, p):
@@ -63,8 +71,12 @@ def clock(t):
     return datetime.fromtimestamp(t, NY).strftime("%H:%M:%S")
 
 
+NOW_AT_ARC_M = 150.0     # "now at" X is right if the bus's position ALONG the route is this close to X's
+
+
 def now_at_check(recs, stops, lines):
-    """[(t, route, stop, veh, ok, nearest pass offset s or None)] -- one per 'now at' episode."""
+    """[(t, route, stop, veh, ok, along-route metres from the stop or None)] -- one per 'now at' episode. Wrong
+    = the bus was somewhere else on the line (the other pass of a road it drives both ways, a twin stop)."""
     episodes, prev = [], None
     for r in recs:
         at = r.get("at")
@@ -75,18 +87,18 @@ def now_at_check(recs, stops, lines):
     tracks = defaultdict(list)
     for r in recs:
         if r.get("veh") and r.get("tl") and r.get("route"):
-            tracks[(r["veh"], str(r["route"]))].append((r["t"], r["tl"][0], r["tl"][1]))
-    wanted = {(route, stop, veh) for _t, route, stop, veh in episodes}
-    crossings = eta_compare.find_crossings(tracks, stops, lines, wanted)
-    last_seen = {k: max(x[0] for x in v) for k, v in tracks.items()}
+            lat, lon, _mps = best_fix(r)
+            tracks[(r["veh"], str(r["route"]))].append((r["t"], lat, lon))
+    unwrapped = eta_compare.build_unwrapped(tracks, lines)
     out = []
     for t, route, stop, veh in episodes:
-        passes = crossings.get((route, stop, veh), [])
-        if not passes and last_seen.get((veh, route), 0.0) < t + NOW_AT_EARLY_S:
-            continue  # the log ends before the bus could have left: can't judge it
-        nearest = min((p - t for p in passes), key=abs, default=None)
-        ok = nearest is not None and -NOW_AT_LATE_S <= nearest <= NOW_AT_EARLY_S
-        out.append((t, route, stop, veh, ok, nearest))
+        u = unwrapped.get((veh, route))
+        pos = eta_compare.position_at(u, t) if u else None
+        if pos is None or (route, stop) not in stops:
+            continue
+        length = lines[route][1][-1]
+        gap = ((pos - stops[(route, stop)][3] + length / 2.0) % length) - length / 2.0
+        out.append((t, route, stop, veh, abs(gap) <= NOW_AT_ARC_M, gap))
     return out
 
 
@@ -227,11 +239,10 @@ def report(day, recs, stops, lines, only_bus=None, events=(), sensors=()):
         checks = now_at_check(rs, stops, lines)
         if checks:
             bad = [c for c in checks if not c[4]]
-            say(f"  'Now at' (stopped) shown {len(checks)} times, {len(bad)} not matched to the bus passing that stop:")
-            for t, route, stop, _veh, _ok, nearest in bad[:10]:
+            say(f"  'Now at' (stopped) shown {len(checks)} times, {len(bad)} with the bus elsewhere on the line:")
+            for t, route, stop, _veh, _ok, gap in bad[:10]:
                 name = stops.get((route, stop), (None, None, stop))[2]
-                when = f"nearest pass {nearest:+.0f}s" if nearest is not None else "bus never seen passing it"
-                say(f"    {clock(t)} {name} ({when})")
+                say(f"    {clock(t)} {name} (bus {gap:+.0f} m along the route from it)")
 
         # The tablet's own announcements, timed against its 1 Hz GPS track
         ev = sorted((e for e in events if str(e.get("bus")) == bus and "t" in e), key=lambda e: e["t"])
