@@ -5,8 +5,12 @@ Every live GET /v1/onboard writes one line: the bus, where it was (TransLoc's fi
 if sent), the stop the sign says it is at, and the ETAs it was given. Replays (?at=) are not logged.
 Two tabs on the same bus would double the lines, so a bus is logged at most once per MIN_GAP_S.
 
+The tablets also POST what they did between polls (/v1/onboard/telemetry): `events` (each announcement,
+and the page's own "at stop" / "stopped" / "moving" calls) to YYYY-MM-DD.events.jsonl, and `sensors` (one
+summary a second of GPS + accelerometer + gyroscope) to YYYY-MM-DD.sensors.jsonl.
+
 One file per service day in `<data dir>/onboard_log/YYYY-MM-DD.jsonl`. A service day runs to 04:00
-local, so a night bus stays in one file. Kept for KEEP_DAYS.
+local, so a night bus stays in one file. Kept for KEEP_DAYS (sensor files SENSOR_KEEP_DAYS).
 """
 import json
 from datetime import datetime, timedelta
@@ -16,6 +20,10 @@ from zoneinfo import ZoneInfo
 
 NY_TZ = ZoneInfo("America/New_York")
 KEEP_DAYS = 60
+SENSOR_KEEP_DAYS = 21
+EXTRA_KINDS = ("events", "sensors")
+MAX_ITEM_CHARS = 1000            # one event / sensor summary; anything longer is dropped
+MAX_EXTRA_FILE_BYTES = 200 * 1024 * 1024  # per day and kind: the endpoint is public, so a runaway client stops here
 MIN_GAP_S = 4.0
 MAX_STOPS = 10
 SERVICE_DAY_ROLLOVER_H = 4
@@ -83,17 +91,42 @@ class OnboardLog:
             self.prune(now)
         return True
 
+    def record_extra(self, kind: str, bus: str, items: List[Any], now: float) -> int:
+        """Append a tablet's events or sensor summaries, each tagged with the bus. Returns lines written."""
+        if kind not in EXTRA_KINDS:
+            raise ValueError(kind)
+        lines = []
+        for item in items:
+            if not isinstance(item, dict):
+                continue
+            text = json.dumps({**item, "bus": bus}, separators=(",", ":"))
+            if len(text) <= MAX_ITEM_CHARS:
+                lines.append(text)
+        if not lines:
+            return 0
+        day = service_day(now)
+        path = self.directory / f"{day}.{kind}.jsonl"
+        self.directory.mkdir(parents=True, exist_ok=True)
+        if path.exists() and path.stat().st_size > MAX_EXTRA_FILE_BYTES:
+            return 0
+        with path.open("a", encoding="utf-8") as f:
+            f.write("\n".join(lines) + "\n")
+        return len(lines)
+
     def prune(self, now: float) -> None:
-        cutoff = (datetime.fromtimestamp(now, NY_TZ) - timedelta(days=KEEP_DAYS)).strftime("%Y-%m-%d")
+        local = datetime.fromtimestamp(now, NY_TZ)
+        cutoff = (local - timedelta(days=KEEP_DAYS)).strftime("%Y-%m-%d")
+        sensor_cutoff = (local - timedelta(days=SENSOR_KEEP_DAYS)).strftime("%Y-%m-%d")
         for p in self.directory.glob("*.jsonl"):
-            if p.stem < cutoff:
+            day = p.name[:10]
+            if day < cutoff or (p.name.endswith(".sensors.jsonl") and day < sensor_cutoff):
                 try:
                     p.unlink()
                 except OSError:
                     pass
 
-    def read(self, day: str) -> List[Dict[str, Any]]:
-        path = self._path(day)
+    def read(self, day: str, kind: Optional[str] = None) -> List[Dict[str, Any]]:
+        path = self._path(day) if kind is None else self.directory / f"{day}.{kind}.jsonl"
         if not path.exists():
             return []
         out = []

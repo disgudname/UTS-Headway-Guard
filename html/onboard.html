@@ -229,6 +229,25 @@
     const HOLD_ANNOUNCE_MAX_MIN = 20;      // longest hold there is a clip for (scripts/build_ava_clips.py)
     const GPS_MAX_AGE_MS = 15000;
     const GPS_MAX_ACCURACY_M = 100;
+    // Between polls the page decides "at a stop" / "arriving" / "stopped" itself from the tablet's GPS (once a
+    // second) and motion sensors, instead of waiting up to POLL_MS for the server. Only with a fix this fresh
+    // and this good; otherwise it uses the server's answer as before. Tunable from the address for testing.
+    const num = (k, d) => (params.has(k) && Number.isFinite(Number(params.get(k))) ? Number(params.get(k)) : d);
+    const LOCAL = params.get('local') !== '0';
+    const LOCAL_FIX_MAX_AGE_MS = 4000;
+    const LOCAL_FIX_MAX_ACC_M = num('acc', 30);
+    const LEAVE_EXTRA_M = 15;        // hysteresis: out of a stop zone only this far past its edge
+    const ARRIVE_NEAR_M = num('near', 35);   // "This is X" once this close ...
+    const ARRIVE_MAX_M = num('arrive_m', 150); // ... or this close and
+    const ARRIVE_LEAD_S = num('arrive_s', 8);  // ... this many seconds out at the current speed
+    const ARRIVE_SANITY_S = 120;     // never while the server's ETA for X is further out than this
+    const STOPPED_MPS = 1.0;         // GPS speed at or under this: stopped (as the server's ONBOARD_STOPPED_MPS)
+    const MOTION_STILL_SD = num('still_sd', 0.08);  // m/s^2 of horizontal vibration under which the bus is still
+    const MOTION_MOVE_SD = num('move_sd', 0.25);    // ... and over which it is moving
+    const MOTION_STILL_MS = 1500;    // still this long before it counts
+    const MOTION_MOVE_MS = 700;
+    const SENSORS = !REPLAY && params.get('sensors') !== '0';  // send 1 Hz GPS + motion summaries (scripts/onboard_score.py)
+    const TELEMETRY_MS = 10000;
     const STALE_BADGE_MS = 20000;
     const STALE_BLANK_MS = 90000;
     const TZ = 'America/New_York';
@@ -272,6 +291,90 @@
         el.style.fontSize = `${size * unit}px`;
       }
     }
+
+    function haversine(aLat, aLon, bLat, bLon) {
+      const r = Math.PI / 180, dLat = (bLat - aLat) * r, dLon = (bLon - aLon) * r;
+      const h = Math.sin(dLat / 2) ** 2 + Math.cos(aLat * r) * Math.cos(bLat * r) * Math.sin(dLon / 2) ** 2;
+      return 12742000 * Math.asin(Math.sqrt(h));
+    }
+    const freshFix = () => (!REPLAY && LOCAL && fix && Date.now() - fix.at <= LOCAL_FIX_MAX_AGE_MS
+      && fix.accuracy <= LOCAL_FIX_MAX_ACC_M ? fix : null);
+
+    // ---- Telemetry: what this tablet did between polls, POSTed to /v1/onboard/telemetry every TELEMETRY_MS.
+    const outEvents = [], outSensors = [];
+    function logEvent(kind, extra) {
+      if (REPLAY || !BUS) return;
+      const f = fix && Date.now() - fix.at <= LOCAL_FIX_MAX_AGE_MS ? fix : null;
+      outEvents.push(Object.assign({
+        t: Date.now() / 1000, kind, route: data && data.route ? data.route.id : null,
+        lat: f ? +f.lat.toFixed(6) : null, lon: f ? +f.lon.toFixed(6) : null,
+        acc: f ? Math.round(f.accuracy) : null, spd: f && f.speed !== null ? +f.speed.toFixed(2) : null,
+        motion: motion.state,
+      }, extra || {}));
+      if (outEvents.length > 500) outEvents.splice(0, outEvents.length - 500);
+    }
+    function flushTelemetry(beacon) {
+      if (!BUS || (!outEvents.length && !outSensors.length)) return;
+      const body = JSON.stringify({ bus: BUS, events: outEvents.splice(0), sensors: outSensors.splice(0) });
+      if (beacon && navigator.sendBeacon) { navigator.sendBeacon('/v1/onboard/telemetry', new Blob([body], { type: 'application/json' })); return; }
+      fetch('/v1/onboard/telemetry', { method: 'POST', body, headers: { 'Content-Type': 'application/json' }, keepalive: true })
+        .catch((err) => console.warn('[onboard] telemetry', err));
+    }
+
+    // ---- Motion: the accelerometer feels the bus brake to a stop and pull away a second or more before GPS
+    // speed shows it. Orientation-free: gravity is tracked with a slow low-pass filter, and what is left over
+    // is split into vertical and horizontal; the yaw rate is the gyroscope's spin around the gravity axis.
+    // `state` is 'still' / 'moving' / 'unknown' (no sensor events, or in between).
+    const motion = { state: 'unknown', lastEventAt: 0, g: null, hMean: 0, hVar: 0, belowSince: 0, aboveSince: 0, sec: null };
+    function onMotion(ev) {
+      const aig = ev.accelerationIncludingGravity;
+      if (!aig || aig.x === null) return;
+      const now = performance.now();
+      const a = [aig.x, aig.y, aig.z];
+      if (!motion.g) motion.g = a.slice();
+      for (let i = 0; i < 3; i++) motion.g[i] += (a[i] - motion.g[i]) * 0.01;
+      const gn = Math.hypot(...motion.g) || 9.81;
+      const gu = motion.g.map((v) => v / gn);
+      const lin = ev.acceleration && ev.acceleration.x !== null
+        ? [ev.acceleration.x, ev.acceleration.y, ev.acceleration.z] : a.map((v, i) => v - motion.g[i]);
+      const vert = lin[0] * gu[0] + lin[1] * gu[1] + lin[2] * gu[2];
+      const h = Math.hypot(lin[0] - vert * gu[0], lin[1] - vert * gu[1], lin[2] - vert * gu[2]);
+      const rr = ev.rotationRate;
+      const yaw = rr && rr.alpha !== null ? (rr.beta || 0) * gu[0] + (rr.gamma || 0) * gu[1] + (rr.alpha || 0) * gu[2] : null;
+      // ~0.7 s exponential window at 60 Hz
+      const k = 0.025;
+      motion.hMean += (h - motion.hMean) * k;
+      motion.hVar += ((h - motion.hMean) ** 2 - motion.hVar) * k;
+      const sd = Math.sqrt(motion.hVar);
+      motion.lastEventAt = now;
+      if (sd < MOTION_STILL_SD) { motion.belowSince = motion.belowSince || now; motion.aboveSince = 0; }
+      else if (sd > MOTION_MOVE_SD) { motion.aboveSince = motion.aboveSince || now; motion.belowSince = 0; }
+      else { motion.belowSince = 0; motion.aboveSince = 0; }
+      const prev = motion.state;
+      if (motion.belowSince && now - motion.belowSince >= MOTION_STILL_MS) motion.state = 'still';
+      else if (motion.aboveSince && now - motion.aboveSince >= MOTION_MOVE_MS) motion.state = 'moving';
+      if (motion.state !== prev) { logEvent('motion', { to: motion.state, sd: +sd.toFixed(3) }); render(); }
+      // One summary a second for the log.
+      const s = motion.sec || (motion.sec = { start: now, n: 0, h: 0, h2: 0, hMax: 0, v2: 0, yaw: 0, yawN: 0, yawMax: 0 });
+      s.n++; s.h += h; s.h2 += h * h; s.hMax = Math.max(s.hMax, h); s.v2 += vert * vert;
+      if (yaw !== null) { s.yaw += yaw; s.yawN++; s.yawMax = Math.max(s.yawMax, Math.abs(yaw)); }
+      if (now - s.start >= 1000) {
+        motion.sec = null;
+        if (!SENSORS) return;
+        const mean = s.h / s.n, f = fix && Date.now() - fix.at <= 3000 ? fix : null;
+        outSensors.push({
+          t: +(Date.now() / 1000).toFixed(2), n: s.n,
+          h: +mean.toFixed(3), hsd: +Math.sqrt(Math.max(0, s.h2 / s.n - mean * mean)).toFixed(3), hmax: +s.hMax.toFixed(2),
+          v: +Math.sqrt(s.v2 / s.n).toFixed(3), sd: +sd.toFixed(3),
+          yaw: s.yawN ? +(s.yaw / s.yawN).toFixed(1) : null, yawmax: s.yawN ? +s.yawMax.toFixed(1) : null,
+          st: motion.state,
+          lat: f ? +f.lat.toFixed(6) : null, lon: f ? +f.lon.toFixed(6) : null, acc: f ? Math.round(f.accuracy) : null,
+          spd: f && f.speed !== null ? +f.speed.toFixed(2) : null, hdg: f && f.heading !== null ? Math.round(f.heading) : null,
+        });
+        if (outSensors.length > 900) outSensors.splice(0, outSensors.length - 900);
+      }
+    }
+    const motionState = () => (performance.now() - motion.lastEventAt < 2000 ? motion.state : 'unknown');
 
     // ---- AVA: stop announcements, from recorded clips in media/ava/ (one per sentence; manifest.json
     // "recorded") with scripts/build_ava_clips.py's TTS clips as the fallback. No browser text-to-speech.
@@ -364,8 +467,9 @@
       return ms >= HOLD_ANNOUNCE_MIN_MS && mins <= HOLD_ANNOUNCE_MAX_MIN ? mins : null;
     }
 
-    // `arriving`: the bus is ARRIVING AT `next` (no `at`).
-    function announce(at, next, arriving) {
+    // `arriving`: the bus is ARRIVING AT `next` (no `at`). `source`: 'local' (the tablet's own GPS/motion) or
+    // 'server' (the last poll), logged with each announcement.
+    function announce(at, next, arriving, source) {
       const here = at || (arriving ? next : null);
       if (at) lastAt = at.id;
       if (here && here.id !== thisSaid) {
@@ -376,6 +480,7 @@
         const hold = holdMinutes(here, signNow() + (at ? 0 : (here.seconds || 0) * 1000));
         if (hold !== null) parts.push(`_hold-${hold}`);
         say(parts);
+        logEvent('this-is', { stop: here.id, at: !!at, src: source, d: distTo(here), hold });
       }
       // Once the bus has really stopped: "This is a Hereford bound Gold Line." (one recorded sentence per
       // route + /route-destinations label; a pair with no recording stays quiet), then the next stop.
@@ -383,14 +488,67 @@
       if (at && at.stopped && at.bound && at.id !== boundSaid) {
         boundSaid = at.id;
         const file = `bound--${clipSlug(at.bound.route)}--${clipSlug(at.bound.to)}`;
-        if (!clip(file).error) parts.push(file);
+        if (!clip(file).error) { parts.push(file); logEvent('bound', { stop: at.id, src: source, d: distTo(at) }); }
       }
       const then = at ? (at.stopped ? next : null) : (arriving ? null : next);
       if (then && then.id !== nextSaid && then.id !== lastAt) {
         nextSaid = then.id;
         parts.push(line('next-stop', then));
+        logEvent('next-stop', { stop: then.id, from: at ? at.id : lastAt, stopped: !!(at && at.stopped), src: source });
       }
       if (parts.length) say(parts);
+    }
+
+    const distTo = (s) => {
+      const f = freshFix();
+      return f && s && s.lat !== undefined ? Math.round(haversine(f.lat, f.lon, s.lat, s.lon)) : null;
+    };
+
+    // Where the bus is right now: {at, upcoming, arriving, source}. With a fresh, good tablet fix the page
+    // decides it itself, but only among the stops the server already put in order (the stop it is at, then
+    // its next stop), so the server still picks the right pass of the line and the right side of the street.
+    let localAtId = null, localStopped = false;
+    let localPassedId = null;  // stop the page saw the bus leave, still first in the server's list until it catches up
+    function currentView(left) {
+      const stops = data.stops || [];
+      const sAt = data.at_stop;
+      const f = freshFix();
+      if (!f) {
+        const next = stops[0];
+        const s = next && !sAt ? left(next) : null;
+        return { at: sAt, upcoming: stops, arriving: s !== null && s <= ARRIVING_S, source: 'server' };
+      }
+      if (localPassedId && !(sAt && sAt.id === localPassedId) && !(stops[0] && stops[0].id === localPassedId)) localPassedId = null;
+      const zone = data.zone_m || 40;
+      const d = (s) => (s && s.lat !== undefined ? haversine(f.lat, f.lon, s.lat, s.lon) : Infinity);
+      const inZone = (s) => d(s) <= zone + (localAtId === s.id ? LEAVE_EXTRA_M : 0);
+      let at = null, upcoming = stops;
+      if (sAt && inZone(sAt)) at = sAt;
+      else if (stops[0] && inZone(stops[0])) { at = Object.assign({}, stops[0], { seconds: 0 }); upcoming = stops.slice(1); }
+      else if (stops[0] && stops[0].id === localPassedId) upcoming = stops.slice(1);
+      if ((at ? at.id : null) !== localAtId) {
+        if (localAtId && !at) localPassedId = localAtId;
+        if (localAtId) logEvent('zone-out', { stop: localAtId, d: Math.round(d([sAt, ...stops].find((s) => s && s.id === localAtId))) });
+        if (at) logEvent('zone-in', { stop: at.id, d: Math.round(d(at)) });
+        localAtId = at ? at.id : null;
+        localStopped = false;
+      }
+      if (at) {
+        // Stopped: GPS says so (the server's rule), or, sooner, the accelerometer has felt the bus go still
+        // while GPS speed is still catching up. Motion never vetoes GPS: an idling engine can keep it buzzing.
+        const gpsStill = f.speed !== null && f.speed <= STOPPED_MPS;
+        const stopped = gpsStill || (motionState() === 'still' && (f.speed === null || f.speed < 2.5));
+        if (stopped !== localStopped) { localStopped = stopped; logEvent(stopped ? 'stopped' : 'moving', { stop: at.id, d: Math.round(d(at)) }); }
+        at = Object.assign({}, at, { stopped });
+      }
+      let arriving = false;
+      const next = upcoming[0];
+      if (!at && next) {
+        const dn = d(next), s = left(next), spd = f.speed || 0;
+        arriving = (s === null || s <= ARRIVE_SANITY_S)
+          && (dn <= ARRIVE_NEAR_M || (dn <= ARRIVE_MAX_M && spd > 1 && dn / spd <= ARRIVE_LEAD_S));
+      }
+      return { at, upcoming, arriving, source: 'local' };
     }
 
     function overlay(title, sub) {
@@ -427,7 +585,9 @@
         const p = data.position || {};
         badge.push(`bus ${BUS} ${data.status} pos:${p.source || '-'} block:${data.block || '-'}` +
           (fix ? ` gps:${Math.round(fix.accuracy)}m` : ' gps:none') +
-          (p.device_offset_m !== undefined ? ` offset:${p.device_offset_m}m` : ''));
+          (p.device_offset_m !== undefined ? ` offset:${p.device_offset_m}m` : '') +
+          ` decide:${freshFix() ? 'local' : 'server'} motion:${motionState()} sd:${Math.sqrt(motion.hVar).toFixed(3)}` +
+          (fix && fix.speed !== null ? ` spd:${fix.speed.toFixed(1)}` : ''));
       }
       $('badge').textContent = badge.join('  |  ');
       $('badge').classList.toggle('on', badge.length > 0);
@@ -444,8 +604,9 @@
       const elapsed = (performance.now() - dataAt) / 1000 * SPEED;
       const left = (s) => (s.seconds === null || s.seconds === undefined ? null : Math.max(0, s.seconds - elapsed));
       const route = data.route;
-      const stops = data.stops || [];
-      const at = data.at_stop;
+      const view = currentView(left);
+      const stops = view.upcoming;
+      const at = view.at;
       const next = stops[0];
 
       document.documentElement.style.setProperty('--route', route.color);
@@ -465,7 +626,7 @@
       } else if (next) {
         shown = next;
         const s = left(next);
-        arriving = s !== null && s <= ARRIVING_S;
+        arriving = view.arriving;
         label = arriving ? 'ARRIVING AT' : 'NEXT STOP';
         name = next.name;
         if (!arriving && s !== null) sub = `in <b>${Math.max(1, Math.round(s / 60))} min</b>`;
@@ -475,7 +636,7 @@
         name = '';
         listed = [];
       }
-      announce(at, next, arriving);
+      announce(at, next, arriving, view.source);
       $('nowLabel').textContent = label;
       $('nowLabel').classList.toggle('live', label !== 'NEXT STOP');
       $('nowSub').innerHTML = sub;
@@ -541,7 +702,23 @@
           lat: pos.coords.latitude, lon: pos.coords.longitude, accuracy: pos.coords.accuracy,
           heading: pos.coords.heading, speed: pos.coords.speed, at: Date.now(),
         };
+        // No motion sensor events: still send the GPS track once a second.
+        if (SENSORS && performance.now() - motion.lastEventAt > 2000) {
+          outSensors.push({
+            t: +(fix.at / 1000).toFixed(2), n: 0, lat: +fix.lat.toFixed(6), lon: +fix.lon.toFixed(6), acc: Math.round(fix.accuracy),
+            spd: fix.speed !== null ? +fix.speed.toFixed(2) : null, hdg: fix.heading !== null ? Math.round(fix.heading) : null,
+          });
+          if (outSensors.length > 900) outSensors.splice(0, outSensors.length - 900);
+        }
+        if (data) render();   // decide "arriving" / "at stop" on every fix, not just once a second
       }, (err) => console.warn('[onboard] geolocation', err.message), { enableHighAccuracy: true, maximumAge: 2000 });
+    }
+
+    if (!REPLAY) {
+      addEventListener('devicemotion', onMotion);
+      setInterval(() => flushTelemetry(false), TELEMETRY_MS);
+      addEventListener('pagehide', () => flushTelemetry(true));
+      document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'hidden') flushTelemetry(true); });
     }
 
     // Keep the screen awake where the browser allows it.

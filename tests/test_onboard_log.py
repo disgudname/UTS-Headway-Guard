@@ -143,3 +143,69 @@ def test_endpoint_logs_live_answers_only(tmp_path, monkeypatch):
     asyncio.run(app.onboard_state(bus="18232", at=123, lat=None, lon=None, heading=None, speed=None))
     rows = app.ONBOARD_LOG.read("2026-10-21")
     assert len(rows) == 1 and rows[0]["dev"][:2] == [38.1, -78.5] and rows[0]["eta"][0] == ["102", 61.23]
+
+
+def test_record_extra_tags_bus_drops_junk_and_caps_size(tmp_path, monkeypatch):
+    log = onboard_log.OnboardLog(tmp_path)
+    t = ts(2026, 10, 21, 20)
+    n = log.record_extra("events", "18232", [{"t": t, "kind": "this-is"}, "junk", {"x": "y" * 2000}], t)
+    assert n == 1 and log.read("2026-10-21", "events") == [{"t": t, "kind": "this-is", "bus": "18232"}]
+    monkeypatch.setattr(onboard_log, "MAX_EXTRA_FILE_BYTES", 10)
+    assert log.record_extra("events", "18232", [{"t": t}], t) == 0
+
+
+def test_prune_drops_sensor_files_sooner(tmp_path):
+    for name in ("2026-09-01.sensors.jsonl", "2026-09-01.events.jsonl", "2026-09-01.jsonl"):
+        (tmp_path / name).write_text("{}\n")
+    onboard_log.OnboardLog(tmp_path).prune(ts(2026, 10, 21, 12))
+    assert sorted(p.name for p in tmp_path.iterdir()) == ["2026-09-01.events.jsonl", "2026-09-01.jsonl"]
+
+
+def test_telemetry_endpoint(tmp_path, monkeypatch):
+    from fastapi.testclient import TestClient
+    import app
+
+    monkeypatch.setattr(app, "ONBOARD_LOG", onboard_log.OnboardLog(tmp_path))
+    client = TestClient(app.app)
+    r = client.post("/v1/onboard/telemetry", json={"bus": "18232", "events": [{"t": 1, "kind": "stopped"}],
+                                                   "sensors": [{"t": 1, "sd": 0.02}]})
+    assert r.status_code == 200 and r.json()["written"] == {"events": 1, "sensors": 1}
+    assert client.post("/v1/onboard/telemetry", json={"events": []}).status_code == 400
+    assert client.post("/v1/onboard/telemetry", content=b"x" * (600 * 1024)).status_code == 413
+
+
+def sensors_for(recs, stand_at=None, stand_s=0):
+    """1 Hz tablet GPS along the drive() path; optionally standing still at arc metres `stand_at` for stand_s."""
+    out, t, s = [], 1000.0, 0.0
+    while s < 1950:
+        speed = 10.0
+        if stand_at is not None and stand_at <= s < stand_at + 1 and stand_s > 0:
+            speed, stand_s = 0.0, stand_s - 1
+        out.append({"t": t, "bus": "18232", "lat": 38.0 + s / 99.5 * 0.0009, "lon": -78.5, "acc": 5, "spd": speed,
+                    "n": 60, "sd": 0.02 if speed == 0 else 0.4})
+        s += speed
+        t += 1
+    return out
+
+
+def test_announcement_timing():
+    stops, lines = straight_graph()
+    recs = drive(stops)
+    # Stop 102 sits at arc 995 m: reached (30 m short) at t=1096.5 with no standing. Stand there 10 s instead.
+    sens = sensors_for(recs, stand_at=990, stand_s=10)
+    recs = [dict(r, t=r["t"]) for r in recs] + [dict(recs[-1], t=1300.0)]
+    tracks = onboard_score.device_tracks(sens, recs)
+    arc = stops[("55", "102")][3]
+    reach = 1000.0 + (arc - 30) / 10.0
+    events = [{"t": reach - 8, "kind": "this-is", "route": "55", "stop": "102", "d": 110, "src": "local"},
+              {"t": 1101.0, "kind": "stopped", "route": "55", "stop": "102"},
+              {"t": 1102.0, "kind": "next-stop", "route": "55", "stop": "103", "from": "102", "stopped": True}]
+    events = [dict(e, bus="18232") for e in events]
+    chk = onboard_score.announcement_check(events, tracks, stops, lines)
+    assert abs(chk["this_is"][0][3] - (-8)) < 2
+    assert chk["stopped"][0][3] is not None and 0 <= chk["stopped"][0][3] <= 2
+    assert chk["next_stop"][0][4] >= 0
+    still, moving = onboard_score.motion_thresholds(sens)
+    assert still and moving and max(still) < min(moving)
+    text = onboard_score.report("2026-10-21", recs, stops, lines, "18232", events, sens)
+    assert "'This is X'" in text and "motion sd" in text

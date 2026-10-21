@@ -18002,7 +18002,8 @@ def _onboard_stop_rows(
     at = min(here, key=arc_gap) if here else None
 
     def describe(stop, seconds: Optional[float]) -> Dict[str, Any]:
-        row: Dict[str, Any] = {"id": str(stop.id), "name": stop.name, "seconds": seconds, "timestop": False}
+        row: Dict[str, Any] = {"id": str(stop.id), "name": stop.name, "seconds": seconds, "timestop": False,
+                               "lat": round(stop.lat, 6), "lon": round(stop.lon, 6)}
         if blocks_loaded and uts_blocks.timestop_code_for_stop(route_id, str(stop.id)) is not None:
             row["timestop"] = True
             if block_id:
@@ -18073,6 +18074,34 @@ async def onboard_state(
 ONBOARD_LOG = onboard_log.OnboardLog(PRIMARY_DATA_DIR / "onboard_log") if os.getenv("ONBOARD_LOG", "1") != "0" else None
 
 
+ONBOARD_TELEMETRY_MAX_BYTES = 512 * 1024
+
+
+@app.post("/v1/onboard/telemetry")
+async def onboard_telemetry(request: Request):
+    """What an /onboard tablet did between polls: {"bus", "events": [...], "sensors": [...]}. Events are its
+    announcements and stop/moving calls, sensors one summary a second of GPS + motion. Kept for
+    scripts/onboard_score.py (onboard_log.OnboardLog.record_extra)."""
+    body = await request.body()
+    if len(body) > ONBOARD_TELEMETRY_MAX_BYTES:
+        raise HTTPException(status_code=413, detail="too large")
+    try:
+        payload = json.loads(body or b"{}")
+    except ValueError:
+        raise HTTPException(status_code=400, detail="not JSON")
+    bus = str(payload.get("bus") or "").strip()[:16] if isinstance(payload, dict) else ""
+    if not bus:
+        raise HTTPException(status_code=400, detail="bus required")
+    written = {}
+    if ONBOARD_LOG is not None:
+        now = time.time()
+        for kind in onboard_log.EXTRA_KINDS:
+            items = payload.get(kind)
+            if isinstance(items, list) and items:
+                written[kind] = await asyncio.to_thread(ONBOARD_LOG.record_extra, kind, bus, items, now)
+    return {"ok": True, "written": written}
+
+
 async def _onboard_state(
     bus: str, at: Optional[int], lat: Optional[float], lon: Optional[float],
     heading: Optional[float], speed: Optional[float],
@@ -18140,12 +18169,15 @@ async def _onboard_state(
         block_id, when_ts, models, dwell_elapsed_s,
         speed if speed is not None and out["position"]["source"] == "device" else veh.ground_mps,
     )
-    if out["at_stop"]:
-        # "This is a Hereford bound Gold Line.": the next landmark tagged at /route-destinations
-        # past this stop, as the arrival feeds show it; the page plays bound--<route>--<label>.mp3.
-        to = _next_destination_label(route_id, out["at_stop"]["id"])
+    # The stop zone the page uses to tell, from the tablet's own GPS between polls, that the bus is at a stop.
+    out["zone_m"] = bus_eta.DWELL_DETECTION_RADIUS_M
+    # "This is a Hereford bound Gold Line.": the next landmark tagged at /route-destinations past this
+    # stop, as the arrival feeds show it; the page plays bound--<route>--<label>.mp3. Also on the next
+    # stop, for a page that sees the bus reach it before its next poll.
+    for row in ([out["at_stop"]] if out["at_stop"] else []) + out["stops"][:1]:
+        to = _next_destination_label(route_id, row["id"])
         if to:
-            out["at_stop"]["bound"] = {"route": _onboard_route_label(line.name), "to": to}
+            row["bound"] = {"route": _onboard_route_label(line.name), "to": to}
     rows = ([out["at_stop"]] if out["at_stop"] else []) + out["stops"]
     running_transfers = _onboard_add_transfers(rows, line, lines_all, running)
     running_conns = _onboard_add_connections(rows, line, await _onboard_connection_points(when_ts, at is None), when_ts)
