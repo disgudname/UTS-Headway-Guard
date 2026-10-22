@@ -10,6 +10,8 @@
  *   ?stopIDs=26,113    raw TransLoc stop IDs, comma-separated (legacy form)
  *   ?poll=15000        poll interval ms (default 15000)
  *   ?page=4000         bottom-row page duration ms (default 4000)
+ *   ?eta=transloc      show TransLoc's ETAs instead of ours (default: ours, with
+ *                      TransLoc's for any route our engine has nothing for)
  */
 (function () {
   "use strict";
@@ -662,11 +664,13 @@
     var code = qp("code", null);
     var stopIDsParam = qp("stopIDs", null) || qp("stopIds", null);
 
+    var eta = qp("eta", "ours") === "transloc" ? "transloc" : "ours";
+
     if (stopIDsParam) {
-      return "/v1/transloc/stop_arrivals?stopIDs=" + encodeURIComponent(stopIDsParam);
+      return "/v1/transloc/stop_arrivals?stopIDs=" + encodeURIComponent(stopIDsParam) + "&eta=" + eta;
     }
     if (code) {
-      return "/v1/transloc/stop_arrivals/" + encodeURIComponent(code.trim());
+      return "/v1/transloc/stop_arrivals/" + encodeURIComponent(code.trim()) + "?eta=" + eta;
     }
     return null;
   }

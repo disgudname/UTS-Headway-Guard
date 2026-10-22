@@ -12341,6 +12341,7 @@ async def transloc_stop_arrivals(
     stopIDs: Optional[str] = Query(None, description="Comma-separated stop IDs"),
     stops: Optional[str] = Query(None, description="Alias for stopIDs"),
     base_url: Optional[str] = Query(None),
+    eta: Optional[str] = Query(None, description="'ours' = our ETA engine, TransLoc's per route as fallback"),
 ):
     """Also accepts CAT (Charlottesville Area Transit) stop IDs mixed in with TransLoc
     stop IDs (see _is_cat_stop_id) — CAT arrivals are reshaped into the same
@@ -12387,6 +12388,77 @@ async def transloc_stop_arrivals(
                 entry.get("RouteStopID") if entry.get("RouteStopID") is not None else entry.get("RouteStopId")
             )
             entry["Destination"] = _next_destination_label(route_id, route_stop_id)
+    if eta == "ours" and isinstance(data, list):
+        data = await _swap_in_our_etas(data, [s for s in raw_ids if not _is_cat_stop_id(s)])
+    return data
+
+
+async def _swap_in_our_etas(data: List[Any], uts_stop_ids: List[str]) -> List[Any]:
+    """?eta=ours on /v1/transloc/stop_arrivals: each UTS (route, stop) entry gets our
+    engine's Times (/v1/eta/uts_stop_arrivals) in place of TransLoc's. Per route, TransLoc's
+    stay when we have nothing for it, and lot shuttles always stay on TransLoc (our ETAs for
+    them are worthless). A route TransLoc lists nothing for at this stop but we do is added.
+    Each entry says which it is in "EtaSource" ("ours" / "transloc"). CAT entries pass through."""
+    try:
+        payload = await eta_uts_stop_arrivals()
+    except Exception as exc:
+        print(f"[stop-arrivals] our ETAs unavailable, serving TransLoc's: {exc}")
+        return data
+    ours: Dict[Tuple[str, str], List[Dict[str, Any]]] = {}
+    for a in payload.get("arrivals", []):
+        times = [t for t in (a.get("Times") or []) if isinstance(t.get("Seconds"), (int, float))]
+        if times:
+            ours[(str(a.get("RouteId")), str(a.get("RouteStopId")))] = times
+
+    def _times(our_times: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        return [
+            {"Seconds": max(0, int(round(t["Seconds"]))), "Text": "", "IsArriving": False,
+             "VehicleId": t.get("VehicleId")}
+            for t in our_times
+        ]
+
+    def _is_shuttle(name: Any) -> bool:
+        return "shuttle" in str(name or "").lower()
+
+    seen: set = set()
+    for entry in data:
+        if not isinstance(entry, dict):
+            continue
+        rid = entry.get("RouteID") if entry.get("RouteID") is not None else entry.get("RouteId")
+        rsid = entry.get("RouteStopID") if entry.get("RouteStopID") is not None else entry.get("RouteStopId")
+        if rid is None or rsid is None:
+            continue  # CAT
+        key = (str(rid), str(rsid))
+        seen.add(key)
+        if key in ours and not _is_shuttle(entry.get("RouteDescription")):
+            entry["Times"] = _times(ours[key])
+            entry["EtaSource"] = "ours"
+        else:
+            entry["EtaSource"] = "transloc"
+
+    wanted = {str(s) for s in uts_stop_ids}
+    for route in list(getattr(state, "routes_raw", []) or []):
+        if not isinstance(route, dict) or _is_shuttle(route.get("Description")):
+            continue
+        rid = route.get("RouteID")
+        for stop in route.get("Stops") or []:
+            sid = stop.get("StopID") if stop.get("StopID") is not None else stop.get("StopId")
+            rsid = stop.get("RouteStopID") if stop.get("RouteStopID") is not None else stop.get("RouteStopId")
+            key = (str(rid), str(rsid))
+            if str(sid) not in wanted or key in seen or key not in ours:
+                continue
+            seen.add(key)
+            data.append({
+                "RouteId": rid,
+                "RouteStopId": rsid,
+                "StopId": sid,
+                "RouteDescription": route.get("Description") or "Route",
+                "Color": _normalize_hex_color(route.get("MapLineColor") or route.get("Color")) or "#808080",
+                "StopDescription": stop.get("Description") or stop.get("SignVerbiage") or "",
+                "Destination": _next_destination_label(rid, rsid),
+                "Times": _times(ours[key]),
+                "EtaSource": "ours",
+            })
     return data
 
 
@@ -12394,6 +12466,7 @@ async def transloc_stop_arrivals(
 async def transloc_stop_arrivals_by_code(
     code: str,
     base_url: Optional[str] = Query(None),
+    eta: Optional[str] = Query(None, description="'ours' = our ETA engine, TransLoc's per route as fallback"),
 ):
     """Same raw arrivals shape as /v1/transloc/stop_arrivals, keyed by a stable feed
     code (see /feed-codes) instead of raw stop IDs. Lets a JSON-consuming client (e.g.
@@ -12403,7 +12476,7 @@ async def transloc_stop_arrivals_by_code(
     Example: /v1/transloc/stop_arrivals/NGPG
     """
     entry = _resolve_feed_code(code)
-    return await transloc_stop_arrivals(stopIDs=",".join(entry["stop_ids"]), base_url=base_url)
+    return await transloc_stop_arrivals(stopIDs=",".join(entry["stop_ids"]), base_url=base_url, eta=eta)
 
 
 @app.get("/v1/transloc/stop_alert")

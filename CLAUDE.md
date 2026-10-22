@@ -746,8 +746,11 @@ A browser-rendered, NYC-subway-style LED countdown sign (`html/countdown.html` +
 preferred — resolved server-side on every poll via `/v1/transloc/stop_arrivals/{code}`,
 and can mix TransLoc + CAT stop IDs, see above) or `?stopIDs=` (raw, comma-separated,
 legacy/TransLoc-only, fetched from `/v1/transloc/stop_arrivals?stopIDs=`), plus `?poll=`
-(fetch interval, default 15000ms) and `?page=` (bottom-row rotation duration, default
-4000ms). Either endpoint — despite the URL — also serves CAT arrivals for any CAT-shaped
+(fetch interval, default 15000ms), `?page=` (bottom-row rotation duration, default
+4000ms) and `?eta=transloc` (show TransLoc's ETAs; the default since 2026-10-22 is OUR engine's,
+via `?eta=ours` on the arrivals endpoint, see `_swap_in_our_etas`: per route TransLoc's stay when we
+have nothing, lot shuttles always stay on TransLoc, each entry carries `EtaSource`). The endpoint's
+default is still TransLoc, so the Countdown Clock Pi and `/arrivalsdisplay` are unchanged. Either endpoint — despite the URL — also serves CAT arrivals for any CAT-shaped
 IDs resolved into the request (see above). Resolving by code server-side on every poll
 (rather than resolving `?code=` to stop IDs once client-side, as earlier versions did)
 means a code repointed at `/feed-codes` takes effect on this sign's very next poll, no
