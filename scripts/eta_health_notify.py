@@ -49,7 +49,9 @@ target score (routes[...].on_target_pct) and WHO is behind it, taken from the "c
     and what it did in plain words ("sat 5 min at Runk, then left a minute before its scheduled time"). Not ours to fix.
     ("suspects" verdict ONE BUS / ONE OF A FEW BUSES / A FEW BUSES);
   our system: the ETAs were wrong for a reason that is not the buses' pace, so it is ours to fix: say what went wrong
-    in plain words. ("causes" says ENGINE, or a suspect verdict ENGINE, ONE BUS). Only this one makes line 1 PROBLEM.
+    in plain words. ("causes" says ENGINE, or a suspect verdict ENGINE, ONE BUS or RECURRING). Only this one makes
+    line 1 PROBLEM. RECURRING means the same block had the same trouble at the same time on earlier days (it names
+    them): say so ("every weekday since ..."), never call it one bus, whatever the bus did.
 Other things that make line 1 PROBLEM: "full_lap_flips" above 0 (an ETA was ~20 minutes off while TransLoc was right),
 or "only_transloc" above 0 (stops where TransLoc showed a time and we showed nothing): say it as "we showed no time at
 N stops where TransLoc had one", with the bus numbers if the suspects name them.

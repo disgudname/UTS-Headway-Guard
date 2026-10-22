@@ -431,6 +431,9 @@ def diagnose(summary, earlier=()):
     def whose(kind):
         """Who a breach of this kind is on, from eta_suspects' look at the buses behind it."""
         v = verdicts.get(kind, set())
+        if "RECURRING" in v:
+            return ("ENGINE (RECURRING: the same block at the same time on earlier days, so a timetable or engine rule, "
+                    "not the bus; see suspects)")
         if "A FEW BUSES" in v or (v and v <= {"ONE BUS", "ONE OF A FEW BUSES"}):
             return "ONE BUS (not the engine; see suspects)"
         if "LOT SHUTTLES" in v:
@@ -499,6 +502,49 @@ def earlier_results():
         return []
 
 
+# A suspect "ONE BUS" verdict only looks at this run. The same block on the same route, same kind of breach, within
+# RECUR_WINDOW_MIN of the same time on an earlier day is not a bus having an odd day: it is a timetable / engine rule
+# firing every day. Orange [07] lost its Emmet / JPA ETAs 17:00-17:20 every weekday 10-13..10-22 and was called
+# "ONE BUS" on 10-20 and 10-21 because it happened to sit at a layover both times.
+RECUR_WINDOW_MIN = 20
+# Repeat by place or by feed, not by a rule of ours: the Emmet / McCormick cell dead spot freezes GPS most weekdays, and
+# a bus TransLoc moves to its evening route before it reaches the change stop drives "backward" on the new shape
+# (blank is right there; TransLoc's numbers are wrong). Those keep the per-run verdict.
+RECUR_EXEMPT = ("GPS froze", "just moved over from route", "pulling out (not on a route before)")
+# A rule firing is a solid block of rows; a bus blanking for a poll or two here and there over hours is not.
+RECUR_MIN_ROWS = 200
+_SUSPECT_RE = re.compile(r"^[^:]+: \S+ (\[\d+\]) on (.+?), (\d\d):(\d\d):\d\d-\S+, (\d+) (.+?) rows")
+
+
+def _suspect_slot(text):
+    """(block, route name, kind, minute of day, rows) from a suspect line, or None (no block, or not a bus line)."""
+    m = _SUSPECT_RE.match(text or "")
+    return (m.group(1), m.group(2), m.group(6), int(m.group(3)) * 60 + int(m.group(4)), int(m.group(5))) if m else None
+
+
+def mark_recurring(suspects, earlier, today):
+    """Re-label every bus suspect whose block / route / kind / time also showed up on an earlier day as RECURRING."""
+    for d in suspects:
+        slot = _suspect_slot(d.get("text"))
+        if (not slot or slot[4] < RECUR_MIN_ROWS or d.get("verdict") in ("LOT SHUTTLES", "PURPLE", "SMALL", "ERROR")
+                or any(x in d.get("text", "") for x in RECUR_EXEMPT)):
+            continue
+        days = set()
+        for r in earlier:
+            day = str(r.get("when", ""))[:10]
+            if not day or day == today:
+                continue
+            for t in r.get("suspects") or []:
+                o = _suspect_slot(t)
+                if o and o[:3] == slot[:3] and abs(o[3] - slot[3]) <= RECUR_WINDOW_MIN:
+                    days.add(day)
+        if days:
+            was = d["verdict"]
+            d["verdict"] = "RECURRING"
+            d["text"] = (f"RECURRING (also on {', '.join(sorted(days)[-5:])}; this run alone said {was})"
+                         + d["text"][d["text"].index(":"):])
+
+
 def main():
     minutes = float(sys.argv[1]) if len(sys.argv) > 1 else 30
     every = float(sys.argv[2]) if len(sys.argv) > 2 else 15
@@ -528,6 +574,7 @@ def main():
         warmup_until = polls[min(WARMUP_POLLS, len(polls)) - 1]["t"] if polls else None
         stats, problems = analyze(rows, names, warmup_until)
         suspects = find_suspects(rows, polls, stops, lines, names) if problems else []
+        mark_recurring(suspects, earlier_results(), f"{now:%Y-%m-%d}")
     except Exception as exc:  # network down, prod down, scorer bug...
         summary.update(error=f"{type(exc).__name__}: {exc}", breaches=[])
         with RESULTS.open("a", encoding="utf-8") as f:

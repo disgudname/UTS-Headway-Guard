@@ -309,3 +309,35 @@ def test_suspects_do_not_flag_a_bus_that_kept_its_hold_past_the_stop_point(monke
     # Passed the stop's point on arrival, waited 20 m beyond it until sheet time: not early.
     tags = _timestop_pass(monkeypatch, dwell_until=1400.0, sheet=1400.0)
     assert not any("BEFORE" in t for t in tags), tags
+
+
+_ORANGE_07 = ("ONE BUS: 19232 [07] on Orange Line — Pre-6PM, {t}-17:20:01, {n} TransLoc-only rows (89%). "
+              "{what}. TransLoc was off too (median -436 s on the same predictions).")
+
+
+def test_the_same_block_gap_at_the_same_time_on_another_day_is_recurring_not_one_bus():
+    # Orange [07] 2026-10-20..22: called ONE BUS on each run alone because it happened to sit at a layover.
+    earlier = [{"when": "2026-10-21T17:00:00-04:00", "suspects": [
+        _ORANGE_07.format(t="17:00:30", n=806, what="sat still 375 s at Jefferson Park Ave @ Pinn Hall")]}]
+    today = [{"kind": "TransLoc-only", "verdict": "ONE BUS",
+              "text": _ORANGE_07.format(t="17:10:31", n=630, what="nothing unusual in its track")}]
+    h.mark_recurring(today, earlier, "2026-10-22")
+    assert today[0]["verdict"] == "RECURRING" and "2026-10-21" in today[0]["text"]
+    summary = {"suspect_verdicts": [("TransLoc-only", "RECURRING")],
+               "breaches": ["629 visit(s) TransLoc predicted that we didn't (1 separate bus gap(s))"]}
+    assert h.diagnose(summary)[0].startswith("ENGINE (RECURRING")
+
+
+def test_recurring_needs_another_day_a_solid_block_and_not_a_known_place_or_feed_repeat():
+    earlier = [{"when": "2026-10-22T08:00:00-04:00", "suspects": [
+        _ORANGE_07.format(t="17:00:30", n=806, what="nothing unusual in its track")]}]
+    cases = [
+        _ORANGE_07.format(t="17:00:31", n=630, what="nothing unusual in its track"),  # same day only
+        _ORANGE_07.format(t="17:00:31", n=150, what="nothing unusual in its track"),  # a few scattered rows
+        _ORANGE_07.format(t="17:00:31", n=630, what="GPS froze 300 s at Emmet St"),   # the dead spot
+        _ORANGE_07.format(t="17:45:31", n=630, what="nothing unusual in its track"),  # a different time
+    ]
+    for i, text in enumerate(cases):
+        d = [{"kind": "TransLoc-only", "verdict": "ONE BUS", "text": text}]
+        h.mark_recurring(d, earlier, "2026-10-22" if i == 0 else "2026-10-23")
+        assert d[0]["verdict"] == "ONE BUS", text
