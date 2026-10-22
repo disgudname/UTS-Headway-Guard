@@ -61,7 +61,9 @@ belong to the day before). If there were few or no buses and the calendar says w
 game day running only lot shuttles), it is HEADS UP with that reason, not a PROBLEM; mention a home game whenever its
 notes show one. Game-day lot shuttles never count against the ETAs: never quote a score for them.
 The "notices" field lists the service alerts riders could see during the run (detours, closed stops, delays; "routes"
-or "stop_ids" say what each one covers, none means system-wide). When one covers a route that went wrong, say so on
+or "stop_ids" say what each one covers, none means system-wide). Ones with "source": "transloc" are TransLoc's own
+rider alerts: they go up days early, so read the text for WHEN it applies ("On Friday, October 23 ... 7 AM to 9 AM")
+and ignore it unless the run's "when" falls in that window. When one applies to a route that went wrong, say so on
 that route's line ("Gold Line is on a detour today") and treat it as the likely reason: a detour the ETAs were not built
 for is HEADS UP, not PROBLEM, unless the trouble is on routes the alert does not touch. A "SERVICE ALERT" entry in
 "causes" points at the same thing. With no route trouble, mention an active alert in a few words at most.

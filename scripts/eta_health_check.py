@@ -9,9 +9,11 @@ wrapper can react), 1 if the check itself couldn't run. Read-only: public GET re
 """
 import datetime
 import json
+import re
 import statistics
 import sys
 import time
+import urllib.request
 from collections import defaultdict
 from pathlib import Path
 
@@ -148,13 +150,50 @@ def service_notices(names):
     return out
 
 
-def notice_for_route(summary, name):
-    """The first active notice that could touch this route: system-wide, aimed at it, or aimed at some stops (a stop
-    notice can't be tied to a route from here, so it counts for every route). None if there is none."""
-    for n in summary.get("notices") or []:
-        if n["scope"] != "route" or any(name.split(" — ")[0] == r.split(" — ")[0] for r in n.get("routes", [])):
-            return n
-    return None
+TRANSLOC_ALERTS_URL = "https://uva.transloc.com/Services/JSONPRelay.svc/GetTwitterJSON"  # the rider site's Alerts bell
+ROUTE_WORDS = ("Gold", "Green", "Orange", "Silver", "Purple", "Night Pilot")
+
+
+def transloc_alerts(names, now):
+    """TransLoc's rider-facing service alerts active right now, in the same shape as service_notices(), or None if
+    they can't be read. They carry no targeting, so the routes are the ones the text names ("Gold and Green Line");
+    an alert naming none counts as system-wide."""
+    try:
+        req = urllib.request.Request(TRANSLOC_ALERTS_URL, headers={"User-Agent": "eta-watch"})
+        with urllib.request.urlopen(req, timeout=20) as r:
+            alerts = json.load(r) or []
+    except Exception:
+        return None
+    out = []
+    for a in alerts:
+        try:
+            start = datetime.datetime.strptime(a["created_at"], "%a %b %d %H:%M:%S %z %Y")
+            end = datetime.datetime.strptime(a["end_date"], "%a %b %d %H:%M:%S %z %Y") if a.get("end_date") else None
+        except (KeyError, ValueError, TypeError):
+            start = end = None
+        if (start and now < start) or (end and now > end):
+            continue
+        text = " ".join(str(a.get("text") or "").split())
+        words = [w for w in ROUTE_WORDS if re.search(rf"\b{w}\b", text, re.I)]
+        routes = sorted({n.split(" — ")[0].strip() for n in names.values() for w in words if n.lower().startswith(w.lower())}
+                        | {f"{w} Line" if w != "Night Pilot" else w for w in words})
+        d = {"source": "transloc", "text": text, "scope": "route" if routes else "all"}
+        if routes:
+            d["routes"] = routes
+        if start:
+            d["start_time"] = start.isoformat()
+        if end:
+            d["end_time"] = end.isoformat()
+        out.append(d)
+    return out
+
+
+def notices_for_route(summary, name):
+    """Every active notice that could touch this route: system-wide, aimed at it, or aimed at some stops (a stop
+    notice can't be tied to a route from here, so it counts for every route)."""
+    base = name.split(" — ")[0].strip()
+    return [n for n in summary.get("notices") or []
+            if n["scope"] != "route" or any(base == r.split(" — ")[0].strip() for r in n.get("routes", []))]
 
 
 def route_names():
@@ -341,7 +380,8 @@ def usual_route_errors(summary, earlier):
     time and length, same kind of day (Mon-Fri together, Sat and Sun each alone), same service level (runs from
     before the level was logged, 2026-10-05, were all Full Service). A home football day is only compared with other
     football days (calendar notes, logged from 2026-10-09). Runs with a service alert active (logged from 2026-10-22)
-    are left out: a detour day is not a usual day."""
+    are left out: a detour day is not a usual day. Only our own notices count for that: a TransLoc alert is live from
+    the day it is posted (10-19 for a 10-23 game), and when it applies is only in its text."""
     def slot(d):
         day = d.get("day")
         return (str(d.get("when", ""))[11:16], d.get("minutes"), day if day in ("Sat", "Sun") else "wk", d.get("service_level") or "full",
@@ -349,7 +389,8 @@ def usual_route_errors(summary, earlier):
 
     seen = defaultdict(list)
     for d in earlier:
-        if slot(d) == slot(summary) and d.get("when") != summary.get("when") and not d.get("notices"):
+        if (slot(d) == slot(summary) and d.get("when") != summary.get("when")
+                and not any(n.get("source") != "transloc" for n in d.get("notices") or [])):
             for name, r in (d.get("routes") or {}).items():
                 if r.get("n", 0) >= MIN_ROUTE_ROWS:
                     seen[name].append(r["median_err_s"])
@@ -381,9 +422,8 @@ def diagnose(summary, earlier=()):
         else:
             out.append(f"{name}: ENGINE LEAN -- buses arrive {-med} s after our ETA, about the same as most days in this "
                        f"slot ({-usual[name]} s): our history is too fast here, it is not today's traffic")
-        n = notice_for_route(summary, name)
-        if n:
-            out[-1] += f" [SERVICE ALERT active ({n['scope']}): \"{n['text'][:160]}\" -- may explain this]"
+        for n in notices_for_route(summary, name):
+            out[-1] += f" [SERVICE ALERT ({n.get('source', 'ours')}): \"{n['text'][:160]}\" -- may explain this]"
     verdicts = dict()
     for kind, verdict in summary.get("suspect_verdicts") or []:
         verdicts.setdefault(kind, set()).add(verdict)
@@ -476,9 +516,9 @@ def main():
         if calendar:
             summary["calendar"] = calendar
         names = route_names()
-        notices = service_notices(names)
-        if notices is not None:
-            summary["notices"] = notices
+        ours, theirs = service_notices(names), transloc_alerts(names, now)
+        if ours is not None or theirs is not None:
+            summary["notices"] = (theirs or []) + (ours or [])
         seen = watch(minutes, every, log)
         summary["purple_in_service"] = any(names.get(r, "").lower().startswith("purple") for r in seen)
         polls = [json.loads(l) for l in log.open(encoding="utf-8") if l.strip()]
