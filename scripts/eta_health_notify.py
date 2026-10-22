@@ -60,6 +60,11 @@ The "calendar" field is the public service calendar for the day (a service day r
 belong to the day before). If there were few or no buses and the calendar says why ("No Service", service ended, a
 game day running only lot shuttles), it is HEADS UP with that reason, not a PROBLEM; mention a home game whenever its
 notes show one. Game-day lot shuttles never count against the ETAs: never quote a score for them.
+The "notices" field lists the service alerts riders could see during the run (detours, closed stops, delays; "routes"
+or "stop_ids" say what each one covers, none means system-wide). When one covers a route that went wrong, say so on
+that route's line ("Gold Line is on a detour today") and treat it as the likely reason: a detour the ETAs were not built
+for is HEADS UP, not PROBLEM, unless the trouble is on routes the alert does not touch. A "SERVICE ALERT" entry in
+"causes" points at the same thing. With no route trouble, mention an active alert in a few words at most.
 Words to avoid: median, percentile, breach, threshold, scorer, slot, horizon, engine, model, history, flip, poll,
 log, field names. Use whole numbers. Do not repeat a number twice."""
 

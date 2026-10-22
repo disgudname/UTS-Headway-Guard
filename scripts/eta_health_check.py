@@ -125,6 +125,38 @@ def is_game_day(summary):
     return "football" in str((summary.get("calendar") or {}).get("notes") or "").lower()
 
 
+def service_notices(names):
+    """Public system notices active right now (detours, closed stops, delays), trimmed to what the verdict needs, or
+    None if they can't be read. Staff-only notices are not visible here (public GET). A route-scoped notice gets its
+    route names from `names` (TransLoc route id -> name); a stop-scoped one keeps its stop ids."""
+    try:
+        notices = eta_watch.fetch("/v1/system-notices").get("notices") or []
+    except Exception:
+        return None
+    out = []
+    for n in notices:
+        scope = n.get("target_scope") or "all"
+        d = {"text": n.get("message") or n.get("short_message") or "", "severity": n.get("severity"), "scope": scope}
+        if scope == "route":
+            d["routes"] = [names.get(str(r), str(r)) for r in n.get("target_route_ids") or []]
+        elif scope == "stops":
+            d["stop_ids"] = [str(s) for s in n.get("target_stop_ids") or []]
+        for k in ("start_time", "end_time"):
+            if n.get(k):
+                d[k] = n[k]
+        out.append(d)
+    return out
+
+
+def notice_for_route(summary, name):
+    """The first active notice that could touch this route: system-wide, aimed at it, or aimed at some stops (a stop
+    notice can't be tied to a route from here, so it counts for every route). None if there is none."""
+    for n in summary.get("notices") or []:
+        if n["scope"] != "route" or any(name.split(" — ")[0] == r.split(" — ")[0] for r in n.get("routes", [])):
+            return n
+    return None
+
+
 def route_names():
     try:
         return {str(l["id"]): l["name"] for l in eta_watch.fetch("/v1/trip-planner/uts-graph")["lines"]}
@@ -308,7 +340,8 @@ def usual_route_errors(summary, earlier):
     """{route name: median of its median_err_s} over the last USUAL_RUNS earlier runs of the same slot: same start
     time and length, same kind of day (Mon-Fri together, Sat and Sun each alone), same service level (runs from
     before the level was logged, 2026-10-05, were all Full Service). A home football day is only compared with other
-    football days (calendar notes, logged from 2026-10-09)."""
+    football days (calendar notes, logged from 2026-10-09). Runs with a service alert active (logged from 2026-10-22)
+    are left out: a detour day is not a usual day."""
     def slot(d):
         day = d.get("day")
         return (str(d.get("when", ""))[11:16], d.get("minutes"), day if day in ("Sat", "Sun") else "wk", d.get("service_level") or "full",
@@ -316,7 +349,7 @@ def usual_route_errors(summary, earlier):
 
     seen = defaultdict(list)
     for d in earlier:
-        if slot(d) == slot(summary) and d.get("when") != summary.get("when"):
+        if slot(d) == slot(summary) and d.get("when") != summary.get("when") and not d.get("notices"):
             for name, r in (d.get("routes") or {}).items():
                 if r.get("n", 0) >= MIN_ROUTE_ROWS:
                     seen[name].append(r["median_err_s"])
@@ -348,6 +381,9 @@ def diagnose(summary, earlier=()):
         else:
             out.append(f"{name}: ENGINE LEAN -- buses arrive {-med} s after our ETA, about the same as most days in this "
                        f"slot ({-usual[name]} s): our history is too fast here, it is not today's traffic")
+        n = notice_for_route(summary, name)
+        if n:
+            out[-1] += f" [SERVICE ALERT active ({n['scope']}): \"{n['text'][:160]}\" -- may explain this]"
     verdicts = dict()
     for kind, verdict in summary.get("suspect_verdicts") or []:
         verdicts.setdefault(kind, set()).add(verdict)
@@ -379,6 +415,10 @@ def diagnose(summary, earlier=()):
             out.append(f"{whose('TransLoc-only')} -- {b}")
         elif "real history" in b:
             out.append(f"ENGINE -- {b}")
+    if summary.get("breaches"):
+        for n in summary.get("notices") or []:
+            where = ", ".join(n.get("routes") or []) or (f"stops {', '.join(n['stop_ids'])}" if n.get("stop_ids") else "system-wide")
+            out.append(f"SERVICE ALERT active ({where}): \"{n['text'][:200]}\" -- check whether it explains the breaches above")
     return out
 
 
@@ -436,6 +476,9 @@ def main():
         if calendar:
             summary["calendar"] = calendar
         names = route_names()
+        notices = service_notices(names)
+        if notices is not None:
+            summary["notices"] = notices
         seen = watch(minutes, every, log)
         summary["purple_in_service"] = any(names.get(r, "").lower().startswith("purple") for r in seen)
         polls = [json.loads(l) for l in log.open(encoding="utf-8") if l.strip()]
