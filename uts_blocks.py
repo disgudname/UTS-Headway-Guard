@@ -460,7 +460,8 @@ def route_change_plan(
     """If block_id is about to switch (or just switched) from this pre-6PM route to its post-6PM route, returns
     (change_stop_id, change_epoch, served_names, prev_visit_epoch): the stop the bus leaves at the note's time, that
     time, the names of the stops the post-6PM route serves, and when the block's PREVIOUS scheduled visit to that stop
-    was (None if it has none earlier that day -- e.g. Orange [07] starts its evening at the layover). None when route_id isn't a pre-6PM route with a known post-6PM sibling,
+    was (one lap before the change when the stop is not an earlier timestop, e.g. Orange [07] at PIN; None if the
+    block has no earlier lap either). None when route_id isn't a pre-6PM route with a known post-6PM sibling,
     the block has no "EVENING ROUTE CHANGE" note today, the change stop can't be resolved on this route, or `when`
     is not within about an hour before / ten minutes after the change (an unmapped stop or missing stop list just
     leaves the feature off -- never wrong, only a no-op)."""
@@ -490,9 +491,27 @@ def route_change_plan(
         if change_stop is None:
             continue
         earlier = [t for t, code in group.get("stops", []) if code == note.get("leave_code") and t < note["leave_s"]]
-        prev_epoch = midnight_ts + max(earlier) if earlier else None
+        if earlier:
+            prev_epoch = midnight_ts + max(earlier)
+        else:
+            # The change stop is not a timestop earlier in the day (Orange [07]: MP / CSW all afternoon, PIN only at
+            # 18:00), but the bus still passes it every lap. Without this, every PIN pass in the last hour read as the
+            # change trip and hid the next lap's Emmet / JPA stops (17:00-17:20 every weekday, 2026-10-22).
+            lap = _lap_before(group.get("stops", []), note["leave_s"])
+            prev_epoch = change_epoch - lap if lap else None
         return change_stop, change_epoch, list(pair["served_names"]), prev_epoch
     return None
+
+
+def _lap_before(stops: List[Tuple[float, str]], before_s: float) -> Optional[float]:
+    """Seconds between the last scheduled timestop before `before_s` and the block's previous visit to that same
+    timestop: one lap. None if that timestop has no earlier visit (the block came straight from the layover)."""
+    prior = sorted((t, code) for t, code in stops if t < before_s)
+    if not prior:
+        return None
+    last_t, last_code = prior[-1]
+    same = [t for t, code in prior[:-1] if code == last_code]
+    return last_t - max(same) if same else None
 
 
 def block_mismatches_route(block_id: Optional[str], route_id: str) -> bool:

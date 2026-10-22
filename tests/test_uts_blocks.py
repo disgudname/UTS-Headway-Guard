@@ -415,6 +415,24 @@ def test_route_change_plan_gives_stop_time_served_names_and_previous_visit(monke
     assert plan == ("her-old", _epoch(2026, 9, 14, 17, 50), ["A", "B"], _epoch(2026, 9, 14, 17, 5))
 
 
+def test_route_change_plan_estimates_the_previous_pass_one_lap_back_when_the_change_stop_is_not_a_timestop(monkeypatch):
+    # Orange [07]-style: timestops MP / CSW all afternoon, the change stop (PIN) only at 18:00. The bus still passes PIN
+    # every lap, so the previous pass is one lap (CSW 17:05 -> 17:50) before the change, not "none".
+    blocks = {"[07]": {"route_ids": ["67", "57"], "weekday_groups": [{
+        "weekdays": [0, 1, 2, 3, 4],
+        "stops": [[16 * 3600 + 40 * 60, "MP"], [17 * 3600 + 5 * 60, "CSW"], [17 * 3600 + 25 * 60, "MP"],
+                  [17 * 3600 + 50 * 60, "CSW"], [18 * 3600, "HHH"]],
+        "route_change": {"leave_code": "HHH", "leave_s": 18 * 3600},
+    }]}}
+    _patch_data(monkeypatch, blocks, {"HHH": {"67": "her-old", "57": "her-new"}})
+    monkeypatch.setattr(uts_blocks, "_evening_pairs", {"67": {"to": "57", "served_names": ["A"]}})
+    plan = uts_blocks.route_change_plan("67", "[07]", _epoch(2026, 9, 14, 17, 10))
+    assert plan == ("her-old", _epoch(2026, 9, 14, 18, 0), ["A"], _epoch(2026, 9, 14, 17, 15))
+    # Straight from the layover (no earlier lap at all): still None, any approach is the change trip.
+    blocks["[07]"]["weekday_groups"][0]["stops"] = [[18 * 3600, "HHH"]]
+    assert uts_blocks.route_change_plan("67", "[07]", _epoch(2026, 9, 14, 17, 10))[3] is None
+
+
 def test_route_change_plan_is_windowed_and_only_for_the_pre_evening_route_and_a_noted_block(monkeypatch):
     _patch_route_change(monkeypatch)
     assert uts_blocks.route_change_plan("67", "[09]", _epoch(2026, 9, 14, 14, 0)) is None   # hours before

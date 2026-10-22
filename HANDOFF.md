@@ -52,6 +52,12 @@ Checked against the entries below on 2026-10-06. Everything not listed here is b
 - **Branch `claude/late-dwell`:** unmerged prototype (see §3). Keep or delete is the user's call.
 - **Orange weekday holds after the block fix (v2114, 10-19):** the first weekday health runs should show Orange no worse; the old data held a few-min-late daytime bus ~5 min for a 2023 slot (late side). Read Orange in Tue 10-20's runs.
 
+### 2026-10-22 · [home] · Orange [07] lost its Emmet / JPA ETAs 17:00-17:20 every weekday: route-change hide fired a lap early (fixed, deploy pending)
+- 18:30 run: "629 only TransLoc" = bus 19232 (vehicle 33) [07] on route 53, stops 679-688 (the stretch Orange Loop skips) missing from every poll 17:00-17:20, the rest of its lap shown. Same thing in every weekday 17:00 log back to 10-13 (1,178-4,071 rows a day).
+- Cause: `uts_blocks.route_change_plan` gives `prev_visit_epoch=None` for [07] because its change stop PIN is not a timestop before 18:00 (MP / CSW all afternoon). `bus_eta.route_change_hidden_stops` reads None as "any approach to PIN is the change trip", so the 17:20 PIN pass hid the next lap's skipped stops until the bus passed PIN.
+- Fix: with no earlier visit, `prev_visit_epoch` = change time minus one lap (`_lap_before`: last timestop before the change and its previous visit; [07] CSW 17:05 -> 17:50 = 45 min, so 17:15). Still None if the block has no earlier lap. [07] is the only block it changes (others already had a previous visit). Test added; suite passes.
+- Not touched: the 17:54 "full-lap flip" on the same bus was it sitting off route at Scott Stadium before moving to Orange Loop.
+
 ### 2026-10-22 · [home] · `/countdown` now shows our ETAs (code done, deploy pending: see ↳)
 - User: "can you update /countdown to use our ETAs rather than transloc". Overrides the 10-17 hold for this one page only.
 - `/v1/transloc/stop_arrivals` (and `/{code}`) take `?eta=ours`: `_swap_in_our_etas` replaces each UTS (RouteId, RouteStopId) entry's Times with `/v1/eta/uts_stop_arrivals`' (same 12 s cache, no extra work), keeps TransLoc's for a route we have nothing for, keeps lot shuttles (name has "shuttle") on TransLoc, and adds a route TransLoc lists nothing for at that stop but we do (stop matched by physical StopID through `state.routes_raw`). Each entry gets `EtaSource`. CAT untouched. If our engine throws, TransLoc's are served.
