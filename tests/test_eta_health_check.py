@@ -264,6 +264,48 @@ def test_suspects_see_a_bus_leave_a_timestop_before_its_sheet_time(monkeypatch):
         @staticmethod
         def scheduled_hold_epoch(route, stop, block, ts):
             return 1375.0
+
+        @staticmethod
+        def timestop_code_for_stop(route, stop):
+            return "HER"
     monkeypatch.setattr(s, "uts_blocks", Blocks)
     tags = s.bus_tags("21", "67", 1000.0, 1300.0, _polls(track), stops, lines, block="[09]")
     assert any("BEFORE its sheet time" in t for t in tags)
+    assert sum("BEFORE" in t for t in tags) == 1  # one note for one early leave
+
+
+def _timestop_pass(monkeypatch, dwell_until, sheet):
+    """A bus drives north through timestop s1 (arc 1112 m), stops 20 m past it until dwell_until, drives on."""
+    import eta_compare
+    import eta_suspects as s
+    lat0, m_per_deg = 38.02, 111195.0
+    track = [(1000.0 + 10 * i, lat0 + (1000.0 + 80 * i) / m_per_deg, -78.5) for i in range(2)]   # 1000, 1080 m
+    track += [(t, lat0 + 1132.0 / m_per_deg, -78.5) for t in range(1020, int(dwell_until) + 1, 10)]
+    track += [(dwell_until + 10 * k, lat0 + (1132.0 + 80 * k) / m_per_deg, -78.5) for k in range(1, 6)]
+    stops = {("67", "s1"): (lat0 + 1112.0 / m_per_deg, -78.5, "McCormick Rd @ UVA Chapel", 1112.0)}
+    lines = {"67": ([(38.02, -78.5), (38.05, -78.5)], [0.0, 3336.0])}
+
+    class Blocks:
+        @staticmethod
+        def scheduled_hold_epoch(route, stop, block, ts):
+            return sheet
+
+        @staticmethod
+        def timestop_code_for_stop(route, stop):
+            return "CHP"
+    monkeypatch.setattr(s, "uts_blocks", Blocks)
+    unwrapped = eta_compare.build_unwrapped({("21", "67"): [(t, la, lo) for t, la, lo in track]}, lines)
+    return s.bus_tags("21", "67", 1000.0, dwell_until, _polls(track), stops, lines, block="[10]",
+                      unwrapped=unwrapped)
+
+
+def test_suspects_see_a_short_dwell_leave_a_timestop_early(monkeypatch):
+    # 2026-10-21 19:40, 14332 [10]: 85 s at the Chapel, left 4 min before its 19:45 sheet time.
+    tags = _timestop_pass(monkeypatch, dwell_until=1060.0, sheet=1400.0)
+    assert any("left timestop McCormick Rd @ UVA Chapel" in t and "BEFORE" in t for t in tags), tags
+
+
+def test_suspects_do_not_flag_a_bus_that_kept_its_hold_past_the_stop_point(monkeypatch):
+    # Passed the stop's point on arrival, waited 20 m beyond it until sheet time: not early.
+    tags = _timestop_pass(monkeypatch, dwell_until=1400.0, sheet=1400.0)
+    assert not any("BEFORE" in t for t in tags), tags

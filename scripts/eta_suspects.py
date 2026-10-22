@@ -119,6 +119,7 @@ def bus_tags(veh, route, t0, t1, polls, stops, lines, block=None, unwrapped=None
         i = j + 1
 
     # Sat still somewhere.
+    early_noted = set()  # (stop id, sheet epoch) the sat-still notes already called early
     i = 0
     while i < len(win):
         j = i
@@ -135,6 +136,7 @@ def bus_tags(veh, route, t0, t1, polls, stops, lines, block=None, unwrapped=None
                 if sheet is not None and sheet > win[i][0] - 60:
                     if left < sheet - EARLY_LEAVE_S:
                         note += f"; left {sheet - left:.0f} s BEFORE its sheet time {_hm(sheet)[:5]}"
+                        early_noted.add((ns[2], sheet))
                     elif left < sheet:
                         note += f"; left {sheet - left:.0f} s before its sheet time {_hm(sheet)[:5]}"
                     else:
@@ -143,6 +145,27 @@ def bus_tags(veh, route, t0, t1, polls, stops, lines, block=None, unwrapped=None
                 note += " (not at one of this route's stops)"
             tags.append(note)
         i = j + 1
+
+    # Left a timestop before its sheet time without sitting still long enough for the note above: a short dwell
+    # or a drive-through (10-21 19:40, [10] at the Chapel after 85 s and Barracks after 40 s). The route position
+    # passing the stop finds the visit; it left at the first fix after that more than STOP_ZONE_M from the stop
+    # (the pass itself can come at arrival: a bus stops just beyond the stop's point on the line).
+    if block and uts_blocks is not None and route in lines:
+        timestops = [sid for (r, sid) in stops if r == route and uts_blocks.timestop_code_for_stop(route, sid)]
+        passes = eta_compare.find_crossings({}, stops, lines, {(route, sid, veh) for sid in timestops},
+                                            unwrapped or {})
+        for (_r, sid, _v), times in sorted(passes.items(), key=lambda kv: kv[1][0]):
+            lat, lon = stops[(route, sid)][:2]
+            for passed in times:
+                left = next((x[0] for x in on_route if x[0] >= passed
+                             and eta_compare.haversine(x[2], x[3], lat, lon) > STOP_ZONE_M), None)
+                if left is None or not (t0 - LOOK_BACK_S <= left <= t1 + LOOK_AHEAD_S):
+                    continue
+                sheet = uts_blocks.scheduled_hold_epoch(route, sid, block, left)
+                if sheet is None or left >= sheet - EARLY_LEAVE_S or (sid, sheet) in early_noted:
+                    continue
+                tags.append(f"left timestop {stops[(route, sid)][2]} at {_hm(left)}, {sheet - left:.0f} s BEFORE "
+                            f"its sheet time {_hm(sheet)[:5]}")
 
     # Off the route (detour, skipped part of the route, a lot).
     if poly:
