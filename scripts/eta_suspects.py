@@ -195,6 +195,38 @@ def bus_tags(veh, route, t0, t1, polls, stops, lines, block=None, unwrapped=None
     return tags
 
 
+# TransLoc-only rows this share of which are visits after the bus's block leaves the route by its own timetable (its
+# last public trip, or its evening route change) are the block doing what the sheet says: our blank there is the
+# point of out_of_service_plan / route_change_plan, and TransLoc is predicting a lap the bus won't run in service.
+# 2026-10-22 21:45, 12532 [01]: Green Loop ends leaving the Chapel at 22:00, out of service after Madison Ave @
+# Preston Ave, then Night Pilot; TransLoc kept predicting the stops past it and the run called it ONE BUS.
+PLANNED_MIN_SHARE = 0.8
+
+
+def _planned_end(route, block, rows, stops):
+    """A plain note when most of these TransLoc-only rows come after the block leaves this route by its timetable,
+    else None."""
+    if not block or uts_blocks is None or not rows:
+        return None
+    t0 = min(r["t"] for r in rows)
+    oos = uts_blocks.out_of_service_plan(route, block, t0)
+    change = None if oos else uts_blocks.route_change_plan(route, block, t0)
+    if oos:
+        leave_stop, at = oos[0], oos[1]
+    elif change:
+        leave_stop, at = change[0], change[1]
+    else:
+        return None
+    after = sum(1 for r in rows if r["t"] + r.get("remaining", 0.0) >= at - 60)
+    if after < PLANNED_MIN_SHARE * len(rows):
+        return None
+    def name(sid):
+        return (stops.get((route, sid)) or (None, None, f"stop {sid}"))[2]
+    what = f"out of service after {name(oos[2])}" if oos else "then its evening route"
+    return (f"its timetable takes it off this route: leaves {name(leave_stop)} at {_hm(at)[:5]}, {what}; "
+            f"{after} of these are visits after that, which we leave blank on purpose")
+
+
 def _tl_note(rows):
     tl = [r["tl"] for r in rows if r.get("tl") is not None]
     if len(tl) < 5:
@@ -331,6 +363,13 @@ def find_suspects(rows, polls, stops, lines, names, bus_names=None, late_limit_p
             same.setdefault("also", []).append("TransLoc-only")
         else:
             add("TransLoc-only", g, len(transloc_only))
+            d = out[-1]
+            planned = _planned_end(route, d["block"], g, stops)
+            if planned:
+                d["verdict"] = "PLANNED"
+                d["tags"].insert(0, planned)
+                d["text"] = (f"PLANNED: {d['bus']} {d['block']} on {d['route']}, {d['window']}, {len(g)} TransLoc-only "
+                             f"rows ({d['share_pct']}%). {'; '.join(d['tags'])}. {d['transloc']}.")
     return out
 
 

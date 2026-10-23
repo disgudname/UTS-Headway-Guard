@@ -52,9 +52,13 @@ target score (routes[...].on_target_pct) and WHO is behind it, taken from the "c
     in plain words. ("causes" says ENGINE, or a suspect verdict ENGINE, ONE BUS or RECURRING). Only this one makes
     line 1 PROBLEM. RECURRING means the same block had the same trouble at the same time on earlier days (it names
     them): say so ("every weekday since ..."), never call it one bus, whatever the bus did.
+  planned: a block left the route by its own timetable (end of its service, or its evening route change) and TransLoc
+    kept predicting stops the bus would no longer serve; our blank there is right. Not a problem: leave it out, or
+    one short line at most. ("causes" / suspect verdict PLANNED). Never call it an odd bus.
 Other things that make line 1 PROBLEM: "full_lap_flips" above 0 (an ETA was ~20 minutes off while TransLoc was right),
-or "only_transloc" above 0 (stops where TransLoc showed a time and we showed nothing): say it as "we showed no time at
-N stops where TransLoc had one", with the bus numbers if the suspects name them.
+or "only_transloc" above 0 (stops where TransLoc showed a time and we showed nothing) UNLESS the suspects call those
+rows PLANNED: say it as "we showed no time at N stops where TransLoc had one", with the bus numbers if the suspects
+name them.
 "historical_pct" below 5 is a PROBLEM too ("our trip-time history looks empty"); otherwise never mention it.
 Purple Line staging holds change daily: judge Purple only on what the fields say about it, and never let Purple alone
 make line 1 PROBLEM.

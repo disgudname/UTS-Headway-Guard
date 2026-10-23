@@ -341,3 +341,51 @@ def test_recurring_needs_another_day_a_solid_block_and_not_a_known_place_or_feed
         d = [{"kind": "TransLoc-only", "verdict": "ONE BUS", "text": text}]
         h.mark_recurring(d, earlier, "2026-10-22" if i == 0 else "2026-10-23")
         assert d[0]["verdict"] == "ONE BUS", text
+
+
+def _transloc_only_run(monkeypatch, arrive_from):
+    """Bus 22 [01] on route 54: 20 polls where TransLoc predicts stop s2 and we don't. The block's sheet takes it off
+    the route at 2000 (leave s1, out of service after s3); each row's visit is at arrive_from + its poll offset."""
+    import eta_suspects as s
+
+    class Blocks:
+        @staticmethod
+        def out_of_service_plan(route, block, ts):
+            return ("s1", 2000.0, "s3", 1700.0) if block == "[01]" else None
+
+        @staticmethod
+        def route_change_plan(route, block, ts):
+            return None
+
+        @staticmethod
+        def scheduled_hold_epoch(route, stop, block, ts):
+            return None
+
+        @staticmethod
+        def timestop_code_for_stop(route, stop):
+            return None
+    monkeypatch.setattr(s, "uts_blocks", Blocks)
+    polls = [{"t": 1000.0 + 30 * i, "veh": [["22", "54", 38.03, -78.5, 5.0]],
+              "ours": [["54", "s1", "22", 60.0, "historical", "[01]"]], "tl": []} for i in range(21)]
+    rows = [{"t": 1030.0 + 30 * i, "key": ("54", "s2", "22"), "remaining": arrive_from - 1030.0, "past_m": -500.0,
+             "ours": None, "tl": -200.0, "ours_s": None, "tl_s": 300.0, "source": None} for i in range(20)]
+    stops = {("54", "s1"): (38.0362, -78.5047, "McCormick Rd @ UVA Chapel", 0.0),
+             ("54", "s3"): (38.0418, -78.4932, "Madison Ave @ Preston Ave", 1500.0)}
+    return s.find_suspects(rows, polls, stops, {}, {"54": "Green Loop"}, {"22": "12532"})
+
+
+def test_transloc_predicting_past_a_blocks_scheduled_end_is_planned_not_one_bus(monkeypatch):
+    # 2026-10-22 21:45: [01] leaves the Green Loop at the Chapel 22:00 for Night Pilot; TransLoc kept predicting.
+    d = _transloc_only_run(monkeypatch, arrive_from=2300.0)[0]
+    assert d["verdict"] == "PLANNED", d["text"]
+    assert "UVA Chapel at" in d["text"] and "Madison Ave @ Preston Ave" in d["text"]
+    summary = {"suspect_verdicts": [("TransLoc-only", "PLANNED")],
+               "breaches": ["20 visit(s) TransLoc predicted that we didn't (1 separate bus gap(s))"]}
+    assert h.diagnose(summary)[0].startswith("PLANNED")
+    h.mark_recurring([d], [{"when": "2026-10-21T21:45:00-04:00", "suspects": [d["text"]]}], "2026-10-22")
+    assert d["verdict"] == "PLANNED"  # the sheet repeating every day is not an engine rule
+
+
+def test_a_gap_before_the_blocks_scheduled_end_is_still_a_suspect(monkeypatch):
+    d = _transloc_only_run(monkeypatch, arrive_from=1500.0)[0]
+    assert d["verdict"] != "PLANNED"

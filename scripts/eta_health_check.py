@@ -431,6 +431,10 @@ def diagnose(summary, earlier=()):
     def whose(kind):
         """Who a breach of this kind is on, from eta_suspects' look at the buses behind it."""
         v = verdicts.get(kind, set())
+        if v == {"PLANNED"}:
+            return ("PLANNED (the block leaves this route by its timetable: we leave those stops blank on purpose, "
+                    "TransLoc predicted stops the bus no longer serves; not a problem, see suspects)")
+        v = v - {"PLANNED"}
         if "RECURRING" in v:
             return ("ENGINE (RECURRING: the same block at the same time on earlier days, so a timetable or engine rule, "
                     "not the bus; see suspects)")
@@ -526,7 +530,7 @@ def mark_recurring(suspects, earlier, today):
     """Re-label every bus suspect whose block / route / kind / time also showed up on an earlier day as RECURRING."""
     for d in suspects:
         slot = _suspect_slot(d.get("text"))
-        if (not slot or slot[4] < RECUR_MIN_ROWS or d.get("verdict") in ("LOT SHUTTLES", "PURPLE", "SMALL", "ERROR")
+        if (not slot or slot[4] < RECUR_MIN_ROWS or d.get("verdict") in ("LOT SHUTTLES", "PURPLE", "SMALL", "ERROR", "PLANNED")
                 or any(x in d.get("text", "") for x in RECUR_EXEMPT)):
             continue
         days = set()
