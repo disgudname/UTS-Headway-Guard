@@ -54,7 +54,7 @@ Checked against the entries below on 2026-10-06. Everything not listed here is b
 
 ### 2026-10-23 · [home] · `/alertbanner`: UVA emergency alerts (Rave CAP) as a scrolling strip for signage (code done, deploy pending)
 - `GET /v1/uva-alerts` reads `https://www.getrave.com/cap/uva/channel1` + `channel2` (override: `UVA_ALERT_CAP_URLS`), cached 20 s. Both channels carry the same alert with different ids, so alerts are de-duplicated by text. Rave re-sends while an alert is up with `<expires>` 10-20 min ahead, so active = now < expires; `<effective>`/`<onset>` are always 2021-02-18 (a Rave default), ignore them. If every channel fails, the last answer is kept (minus anything past `expires`) with `stale: true`.
-- `/alertbanner` (`html/alertbanner.html`) is meant for a full-width zone along the bottom of the 1920x1080 lobby signage (left `/map`, right slides + `/weatherclock`). It sizes to the zone's height; red with a scrolling message while an alert is up, a dark bar otherwise (`?idle=` text). `?speed=`, `?poll=`, `?test=1`.
+- `/alertbanner` (`html/alertbanner.html`) is meant for a full-width zone along the bottom of the 1920x1080 lobby signage (left `/map`, right slides + `/weatherclock`). It sizes to the zone's height; red with a scrolling message while an alert is up, fully transparent otherwise (`?idle=` text). `?speed=`, `?poll=`, `?test=1`.
 - Our own CAP feed is NOT touched: the NGPG sign already polls UVA's feed itself.
 
 ### 2026-10-23 · [home] · Game-day Purple Line Special (route 47, JPJ 5-7 AM) had none of our ETAs 05:01-06:05: route unknown to prod until 06:05:45 (no code changed)

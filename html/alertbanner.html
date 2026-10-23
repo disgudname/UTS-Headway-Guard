@@ -10,12 +10,12 @@
   Everything scales to the window height, so size the zone and the page fills it.
   ?speed=  scroll speed in pixels per second (default 180)
   ?poll=   seconds between checks (default 15)
-  ?idle=   text to show (still) when there is no alert; default is a plain dark bar
+  ?idle=   text to show (still) when there is no alert; otherwise the page is fully transparent
   ?test=1  show a sample alert
 -->
 <style>
-  :root { --bg: #0b0f14; --alert: #b3001b; --alert-dark: #7a0012; --fg: #fff; }
-  html, body { margin: 0; height: 100%; overflow: hidden; background: var(--bg); color: var(--fg);
+  :root { --alert: #b3001b; --alert-dark: #7a0012; --fg: #fff; }
+  html, body { margin: 0; height: 100%; overflow: hidden; background: transparent; color: var(--fg);
     font-family: "Helvetica Neue", Arial, sans-serif; }
   #bar { position: absolute; inset: 0; display: flex; align-items: stretch; }
   #label { flex: none; display: none; align-items: center; padding: 0 0.6em; background: var(--alert-dark);
