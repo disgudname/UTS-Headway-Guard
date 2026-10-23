@@ -2375,6 +2375,7 @@ COUNTDOWN_HTML = _load_html("countdown.html")
 ONBOARD_HTML = _load_html("onboard.html")
 WEATHER_HTML = _load_html("weather.html")
 WEATHERCLOCK_HTML = _load_html("weatherclock.html")
+ALERTBANNER_HTML = _load_html("alertbanner.html")
 BLOCKCARDS_HTML = _load_html("blockcards.html")
 BUSCARDS_HTML = _load_html("buscards.html")
 PACKS_HTML = _load_html("packs.html")
@@ -15188,6 +15189,103 @@ async def weather_page():
 @app.get("/weatherclock")
 async def weatherclock_page():
     return HTMLResponse(WEATHERCLOCK_HTML)
+
+@app.get("/alertbanner")
+async def alertbanner_page():
+    return HTMLResponse(ALERTBANNER_HTML)
+
+
+# UVA's own emergency alerts (Rave CAP). Both channels carry the same alert with
+# different ids; Rave re-sends while it is up and <expires> is ~10-20 min ahead,
+# so "active" = now < expires. <effective>/<onset> are a fixed 2021 default: ignore.
+UVA_ALERT_CAP_URLS = [
+    u.strip() for u in os.getenv(
+        "UVA_ALERT_CAP_URLS",
+        "https://www.getrave.com/cap/uva/channel1,https://www.getrave.com/cap/uva/channel2",
+    ).split(",") if u.strip()
+]
+UVA_ALERT_CACHE_S = 20.0
+_uva_alert_cache: Dict[str, Any] = {"at": 0.0, "payload": None}
+_uva_alert_lock = asyncio.Lock()
+
+
+def _parse_uva_cap(xml_text: str) -> List[Dict[str, Any]]:
+    ns = {"c": "urn:oasis:names:tc:emergency:cap:1.2"}
+    root = ET.fromstring(xml_text)
+    status = (root.findtext("c:status", "", ns) or "").strip()
+    msg_type = (root.findtext("c:msgType", "", ns) or "").strip()
+    if status != "Actual" or msg_type == "Cancel":
+        return []
+    out = []
+    for info in root.findall("c:info", ns):
+        headline = (info.findtext("c:headline", "", ns) or "").strip()
+        description = (info.findtext("c:description", "", ns) or "").strip()
+        out.append({
+            "identifier": (root.findtext("c:identifier", "", ns) or "").strip(),
+            "sent": (root.findtext("c:sent", "", ns) or "").strip(),
+            "expires": (info.findtext("c:expires", "", ns) or "").strip(),
+            "event": (info.findtext("c:event", "", ns) or "").strip(),
+            "severity": (info.findtext("c:severity", "", ns) or "").strip(),
+            "urgency": (info.findtext("c:urgency", "", ns) or "").strip(),
+            "headline": headline,
+            "description": description,
+        })
+    return out
+
+
+async def _fetch_uva_alerts() -> Dict[str, Any]:
+    now = datetime.now(timezone.utc)
+    alerts: Dict[str, Dict[str, Any]] = {}
+    errors = []
+    async with httpx.AsyncClient(timeout=10.0) as client:
+        results = await asyncio.gather(
+            *(client.get(u) for u in UVA_ALERT_CAP_URLS), return_exceptions=True
+        )
+    for url, resp in zip(UVA_ALERT_CAP_URLS, results):
+        try:
+            if isinstance(resp, Exception):
+                raise resp
+            resp.raise_for_status()
+            for a in _parse_uva_cap(resp.text):
+                try:
+                    if a["expires"] and datetime.fromisoformat(a["expires"]) <= now:
+                        continue
+                except ValueError:
+                    pass
+                text = a["description"] or a["headline"]
+                if text and text not in alerts:
+                    alerts[text] = a
+        except Exception as exc:
+            errors.append(f"{url.rsplit('/', 1)[-1]}: {type(exc).__name__}")
+    return {
+        "alerts": list(alerts.values()),
+        "errors": errors,
+        "fetched_at": now.isoformat(),
+    }
+
+
+@app.get("/v1/uva-alerts")
+async def uva_alerts():
+    async with _uva_alert_lock:
+        cached = _uva_alert_cache["payload"]
+        if cached is None or time.monotonic() - _uva_alert_cache["at"] > UVA_ALERT_CACHE_S:
+            fresh = await _fetch_uva_alerts()
+            # Every channel failed: keep serving the last good answer rather than "all clear".
+            if fresh["errors"] and len(fresh["errors"]) == len(UVA_ALERT_CAP_URLS) and cached is not None:
+                now = datetime.now(timezone.utc)
+                still_up = []
+                for a in cached["alerts"]:
+                    try:
+                        if a["expires"] and datetime.fromisoformat(a["expires"]) <= now:
+                            continue
+                    except ValueError:
+                        pass
+                    still_up.append(a)
+                cached = {**cached, "alerts": still_up, "errors": fresh["errors"], "stale": True}
+            else:
+                cached = fresh
+            _uva_alert_cache.update(at=time.monotonic(), payload=cached)
+    return JSONResponse(cached, headers={"Cache-Control": "no-store"})
 
 @app.get("/blockcards")
 async def blockcards_page():
