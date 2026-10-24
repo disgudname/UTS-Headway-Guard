@@ -899,6 +899,43 @@ def test_elapsed_dwell_fn_charges_only_the_rest_of_the_current_hold():
     assert be.elapsed_dwell_fn(base, None, 50.0, 1000.0) is base
 
 
+def test_a_late_bus_sitting_at_its_timestop_is_not_held_for_the_next_slot_while_it_boards(monkeypatch):
+    # Gold [09], Saturday 2026-10-24: Shannon Library slots 17:00 and 17:40. The bus pulled up at 17:23:32, 23 min
+    # late. At 17:25:17 17:00 is past MATCH_TOLERANCE_S; matched by "now" it read early for 17:40 (Monroe Hall 16 min).
+    from datetime import datetime
+    from zoneinfo import ZoneInfo
+    import uts_blocks
+    ny = ZoneInfo("America/New_York")
+    at = lambda h, m, s=0: datetime(2026, 10, 24, h, m, s, tzinfo=ny).timestamp()  # noqa: E731
+    monkeypatch.setattr(uts_blocks, "_blocks", {"[09]": {"weekday_groups": [
+        {"weekdays": [5, 6], "stops": [[17 * 3600, "LIB"], [17 * 3600 + 40 * 60, "LIB"]]}]}})
+    monkeypatch.setattr(uts_blocks, "_timestops", {"LIB": {"67": "s1"}})
+    monkeypatch.setattr(uts_blocks, "_stop_id_to_code", {("67", "s1"): "LIB"})
+    line = _line([0, 300, 900, 1200])
+    now = at(17, 25, 17)
+
+    def eta_s2(hold_fn):
+        est = eta.estimate_stop_eta_s(
+            line, 305.0, 0.0, line.stops[2], lambda *a: 60.0, now,
+            vehicle_lat=0.0, vehicle_lon=300.0 / 111_320.0, vehicle_block_id="[09]", scheduled_timestop_fn=hold_fn,
+        )
+        return est.seconds
+
+    assert eta_s2(uts_blocks.scheduled_hold_epoch) > 14 * 60          # the bug: held for 17:40
+    lim = uts_blocks.EARLY_MATCH_LIMIT_S
+    pinned = eta.arrival_pinned_hold_fn(uts_blocks.scheduled_hold_epoch, "s1", at(17, 23, 32), now, lim)
+    assert eta_s2(pinned) < 3 * 60                                      # late for 17:00: no hold
+    # Still sitting there at 17:31, its next slot within EARLY_MATCH_LIMIT_S: that wait is real, it is held.
+    later = eta.arrival_pinned_hold_fn(uts_blocks.scheduled_hold_epoch, "s1", at(17, 23, 32), at(17, 31), lim)
+    assert later("67", "s1", "[09]", at(17, 31)) == at(17, 40)
+    # Pulled up at 17:27, 13 min early with 17:00 already out of reach: held, as before.
+    early = eta.arrival_pinned_hold_fn(uts_blocks.scheduled_hold_epoch, "s1", at(17, 27), at(17, 28), lim)
+    assert early("67", "s1", "[09]", at(17, 28)) == at(17, 40)
+    # The same stop a lap later, and other stops, are matched as usual.
+    assert pinned("67", "s1", "[09]", now + 30 * 60) == uts_blocks.scheduled_hold_epoch("67", "s1", "[09]", now + 30 * 60)
+    assert eta.arrival_pinned_hold_fn(uts_blocks.scheduled_hold_epoch, None, None, now, lim) is uts_blocks.scheduled_hold_epoch
+
+
 def test_post_hold_hop_cap_is_only_raised_by_slower_drive_history():
     import bus_eta as be
     cap = 861 / be.TYPICAL_BUS_SPEED_MPS + be.POST_HOLD_HOP_ALLOWANCE_S

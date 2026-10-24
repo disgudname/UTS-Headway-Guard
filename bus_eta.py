@@ -527,6 +527,35 @@ def elapsed_dwell_fn(
     return fn
 
 
+
+def arrival_pinned_hold_fn(
+    hold_fn: Optional[ScheduledTimestopFn], stop_id: Optional[str], arrived_ts: Optional[float], now: float,
+    early_limit_s: float,
+) -> Optional[ScheduledTimestopFn]:
+    """hold_fn (uts_blocks.scheduled_hold_epoch) for a bus sitting at a timestop since arrived_ts: if it pulled up
+    late (no hold), its late slot aging past uts_blocks.MATCH_TOLERANCE_S while it boards does not turn it into a
+    bus early for the next slot. Gold [09] reached Shannon Library at 17:23 on 2026-10-24, 23 min behind its 17:00
+    slot; at 17:25:17 17:00 dropped out, the bus was held for 17:40 (Monroe Hall read 16 min) and it left half a
+    minute later. Every such flip in the 09-19..10-24 health-check logs left within ~2 min. A bus whose next slot
+    comes within early_limit_s (uts_blocks.EARLY_MATCH_LIMIT_S) while it sits is still held for it: those waits are real (07:48
+    arrivals for 08:00 slots, Night Pilot at Stadium). Only the current visit (within ELAPSED_DWELL_HORIZON_S of
+    now) is touched; the same stop a lap later is matched as usual."""
+    if hold_fn is None or stop_id is None or arrived_ts is None or arrived_ts >= now:
+        return hold_fn
+
+    def fn(route_id: str, s_id: str, block_id: Optional[str], ref: float) -> Optional[float]:
+        hold = hold_fn(route_id, s_id, block_id, ref)
+        if str(s_id) != stop_id or ref - now > ELAPSED_DWELL_HORIZON_S or hold is None or hold <= ref:
+            return hold
+        if hold - ref <= early_limit_s:
+            return hold
+        on_arrival = hold_fn(route_id, s_id, block_id, arrived_ts)
+        if on_arrival is not None and on_arrival <= arrived_ts:
+            return on_arrival   # it pulled up late for this slot: still late for it
+        return hold
+
+    return fn
+
 def release_dwell_fn(
     dwell_fn: Callable[[str, str, float], float], stop_id: str, release_epoch: float, now: float
 ) -> Callable[[str, str, float], float]:

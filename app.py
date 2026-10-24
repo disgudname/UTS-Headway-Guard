@@ -17577,15 +17577,23 @@ async def _compute_bus_eta_arrivals() -> Dict[str, Any]:
                     elif bus_eta.out_of_service_finished(oos_phase, oos_key in _oos_run_seen, when_ts, oos_plan[1]):
                         continue  # past its cut-off, heading to the lot / becoming Night Pilot: serves nothing more
             veh_hop_fn, veh_dwell_fn = dwell_mode_ctx.get((route_id, str(vid)), (hop_time_fn, None))
+            veh_hold_fn = uts_blocks.scheduled_hold_epoch if uts_blocks.is_loaded() else None
+            if veh_hold_fn is not None and block_id and veh.lat is not None and veh.lon is not None:
+                # A bus sitting at a timestop is matched to its slot by when it pulled up (arrival_pinned_hold_fn).
+                at_stop = bus_eta.stop_zone_at(line, veh.lat, veh.lon)
+                sat_s = _bus_eta_stop_zone_elapsed(f"{vid}|{route_id}", at_stop, when_ts)
+                veh_hold_fn = bus_eta.arrival_pinned_hold_fn(
+                    veh_hold_fn, at_stop, when_ts - sat_s, when_ts, uts_blocks.EARLY_MATCH_LIMIT_S)
 
-            def _estimate(target_stop, _line=line, _veh=veh, _ema=ema_mps, _block=block_id, _hop=veh_hop_fn, _dwell=veh_dwell_fn):
+            def _estimate(target_stop, _line=line, _veh=veh, _ema=ema_mps, _block=block_id, _hop=veh_hop_fn, _dwell=veh_dwell_fn,
+                          _hold=veh_hold_fn):
                 return bus_eta.estimate_stop_eta_s(
                     _line, _veh.s_pos, _ema, target_stop, _hop, when_ts,
                     dwell_fn=_dwell,
                     vehicle_lat=_veh.lat, vehicle_lon=_veh.lon,
                     vehicle_dir_sign=getattr(_veh, "dir_sign", 0),
                     vehicle_block_id=_block,
-                    scheduled_timestop_fn=uts_blocks.scheduled_hold_epoch if uts_blocks.is_loaded() else None,
+                    scheduled_timestop_fn=_hold,
                     # Deliberately day/time-INDEPENDENT (uts_blocks.is_timestop_at exists but is NOT used here).
                     # A time-aware cap was deployed and reverted 2026-09-20 (weekend Orange far too late) and
                     # scored worse again in a 2026-09-23 Sunday replay -- see HANDOFF.md before changing this.
@@ -18157,11 +18165,13 @@ def _onboard_stop_rows(
         if blocks_loaded and uts_blocks.timestop_code_for_stop(route_id, str(stop.id)) is not None:
             row["timestop"] = True
             if block_id:
-                row["scheduled"] = uts_blocks.scheduled_hold_epoch(
-                    route_id, str(stop.id), block_id, when_ts + (seconds or 0.0),
-                )
+                row["scheduled"] = hold_fn(route_id, str(stop.id), block_id, when_ts + (seconds or 0.0))
         return row
 
+    hold_fn = bus_eta.arrival_pinned_hold_fn(
+        uts_blocks.scheduled_hold_epoch if blocks_loaded else None,
+        bus_eta.stop_zone_at(line, lat, lon), when_ts - dwell_elapsed_s, when_ts, uts_blocks.EARLY_MATCH_LIMIT_S,
+    )
     rows: List[Tuple[float, Dict[str, Any]]] = []
     for stop in line.stops:
         if stop.arc_pos is None or stop is at:
@@ -18170,7 +18180,7 @@ def _onboard_stop_rows(
             line, veh_s_pos, ema_mps, stop, hop_fn, when_ts,
             dwell_fn=dwell_fn, vehicle_lat=lat, vehicle_lon=lon, vehicle_dir_sign=dir_sign,
             vehicle_block_id=block_id,
-            scheduled_timestop_fn=uts_blocks.scheduled_hold_epoch if blocks_loaded else None,
+            scheduled_timestop_fn=hold_fn,
             # Day/time-independent on purpose, as in _compute_bus_eta_arrivals.
             is_timestop_fn=(
                 (lambda r, s, when: uts_blocks.timestop_code_for_stop(r, s) is not None) if blocks_loaded else None
