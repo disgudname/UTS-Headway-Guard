@@ -6780,40 +6780,27 @@ async def startup():
                             br.raise_for_status()
                             data2 = br.json() or {}
                             groups = data2.get("BlockGroups", [])
-                            alias = {
-                                "[01]": "[01]/[04]",
-                                "[03]": "[05]/[03]",
-                                "[04]": "[01]/[04]",
-                                "[05]": "[05]/[03]",
-                                "[06]": "[22]/[06]",
-                                "[10]": "[20]/[10]",
-                                "[15]": "[26]/[15]",
-                                "[16] AM": "[21]/[16] AM",
-                                "[17]": "[23]/[17]",
-                                "[18] AM": "[24]/[18] AM",
-                                "[20] AM": "[20]/[10]",
-                                "[21] AM": "[21]/[16] AM",
-                                "[22] AM": "[22]/[06]",
-                                "[23]": "[23]/[17]",
-                                "[24] AM": "[24]/[18] AM",
-                                "[26] AM": "[26]/[15]",
+                            by_vehicle = _build_block_mapping(groups)
+                            blocks = {
+                                vid: by_vehicle[str(vid)]
+                                for vid in vehicle_ids
+                                if "[" in by_vehicle.get(str(vid), "")
                             }
-                            mapping: Dict[int, str] = {}
-                            for g in groups:
-                                block = (g.get("BlockGroupId") or "").strip()
-                                vehicle_id = (
-                                    g.get("Blocks", [{}])[0]
-                                    .get("Trips", [{}])[0]
-                                    .get("VehicleID")
-                                    or g.get("VehicleId")
-                                )
-                                if block and "[" in block and vehicle_id is not None:
-                                    mapping[vehicle_id] = alias.get(block, block)
-                            blocks = mapping
                     except Exception as e:
                         print(f"[vehicle_logger] block error: {e}")
 
                 blocks = {vid: name for vid, name in blocks.items() if vid in vehicle_ids}
+                # The one block the ETA engine has the bus on right now ("[03]" where blocks says "[05]/[03]"),
+                # so a replay can show what we thought next to TransLoc's dispatch group.
+                our_blocks: Dict[Any, str] = {}
+                try:
+                    block_windows = _vehicle_block_windows()
+                    for vid in vehicle_ids:
+                        ours = _current_block_id_for_vehicle(block_windows, vid, ts / 1000)
+                        if ours:
+                            our_blocks[vid] = ours
+                except Exception as e:
+                    print(f"[vehicle_logger] our block error: {e}")
                 day_key = datetime.fromtimestamp(ts / 1000).strftime("%Y%m%d")
                 minimal_routes: Optional[List[Dict[str, Any]]] = None
                 routes_serialized: Optional[str] = None
@@ -6895,7 +6882,7 @@ async def startup():
                     await asyncio.sleep(VEH_LOG_INTERVAL_S)
                     continue
 
-                entry = {"ts": ts, "vehicles": vehicles, "blocks": blocks}
+                entry = {"ts": ts, "vehicles": vehicles, "blocks": blocks, "our_blocks": our_blocks}
                 if ondemand_payload.get("vehicles") or ondemand_payload.get("ondemandStops"):
                     entry["ondemand"] = ondemand_payload
                 fname = datetime.fromtimestamp(ts/1000).strftime("%Y%m%d_%H.jsonl")
@@ -9379,30 +9366,15 @@ async def _get_transloc_stops(
 
 
 def _build_block_mapping(block_groups: List[Dict[str, Any]]) -> Dict[str, str]:
-    alias = {
-        "[01]": "[01]/[04]",
-        "[03]": "[05]/[03]",
-        "[04]": "[01]/[04]",
-        "[05]": "[05]/[03]",
-        "[06]": "[22]/[06]",
-        "[10]": "[20]/[10]",
-        "[15]": "[26]/[15]",
-        "[16] AM": "[21]/[16] AM",
-        "[17]": "[23]/[17]",
-        "[18] AM": "[24]/[18] AM",
-        "[20] AM": "[20]/[10]",
-        "[21] AM": "[21]/[16] AM",
-        "[22] AM": "[22]/[06]",
-        "[23]": "[23]/[17]",
-        "[24] AM": "[24]/[18] AM",
-        "[26] AM": "[26]/[15]",
-    }
+    """vehicle id (str) -> BlockGroupId. TransLoc lists an interlined bus under its whole duty AND under the part
+    alone (bus 16 on 2026-10-24 was in both "[05]/[03]" and "[03]"), so a bus in several groups gets the one naming
+    the most blocks. This replaced a hand-kept alias table ("[06]" -> "[22]/[06]", ...) that went stale when the
+    blocks were renumbered: it labelled weekday Green [01] "[01]/[04]" and Purple [22] AM "[22]/[06]"."""
     mapping: Dict[str, str] = {}
     for group in block_groups or []:
-        raw_block = str(group.get("BlockGroupId") or "").strip()
-        if not raw_block:
+        block_name = str(group.get("BlockGroupId") or "").strip()
+        if not block_name:
             continue
-        block_name = alias.get(raw_block, raw_block)
         vehicle_ids: List[Any] = []
         vehicle_ids.append(group.get("VehicleId") or group.get("VehicleID"))
         for block in group.get("Blocks") or []:
@@ -9411,7 +9383,9 @@ def _build_block_mapping(block_groups: List[Dict[str, Any]]) -> Dict[str, str]:
         for vid in vehicle_ids:
             if vid is None:
                 continue
-            mapping[str(vid)] = block_name
+            prev = mapping.get(str(vid))
+            if prev is None or len(re.findall(r"\[\d+\]", block_name)) > len(re.findall(r"\[\d+\]", prev)):
+                mapping[str(vid)] = block_name
     return mapping
 
 

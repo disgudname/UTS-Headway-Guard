@@ -21,6 +21,7 @@ from app import (
     _extract_block_from_position_name,
     _parse_dotnet_date,
     _parse_block_time_today,
+    _build_block_mapping,
     _build_block_mapping_with_times,
     _select_current_or_next_block,
     _infer_block_number_from_route,
@@ -445,6 +446,25 @@ class TestRawBlockMapping(unittest.TestCase):
         driver = _find_current_driver(block_numbers[0], assignments_by_block, now_ts)
         self.assertIsNotNone(driver)
         self.assertEqual(driver["name"], "Bob Johnson")
+
+
+class TestBuildBlockMapping(unittest.TestCase):
+    """vehicle id -> TransLoc block group name, without a hand-kept alias table."""
+
+    @staticmethod
+    def _group(name, *vehicle_ids):
+        return {"BlockGroupId": name, "Blocks": [{"Trips": [{"VehicleID": v} for v in vehicle_ids]}]}
+
+    def test_bus_in_duty_and_part_gets_the_duty(self):
+        # Saturday 2026-10-24: bus 16 was listed under "[05]/[03]" and under "[03]" alone, in either order.
+        for groups in ([self._group("[05]/[03]", 16), self._group("[03]", 16)],
+                       [self._group("[03]", 16), self._group("[05]/[03]", 16)]):
+            self.assertEqual(_build_block_mapping(groups), {"16": "[05]/[03]"})
+
+    def test_lone_blocks_keep_their_own_names(self):
+        # Weekday Green [01] and Purple [22] AM are not interlined any more.
+        groups = [self._group("[01]", 22), self._group("[22] AM", 40), self._group("[19]/[06]", 35)]
+        self.assertEqual(_build_block_mapping(groups), {"22": "[01]", "40": "[22] AM", "35": "[19]/[06]"})
 
 
 class TestExtractBlockFromPositionName(unittest.TestCase):
