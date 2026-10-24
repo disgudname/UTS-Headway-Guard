@@ -375,6 +375,77 @@ def analyze(rows, names, warmup_until=None):
     return out, problems
 
 
+# How bad the missed-bus side was, beyond the one 2 min line (user, 2026-10-24: "just how bad buses leaving early
+# are"). Same predictions as late_over_2min_pct_excl_near_term_only: Purple and the lot shuttles are left out.
+EARLY_STEPS_S = (120, 300, 600)
+EARLY_WORST = 3
+EARLY_NEW_VISIT_S = 300     # a bus's ETAs for one stop belong to the same visit until the arrival time jumps this much
+
+
+def early_detail(rows, names, stops, polls, buses):
+    """{"of", "over_2min", "over_5min", "over_10min", "tl_...", "visits", "worst": [...]}, or None with nothing judged.
+    Counts are ETAs (one per poll); "visits" and "worst" count each time a bus passed a stop once, at its worst ETA."""
+    def counted(r):
+        name = names.get(r["key"][0], r["key"][0])
+        return not name.startswith(NEAR_TERM_ONLY_ROUTE_PREFIXES) and "shuttle" not in name.lower()
+
+    judged = [r for r in rows if r["ours"] is not None and counted(r)]
+    if not judged:
+        return None
+    out = {"of": len(judged)}
+    for step in EARLY_STEPS_S:
+        out[f"over_{step // 60}min"] = sum(1 for r in judged if r["ours"] > step)
+    tl = [r["tl"] for r in rows if r["tl"] is not None and counted(r)]
+    if tl:
+        out["tl_of"] = len(tl)
+        for step in EARLY_STEPS_S:
+            out[f"tl_over_{step // 60}min"] = sum(1 for e in tl if e > step)
+
+    blocks = {}
+    for p in polls:
+        for x in p["ours"]:
+            if len(x) > 5 and x[5]:
+                blocks.setdefault((x[2], x[0]), str(x[5]).split()[0])
+    visits = []
+    by_key = defaultdict(list)
+    for r in judged:
+        by_key[r["key"]].append(r)
+    for key, rs in by_key.items():
+        rs.sort(key=lambda r: r["t"])
+        current, last_at = [], None
+        for r in rs:
+            at = r["t"] + r["remaining"]
+            if current and abs(at - last_at) > EARLY_NEW_VISIT_S:
+                visits.append(current)
+                current = []
+            current.append(r)
+            last_at = at
+        visits.append(current)
+    bad = [max(v, key=lambda r: r["ours"]) for v in visits if any(r["ours"] > LATE_MISS_S for r in v)]
+    out["visits"] = len(bad)
+    # One line per bus: a bus that leaves a timestop early is early at every stop after it, so per-visit the worst
+    # list was all the same bus (10-21 19:30, 14332 [10]).
+    per_bus = defaultdict(list)
+    for r in bad:
+        per_bus[(r["key"][0], r["key"][2])].append(r)
+    out["worst"] = []
+    for group in sorted(per_bus.values(), key=lambda g: -max(r["ours"] for r in g))[:EARLY_WORST]:
+        r = max(group, key=lambda r: r["ours"])
+        route, stop, veh = r["key"]
+        out["worst"].append({
+            "stops_hit": len(group),
+            "route": names.get(route, route),
+            "stop": (stops.get((route, stop)) or (None, None, f"stop {stop}"))[2],
+            "bus": buses.get(veh, f"vehicle {veh}"),
+            "block": blocks.get((veh, route)),
+            "at": datetime.datetime.fromtimestamp(r["t"]).strftime("%H:%M"),
+            "shown_min": round(r["ours_s"] / 60, 1) if r.get("ours_s") is not None else None,
+            "early_min": round(r["ours"] / 60, 1),
+            "tl_early_min": round(r["tl"] / 60, 1) if r["tl"] is not None else None,
+        })
+    return out
+
+
 def usual_route_errors(summary, earlier):
     """{route name: median of its median_err_s} over the last USUAL_RUNS earlier runs of the same slot: same start
     time and length, same kind of day (Mon-Fri together, Sat and Sun each alone), same service level (runs from
@@ -577,6 +648,12 @@ def main():
         rows = eta_compare.score_rows(polls, stops, lines)
         warmup_until = polls[min(WARMUP_POLLS, len(polls)) - 1]["t"] if polls else None
         stats, problems = analyze(rows, names, warmup_until)
+        try:  # extra detail only: a bug here must not lose the run
+            early = early_detail(rows, names, stops, polls, bus_names())
+            if early:
+                stats["early"] = early
+        except Exception as exc:
+            stats["early"] = {"error": f"{type(exc).__name__}: {exc}"}
         suspects = find_suspects(rows, polls, stops, lines, names) if problems else []
         mark_recurring(suspects, earlier_results(), f"{now:%Y-%m-%d}")
     except Exception as exc:  # network down, prod down, scorer bug...

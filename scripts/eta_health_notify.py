@@ -26,7 +26,7 @@ HANDOFF.md section 7 for what the fields and limits mean, then write about this 
 
 {result}
 
-FORMAT: plain text, no markdown, at most 5 short lines.
+FORMAT: plain text, no markdown, at most 6 short lines.
 Line 1 starts with exactly one of:
   "ALL GOOD:"  nothing needs anyone's attention (including a run where one odd bus explains everything);
   "HEADS UP:"  worth knowing but not ours to fix, or the check could not tell (no buses, too little data, it failed);
@@ -40,6 +40,13 @@ Line 3 is the missed-bus risk, from late_over_2min_pct (use late_over_2min_pct_e
 leaves Purple out): it is the share of ETAs where the bus LEFT more than 2 minutes BEFORE the time shown, i.e. a rider
 trusting it could have missed the bus. Say it as "1 in N" ETAs (round to a friendly number: 1 in 1,000, 1 in 50...),
 or "none" at 0. The target is under 3 in 100. NEVER call this "late": in plain words it is the bus coming early.
+Line 4, only when "early" shows any over_2min above 0: HOW early, from "early" (Purple and lot shuttles are already
+out of it). Say how many came 5+ and 10+ minutes before the time shown, again as "1 in N" of "early.of" (skip a step
+that is 0), then the worst bus from "early.worst": bus number, block in brackets, route, the stop and clock time, how
+many minutes early against the time we showed, and how many stops it hit ("stops_hit"), e.g. "5+ min early: 1 in 9.
+Worst: 14332 [10] Gold Line came 7 min before our time at JPJ South Lot (19:49), 19 stops." When TransLoc had that same
+one right (tl_early_min under 1), add "TransLoc had it right" (and if the suspects say the bus left a timestop before its sheet time, say so). Name a second
+worst bus only if it was also 5+ min early. With over_2min at 0, leave this line out.
 Then at most two lines on anything off, by route name ("Gold", "Green", "Night Pilot"...), giving the route's own on
 target score (routes[...].on_target_pct) and WHO is behind it, taken from the "causes" and "suspects" fields:
   the buses: they ran slower or faster than usual (traffic, long stops). Nothing to fix. ("causes" says BUSES SLOW);
