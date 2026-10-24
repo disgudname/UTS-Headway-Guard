@@ -6733,6 +6733,7 @@ async def startup():
     async def vehicle_logger():
         await asyncio.sleep(0.1)
         client = _get_transloc_client(None)
+        our_block_windows: List[Any] = [None, {}]  # [block_groups list they were built from, windows]
         while True:
             ts = int(time.time()*1000)
             try:
@@ -6794,7 +6795,11 @@ async def startup():
                 # so a replay can show what we thought next to TransLoc's dispatch group.
                 our_blocks: Dict[Any, str] = {}
                 try:
-                    block_windows = _vehicle_block_windows()
+                    # Rebuilt only when the cached block groups change: building them prints a line per block.
+                    groups_now = (getattr(state, "blocks_cache", None) or {}).get("block_groups") or []
+                    if groups_now is not our_block_windows[0]:
+                        our_block_windows[:] = [groups_now, _vehicle_block_windows()]
+                    block_windows = our_block_windows[1]
                     for vid in vehicle_ids:
                         ours = _current_block_id_for_vehicle(block_windows, vid, ts / 1000)
                         if ours:
