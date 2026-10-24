@@ -428,12 +428,21 @@ def early_detail(rows, names, stops, polls, buses):
     per_bus = defaultdict(list)
     for r in bad:
         per_bus[(r["key"][0], r["key"][2])].append(r)
+    # How long riders could see a 2+ min early time for that bus, at any of its stops: one poll interval per poll
+    # that had one. Without it "15 min early" read like all evening when it was up for 30 s (10-24 17:25, 12132 [09]).
+    ts = sorted(p["t"] for p in polls)
+    gap = sorted(b - a for a, b in zip(ts, ts[1:]))[len(ts) // 2 - 1] if len(ts) > 1 else 0
+    shown_at = defaultdict(set)
+    for r in judged:
+        if r["ours"] > LATE_MISS_S:
+            shown_at[(r["key"][0], r["key"][2])].add(r["t"])
     out["worst"] = []
-    for group in sorted(per_bus.values(), key=lambda g: -max(r["ours"] for r in g))[:EARLY_WORST]:
+    for bus_key, group in sorted(per_bus.items(), key=lambda kv: -max(r["ours"] for r in kv[1]))[:EARLY_WORST]:
         r = max(group, key=lambda r: r["ours"])
         route, stop, veh = r["key"]
         out["worst"].append({
             "stops_hit": len(group),
+            "shown_for_s": round(len(shown_at[bus_key]) * gap),
             "route": names.get(route, route),
             "stop": (stops.get((route, stop)) or (None, None, f"stop {stop}"))[2],
             "bus": buses.get(veh, f"vehicle {veh}"),

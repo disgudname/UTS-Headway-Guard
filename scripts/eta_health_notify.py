@@ -43,8 +43,11 @@ or "none" at 0. The target is under 3 in 100. NEVER call this "late": in plain w
 Line 4, only when "early" shows any over_2min above 0: HOW early, from "early" (Purple and lot shuttles are already
 out of it). Say how many came 5+ and 10+ minutes before the time shown, again as "1 in N" of "early.of" (skip a step
 that is 0), then the worst bus from "early.worst": bus number, block in brackets, route, the stop and clock time, how
-many minutes early against the time we showed, and how many stops it hit ("stops_hit"), e.g. "5+ min early: 1 in 9.
-Worst: 14332 [10] Gold Line came 7 min before our time at JPJ South Lot (19:49), 19 stops." When TransLoc had that same
+many minutes early against the time we showed, how many stops it hit ("stops_hit"), and how long riders could see the
+wrong time ("shown_for_s": say it in seconds under 2 minutes, else whole minutes), e.g. "5+ min early: 1 in 9.
+Worst: 14332 [10] Gold Line came 7 min before our time at JPJ South Lot (19:49), 19 stops, wrong time up for 30 sec."
+The minutes early is how far off the worst moment was, not how long it lasted: never word it so it sounds like the
+bus was early for a long time. When TransLoc had that same
 one right (tl_early_min under 1), add "TransLoc had it right" (and if the suspects say the bus left a timestop before its sheet time, say so). Name a second
 worst bus only if it was also 5+ min early. With over_2min at 0, leave this line out.
 Then at most two lines on anything off, by route name ("Gold", "Green", "Night Pilot"...), giving the route's own on
