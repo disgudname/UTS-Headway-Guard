@@ -27,6 +27,7 @@ kill_timeout = "5s"
   VEH_LOG_DIRS = "/data/vehicle_logs"
   VEH_LOG_RETENTION_MS = "2419200000"  # 28 days
   SYNC_PEERS = ""
+  ETA_HEALTH_CHECKS = "1"     # scheduled ETA health checks + phone pushes, eta_health_scheduler.py
 
 [http_service]
   internal_port = 8080

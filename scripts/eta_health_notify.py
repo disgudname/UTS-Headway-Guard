@@ -3,9 +3,11 @@
     python scripts/eta_health_notify.py [--dry-run] [--result N]
 
 Called at the end of eta_health_check.py (HANDOFF.md section 7). Reads the last line of
-data-local/eta_watch/health_results.jsonl, asks a headless `claude -p` for a 1-3 line verdict, and
-POSTs it to https://ntfy.sh/<NTFY_TOPIC>. The topic is the "password" on ntfy's free tier, so it
-lives in the NTFY_TOPIC environment variable, never in git. Never raises: a failed notify must not
+data-local/eta_watch/health_results.jsonl (ETA_WATCH_DIR), asks Claude for a short verdict, and
+POSTs it to https://ntfy.sh/<topic>. With ANTHROPIC_API_KEY set (prod, where eta_health_scheduler.py runs the
+checks) Claude is called through the API with HANDOFF.md section 7 pasted in; otherwise through a headless
+`claude -p` on this machine. The topic is the "password" on ntfy's free tier, so it lives in ETA_NTFY_TOPIC
+(prod, where NTFY_TOPIC is the bridge-alert topic) or NTFY_TOPIC, never in git. Never raises: a failed notify must not
 fail the health check. --dry-run prints the message instead of sending it.
 """
 import json
@@ -16,8 +18,9 @@ import urllib.request
 from pathlib import Path
 
 REPO = Path(__file__).resolve().parent.parent
-RESULTS = REPO / "data-local" / "eta_watch" / "health_results.jsonl"
+RESULTS = Path(os.environ.get("ETA_WATCH_DIR") or REPO / "data-local" / "eta_watch") / "health_results.jsonl"
 CLAUDE = Path.home() / ".local" / "bin" / "claude.exe"
+MODEL = "claude-opus-5-5"
 
 PROMPT = """You are writing a phone notification about one scheduled check of the UVA transit dashboard's bus arrival
 times ("ETAs"). The reader runs transit operations and drives buses but is NOT a statistician or programmer: write the
@@ -87,7 +90,43 @@ Words to avoid: median, percentile, breach, threshold, scorer, slot, horizon, en
 log, field names. Use whole numbers. Do not repeat a number twice."""
 
 
+def handoff_section_7():
+    """HANDOFF.md section 7 (what the fields and limits mean), for the API call, which cannot read files."""
+    text = (REPO / "HANDOFF.md").read_text(encoding="utf-8")
+    start = text.index("## 7.")
+    end = text.find("\n## ", start + 5)
+    return text[start:end if end > 0 else None]
+
+
+def review_api(last):
+    """The verdict through the Anthropic API; None if it can't be had (the caller falls back to a plain summary)."""
+    import anthropic
+    prompt = PROMPT.format(result=last).replace(
+        "Read\nHANDOFF.md section 7 for what the fields and limits mean",
+        "HANDOFF.md section 7, below, says what the\nfields and limits mean")
+    content = f"<handoff_section_7>\n{handoff_section_7()}\n</handoff_section_7>\n\n{prompt}"
+    request = dict(model=MODEL, max_tokens=16000, messages=[{"role": "user", "content": content}])
+    client = anthropic.Anthropic(timeout=300)
+    try:
+        # A safety decline on the main model is re-run on another one inside the same call.
+        msg = client.beta.messages.create(betas=["server-side-fallback-2026-07-01"], fallbacks="default", **request)
+    except anthropic.BadRequestError:
+        msg = client.messages.create(**request)
+    if msg.stop_reason == "refusal":
+        return None
+    text = "".join(b.text for b in msg.content if b.type == "text").strip()
+    return text or None
+
+
 def review(last):
+    if os.environ.get("ANTHROPIC_API_KEY"):
+        try:
+            text = review_api(last)
+            if text:
+                return text
+        except Exception as exc:
+            print("Claude API review failed:", exc)
+        return fallback_summary(last)
     try:
         out = subprocess.run(
             [str(CLAUDE), "-p", PROMPT.format(result=last)],
@@ -99,7 +138,11 @@ def review(last):
             return text
     except Exception:
         pass
-    # Fallback: plain summary straight from the data if Claude is unavailable.
+    return fallback_summary(last)
+
+
+def fallback_summary(last):
+    """Plain summary straight from the data if Claude is unavailable."""
     d = json.loads(last)
     if d.get("error"):
         return f"NOTE: health check failed to run: {d['error']}"
@@ -129,7 +172,7 @@ def main():
     if "--dry-run" in sys.argv:
         print(msg)
         return 0
-    topic = os.environ.get("NTFY_TOPIC") or user_env("NTFY_TOPIC")
+    topic = os.environ.get("ETA_NTFY_TOPIC") or os.environ.get("NTFY_TOPIC") or user_env("NTFY_TOPIC")
     if not topic:
         print("NTFY_TOPIC not set; not sending")
         return 1

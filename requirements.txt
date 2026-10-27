@@ -8,3 +8,4 @@ shapely>=2.0,<3
 playwright==1.63.0
 gtfs-realtime-bindings==3.0.0
 protobuf==7.36.2
+anthropic==2.3.0

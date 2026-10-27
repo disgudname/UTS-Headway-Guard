@@ -60,6 +60,7 @@ import cat_gtfs
 import bus_eta
 import purple_release
 import anti_bunching_log
+import eta_health_scheduler
 import onboard_log
 import uts_blocks
 import gtfs_feed
@@ -2240,6 +2241,13 @@ async def _loop_lag_watchdog() -> None:
 @app.on_event("startup")
 async def start_loop_lag_watchdog() -> None:
     asyncio.create_task(_loop_lag_watchdog())
+
+
+@app.on_event("startup")
+async def start_eta_health_checks() -> None:
+    """Scheduled ETA health checks + phone pushes (eta_health_scheduler.py), on when ETA_HEALTH_CHECKS=1."""
+    if eta_health_scheduler.enabled():
+        asyncio.create_task(eta_health_scheduler.run_forever(PRIMARY_DATA_DIR, os.getenv("PORT", "8080")))
 
 
 @app.on_event("startup")

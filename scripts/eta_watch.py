@@ -7,12 +7,13 @@ One JSON line per poll: {"t": epoch, "ours": [[route, stop, veh, seconds, source
 "tl": [[route, stop, veh, seconds], ...], "veh": [[veh, route, lat, lon, mps], ...]}.
 """
 import json
+import os
 import sys
 import time
 import urllib.request
 from pathlib import Path
 
-BASE = "https://uts-headway-guard.fly.dev"
+BASE = os.environ.get("ETA_WATCH_BASE") or "https://uts-headway-guard.fly.dev"  # prod itself uses http://127.0.0.1:<port>
 
 
 def fetch(path):

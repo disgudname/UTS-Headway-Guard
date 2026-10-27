@@ -1,6 +1,10 @@
 """One unattended ETA health check: watch prod, score it, append a summary line, flag problems.
 
-    python scripts/eta_health_check.py [minutes=30] [poll_seconds=15]
+    python scripts/eta_health_check.py [minutes=30] [poll_seconds=15] [--start ISO]
+
+--start (eta_health_scheduler.py on prod): the run's scheduled start. The log is named from it and appended to, and
+the watch stops at start + minutes, so a run cut off by a deploy picks up where it left off as the same run.
+ETA_WATCH_DIR overrides where logs and results go (data-local/eta_watch).
 
 Runs the same logging + scoring as eta_watch.py / eta_compare.py (see HANDOFF.md section 7), then
 appends ONE JSON line to data-local/eta_watch/health_results.jsonl with the headline numbers and any
@@ -9,6 +13,7 @@ wrapper can react), 1 if the check itself couldn't run. Read-only: public GET re
 """
 import datetime
 import json
+import os
 import re
 import statistics
 import sys
@@ -22,7 +27,7 @@ import eta_compare  # noqa: E402
 import eta_suspects  # noqa: E402
 import eta_watch  # noqa: E402
 
-OUT_DIR = Path("data-local/eta_watch")
+OUT_DIR = Path(os.environ.get("ETA_WATCH_DIR") or "data-local/eta_watch")
 RESULTS = OUT_DIR / "health_results.jsonl"
 
 # Starting thresholds from HANDOFF.md section 7 -- adjust once weekday data exists.
@@ -78,9 +83,8 @@ USUAL_RUNS = 10
 MIN_USUAL_RUNS = 3
 
 
-def watch(minutes, every, log):
+def watch(end, every, log):
     log.parent.mkdir(parents=True, exist_ok=True)
-    end = time.time() + minutes * 60
     seen_routes = set()
     with log.open("a", encoding="utf-8") as f:
         while time.time() < end:
@@ -629,11 +633,42 @@ def mark_recurring(suspects, earlier, today):
                          + d["text"][d["text"].index(":"):])
 
 
+def read_polls(log):
+    """The log's polls, skipping a line cut off when a deploy killed the run mid-write (a resumed run appends after it)."""
+    polls = []
+    for line in log.open(encoding="utf-8"):
+        try:
+            polls.append(json.loads(line))
+        except ValueError:
+            pass
+    return polls
+
+
+def claim_log(now):
+    """A log file of this run's own. Missed scheduled runs all start together when the machine comes back
+    (10-26 18:39: six at once), and a shared minute-named file had every one of them scoring all six's polls."""
+    OUT_DIR.mkdir(parents=True, exist_ok=True)
+    n = 1
+    while True:
+        log = OUT_DIR / (f"{now:%Y%m%d-%H%M}.jsonl" if n == 1 else f"{now:%Y%m%d-%H%M}-{n}.jsonl")
+        try:
+            log.open("x", encoding="utf-8").close()
+            return log
+        except FileExistsError:
+            n += 1
+
+
 def main():
-    minutes = float(sys.argv[1]) if len(sys.argv) > 1 else 30
-    every = float(sys.argv[2]) if len(sys.argv) > 2 else 15
-    now = datetime.datetime.now().astimezone()
-    log = OUT_DIR / f"{now:%Y%m%d-%H%M}.jsonl"
+    args = sys.argv[1:]
+    start = None
+    if "--start" in args:
+        i = args.index("--start")
+        start = datetime.datetime.fromisoformat(args[i + 1]).astimezone()
+        del args[i:i + 2]
+    minutes = float(args[0]) if len(args) > 0 else 30
+    every = float(args[1]) if len(args) > 1 else 15
+    now = start or datetime.datetime.now().astimezone()
+    log = OUT_DIR / f"{now:%Y%m%d-%H%M}.jsonl" if start else claim_log(now)
     summary = {
         "when": now.isoformat(timespec="seconds"),
         "day": f"{now:%a}",
@@ -649,9 +684,10 @@ def main():
         ours, theirs = service_notices(names), transloc_alerts(names, now)
         if ours is not None or theirs is not None:
             summary["notices"] = (theirs or []) + (ours or [])
-        seen = watch(minutes, every, log)
+        watch(now.timestamp() + minutes * 60, every, log)
+        polls = read_polls(log)  # the whole run, including polls from before a restart
+        seen = {v[1] for p in polls for v in p.get("veh", [])}
         summary["purple_in_service"] = any(names.get(r, "").lower().startswith("purple") for r in seen)
-        polls = [json.loads(l) for l in log.open(encoding="utf-8") if l.strip()]
         stops, lines = eta_compare.load_graph(log)
         names = {**graph_names(log), **names}
         rows = eta_compare.score_rows(polls, stops, lines)

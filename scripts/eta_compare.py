@@ -21,12 +21,13 @@ before it), negative that the bus came after it.
 """
 import json
 import math
+import os
 import statistics
 import sys
 import urllib.request
 from pathlib import Path
 
-BASE = "https://uts-headway-guard.fly.dev"
+BASE = os.environ.get("ETA_WATCH_BASE") or "https://uts-headway-guard.fly.dev"
 OFF_ROUTE_M = 60.0      # GPS samples farther than this from the route shape are ignored (detours)
 CAND_SLACK_M = 40.0     # keep route-position candidates within this of the closest one
 MAX_MPS = 25.0          # fastest plausible bus, for the transition model
