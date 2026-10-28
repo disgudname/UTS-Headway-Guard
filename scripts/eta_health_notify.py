@@ -141,15 +141,117 @@ def review(last):
     return fallback_summary(last)
 
 
+# Labels eta_health_check.py puts at the front of a "causes" entry (or a route's part of it), sorted by who it is on.
+# Anything not listed (ENGINE, ENGINE, ONE BUS, ENGINE (RECURRING ...)) is ours to fix: PROBLEM.
+_FINE = ("ONE BUS", "PROBABLY ONE BUS", "SERVICE ALERT", "PURPLE", "Purple staging", "LOT SHUTTLES", "SMALL", "PLANNED", "ENGINE LEAN")
+_WORTH_KNOWING = ("BUSES SLOW", "BUSES SLOWER THAN HISTORY", "ONE OF A FEW BUSES", "A FEW BUSES",
+                  "SEVERAL BUSES")
+_SKIP_ROUTES = ("Purple", "Lots Shuttle", "Fan Shuttle")
+
+
+def _cause_label(cause):
+    """("Orange Line", "BUSES SLOW today") from "Orange Line — Pre-6PM: BUSES SLOW today -- ...", or (None, label)."""
+    head = cause.split(" -- ")[0]
+    for label in ("BUSES SLOW", "BUSES SLOWER THAN HISTORY", "ENGINE LEAN", "ENGINE"):
+        if ": " + label in head:
+            route = head.split(": " + label)[0].split(" — ")[0].strip()
+            return route, head[len(head.split(": " + label)[0]) + 2:]
+    return None, head
+
+
+def _kind(label):
+    if label.startswith("ENGINE LEAN"):
+        return "fine"
+    if label.startswith("ENGINE"):
+        return "problem"
+    if label.startswith(_WORTH_KNOWING):
+        return "heads_up"
+    if label.startswith(_FINE):
+        return "fine"
+    return "problem"
+
+
+def _bus_line(suspect):
+    """"One bus: 17132 [08] Orange Line, left a timestop early." from a suspects entry."""
+    verdict, _, rest = suspect.partition(": ")
+    who = rest.split(",")[0].replace(" on ", " ").split(" — ")[0]
+    did = []
+    if "BEFORE its sheet time" in rest:
+        did.append("left a timestop early")
+    if "GPS froze" in rest:
+        did.append("its GPS kept freezing (the Emmet/McCormick dead spot if it's there)")
+    if "pulling out" in rest or "joined the route" in rest:
+        did.append("just pulling out")
+    if "off the route" in rest or "against the route" in rest:
+        did.append("went off its route")
+    tl = " TransLoc had it right." if "TransLoc had these right" in rest else ""
+    verdict = "One bus, worth a look" if verdict.startswith(("ENGINE", "RECURRING")) else verdict.capitalize()
+    return f"{verdict}: {who}" + (", " + " and ".join(did[:2]) if did else "") + "." + tl
+
+
 def fallback_summary(last):
-    """Plain summary straight from the data if Claude is unavailable."""
+    """Plain-language verdict straight from the data when Claude is unavailable, sorted the way PROMPT sorts it:
+    PROBLEM only when the run's causes put it on our system, never for one bus, Purple, lot shuttles or slow buses."""
     d = json.loads(last)
     if d.get("error"):
-        return f"NOTE: health check failed to run: {d['error']}"
-    if d.get("breaches"):
-        why = ("\nWHY: " + "; ".join(d["causes"])) if d.get("causes") else ""
-        return ("PROBLEM: " + "; ".join(d["breaches"])[:300] + why)[:900]
-    return "ALL CLEAR (Claude review unavailable)."
+        return f"HEADS UP: the check couldn't run ({str(d['error'])[:120]})."
+    if d.get("inconclusive"):
+        return f"HEADS UP: nothing to check ({d['inconclusive']})."
+    lines = []
+    ours, tl = d.get("on_target_pct"), d.get("tl_on_target_pct")
+    if ours is not None and tl is not None:
+        lines.append(f"Right on time: {round(ours)}% of our times, {round(tl)}% of TransLoc's.")
+    late = d.get("late_over_2min_pct_excl_near_term_only")
+    if late is None:
+        late = d.get("late_over_2min_pct")
+    if late:
+        lines.append(f"Bus left before the time shown: 1 in {max(1, round(100 / late))}"
+                     + (" (not counting Purple)." if d.get("purple_in_service") else "."))
+    elif late is not None:
+        lines.append("No bus left before the time shown" + (" (not counting Purple)." if d.get("purple_in_service") else "."))
+
+    kinds, why = [], []
+    for cause in d.get("causes") or []:
+        route, label = _cause_label(cause)
+        if route and route.startswith(_SKIP_ROUTES):
+            continue
+        kind = _kind(label)
+        kinds.append(kind)
+        if kind == "problem":
+            breach = cause.partition(" -- ")[2]
+            if "full-lap" in breach:
+                what = "some times were about 20 min off while TransLoc was right"
+            elif "TransLoc predicted that we didn't" in breach:
+                what = f"we showed no time at {breach.split(' ')[0]} stops where TransLoc had one"
+            elif ">2 min late" in breach:
+                what = "buses left before our times too often"
+            else:
+                what = "our times were off"
+            if "RECURRING" in label:
+                what += ", same block at the same time on earlier days"
+            why.append(f"{route}: {what}. Worth a look." if route else f"{what[0].upper()}{what[1:]}. Worth a look.")
+        elif label.startswith("BUSES SLOW"):
+            why.append(f"{route}: buses ran slower than usual (traffic or long stops).")
+        elif label.startswith("Purple staging"):
+            why.append("Purple Line: buses left their staging holds early, as usual.")
+    if (d.get("historical_pct") or 100) < 5:
+        kinds.append("problem")
+        why.insert(0, "Our trip-time history looks empty.")
+    for s in d.get("suspects") or []:
+        if s.startswith(("ONE BUS:", "ENGINE, ONE BUS:", "RECURRING")) and " Purple" not in s.split(",")[0]:
+            why.append(_bus_line(s))
+    seen = set()
+    why = [w for w in why if not (w in seen or seen.add(w))]
+
+    if "problem" in kinds:
+        head = "PROBLEM: our times went wrong"
+    elif "heads_up" in kinds:
+        head = "HEADS UP: buses had a rough stretch, not our times"
+    elif d.get("breaches"):
+        head = "ALL GOOD: one-off buses or Purple only"
+    else:
+        head = "ALL GOOD"
+    return "\n".join([head] + lines + why[:3])[:900]
 
 
 def user_env(name):
