@@ -52,6 +52,9 @@ Checked against the entries below on 2026-10-06. Everything not listed here is b
 - **Branch `claude/late-dwell`:** unmerged prototype (see §3). Keep or delete is the user's call.
 - **Orange weekday holds after the block fix (v2114, 10-19):** the first weekday health runs should show Orange no worse; the old data held a few-min-late daytime bus ~5 min for a 2023 slot (late side). Read Orange in Tue 10-20's runs.
 
+### 2026-10-27 · [home] · ETA pushes: the no-Claude fallback stopped saying PROBLEM for every breach (`f64892a`, committed, NOT deployed)
+- User got PROBLEM all day. Cause: prod has no `ANTHROPIC_API_KEY`, so every push was `fallback_summary`, which said PROBLEM for any breach (9 of 9 runs on 10-27, all one bus / Purple / slow buses). It now reads `causes` + `suspects` like the Claude prompt does: ONE BUS / PURPLE / lot shuttles / PLANNED / ENGINE LEAN -> ALL GOOD; BUSES SLOW / A FEW / SEVERAL BUSES -> HEADS UP; ENGINE, ENGINE ONE BUS, RECURRING, empty history -> PROBLEM. Same plain lines as the prompt (on target vs TransLoc, 1 in N, who). Over all results since 10-09: 104 PROBLEM -> 24, the ones left being the real engine finds. Runs on prod, so it needs a deploy. Tests: `tests/test_eta_health_notify.py`.
+
 ### 2026-10-27 · [home] · First full day of prod-run ETA health checks (10-26 21:45 .. 10-27 19:30) read through: no engine change recommended. No code changed
 - Every breach is one bus or a known thing. Without Purple, the share of buses leaving before the time shown was 0.0-1.7% on the daytime runs. On-target was 83-91% for us vs 45-59% for TransLoc.
 - **Night Pilot 14232 [03]** (21:45 5.1%, 01:30 12.7%): the evening laps ran up to ~3 min faster than history on times shown 15-20 min out, never 5+ min. TransLoc was +353 s on the same predictions. 01:30: it left Shannon Library 128 s before its 02:00 sheet time (driver).
