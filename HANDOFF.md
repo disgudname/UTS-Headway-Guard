@@ -52,6 +52,13 @@ Checked against the entries below on 2026-10-06. Everything not listed here is b
 - **Branch `claude/late-dwell`:** unmerged prototype (see §3). Keep or delete is the user's call.
 - **Orange weekday holds after the block fix (v2114, 10-19):** the first weekday health runs should show Orange no worse; the old data held a few-min-late daytime bus ~5 min for a 2023 slot (late side). Read Orange in Tue 10-20's runs.
 
+### 2026-10-28 · [home] · Wed overnight + 05:00 prod ETA runs read through: no engine change. No code changed
+- **21:45 (10-27):** clean, 0.6% >2 min late, on target 89.5 vs TransLoc 68.1. **01:30:** 6.5% late = Night Pilot 14232 [03] again, left Shannon Library 70 s before its 02:00 sheet time (same bus/block as 10-27 01:30; driver).
+- **05:00 Orange 128 s median breach:** our times showed the bus too SOON (safe side); TransLoc was 388 s off on the same rows. JPA northbound Valley Rd -> Brandon Ave took 4.8-5.6 min for all three Orange buses after 07:45 (1.8 at 07:37, ~3.0 on 10-27): hospital-area traffic, worst on vehicle 24 (pulled out 07:32). Orange 05:00/08:30 medians have run 0 to -128 s since 09-21 (10-19 was -123).
+- **46 "TransLoc-only" rows:** single 15 s polls where our engine dropped one bus's ETAs and had them back next poll (9 in this run, 6-15 per daytime run on 10-27 too, never 2 buses at once). Gold [12] 25431 did it 3 times on its 07:30 pull-out. Not new; not chased.
+- **Big early misses:** Gold [10] 14332 (29 min at O-Hill, 08:26) and Silver [14] 19332 (13.5 min at JPJ South Lot, 06:36) were pull-outs off the route, TransLoc as wrong. The rest are Purple buses parked 3-6 min at West Complex while we showed Lee St / Cabell Hall 7-16 min sooner and TransLoc was right; Purple Fontaine 11.9% (limit 12%), same band as 10-19..10-27.
+- Logs in `data-local/eta_watch/prod/` (not committed). The 17:00 + 17:30 overlap on weekdays is deliberate (17:30 = route-change run).
+
 ### 2026-10-27 · [home] · ETA pushes: the no-Claude fallback stopped saying PROBLEM for every breach (`f64892a`, DEPLOYED v2134; prod dry-run of the 19:30 result reads ALL GOOD)
 - User got PROBLEM all day. Cause: prod has no `ANTHROPIC_API_KEY`, so every push was `fallback_summary`, which said PROBLEM for any breach (9 of 9 runs on 10-27, all one bus / Purple / slow buses). It now reads `causes` + `suspects` like the Claude prompt does: ONE BUS / PURPLE / lot shuttles / PLANNED / ENGINE LEAN -> ALL GOOD; BUSES SLOW / A FEW / SEVERAL BUSES -> HEADS UP; ENGINE, ENGINE ONE BUS, RECURRING, empty history -> PROBLEM. Same plain lines as the prompt (on target vs TransLoc, 1 in N, who). Over all results since 10-09: 104 PROBLEM -> 24, the ones left being the real engine finds. Tests: `tests/test_eta_health_notify.py`.
 
