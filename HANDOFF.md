@@ -52,6 +52,13 @@ Checked against the entries below on 2026-10-06. Everything not listed here is b
 - **Branch `claude/late-dwell`:** unmerged prototype (see §3). Keep or delete is the user's call.
 - **Orange weekday holds after the block fix (v2114, 10-19):** the first weekday health runs should show Orange no worse; the old data held a few-min-late daytime bus ~5 min for a 2023 slot (late side). Read Orange in Tue 10-20's runs.
 
+### 2026-10-28 · [home] · Low-SOC phone pushes on their own ntfy topic (`259e1a9`, DEPLOYED v2136)
+- **Asked:** ntfy alerts at 35% state of charge, plus a one-time SOC report.
+- **Built (`app.py`):** rides on the existing low-SOC web push (`_check_soc_threshold_crossed`, `LOW_SOC_THRESHOLDS`). When it returns 35 (the first threshold), `send_ntfy(..., topic=NTFY_SOC_TOPIC)` pushes "Low battery: bus N" at priority high. New Fly secret `NTFY_SOC_TOPIC` (never in git). `send_ntfy` takes a `topic` override now.
+- **Changed for the web push too:** a threshold re-arms only once SOC is back above it by `LOW_SOC_REARM_MARGIN` (2 points), so a reading wobbling at 35.0/35.1 does not re-push. Tests `tests/test_low_soc_thresholds.py`; suite 587 passed.
+- **One-time report** sent to the topic from the Fly machine (200): 25431 27% live, 25331 63%, 25131 75%, 25231 91% (those three 5-10 h old).
+- **Not yet seen:** a real 35% ntfy push. 25431 was already flagged at 35 (22:31 UTC, before the deploy), so its current drop will not push; the next bus to drop through 35% will.
+
 ### 2026-10-28 · [home] · Wed overnight + 05:00 prod ETA runs read through: no engine change. No code changed
 - **21:45 (10-27):** clean, 0.6% >2 min late, on target 89.5 vs TransLoc 68.1. **01:30:** 6.5% late = Night Pilot 14232 [03] again, left Shannon Library 70 s before its 02:00 sheet time (same bus/block as 10-27 01:30; driver).
 - **05:00 Orange 128 s median breach:** our times showed the bus too SOON (safe side); TransLoc was 388 s off on the same rows. JPA northbound Valley Rd -> Brandon Ave took 4.8-5.6 min for all three Orange buses after 07:45 (1.8 at 07:37, ~3.0 on 10-27): hospital-area traffic, worst on vehicle 24 (pulled out 07:32). Orange 05:00/08:30 medians have run 0 to -128 s since 09-21 (10-19 was -123).
