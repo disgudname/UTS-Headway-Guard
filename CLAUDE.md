@@ -224,6 +224,7 @@ QUICK_DEPARTURE_MIN_DURATION_S = 5.0          # Quick departure threshold
 
 **Phone push (ntfy):**
 - `NTFY_TOPIC` - secret ntfy.sh topic (the topic name is the password: never print or commit it). With it set, `app.py` pushes at top priority when a bus on `OVERHEIGHT_BUSES` comes within `BRIDGE_RADIUS` of the bridge (`notify_overheight_buses`, once per approach; `OVERHEIGHT_NTFY_REARM_S=300`). It also pushes "TransLoc is not answering" when the TransLoc poll (`updater`) fails `TRANSLOC_DOWN_NTFY_POLLS` (3) times in a row, and "TransLoc is back" with the outage length when it recovers (`note_transloc_poll`). `send_ntfy()` is the helper for any other event
+- `NTFY_SOC_TOPIC` - secret ntfy topic for low battery: pushes (priority high) when a bus's ViriCiti SOC first drops to 35% (`LOW_SOC_THRESHOLDS[0]`), once per drop; re-arms when it is back above 37% (`LOW_SOC_REARM_MARGIN`, also used by the low-SOC web push). `send_ntfy(topic=...)` sends to it
 
 **ViriCiti / ChargePoint (bus state of charge):**
 - `VIRICITI_API_KEY` - SDK key (secret). Not set in prod: the account cannot generate one

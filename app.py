@@ -347,6 +347,11 @@ def _save_sent_alert_ids(ids: set) -> None:
 # Low SOC notifications - track which thresholds have been notified per bus
 _notified_soc_thresholds: Dict[str, set] = {}  # bus_number -> set of thresholds already notified
 LOW_SOC_THRESHOLDS = [35, 25, 20, 15, 10]  # Notification triggers at each level
+# A threshold re-arms only once SOC is this far back above it, so a reading wobbling
+# around 35.0 (regen, rounding) does not push again on every tick.
+LOW_SOC_REARM_MARGIN = 2.0
+# ntfy channel for low-SOC phone pushes (secret, like NTFY_TOPIC); pushed at the first threshold only.
+NTFY_SOC_TOPIC = (os.getenv("NTFY_SOC_TOPIC") or "").strip()
 _LOW_SOC_STATE_PATH = PRIMARY_DATA_DIR / "low_soc_notifications.json"
 
 
@@ -390,7 +395,7 @@ def _check_soc_threshold_crossed(bus_number: str, soc: float) -> Optional[int]:
 
     # Clear thresholds when SOC recovers above them
     for threshold in list(notified):
-        if soc > threshold:
+        if soc > threshold + LOW_SOC_REARM_MARGIN:
             notified.discard(threshold)
             state_changed = True
 
@@ -1924,8 +1929,11 @@ def note_transloc_poll(error: Optional[BaseException], now: Optional[float] = No
         ))
 
 
-async def send_ntfy(message: str, *, title: str = "", priority: str = "default", tags: str = "") -> bool:
-    if not NTFY_TOPIC:
+async def send_ntfy(
+    message: str, *, title: str = "", priority: str = "default", tags: str = "", topic: str = ""
+) -> bool:
+    topic = topic or NTFY_TOPIC
+    if not topic:
         return False
     headers = {"Priority": priority}
     if title:
@@ -1935,7 +1943,7 @@ async def send_ntfy(message: str, *, title: str = "", priority: str = "default",
     try:
         async with httpx.AsyncClient(timeout=15) as client:
             r = await client.post(
-                f"https://ntfy.sh/{NTFY_TOPIC}", content=message.encode("utf-8"), headers=headers
+                f"https://ntfy.sh/{topic}", content=message.encode("utf-8"), headers=headers
             )
         record_api_call("POST", "https://ntfy.sh/<topic>", r.status_code)
         r.raise_for_status()
@@ -6998,6 +7006,15 @@ async def startup():
             threshold = _check_soc_threshold_crossed(soc.bus_number, soc.soc)
             if threshold is not None:
                 asyncio.create_task(send_low_soc_notification(soc.bus_number, soc.soc, threshold))
+                if threshold == LOW_SOC_THRESHOLDS[0] and NTFY_SOC_TOPIC:
+                    asyncio.create_task(send_ntfy(
+                        f"Bus {soc.bus_number} is at {soc.soc:.0f}%"
+                        + (" (charging)." if charging else "."),
+                        title=f"Low battery: bus {soc.bus_number}",
+                        priority="high",
+                        tags="battery",
+                        topic=NTFY_SOC_TOPIC,
+                    ))
 
         client._on_soc_update = on_soc_update
 
