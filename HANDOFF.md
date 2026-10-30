@@ -52,6 +52,12 @@ Checked against the entries below on 2026-10-06. Everything not listed here is b
 - **Branch `claude/late-dwell`:** unmerged prototype (see §3). Keep or delete is the user's call.
 - **Orange weekday holds after the block fix (v2114, 10-19):** the first weekday health runs should show Orange no worse; the old data held a few-min-late daytime bus ~5 min for a 2023 slot (late side). Read Orange in Tue 10-20's runs.
 
+### 2026-10-29 · [home] · Map bus arrows use TransLoc's heading while moving (DEPLOYED)
+- **Asked:** /livemap arrows felt a poll behind. They were, about half of one: the vehicle payload (`_assemble_transloc_vehicles`) replaced TransLoc's `Heading` with `veh.heading`, the chord from the last poll's fix to this one, which on a turn points where the bus was going.
+- **Measured (raw TransLoc every 3 s, 16 buses, 220 moves), error vs the bus's next move:** chord 15° mean / 52° on turns; TransLoc's 10° / 34°. TransLoc's is worse under 2 mph and reads 0 when stopped.
+- **Built (`app.py`):** the payload sends TransLoc's `Heading` at or above `DISPLAY_RAW_HEADING_MIN_MPH` (5) and the chord below that (holds through a stop). Display only: `veh.heading` (route matching, headway) unchanged. `/map` and `/livemap` both get it. Suite 587 passed.
+- **Not yet seen:** on a live map after deploy.
+
 ### 2026-10-28 · [home] · Low-SOC phone pushes on their own ntfy topic (`259e1a9`, DEPLOYED v2136)
 - **Asked:** ntfy alerts at 35% state of charge, plus a one-time SOC report.
 - **Built (`app.py`):** rides on the existing low-SOC web push (`_check_soc_threshold_crossed`, `LOW_SOC_THRESHOLDS`). When it returns 35 (the first threshold), `send_ntfy(..., topic=NTFY_SOC_TOPIC)` pushes "Low battery: bus N" at priority high. New Fly secret `NTFY_SOC_TOPIC` (never in git). `send_ntfy` takes a `topic` override now.

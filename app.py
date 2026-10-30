@@ -219,6 +219,8 @@ MAX_SPEED_CEIL  = float(os.getenv("MAX_SPEED_CEIL", "22.0"))
 MPH_TO_MPS      = 0.44704
 DEFAULT_CAP_MPS = 25 * MPH_TO_MPS
 HEADING_JITTER_M = float(os.getenv("HEADING_JITTER_M", "3.0"))
+# Map markers take TransLoc's own Heading at or above this speed (see _assemble_transloc_vehicles)
+DISPLAY_RAW_HEADING_MIN_MPH = float(os.getenv("DISPLAY_RAW_HEADING_MIN_MPH", "5.0"))
 
 # Low clearance lookup around 14th Street bridge
 BRIDGE_LAT = 38.03404931117353
@@ -10317,7 +10319,18 @@ def _assemble_transloc_vehicles(
         if assigned_rec:
             rid = assigned_rec[0]
             veh = assigned_rec[1]
-            heading = getattr(veh, "heading", heading)
+            # veh.heading is the chord from the last poll's fix to this one, so on a turn it
+            # points where the bus WAS going. TransLoc's own Heading is the direction at the
+            # fix: use it while the bus is moving, and the chord (which holds through a stop)
+            # when it is slow or stopped, where TransLoc's reads 0 or wanders.
+            raw_heading = _coerce_float(heading)
+            raw_mph = _coerce_float(ground_speed)
+            if not (
+                raw_heading is not None
+                and raw_mph is not None
+                and raw_mph >= DISPLAY_RAW_HEADING_MIN_MPH
+            ):
+                heading = getattr(veh, "heading", heading)
             ground_speed = veh.ground_mps / MPH_TO_MPS
             seconds = _coerce_float(getattr(veh, "age_s", seconds))
         is_stale = bool(seconds is not None and seconds > STALE_FIX_S)
