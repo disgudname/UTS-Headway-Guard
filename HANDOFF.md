@@ -52,6 +52,14 @@ Checked against the entries below on 2026-10-06. Everything not listed here is b
 - **Branch `claude/late-dwell`:** unmerged prototype (see §3). Keep or delete is the user's call.
 - **Orange weekday holds after the block fix (v2114, 10-19):** the first weekday health runs should show Orange no worse; the old data held a few-min-late daytime bus ~5 min for a 2023 slot (late side). Read Orange in Tue 10-20's runs.
 
+### 2026-10-29 · [home] · Thu prod ETA runs (01:30..19:30) read through: no engine change. No code changed
+- **Day:** on target 79-88% for us vs 45-56% TransLoc; without Purple, >2 min late 0.0-2.0% except 12:30 (3.0%) and 17:00/17:30 (5.1/5.5%).
+- **Orange [08] 17132 leaves Madison @ Preston early EVERY weekday this week** (10-27 17:37, 10-28 17:34:43, 10-29 17:35:29; sheet 17:40), then Scott Stadium ~17:57 (sheet 18:00). Last week the same bus held Preston to 17:42-17:45 (10-20..10-22). So the 10-27 entry's "one driver on one day" is wrong: it is a habit since Mon/Tue, not the timetable (sheet unchanged, `uts_blocks.json` MP 63600). TransLoc was off by 4-7 min the same way. The scorer calls it `ENGINE (RECURRING)` and pushes PROBLEM; it is the driver. Without it 17:00/17:30 are 2.0/2.2%.
+- **12:30 3.0%:** two timestop early leaves, Gold [11] 12132 Barracks 129 s before 14:15 and Orange [05] 14232 Preston 294 s before 14:15; 1.0% without them.
+- **08:30 2,520 TransLoc-only visits:** all at the Emmet/McCormick dead spot, ≤195 s per gap, three buses at once 10:53-10:56 (a cell blip). Known.
+- **01:30 "inconclusive" was not "no buses":** Night Pilot bus (veh 24) drove its loop until 02:00 but TransLoc had it on route 0 from 23:59:15, so neither engine showed Night Pilot times for 2 h. Same "inconclusive" on 10-13 and 10-24 (not checked, likely the same). TransLoc/driver side.
+- Purple 12.9-14.3% at 17:00/17:30/19:30 (known staging band). Logs in `data-local/eta_watch/prod/` (not committed).
+
 ### 2026-10-29 · [home] · Map bus arrows use TransLoc's heading while moving (`6edde31`, DEPLOYED v2137)
 - **Asked:** /livemap arrows felt a poll behind. They were, about half of one: the vehicle payload (`_assemble_transloc_vehicles`) replaced TransLoc's `Heading` with `veh.heading`, the chord from the last poll's fix to this one, which on a turn points where the bus was going.
 - **Measured (raw TransLoc every 3 s, 16 buses, 220 moves), error vs the bus's next move:** chord 15° mean / 52° on turns; TransLoc's 10° / 34°. TransLoc's is worse under 2 mph and reads 0 when stopped.
