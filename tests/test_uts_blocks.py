@@ -92,6 +92,22 @@ def test_scheduled_hold_epoch_respects_weekday_group(monkeypatch):
     assert uts_blocks.scheduled_hold_epoch("99", "stop-1", "[01]", ref_weekend_lap) == _epoch(2026, 9, 19, 10, 0)
 
 
+def test_sheet_times_are_wall_clock_on_dst_change_days(monkeypatch):
+    _patch_data(monkeypatch, SAMPLE_BLOCKS, SAMPLE_TIMESTOPS)
+    # 2026-11-01 (Sunday, clocks fell back at 02:00): the 10:00 lap is 10:00 EST, not midnight EDT + 10 h (09:00).
+    ref = _epoch(2026, 11, 1, 9, 59)
+    assert uts_blocks.scheduled_hold_epoch("99", "stop-1", "[01]", ref) == _epoch(2026, 11, 1, 10, 0)
+    # 2027-03-14 (Sunday, sprang forward): 10:00 EDT, not 11:00.
+    ref = _epoch(2027, 3, 14, 9, 59)
+    assert uts_blocks.scheduled_hold_epoch("99", "stop-1", "[01]", ref) == _epoch(2027, 3, 14, 10, 0)
+
+
+def test_day_clock_past_midnight_on_fall_back_night():
+    at = uts_blocks.day_clock(datetime(2026, 10, 31).date())
+    assert at(25.5 * 3600) == datetime(2026, 11, 1, 5, 30, tzinfo=ZoneInfo("UTC")).timestamp()  # 01:30 EDT
+    assert at(8 * 3600) == _epoch(2026, 10, 31, 8, 0)
+
+
 def test_next_scheduled_arrival_epoch_returns_earliest_at_or_after(monkeypatch):
     _patch_data(monkeypatch, SAMPLE_BLOCKS, SAMPLE_TIMESTOPS)
     after = _epoch(2026, 9, 14, 8, 5)

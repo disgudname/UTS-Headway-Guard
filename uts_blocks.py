@@ -62,6 +62,18 @@ from zoneinfo import ZoneInfo
 
 NY_TZ = ZoneInfo("America/New_York")
 
+
+def day_clock(d: date) -> Callable[[float], float]:
+    """Epoch of `seconds` after local midnight of `d` read as WALL-CLOCK time (a sheet's 08:00 is 08:00 on the clock,
+    26:00 is 02:00 the next morning), not elapsed time: on a DST change day midnight + seconds lands an hour off
+    (2026-11-01 put every sheet time an hour early). The repeated 01:00 hour of a fall-back night reads as the first
+    one (EDT); a 02:00 entry that night is 02:00 EST, an hour after Night Pilot really stops (UTS ends it at 02:00 EDT)."""
+    midnight = datetime.combine(d, dtime.min)
+    base = midnight.replace(tzinfo=NY_TZ).timestamp()
+    if (midnight + timedelta(days=2)).replace(tzinfo=NY_TZ).timestamp() - base == 2 * 86400:
+        return lambda s: base + s  # no change within the 48 h a day's sheet can reach
+    return lambda s: (midnight + timedelta(seconds=s)).replace(tzinfo=NY_TZ).timestamp()
+
 _CONFIG_DIR = Path(__file__).resolve().parent / "config"
 _BLOCKS_PATH = _CONFIG_DIR / "uts_blocks.json"
 _TIMESTOPS_PATH = _CONFIG_DIR / "uts_timestops.json"
@@ -203,12 +215,12 @@ def scheduled_hold_epoch(
     # same shape as cat_gtfs.scheduled_departures_s.
     for day_offset in (0, -1):
         d = (local_dt + timedelta(days=day_offset)).date()
-        midnight_ts = datetime.combine(d, dtime.min, tzinfo=NY_TZ).timestamp()
+        at = day_clock(d)
         for group in _groups_for_day(block, d):
             for time_s, entry_code in group.get("stops", []):
                 if entry_code != code:
                     continue
-                epoch = midnight_ts + time_s
+                epoch = at(time_s)
                 if abs(epoch - reference_ts) > MATCH_TOLERANCE_S:
                     continue
                 if epoch <= reference_ts:
@@ -216,7 +228,7 @@ def scheduled_hold_epoch(
                         prev_epoch = epoch
                 elif next_epoch is None or epoch < next_epoch:
                     next_epoch = epoch
-                    next_group_entries = [midnight_ts + t for t, _ in group.get("stops", [])]
+                    next_group_entries = [at(t) for t, _ in group.get("stops", [])]
     if next_epoch is not None and next_epoch - reference_ts <= EARLY_MATCH_LIMIT_S:
         # Plausibly early for the upcoming visit -- unless the previous visit is much closer.
         if prev_epoch is None or (next_epoch - reference_ts) <= (reference_ts - prev_epoch):
@@ -245,7 +257,7 @@ def next_scheduled_arrival_epoch(route_id: str, stop_id: str, after_ts: float) -
     best: Optional[float] = None
     for day_offset in (0, 1):
         d = (local_dt + timedelta(days=day_offset)).date()
-        midnight_ts = datetime.combine(d, dtime.min, tzinfo=NY_TZ).timestamp()
+        at = day_clock(d)
         for block in _blocks.values():
             if not _block_serves_route(block, route_id):
                 continue
@@ -253,7 +265,7 @@ def next_scheduled_arrival_epoch(route_id: str, stop_id: str, after_ts: float) -
                 for time_s, entry_code in group.get("stops", []):
                     if entry_code != code:
                         continue
-                    epoch = midnight_ts + time_s
+                    epoch = at(time_s)
                     if epoch >= after_ts and (best is None or epoch < best):
                         best = epoch
     return best
@@ -269,11 +281,11 @@ def next_block_timestop(
     if not block or not _block_serves_route(block, route_id):
         return None
     d = datetime.fromtimestamp(after_ts, tz=NY_TZ).date()
-    midnight_ts = datetime.combine(d, dtime.min, tzinfo=NY_TZ).timestamp()
+    at = day_clock(d)
     best: Optional[Tuple[float, str]] = None
     for group in _groups_for_day(block, d):
         for time_s, code in group.get("stops", []):
-            epoch = midnight_ts + time_s
+            epoch = at(time_s)
             stop_id = _stop_for_code(route_id, code)
             if stop_id is None or epoch < after_ts - slack_s:
                 continue
@@ -300,7 +312,7 @@ def best_matching_block(route_id: str, stop_id: str, reference_ts: float) -> Opt
     best_diff: Optional[float] = None
     for day_offset in (0, -1):
         d = (local_dt + timedelta(days=day_offset)).date()
-        midnight_ts = datetime.combine(d, dtime.min, tzinfo=NY_TZ).timestamp()
+        at = day_clock(d)
         for block_id, block in _blocks.items():
             if not _block_serves_route(block, route_id):
                 continue
@@ -308,7 +320,7 @@ def best_matching_block(route_id: str, stop_id: str, reference_ts: float) -> Opt
                 for time_s, entry_code in group.get("stops", []):
                     if entry_code != code:
                         continue
-                    epoch = midnight_ts + time_s
+                    epoch = at(time_s)
                     diff = abs(epoch - reference_ts)
                     if diff <= MATCH_TOLERANCE_S and (best_diff is None or diff < best_diff):
                         best_diff = diff
@@ -423,12 +435,12 @@ def out_of_service_plan(
     local_dt = datetime.fromtimestamp(when, tz=NY_TZ)
     for day_offset in (0, -1):
         d = (local_dt + timedelta(days=day_offset)).date()
-        midnight_ts = datetime.combine(d, dtime.min, tzinfo=NY_TZ).timestamp()
+        at = day_clock(d)
         for group in _groups_for_day(block, d):
             note = group.get("out_of_service")
             if not note:
                 continue
-            leave_epoch = midnight_ts + note["leave_s"]
+            leave_epoch = at(note["leave_s"])
             if not (leave_epoch - 3600 <= when <= leave_epoch + 3 * 3600):
                 continue
             leave_stop = _stop_for_code(route_id, note.get("leave_code"))
@@ -472,7 +484,7 @@ def route_change_plan(
     if pair.get("to") and str(pair["to"]) not in (block.get("route_ids") or [str(pair["to"])]):
         return None
     local_dt = datetime.fromtimestamp(when, tz=NY_TZ)
-    midnight_ts = datetime.combine(local_dt.date(), dtime.min, tzinfo=NY_TZ).timestamp()
+    at = day_clock(local_dt.date())
     for group in _groups_for_day(block, local_dt.date()):
         note = group.get("route_change")
         if not note:
@@ -484,7 +496,7 @@ def route_change_plan(
                 note = oos
         if not note:
             continue
-        change_epoch = midnight_ts + note["leave_s"]
+        change_epoch = at(note["leave_s"])
         if not (change_epoch - ROUTE_CHANGE_ACTIVE_BEFORE_S <= when <= change_epoch + ROUTE_CHANGE_ACTIVE_AFTER_S):
             continue
         change_stop = _stop_for_code(route_id, note.get("leave_code"))
@@ -492,7 +504,7 @@ def route_change_plan(
             continue
         earlier = [t for t, code in group.get("stops", []) if code == note.get("leave_code") and t < note["leave_s"]]
         if earlier:
-            prev_epoch = midnight_ts + max(earlier)
+            prev_epoch = at(max(earlier))
         else:
             # The change stop is not a timestop earlier in the day (Orange [07]: MP / CSW all afternoon, PIN only at
             # 18:00), but the bus still passes it every lap. Without this, every PIN pass in the last hour read as the

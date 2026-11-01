@@ -17036,9 +17036,9 @@ def _cat_schedule_lookup_fn(ny_tz: ZoneInfo) -> trip_planner.CatScheduleFn:
         deps_s = cat_gtfs.scheduled_departures_s(pattern_id, stop_id, local_date)
         if not deps_s:
             return None
-        midnight_ts = datetime.combine(local_date, dtime.min, tzinfo=ny_tz).timestamp()
+        at = uts_blocks.day_clock(local_date)  # wall-clock, right on DST change days too
         for dep_s in deps_s:
-            epoch = midnight_ts + dep_s
+            epoch = at(dep_s)
             if epoch >= after_ts:
                 return epoch
         return None  # nothing left scheduled at this stop for the rest of the service day
