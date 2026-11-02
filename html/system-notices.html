@@ -89,6 +89,7 @@ button{margin-top:12px;padding:10px 14px;border-radius:6px;border:1px solid #2a3
           <option value="all">All stops (system-wide)</option>
           <option value="stops">Specific stops</option>
           <option value="route">Specific route(s)</option>
+          <option value="cap_feeds">Specific CAP sign feed(s) only</option>
         </select>
       </label>
       <label id="noticeTargetStopIdsLabel" style="display:none;">Target Stops
@@ -101,6 +102,10 @@ button{margin-top:12px;padding:10px 14px;border-radius:6px;border:1px solid #2a3
       <label id="noticeTargetRouteIdsLabel" style="display:none;">Target Route(s)
         <select id="noticeTargetRouteIds" multiple size="6" style="width:100%;padding:6px;border-radius:4px;border:1px solid #2a3442;background:#10151c;color:#e8eef5;"></select>
         <span style="font-size:11px;color:#9fb0c9;">Ctrl/Cmd-click to select multiple. Applies everywhere the selected route(s) stop, no need to list stops individually.</span>
+      </label>
+      <label id="noticeTargetFeedCodesLabel" style="display:none;">Target CAP Feed(s)
+        <select id="noticeTargetFeedCodes" multiple size="6" style="width:100%;padding:6px;border-radius:4px;border:1px solid #2a3442;background:#10151c;color:#e8eef5;"></select>
+        <span style="font-size:11px;color:#9fb0c9;">Ctrl/Cmd-click to select multiple. Shows ONLY on these signs' CAP feeds (/api/cap/stop_arrivals/CODE), nowhere else: not the home page, RSS, countdown or GTFS-RT. Good for a sign greeting.</span>
       </label>
     </div>
     <div style="display:flex;gap:8px;margin-top:12px;">
@@ -382,6 +387,38 @@ const noticeStopSuggestions=document.getElementById('noticeStopSuggestions');
 const noticeStopChips=document.getElementById('noticeStopChips');
 const noticeTargetRouteIds=document.getElementById('noticeTargetRouteIds');
 const noticeTargetRouteIdsLabel=document.getElementById('noticeTargetRouteIdsLabel');
+const noticeTargetFeedCodes=document.getElementById('noticeTargetFeedCodes');
+const noticeTargetFeedCodesLabel=document.getElementById('noticeTargetFeedCodesLabel');
+let feedCodeNames = {};
+async function loadFeedCodeOptions(){
+  if(!noticeTargetFeedCodes) return;
+  try{
+    const resp = await fetch('/v1/feed-codes', {cache:'no-store'});
+    if(!resp.ok) throw new Error('Failed to load feed codes');
+    const codes = (await resp.json()).codes || {};
+    const selected = new Set(Array.from(noticeTargetFeedCodes.selectedOptions).map(o=>o.value));
+    feedCodeNames = {};
+    noticeTargetFeedCodes.innerHTML = Object.keys(codes).sort().map(code => {
+      const name = (codes[code] && codes[code].name) || '';
+      feedCodeNames[code] = name;
+      return `<option value="${escapeHtml(code)}"${selected.has(code)?' selected':''}>${escapeHtml(name ? `${code} - ${name}` : code)}</option>`;
+    }).join('');
+    if(cachedNotices.length) renderNotices(cachedNotices);
+  }catch(err){
+    console.error('Failed to load feed codes', err);
+  }
+}
+function setSelectedFeedCodes(codes){
+  if(!noticeTargetFeedCodes) return;
+  const want = new Set((codes||[]).map(c=>String(c).toUpperCase()));
+  // A code deleted at /feed-codes since the notice was saved still shows, so editing doesn't drop it silently.
+  want.forEach(code => {
+    if(!Array.from(noticeTargetFeedCodes.options).some(o=>o.value===code)){
+      noticeTargetFeedCodes.insertAdjacentHTML('beforeend', `<option value="${escapeHtml(code)}">${escapeHtml(code)} (no such code)</option>`);
+    }
+  });
+  Array.from(noticeTargetFeedCodes.options).forEach(opt => { opt.selected = want.has(opt.value); });
+}
 const addNoticeBtn=document.getElementById('addNoticeBtn');
 const cancelEditBtn=document.getElementById('cancelEditBtn');
 
@@ -511,12 +548,14 @@ function updateTargetStopIdsVisibility(){
   const scope = noticeTargetScope?.value;
   if(noticeTargetStopIdsLabel) noticeTargetStopIdsLabel.style.display = (scope==='stops') ? 'block' : 'none';
   if(noticeTargetRouteIdsLabel) noticeTargetRouteIdsLabel.style.display = (scope==='route') ? 'block' : 'none';
+  if(noticeTargetFeedCodesLabel) noticeTargetFeedCodesLabel.style.display = (scope==='cap_feeds') ? 'block' : 'none';
 }
 if(noticeTargetScope){
   noticeTargetScope.addEventListener('change', updateTargetStopIdsVisibility);
   updateTargetStopIdsVisibility();
 }
 loadRouteOptions();
+loadFeedCodeOptions();
 loadStopDirectory();
 renderStopChips();
 
@@ -577,6 +616,9 @@ function renderNotices(notices){
     }else if(n.target_scope==='route'&&targetRouteIds.length){
       const names=targetRouteIds.map(id=>routeNamesById[String(id)]||`#${id}`);
       targetLabel=`Route(s): ${names.join(', ')}`;
+    }else if(n.target_scope==='cap_feeds'){
+      const codes=Array.isArray(n.target_feed_codes)?n.target_feed_codes:[];
+      targetLabel=`CAP sign(s) only: ${codes.map(c=>feedCodeNames[c]?`${c} (${feedCodeNames[c]})`:c).join(', ')}`;
     }
     const shortMsg=(n.short_message||'').trim();
     return `
@@ -628,7 +670,7 @@ function editNotice(id){
   if(noticeAuthOnly) noticeAuthOnly.checked = Boolean(notice.auth_only);
   if(noticeStartTime) noticeStartTime.value = toLocalDatetimeValue(notice.start_time);
   if(noticeEndTime) noticeEndTime.value = toLocalDatetimeValue(notice.end_time);
-  const scope = (notice.target_scope === 'stops' || notice.target_scope === 'route') ? notice.target_scope : 'all';
+  const scope = ['stops','route','cap_feeds'].includes(notice.target_scope) ? notice.target_scope : 'all';
   if(noticeTargetScope) noticeTargetScope.value = scope;
   selectedStopIds = (Array.isArray(notice.target_stop_ids) ? notice.target_stop_ids : []).map(String);
   renderStopChips();
@@ -637,6 +679,7 @@ function editNotice(id){
     const selected = new Set((Array.isArray(notice.target_route_ids) ? notice.target_route_ids : []).map(String));
     Array.from(noticeTargetRouteIds.options).forEach(opt => { opt.selected = selected.has(opt.value); });
   }
+  setSelectedFeedCodes(notice.target_feed_codes);
   updateTargetStopIdsVisibility();
   if(addNoticeBtn) addNoticeBtn.textContent = 'Update Notice';
   if(cancelEditBtn) cancelEditBtn.style.display = 'inline-block';
@@ -659,6 +702,7 @@ function cancelEdit(){
   if(noticeStopSearch) noticeStopSearch.value = '';
   hideStopSuggestions();
   if(noticeTargetRouteIds) Array.from(noticeTargetRouteIds.options).forEach(opt => { opt.selected = false; });
+  setSelectedFeedCodes([]);
   updateTargetStopIdsVisibility();
   if(addNoticeBtn) addNoticeBtn.textContent = 'Add Notice';
   if(cancelEditBtn) cancelEditBtn.style.display = 'none';
@@ -723,8 +767,13 @@ if(addNoticeBtn){
       end_time:noticeEndTime?.value?new Date(noticeEndTime.value).toISOString():null,
       target_scope:noticeTargetScope?.value||'all',
       target_stop_ids:selectedStopIds.slice(),
-      target_route_ids:noticeTargetRouteIds ? Array.from(noticeTargetRouteIds.selectedOptions).map(o=>o.value) : []
+      target_route_ids:noticeTargetRouteIds ? Array.from(noticeTargetRouteIds.selectedOptions).map(o=>o.value) : [],
+      target_feed_codes:noticeTargetFeedCodes ? Array.from(noticeTargetFeedCodes.selectedOptions).map(o=>o.value) : []
     };
+    if(payload.target_scope==='cap_feeds' && !payload.target_feed_codes.length){
+      alert('Pick at least one CAP feed for a sign-only notice.');
+      return;
+    }
     const isEditing = Boolean(editingNoticeId);
     addNoticeBtn.disabled=true;
     addNoticeBtn.textContent=isEditing?'Updating...':'Adding...';

@@ -763,9 +763,15 @@ def _notice_applies_to_stops(notice: Dict[str, Any], stop_ids: Sequence[str]) ->
 def _get_active_system_notices(
     include_auth_only: bool = False,
     stop_ids: Optional[Sequence[str]] = None,
+    cap_feed_code: Optional[str] = None,
 ) -> List[Dict[str, Any]]:
     """Get currently active system notices, optionally filtering auth-only notices
-    and/or notices that don't target the given stop_ids (see _notice_applies_to_stops)."""
+    and/or notices that don't target the given stop_ids (see _notice_applies_to_stops).
+
+    A notice with scope "cap_feeds" is a message for particular signs only (e.g. "Welcome
+    to North Grounds Parking Garage!" on the NGPG sign): it is returned ONLY when the
+    caller is the CAP feed for one of its target_feed_codes, and left out everywhere else
+    (home page, RSS, countdown, GTFS-RT, onboard)."""
     notices = _load_system_notices()
     now = datetime.now(timezone.utc)
     active = []
@@ -790,6 +796,12 @@ def _get_active_system_notices(
         # Check visibility
         if notice.get("auth_only") and not include_auth_only:
             continue
+        if (notice.get("target_scope") or "all") == "cap_feeds":
+            codes = {str(c).strip().upper() for c in notice.get("target_feed_codes") or []}
+            if not cap_feed_code or cap_feed_code.strip().upper() not in codes:
+                continue
+            active.append(notice)
+            continue
         if stop_ids is not None and not _notice_applies_to_stops(notice, stop_ids):
             continue
         active.append(notice)
@@ -808,7 +820,7 @@ def _sanitize_signage_text(text: str) -> str:
     """
     return _SIGNAGE_UNSAFE_CHARS_RE.sub("", text or "").strip()
 
-def _active_notice_texts(stop_ids: Sequence[str]) -> List[Tuple[str, str]]:
+def _active_notice_texts(stop_ids: Sequence[str], cap_feed_code: Optional[str] = None) -> List[Tuple[str, str]]:
     """Active, non-staff-only notices targeting these stops, as (id, text).
 
     Uses each notice's short_message (written for LED signage) if set, falling back to
@@ -816,7 +828,7 @@ def _active_notice_texts(stop_ids: Sequence[str]) -> List[Tuple[str, str]]:
     Notice severity intentionally has no bearing on the CAP feed's own severity/urgency
     fields — see the caller in _cap_feed_response for why.
     """
-    notices = _get_active_system_notices(include_auth_only=False, stop_ids=stop_ids)
+    notices = _get_active_system_notices(include_auth_only=False, stop_ids=stop_ids, cap_feed_code=cap_feed_code)
     result: List[Tuple[str, str]] = []
     for n in notices:
         raw_text = (n.get("short_message") or "").strip() or (n.get("message") or "").strip()
@@ -13212,7 +13224,7 @@ async def _cap_feed_response(
     # consumers (including, on the same sign, the university's actual emergency feed) may
     # treat Severe/Immediate as a trigger for escalated behavior. Never let a routine detour
     # notice look like a real emergency.
-    active_notices = _active_notice_texts(stop_ids)
+    active_notices = _active_notice_texts(stop_ids, cap_feed_code=feed_key)
     if active_notices:
         alert_suffix = " ".join(text for _, text in active_notices)
         message_text = f"{arrivals_text} {alert_suffix}"
@@ -18620,8 +18632,8 @@ async def get_system_notices(request: Request, all: bool = Query(False)):
     return {"notices": _get_active_system_notices(include_auth_only=is_authed)}
 
 
-def _parse_target_fields(body: Dict[str, Any]) -> Tuple[str, List[str], List[str]]:
-    """Parse target_scope/target_stop_ids/target_route_ids from a request body.
+def _parse_target_fields(body: Dict[str, Any]) -> Tuple[str, List[str], List[str], List[str]]:
+    """Parse target_scope/target_stop_ids/target_route_ids/target_feed_codes from a request body.
 
     Falls back to "all" if scope is "stops"/"route" but no IDs of the matching kind
     were given, since an unresolvable target would silently show the notice nowhere.
@@ -18644,18 +18656,31 @@ def _parse_target_fields(body: Dict[str, Any]) -> Tuple[str, List[str], List[str
     else:
         route_ids = []
 
-    if scope not in ("all", "stops", "route"):
+    raw_codes = body.get("target_feed_codes")
+    if isinstance(raw_codes, list):
+        feed_codes = [str(c).strip().upper() for c in raw_codes if str(c).strip()]
+    elif raw_codes:
+        feed_codes = [c.strip().upper() for c in str(raw_codes).split(",") if c.strip()]
+    else:
+        feed_codes = []
+
+    if scope not in ("all", "stops", "route", "cap_feeds"):
         scope = "all"
     if scope == "stops" and not stop_ids:
         scope = "all"
     if scope == "route" and not route_ids:
         scope = "all"
+    if scope == "cap_feeds" and not feed_codes:
+        # Unlike stops/route, never widen a sign-only greeting to system-wide.
+        raise HTTPException(status_code=400, detail="Pick at least one CAP feed code")
     if scope != "stops":
         stop_ids = []
     if scope != "route":
         route_ids = []
+    if scope != "cap_feeds":
+        feed_codes = []
 
-    return scope, stop_ids, route_ids
+    return scope, stop_ids, route_ids, feed_codes
 
 
 @app.post("/v1/system-notices")
@@ -18663,7 +18688,7 @@ async def create_system_notice(request: Request):
     """Create a new system notice. Requires auth."""
     _require_dispatcher_access(request)
     body = await request.json()
-    target_scope, target_stop_ids, target_route_ids = _parse_target_fields(body)
+    target_scope, target_stop_ids, target_route_ids, target_feed_codes = _parse_target_fields(body)
     notice = {
         "id": str(uuid.uuid4()),
         "message": body.get("message", "").strip(),
@@ -18672,9 +18697,10 @@ async def create_system_notice(request: Request):
         "start_time": body.get("start_time"),  # ISO8601 string or null
         "end_time": body.get("end_time"),  # ISO8601 string or null
         "auth_only": bool(body.get("auth_only", False)),
-        "target_scope": target_scope,  # "all", "stops", or "route"
+        "target_scope": target_scope,  # "all", "stops", "route", or "cap_feeds"
         "target_stop_ids": target_stop_ids,  # TransLoc stop IDs, only used when scope is "stops"
         "target_route_ids": target_route_ids,  # TransLoc route IDs, only used when scope is "route"
+        "target_feed_codes": target_feed_codes,  # /feed-codes codes, only used when scope is "cap_feeds"
         "created_at": datetime.now(timezone.utc).isoformat(),
     }
     if not notice["message"]:
@@ -18708,15 +18734,17 @@ async def update_system_notice(request: Request, notice_id: str):
                 notices[i]["end_time"] = body["end_time"]
             if "auth_only" in body:
                 notices[i]["auth_only"] = bool(body["auth_only"])
-            if "target_scope" in body or "target_stop_ids" in body or "target_route_ids" in body:
-                target_scope, target_stop_ids, target_route_ids = _parse_target_fields({
+            if any(k in body for k in ("target_scope", "target_stop_ids", "target_route_ids", "target_feed_codes")):
+                target_scope, target_stop_ids, target_route_ids, target_feed_codes = _parse_target_fields({
                     "target_scope": body.get("target_scope", notices[i].get("target_scope")),
                     "target_stop_ids": body.get("target_stop_ids", notices[i].get("target_stop_ids")),
                     "target_route_ids": body.get("target_route_ids", notices[i].get("target_route_ids")),
+                    "target_feed_codes": body.get("target_feed_codes", notices[i].get("target_feed_codes")),
                 })
                 notices[i]["target_scope"] = target_scope
                 notices[i]["target_stop_ids"] = target_stop_ids
                 notices[i]["target_route_ids"] = target_route_ids
+                notices[i]["target_feed_codes"] = target_feed_codes
             notices[i]["updated_at"] = datetime.now(timezone.utc).isoformat()
             _save_system_notices(notices)
             return {"notice": notices[i]}
