@@ -52,7 +52,7 @@ Checked against the entries below on 2026-10-06. Everything not listed here is b
 - **Branch `claude/late-dwell`:** unmerged prototype (see §3). Keep or delete is the user's call.
 - **Orange weekday holds after the block fix (v2114, 10-19):** the first weekday health runs should show Orange no worse; the old data held a few-min-late daytime bus ~5 min for a 2023 slot (late side). Read Orange in Tue 10-20's runs.
 
-### 2026-11-02 · [home] · `/driver`: keeps the screen awake, no nav bar (DEPLOYING)
+### 2026-11-02 · [home] · `/driver`: keeps the screen awake, no nav bar (`b469ee0`, DEPLOYED v2143; checked on prod: lock taken on Start, released on End)
 - User asked. Screen Wake Lock (`navigator.wakeLock.request('screen')`) taken on Start, released on End, re-taken on `visibilitychange` (the browser drops it whenever the page is hidden). Chrome/Edge, Safari 16.4+, https only; elsewhere nothing happens. `/nav-bar.js` no longer loaded on `/driver` (still in the sitemap and other pages' nav).
 
 ### 2026-11-02 · [home] · `/driver`: route comes from the bus, map shows only that route (`458ae1e` v2141, gesture fix `bad55eb` v2142, DEPLOYED)
