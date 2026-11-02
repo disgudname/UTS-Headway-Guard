@@ -11,6 +11,9 @@
 //                  vehicleId|identifier|bus|name }      -> follow
 //                { source:'dispatcher', type:'dispatcher:centerMap',
 //                  lat, lng, zoom? }                    -> flyTo
+//                { source:'dispatcher', type:'dispatcher:showRoutes',
+//                  routes:[RouteID,...] | null }       -> draw only those
+//                  routes (and their buses/stops); null = every route again
 //                { source:'dispatcher', type:'dispatcher:fitBounds',
 //                  bounds:[[west,south],[east,north]] } -> frame that box and
 //                  keep it framed (on resize) until the user moves the map
@@ -25,6 +28,7 @@ import { param, paramBool, paramNum } from './util.js';
 import { getMap } from './map.js';
 import { DEFAULT_VIEW } from './config.js';
 import { followByRef, onFollowChange, stopFollow } from './layers/vehicles.js';
+import { setOnlyRoutes } from './layers/routes.js';
 
 const FOLLOW_RETRY_MS = 500;
 
@@ -121,6 +125,12 @@ function onMessage(e) {
   if (/focusBus/i.test(type)) {
     const ref = d.vehicleId ?? d.identifier ?? d.bus ?? d.name ?? d.id;
     if (ref != null) requestFollow(String(ref), 20);
+    return;
+  }
+  if (/showRoutes/i.test(type)) {
+    const r = d.routes;
+    if (r === null) setOnlyRoutes(null);
+    else if (Array.isArray(r)) setOnlyRoutes(r.map(String));
     return;
   }
   if (/fitBounds/i.test(type)) {

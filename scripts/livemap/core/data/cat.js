@@ -53,7 +53,9 @@ export const onCatRouteVisibility = (fn) => {
   return bus.on('routeVis', fn);
 };
 
-let enabled = lsGet(ENABLED_KEY, '0') === '1';
+// The /driver map (?routes=) shows only its bus's UTS route: no CAT.
+let enabled =
+  !new URLSearchParams(location.search).has('routes') && lsGet(ENABLED_KEY, '0') === '1';
 export const isCatEnabled = () => enabled;
 
 const routeColor = new Map(); // RouteID(str) -> "#rrggbb"

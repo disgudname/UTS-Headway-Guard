@@ -56,6 +56,15 @@ let routes = []; // [{ id, name, color, coords, info }]
 // live diagnostic — "is this route's line drawn?" answers "are its buses tagged
 // to it?" — so there is NO linger: lose the last bus, lose the line this tick.
 let activeRouteIds = new Set();
+// ?routes=67,68 (the /driver map): draw ONLY these RouteIDs (even with no bus on
+// them) and hide every other route's buses and stops. ?routes= with nothing
+// after it shows no route at all. null = no filter. Changed live by the
+// dispatcher bridge (dispatcher:showRoutes) via setOnlyRoutes.
+let onlyRoutes = (() => {
+  const q = new URLSearchParams(location.search);
+  if (!q.has('routes')) return null;
+  return new Set(q.get('routes').split(',').map((x) => x.trim()).filter(Boolean));
+})();
 
 /** fn(list) — one entry per RouteID (schedule variants are separate rows, not
  *  merged by name). Active routes first, then by name, then by InfoText. Each:
@@ -76,6 +85,7 @@ export function getRouteVisibility() {
 
 /** Is this RouteID currently hidden by the route picker? */
 export function isRouteHidden(routeId) {
+  if (onlyRoutes) return !onlyRoutes.has(String(routeId));
   return hidden.has(String(routeId));
 }
 
@@ -143,6 +153,15 @@ export function installRouteLayer() {
 
 // --- visibility -------------------------------------------------------------
 
+/** Show only these RouteIDs (array), or pass null to drop the filter. */
+export function setOnlyRoutes(ids) {
+  onlyRoutes = ids == null ? null : new Set(ids.map(String).filter(Boolean));
+  syncSource();
+  bus.emit('change', routeList());
+}
+
+export const isRouteFilterOn = () => !!onlyRoutes;
+
 /** Toggle a single RouteID (one schedule variant) on/off. */
 export function setRouteHidden(id, hide) {
   const s = String(id);
@@ -194,6 +213,7 @@ function routeActive(id) {
  *  and hasn't been explicitly switched off. */
 function lineShows(id) {
   const s = String(id);
+  if (onlyRoutes) return onlyRoutes.has(s);
   return !hidden.has(s) && (routeActive(s) || pinned.has(s));
 }
 

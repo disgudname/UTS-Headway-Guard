@@ -53,7 +53,7 @@ import {
 } from '../data/microtransit.js';
 import { startBusEtaFeed, onBusEta, getBusEtaForVehicle } from '../data/bus-eta.js';
 import { startSocFeed, onSoc, getSoc } from '../data/soc.js';
-import { isRouteHidden, onRouteVisibility } from './routes.js';
+import { isRouteHidden, isRouteFilterOn, onRouteVisibility } from './routes.js';
 import {
   VEHICLE_SOURCE_ID as SRC,
   VEHICLE_PIN_LAYER as HIT_LAYER,
@@ -90,6 +90,7 @@ let markerMenuEnabled = true; // installVehicleLayer({ markerMenu:false }) turns
 // ?followZoom=1 (the /driver map): zooming (wheel, pinch, double-tap) keeps the
 // follow lock and zooms around the bus; only a one-finger / mouse pan releases it.
 const FOLLOW_ZOOM = paramBool('followZoom');
+const paramUnit = new URLSearchParams(location.search).get('unit');
 let userZooming = false; // a zoom gesture is running: don't fight it with setCenter
 
 // --- public -----------------------------------------------------------------
@@ -529,6 +530,7 @@ function chipText(p) {
  *  Only UTS + CAT have route pickers; a blank routeId is never hidden. */
 function routeHiddenFor(prefix, routeId) {
   if (!routeId) return false;
+  if (prefix === CAT_PREFIX && isRouteFilterOn()) return true;
   if (prefix === CAT_PREFIX) return isCatRouteHidden(routeId);
   if (prefix === UTS_PREFIX) return isRouteHidden(routeId);
   return false;
@@ -551,7 +553,15 @@ function ingest(rawList, prefix, adapt) {
 
   for (const raw of Array.isArray(rawList) ? rawList : []) {
     const v = adapt(raw);
-    if (routeHiddenFor(prefix, v.routeId)) continue; // route switched off in the picker
+    // ?unit= (the /driver map): the driver's own bus always shows, on a route or
+    // not. With ?routes= every other bus on no route is dropped.
+    const isMine =
+      prefix === UTS_PREFIX && paramUnit != null && String(v.label || '') === String(paramUnit);
+    const noRoute = !v.routeId || v.routeId === '0' || v.routeName === 'Not in service';
+    if (!isMine) {
+      if (routeHiddenFor(prefix, v.routeId)) continue; // route switched off in the picker
+      if (noRoute && isRouteFilterOn()) continue;
+    }
     // Ghost vehicles are a dispatcher diagnostic — gate on isDispatcher() too so
     // a stray persisted toggle (e.g. this browser profile also runs a kiosk)
     // never surfaces them on a public/signage view.
@@ -559,8 +569,9 @@ function ingest(rawList, prefix, adapt) {
     // Hide no-route / out-of-service buses from the public (both agencies).
     if (
       !showOOS &&
+      !isMine &&
       (prefix === UTS_PREFIX || prefix === CAT_PREFIX) &&
-      (!v.routeId || v.routeId === '0' || v.routeName === 'Not in service')
+      noRoute
     ) {
       continue;
     }

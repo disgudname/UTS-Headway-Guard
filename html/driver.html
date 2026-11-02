@@ -63,18 +63,10 @@
   <h1>Driver Anti-Bunching</h1>
   <div id="warn" class="muted" style="display:none;margin:6px 2px 2px"></div>
   <div id="setupInner">
-    <div class="row">
-      <div>
-        <label>Unit Number</label>
-        <select id="bus"></select>
-      </div>
-      <div>
-        <label>Route</label>
-        <select id="route"></select>
-      </div>
-    </div>
+    <label>Unit Number</label>
+    <select id="bus"></select>
     <button id="go" class="btn">Start Anti-Bunching</button>
-    <div class="muted" style="margin-top:8px">Pick your bus and route, then press Start.</div>
+    <div class="muted" style="margin-top:8px">Pick your bus, then press Start. The route comes from TransLoc and follows the bus.</div>
   </div>
 </div>
 <div id="dashboard" style="display:none">
@@ -206,13 +198,6 @@ async function loadBuses(){
   const uniq=[...new Set(list.filter(Boolean))].sort((a,b)=>String(a).localeCompare(String(b)));
   $('#bus').innerHTML=uniq.map(n=>`<option>${n}</option>`).join('');
 }
-async function loadRoutes(){
-  let list=[]; const d=await j('/v1/routes_all'); list=(d.routes||[]);
-  const active = list.filter(r=>r.active).sort((a,b)=>String(a.name||"").localeCompare(String(b.name||"")));
-  const inactive = list.filter(r=>!r.active).sort((a,b)=>String(a.name||"").localeCompare(String(b.name||"")));
-  const combined = active.concat(inactive);
-  $('#route').innerHTML=combined.map(r=>`<option value="${r.id}">${r.name}${r.active?'':' (inactive)'}</option>`).join('');
-}
 async function loadLowClearances(){
   try{
     const d=await j('/v1/low_clearances');
@@ -229,26 +214,27 @@ function distM(lat1,lon1,lat2,lon2){
   const a=Math.sin(dLat/2)**2+Math.cos(lat1*rad)*Math.cos(lat2*rad)*Math.sin(dLon/2)**2;
   return 2*R*Math.asin(Math.sqrt(a));
 }
-function showSession(busName, routeId, routeLabel){
+async function showSession(busName){
   $('#setup').style.display='none';
   document.body.classList.remove('centered');
   $('#dashboard').style.display='flex';
   updateOverheightBanner(busName);
   updateBridgeWarning(false);
-  currentRouteLabel = routeLabel;
-  $('#topbar').innerHTML = `Unit ${busName} • <span id="route-pill" class="route-pill">${routeLabel}</span>`;
-  setRoutePillColor(routeColor);
+  currentRoute = null; // unknown until the first poll; 0 = on no route
+  currentRouteLabel = '';
+  routeBounds = null;
+  $('#topbar').innerHTML = `Unit ${busName} • <span id="route-pill" class="route-pill">…</span>`;
   $('#instruction').className='';
   $('#instruction').textContent='Connecting…';
   $('#details').textContent='';
   updateClock();
   if(timer) clearInterval(timer);
+  if(busTimer) clearInterval(busTimer);
+  await updateBuses(); // learn the route first so the map opens on it
+  initMap();
+  busTimer = setInterval(updateBuses, 4000);
   tick();
   timer = setInterval(tick, 5000);
-  initMap();
-  if(busTimer) clearInterval(busTimer);
-  updateBuses();
-  busTimer = setInterval(updateBuses, 4000);
 }
 function showSetup(){
   $('#dashboard').style.display='none';
@@ -288,11 +274,13 @@ function renderInactive(message){
   const box=$('#instruction');
   box.className='red';
   box.textContent='Anti-Bunching not available';
-  $('#details').innerHTML=`<div class="red mono">${message}</div><div class="muted">Check your unit and route selection or contact dispatch.</div>`;
+  $('#details').innerHTML=`<div class="red mono">${message}</div><div class="muted">Contact dispatch if this looks wrong.</div>`;
   lastUpdateTs=Date.now();
   updateLastUpdated();
 }
 async function tick(){
+  if(currentRoute===null) return;
+  if(!currentRoute){ renderInactive('This bus is not on a route in TransLoc. Anti-bunching starts once it is put on a route.'); return; }
   try{
     const routes=await j('/v1/transloc/anti_bunching');
     const routeEntry=(routes||[]).find(r=>String(r.RouteID)===String(currentRoute));
@@ -352,16 +340,16 @@ function mapUrl(){
     centerZoom:'16', followZoom:'1',
     theme:document.body.classList.contains('light')?'light':'dark'
   });
+  q.set('unit', currentBus);
+  q.set('routes', currentRoute ? String(currentRoute) : '');
   if(viewMode==='follow') q.set('bus', currentBus);
   else if(viewMode==='route' && routeBounds) q.set('fit', routeBounds.flat().join(','));
   return '/livemap/embed?'+q.toString();
 }
 function initMap(){
   viewMode='follow';
-  routeBounds=null;
   setViewButtons();
   $('#map').src=mapUrl();
-  loadRouteColor();
 }
 function postToMap(msg){
   const w=$('#map').contentWindow;
@@ -380,6 +368,9 @@ window.addEventListener('message', e=>{
   if(!d || d.source!=='livemap' || d.type!=='livemap:view') return;
   viewMode=d.mode||null;
   setViewButtons();
+  // The map's first report means it is listening: make sure it shows the
+  // current route (a change may have been posted before it was ready).
+  postToMap({type:'dispatcher:showRoutes', routes:currentRoute?[currentRoute]:[]});
 });
 // Google encoded polyline -> [[west,south],[east,north]]
 function polylineBounds(str){
@@ -392,29 +383,52 @@ function polylineBounds(str){
   }
   return ea>=w ? [[w,so],[ea,no]] : null;
 }
-async function loadRouteColor(){
+// The bus's route comes from TransLoc's own vehicle feed (/v1/testmap/transloc/
+// vehicles, every bus incl. ones on no route). When it changes: new pill, new
+// anti-bunching lookup, and the map shows only the new route.
+async function setRoute(routeId, routeName){
+  currentRoute=routeId;
+  currentRouteLabel=routeId ? (routeName||`Route ${routeId}`) : 'Not on a route';
+  routeColor='#E57200';
+  routeBounds=null;
+  const pill=$('#route-pill');
+  if(pill) pill.textContent=currentRouteLabel;
+  setRoutePillColor(routeId ? routeColor : '#555555');
+  setViewButtons();
+  postToMap({type:'dispatcher:showRoutes', routes:routeId?[routeId]:[]});
+  if(timer) tick();
+  if(!routeId) return;
   try{
-    const data=await j(`/v1/routes/${currentRoute}/shape`);
+    const data=await j(`/v1/routes/${routeId}/shape`);
+    if(currentRoute!==routeId) return; // changed again meanwhile
     if(data && data.color){
       routeColor = data.color.startsWith('#') ? data.color : `#${data.color}`;
       setRoutePillColor(routeColor);
     }
-    if(data && data.polyline){ routeBounds=polylineBounds(data.polyline); setViewButtons(); }
+    if(data && data.polyline){
+      routeBounds=polylineBounds(data.polyline);
+      setViewButtons();
+      if(viewMode==='route' && routeBounds) postToMap({type:'dispatcher:fitBounds', bounds:routeBounds});
+    }
   }catch(e){console.error('route load',e);}
 }
-// Over-height alarm: watch this unit's own position.
+// Every 4 s: this unit's route, and the over-height alarm from its position
+// (the alarm works on or off a route).
 async function updateBuses(){
   if(!currentBus) return;
   try{
-    const data=await j(`/v1/routes/${currentRoute}/vehicles_raw`);
+    const data=await j('/v1/testmap/transloc/vehicles');
+    const v=(data.vehicles||[]).find(x=>String(x.Name)===String(currentBus));
+    const rid=v ? (Number(v.RouteID ?? v.routeID) || 0) : 0;
+    if(rid!==currentRoute) await setRoute(rid, v && v.RouteName);
     let nearBridge=false, nearOther=false;
-    (data.vehicles||[]).forEach(v=>{
-      if(String(v.name)!==String(currentBus)) return;
+    const lat=v && Number(v.Latitude), lon=v && Number(v.Longitude);
+    if(v && isFinite(lat) && isFinite(lon)){
       for(const c of lowClearances){
-        if(distM(v.lat,v.lon,c.lat,c.lon)<=LOW_CLEARANCE_RADIUS){ nearOther=true; break; }
+        if(distM(lat,lon,c.lat,c.lon)<=LOW_CLEARANCE_RADIUS){ nearOther=true; break; }
       }
-      if(distM(v.lat,v.lon,BRIDGE_LAT,BRIDGE_LON)<=BRIDGE_RADIUS){ nearBridge=true; }
-    });
+      if(distM(lat,lon,BRIDGE_LAT,BRIDGE_LON)<=BRIDGE_RADIUS){ nearBridge=true; }
+    }
     const overheight=OVERHEIGHT_BUSES.includes(String(currentBus));
     if(overheight && (nearBridge || nearOther)){ updateBridgeWarning(true, nearBridge); }
     else{ updateBridgeWarning(false); }
@@ -422,15 +436,13 @@ async function updateBuses(){
 }
 $('#go').onclick = ()=>{
   currentBus = $('#bus').value;
-  currentRoute = Number($('#route').value);
-  const routeLabel = $('#route').selectedOptions[0]?.text || `Route ${currentRoute}`;
-  showSession(currentBus, currentRoute, routeLabel);
+  showSession(currentBus);
 };
 $('#end').onclick = ()=>{
   currentBus=""; currentRoute=0;
   $('#instruction').className='';
   $('#instruction').textContent='';
-  $('#details').innerHTML='<div class=\"muted\">Pick your bus and route, then press Start.</div>';
+  $('#details').innerHTML='';
   showSetup();
 };
 
@@ -443,7 +455,6 @@ document.addEventListener('DOMContentLoaded', async ()=>{
   try{
     await loadConfig();
     await loadBuses();
-    await loadRoutes();
     await loadLowClearances();
   }catch(e){
     $('#instruction').className='red';
