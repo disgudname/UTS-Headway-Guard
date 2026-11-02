@@ -52,6 +52,9 @@ Checked against the entries below on 2026-10-06. Everything not listed here is b
 - **Branch `claude/late-dwell`:** unmerged prototype (see §3). Keep or delete is the user's call.
 - **Orange weekday holds after the block fix (v2114, 10-19):** the first weekday health runs should show Orange no worse; the old data held a few-min-late daytime bus ~5 min for a 2023 slot (late side). Read Orange in Tue 10-20's runs.
 
+### 2026-11-02 · [home] · `/driver`: full screen on Start + Full Screen button (DEPLOYING)
+- User asked for full screen without installing the app. Fullscreen API (`requestFullscreen({navigationUI:'hide'})`, webkit-prefixed fallback for iPad Safari) entered from the Start tap (it needs a user gesture), left on End; a Full Screen / Exit Full Screen button next to Light Mode gets back in after a swipe/Esc. Hidden where unsupported (iPhone).
+
 ### 2026-11-02 · [home] · `/driver`: keeps the screen awake, no nav bar (`b469ee0`, DEPLOYED v2143; checked on prod: lock taken on Start, released on End)
 - User asked. Screen Wake Lock (`navigator.wakeLock.request('screen')`) taken on Start, released on End, re-taken on `visibilitychange` (the browser drops it whenever the page is hidden). Chrome/Edge, Safari 16.4+, https only; elsewhere nothing happens. `/nav-bar.js` no longer loaded on `/driver` (still in the sitemap and other pages' nav).
 - ↳ also fixed an old layout bug: the guidance box showed "HOLD03:36" on one line (`#instruction` is a flex row, so its `<br>` did nothing). Now a flex column: HOLD / Proceed above the time (`375f027`, DEPLOYED v2144, checked on prod).

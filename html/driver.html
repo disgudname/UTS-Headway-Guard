@@ -78,6 +78,7 @@
         <div id="details" class="mono muted"></div>
       </div>
       <div class="row" style="margin-top:auto">
+        <button id="fullscreen" class="btn" hidden>Full Screen</button>
         <button id="theme" class="btn">Light Mode</button>
         <button id="end" class="btn danger">End Anti-Bunching</button>
       </div>
@@ -447,14 +448,45 @@ function letSleep(){
   if(wakeLock){ wakeLock.release().catch(()=>{}); wakeLock=null; }
 }
 document.addEventListener('visibilitychange', keepAwake);
+// Full screen (Fullscreen API: Chrome/Edge/Android, iPad Safari with the webkit
+// prefix; not iPhone). Only allowed from a tap, so it is entered on Start and
+// the Full Screen button gets back in after a swipe/Esc out.
+const fsEl=()=>document.fullscreenElement||document.webkitFullscreenElement;
+const fsSupported=!!(document.documentElement.requestFullscreen||document.documentElement.webkitRequestFullscreen);
+function enterFullscreen(){
+  const el=document.documentElement;
+  if(fsEl()) return;
+  try{
+    const p=el.requestFullscreen ? el.requestFullscreen({navigationUI:'hide'}) : el.webkitRequestFullscreen();
+    if(p && p.catch) p.catch(e=>console.warn('fullscreen', e));
+  }catch(e){ console.warn('fullscreen', e); }
+}
+function exitFullscreen(){
+  if(!fsEl()) return;
+  try{
+    const p=document.exitFullscreen ? document.exitFullscreen() : document.webkitExitFullscreen();
+    if(p && p.catch) p.catch(()=>{});
+  }catch(e){}
+}
+function updateFullscreenButton(){
+  const b=$('#fullscreen');
+  b.hidden=!fsSupported;
+  b.textContent=fsEl() ? 'Exit Full Screen' : 'Full Screen';
+}
+document.addEventListener('fullscreenchange', updateFullscreenButton);
+document.addEventListener('webkitfullscreenchange', updateFullscreenButton);
+updateFullscreenButton();
+$('#fullscreen').onclick=()=>{ fsEl() ? exitFullscreen() : enterFullscreen(); };
 $('#go').onclick = ()=>{
   currentBus = $('#bus').value;
+  enterFullscreen();
   keepAwake();
   showSession(currentBus);
 };
 $('#end').onclick = ()=>{
   currentBus=""; currentRoute=0;
   letSleep();
+  exitFullscreen();
   $('#instruction').className='';
   $('#instruction').textContent='';
   $('#details').innerHTML='';
