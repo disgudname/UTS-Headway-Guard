@@ -59,6 +59,7 @@ import {
   VEHICLE_PIN_LAYER as HIT_LAYER,
 } from './vehicle-style.js';
 import { registerMarkerLayer } from '../marker-menu.js';
+import { installUserGestureWatch, isUserGesturing, onUserPan } from '../user-gesture.js';
 
 const UTS_PREFIX = 'uts:';
 const CAT_PREFIX = 'cat:';
@@ -89,9 +90,9 @@ let markerMenuEnabled = true; // installVehicleLayer({ markerMenu:false }) turns
 
 // ?followZoom=1 (the /driver map): zooming (wheel, pinch, double-tap) keeps the
 // follow lock and zooms around the bus; only a one-finger / mouse pan releases it.
+// Read from the user's actual pointers (core/user-gesture.js), not camera events.
 const FOLLOW_ZOOM = paramBool('followZoom');
 const paramUnit = new URLSearchParams(location.search).get('unit');
-let userZooming = false; // a zoom gesture is running: don't fight it with setCenter
 
 // --- public -----------------------------------------------------------------
 
@@ -362,29 +363,20 @@ function wireInteractions(map) {
   // released. Zoom counts now too: previously you could scroll-zoom while still
   // locked and the camera kept yanking back to the bus.
   const releaseOnGesture = (e) => {
-    if (programmaticMove || !e || !e.originalEvent || !followId) return;
-    if (FOLLOW_ZOOM) {
-      // Only a pan lets go. A pinch also fires dragstart (the touch pan handler
-      // tracks the fingers' midpoint), so a multi-finger drag does not count.
-      const touches = e.originalEvent.touches;
-      if (e.type !== 'dragstart' || (touches && touches.length > 1)) return;
-    }
-    stopFollow();
+    if (FOLLOW_ZOOM) return; // handled from the pointers below
+    if (followId && !programmaticMove && e && e.originalEvent) stopFollow();
   };
   for (const ev of ['dragstart', 'zoomstart', 'rotatestart', 'pitchstart']) {
     map.on(ev, releaseOnGesture);
   }
   if (FOLLOW_ZOOM) {
-    // Zoom around the screen centre (= the bus) rather than the cursor/fingers,
-    // and hold off re-centring until the gesture ends: setCenter is a jumpTo,
-    // which would cancel the pinch / wheel easing mid-way.
+    // Zoom around the screen centre (= the bus) rather than the cursor/fingers.
+    // Re-centring pauses while a hand is on the map (render below): setCenter is
+    // a jumpTo, which stops MapLibre's gesture handlers and would kill a pinch.
     if (map.scrollZoom.isEnabled()) map.scrollZoom.enable({ around: 'center' });
     if (map.touchZoomRotate.isEnabled()) map.touchZoomRotate.enable({ around: 'center' });
-    map.on('zoomstart', (e) => {
-      if (e && e.originalEvent && !programmaticMove) userZooming = true;
-    });
-    map.on('zoomend', () => { userZooming = false; });
-    map.on('moveend', () => { userZooming = false; });
+    installUserGestureWatch(map);
+    onUserPan(() => stopFollow());
   }
 }
 
@@ -722,7 +714,7 @@ function render() {
 
   syncSource(now, animating);
 
-  if (followId && state.has(followId) && !userZooming) {
+  if (followId && state.has(followId) && !(FOLLOW_ZOOM && isUserGesturing())) {
     const s = state.get(followId);
     programmaticMove = true;
     map.setCenter([s.lng, s.lat]);

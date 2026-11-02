@@ -29,6 +29,7 @@ import { getMap } from './map.js';
 import { DEFAULT_VIEW } from './config.js';
 import { followByRef, onFollowChange, stopFollow } from './layers/vehicles.js';
 import { setOnlyRoutes } from './layers/routes.js';
+import { installUserGestureWatch, onUserTouch, onUserPan } from './user-gesture.js';
 
 const FOLLOW_RETRY_MS = 500;
 
@@ -61,19 +62,22 @@ export function installDispatcherBridge() {
     if (id) { followWanted = null; fitBox = null; }
     report();
   });
-  // A user gesture ends the 'whole route' view, and a follow still waiting for
-  // its bus (the follow itself is released in layers/vehicles.js). With
-  // ?followZoom a zoom keeps a follow, so only a pan cancels the wait.
-  const onGesture = (e) => {
-    if (!e || !e.originalEvent) return;
-    let changed = false;
-    if (fitBox) { fitBox = null; changed = true; }
-    const touches = e.originalEvent.touches;
-    const pan = e.type === 'dragstart' && !(touches && touches.length > 1);
-    if (followWanted && (pan || !paramBool('followZoom'))) { followWanted = null; changed = true; }
-    if (changed) report();
-  };
-  for (const ev of ['dragstart', 'zoomstart', 'rotatestart', 'pitchstart']) map.on(ev, onGesture);
+  // Any touch of the map ends the 'whole route' view; a pan also cancels a
+  // follow still waiting for its bus (the follow itself is released in
+  // layers/vehicles.js). Read from the user's pointers / wheel, not camera
+  // events (see core/user-gesture.js).
+  installUserGestureWatch(map);
+  onUserTouch(() => {
+    if (!fitBox) return;
+    fitBox = null;
+    if (map.isEasing()) map.stop(); // halt a fit animation still running
+    report();
+  });
+  onUserPan(() => {
+    if (!followWanted) return;
+    followWanted = null;
+    report();
+  });
   map.on('resize', () => { if (fitBox) fitTo(fitBox, 0); });
   if (!ref) {
     const f = String(param('fit') || '').split(',').map(Number);
