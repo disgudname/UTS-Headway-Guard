@@ -52,7 +52,7 @@ Checked against the entries below on 2026-10-06. Everything not listed here is b
 - **Branch `claude/late-dwell`:** unmerged prototype (see §3). Keep or delete is the user's call.
 - **Orange weekday holds after the block fix (v2114, 10-19):** the first weekday health runs should show Orange no worse; the old data held a few-min-late daytime bus ~5 min for a 2023 slot (late side). Read Orange in Tue 10-20's runs.
 
-### 2026-11-02 · [home] · System notices: new "CAP sign feed(s) only" scope (committed, NOT DEPLOYED)
+### 2026-11-02 · [home] · System notices: new "CAP sign feed(s) only" scope (`37c0b80`, DEPLOYED v2139)
 - User: a notice that goes to specific CAP feeds and nowhere else, e.g. "Welcome to North Grounds Parking Garage!" on the NGPG sign. New `target_scope: "cap_feeds"` + `target_feed_codes` (feed codes from `/feed-codes`, uppercased); picker at `/system-notices`. `_get_active_system_notices(cap_feed_code=)` returns such a notice only to `/api/cap/stop_arrivals/{code}` for a listed code; home page, `/v1/system-notices`, RSS, countdown, `/onboard`, GTFS-RT and legacy `?stopID=` CAP never see it. Saving the scope with no code is a 400 (never widened to "all" like empty stops/route). Tests: `tests/test_system_notice_cap_feeds.py`.
 - NGPG is a live rider sign: nothing was posted to prod. The greeting is appended after the arrivals like any CAP alert.
 - [home] had protobuf 6.33 against the pinned 7.36.2 (tests importing app failed to collect); installed the pinned version.
