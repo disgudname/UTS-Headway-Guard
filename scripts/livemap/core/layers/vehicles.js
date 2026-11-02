@@ -20,7 +20,7 @@
 
 import { VEHICLE_ANIM_MS, VEHICLE_STALE_S } from '../config.js';
 import { getMap, onStyleReady } from '../map.js';
-import { clamp, lsGet, lsSet, emitter } from '../util.js';
+import { clamp, lsGet, lsSet, emitter, paramBool } from '../util.js';
 import {
   startVehicleFeed,
   onVehicles,
@@ -86,6 +86,11 @@ let popup = null;
 let popupId = null;
 let followChip = null;
 let markerMenuEnabled = true; // installVehicleLayer({ markerMenu:false }) turns off the van popup
+
+// ?followZoom=1 (the /driver map): zooming (wheel, pinch, double-tap) keeps the
+// follow lock and zooms around the bus; only a one-finger / mouse pan releases it.
+const FOLLOW_ZOOM = paramBool('followZoom');
+let userZooming = false; // a zoom gesture is running: don't fight it with setCenter
 
 // --- public -----------------------------------------------------------------
 
@@ -356,10 +361,29 @@ function wireInteractions(map) {
   // released. Zoom counts now too: previously you could scroll-zoom while still
   // locked and the camera kept yanking back to the bus.
   const releaseOnGesture = (e) => {
-    if (followId && !programmaticMove && e && e.originalEvent) stopFollow();
+    if (programmaticMove || !e || !e.originalEvent || !followId) return;
+    if (FOLLOW_ZOOM) {
+      // Only a pan lets go. A pinch also fires dragstart (the touch pan handler
+      // tracks the fingers' midpoint), so a multi-finger drag does not count.
+      const touches = e.originalEvent.touches;
+      if (e.type !== 'dragstart' || (touches && touches.length > 1)) return;
+    }
+    stopFollow();
   };
   for (const ev of ['dragstart', 'zoomstart', 'rotatestart', 'pitchstart']) {
     map.on(ev, releaseOnGesture);
+  }
+  if (FOLLOW_ZOOM) {
+    // Zoom around the screen centre (= the bus) rather than the cursor/fingers,
+    // and hold off re-centring until the gesture ends: setCenter is a jumpTo,
+    // which would cancel the pinch / wheel easing mid-way.
+    if (map.scrollZoom.isEnabled()) map.scrollZoom.enable({ around: 'center' });
+    if (map.touchZoomRotate.isEnabled()) map.touchZoomRotate.enable({ around: 'center' });
+    map.on('zoomstart', (e) => {
+      if (e && e.originalEvent && !programmaticMove) userZooming = true;
+    });
+    map.on('zoomend', () => { userZooming = false; });
+    map.on('moveend', () => { userZooming = false; });
   }
 }
 
@@ -687,7 +711,7 @@ function render() {
 
   syncSource(now, animating);
 
-  if (followId && state.has(followId)) {
+  if (followId && state.has(followId) && !userZooming) {
     const s = state.get(followId);
     programmaticMove = true;
     map.setCenter([s.lng, s.lat]);

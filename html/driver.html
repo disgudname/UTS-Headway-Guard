@@ -11,10 +11,7 @@
 <title>Driver - UVATransit Operations Dashboard</title>
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 <script defer src="/nav-bar.js"></script>
-<link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css" />
 <link rel="preload" href="FGDC.ttf" as="font" type="font/ttf" crossorigin />
-<script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
-<script src="https://unpkg.com/@mapbox/polyline@1.1.1"></script>
 <style>
   @font-face{font-family:'FGDC';src:url('FGDC.ttf') format('truetype');font-weight:normal;font-style:normal;}
   :root{ --bg:#0b0e11; --panel:#0f141a; --ink:#e8eef5; --muted:#9fb0c9; --line:#1f2630; --chip:#2a3442; --btn:#15202b; --btn-danger:#2b1515; --btn-danger-border:#523737; --ok:#24c28a; --warn:#ffbf47; --bad:#ff6b6b; }
@@ -52,7 +49,11 @@
   #instruction.yellow{background:var(--warn);color:#000;}
   #instruction.red{background:var(--bad);color:#000;}
   #clock{flex:0 0 33%;display:flex;align-items:center;justify-content:center;font-size:20vh;border-bottom:1px solid var(--line);background:var(--panel);}
-  #map{flex:1;}
+  #mapWrap{flex:1;position:relative;}
+  #map{position:absolute;inset:0;border:0;width:100%;height:100%;display:block;}
+  #viewBtns{position:absolute;top:10px;left:50%;transform:translateX(-50%);display:flex;gap:8px;z-index:5;}
+  #viewBtns button{background:var(--panel);color:var(--ink);border:2px solid var(--chip);border-radius:999px;padding:10px 18px;font-size:18px;font-weight:700;cursor:pointer;box-shadow:0 2px 8px rgba(0,0,0,.35);}
+  #viewBtns button.on{background:var(--ok);border-color:var(--ok);color:#000;}
   #bridgeWarning{position:fixed;top:0;left:0;width:100vw;height:100vh;background:#ff0000;color:#fff;display:none;flex-direction:column;align-items:center;justify-content:center;text-align:center;font-size:8vh;font-weight:700;z-index:10000;}
   #bridgeWarning p{margin:1vh 0;}
 </style>
@@ -93,7 +94,13 @@
   </div>
   <div id="right">
     <div id="clock"></div>
-    <div id="map"></div>
+    <div id="mapWrap">
+      <iframe id="map" title="Live map" allow="fullscreen"></iframe>
+      <div id="viewBtns">
+        <button id="viewFollow" type="button">Follow bus</button>
+        <button id="viewRoute" type="button">Whole route</button>
+      </div>
+    </div>
   </div>
 </div>
 <div id="bridgeWarning">
@@ -115,14 +122,13 @@ const parseTranslocDate = str=>{
   return new Date(ts);
 };
 async function j(u){ const r=await fetch(u,{cache:"no-store"}); if(!r.ok) throw new Error(r.status+" "+r.statusText); return r.json(); }
-let timer=null, busTimer=null, currentBus="", currentRoute=0, currentRouteLabel="", map=null, routeLayer=null, markers={}, nameMarkers={}, routeColor='#E57200', lastUpdateTs=Date.now();
+let timer=null, busTimer=null, currentBus="", currentRoute=0, currentRouteLabel="", routeColor='#E57200', lastUpdateTs=Date.now();
 let OVERHEIGHT_BUSES = ['25131','25231','25331','25431','17132','14132','12432','18532'];
 let LOW_CLEARANCE_RADIUS = 122; // meters (~400 ft)
 let BRIDGE_RADIUS = 117; // meters
 let BRIDGE_LAT = 38.03404931117353;
 let BRIDGE_LON = -78.4995922309842;
 let lowClearances = [];
-let clearanceCircles = [];
 let bridgeWarningActive = false;
 let alertCtx=null, alertInterval=null;
 
@@ -211,12 +217,17 @@ async function loadLowClearances(){
   try{
     const d=await j('/v1/low_clearances');
     lowClearances=(d.clearances||[]).filter(c=>{
-      const dist=L.latLng(c.lat,c.lon).distanceTo([BRIDGE_LAT,BRIDGE_LON]);
+      const dist=distM(c.lat,c.lon,BRIDGE_LAT,BRIDGE_LON);
       return dist>BRIDGE_RADIUS;
     });
   }
   catch(e){ lowClearances=[]; }
-  updateLowClearanceCircles();
+}
+function distM(lat1,lon1,lat2,lon2){
+  const R=6371000, rad=Math.PI/180;
+  const dLat=(lat2-lat1)*rad, dLon=(lon2-lon1)*rad;
+  const a=Math.sin(dLat/2)**2+Math.cos(lat1*rad)*Math.cos(lat2*rad)*Math.sin(dLon/2)**2;
+  return 2*R*Math.asin(Math.sqrt(a));
 }
 function showSession(busName, routeId, routeLabel){
   $('#setup').style.display='none';
@@ -235,7 +246,6 @@ function showSession(busName, routeId, routeLabel){
   tick();
   timer = setInterval(tick, 5000);
   initMap();
-  updateLowClearanceCircles();
   if(busTimer) clearInterval(busTimer);
   updateBuses();
   busTimer = setInterval(updateBuses, 4000);
@@ -246,7 +256,7 @@ function showSetup(){
   $('#setup').style.display='block';
   updateBridgeWarning(false);
   updateOverheightBanner('');
-  if(map){ map.remove(); map=null; routeLayer=null; markers={}; nameMarkers={}; clearanceCircles=[]; }
+  $('#map').src='about:blank';
   routeColor='#E57200';
   currentRouteLabel='';
   if(timer) { clearInterval(timer); timer=null; }
@@ -257,30 +267,6 @@ function updateOverheightBanner(busName){
   const banner = $('#overheight');
   if(banner){
     banner.style.display = OVERHEIGHT_BUSES.includes(String(busName)) ? 'block' : 'none';
-  }
-}
-
-function updateLowClearanceCircles(){
-  if(!map) return;
-  clearanceCircles.forEach(c=>map.removeLayer(c));
-  clearanceCircles=[];
-  if(OVERHEIGHT_BUSES.includes(String(currentBus))){
-    lowClearances.forEach(c=>{
-      const circle=L.circle([c.lat,c.lon],{
-        radius:LOW_CLEARANCE_RADIUS,
-        color:'#ff0000',
-        fillColor:'#ff0000',
-        fillOpacity:0.15
-      }).addTo(map);
-      clearanceCircles.push(circle);
-    });
-    const bridgeCircle=L.circle([BRIDGE_LAT,BRIDGE_LON],{
-      radius:BRIDGE_RADIUS,
-      color:'#ff0000',
-      fillColor:'#ff0000',
-      fillOpacity:0.15
-    }).addTo(map);
-    clearanceCircles.push(bridgeCircle);
   }
 }
 
@@ -356,65 +342,82 @@ function updateClock(){
 }
 updateClock();
 setInterval(updateClock,1000);
-function initMap(){
-  map = L.map('map').setView([38.03799212281404, -78.50981502838886], 14);
-  L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}.png?key=cb1_274a_1_de65d091600f3f8a641f3856',{attribution:'&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors &copy; <a href="https://carto.com/attributions">CARTO</a>'}).addTo(map);
-  loadRoutePath();
+// The map is /livemap's embed shell. Two views, picked with the buttons on it:
+// 'follow' keeps this unit centred (zooming keeps it, ?followZoom), 'route'
+// frames the whole route line. Touching the map turns the active one off until
+// a button is pressed again; the map reports its mode back (livemap:view).
+let viewMode='follow', routeBounds=null;
+function mapUrl(){
+  const q=new URLSearchParams({
+    centerZoom:'16', followZoom:'1',
+    theme:document.body.classList.contains('light')?'light':'dark'
+  });
+  if(viewMode==='follow') q.set('bus', currentBus);
+  else if(viewMode==='route' && routeBounds) q.set('fit', routeBounds.flat().join(','));
+  return '/livemap/embed?'+q.toString();
 }
-async function loadRoutePath(){
+function initMap(){
+  viewMode='follow';
+  routeBounds=null;
+  setViewButtons();
+  $('#map').src=mapUrl();
+  loadRouteColor();
+}
+function postToMap(msg){
+  const w=$('#map').contentWindow;
+  if(w) w.postMessage(Object.assign({source:'dispatcher'}, msg), location.origin);
+}
+function setViewButtons(){
+  $('#viewFollow').classList.toggle('on', viewMode==='follow');
+  $('#viewRoute').classList.toggle('on', viewMode==='route');
+  $('#viewRoute').disabled=!routeBounds;
+}
+$('#viewFollow').onclick=()=>{ viewMode='follow'; setViewButtons(); postToMap({type:'dispatcher:focusBus', bus:currentBus}); };
+$('#viewRoute').onclick=()=>{ if(!routeBounds) return; viewMode='route'; setViewButtons(); postToMap({type:'dispatcher:fitBounds', bounds:routeBounds}); };
+window.addEventListener('message', e=>{
+  if(e.origin!==location.origin || e.source!==$('#map').contentWindow) return;
+  const d=e.data;
+  if(!d || d.source!=='livemap' || d.type!=='livemap:view') return;
+  viewMode=d.mode||null;
+  setViewButtons();
+});
+// Google encoded polyline -> [[west,south],[east,north]]
+function polylineBounds(str){
+  let i=0, lat=0, lng=0, w=180, so=90, ea=-180, no=-90;
+  const next=()=>{ let r=0, sh=0, b; do{ b=str.charCodeAt(i++)-63; r|=(b&31)<<sh; sh+=5; }while(b>=32); return (r&1)?~(r>>1):(r>>1); };
+  while(i<str.length){
+    lat+=next(); lng+=next();
+    const la=lat/1e5, lo=lng/1e5;
+    w=Math.min(w,lo); ea=Math.max(ea,lo); so=Math.min(so,la); no=Math.max(no,la);
+  }
+  return ea>=w ? [[w,so],[ea,no]] : null;
+}
+async function loadRouteColor(){
   try{
     const data=await j(`/v1/routes/${currentRoute}/shape`);
-    if(data && data.polyline){
-      routeColor = data.color ? (data.color.startsWith('#') ? data.color : `#${data.color}`) : '#E57200';
+    if(data && data.color){
+      routeColor = data.color.startsWith('#') ? data.color : `#${data.color}`;
       setRoutePillColor(routeColor);
-      const pts=polyline.decode(data.polyline);
-      routeLayer=L.polyline(pts,{color:routeColor,weight:5}).addTo(map);
-      map.fitBounds(routeLayer.getBounds());
     }
+    if(data && data.polyline){ routeBounds=polylineBounds(data.polyline); setViewButtons(); }
   }catch(e){console.error('route load',e);}
 }
+// Over-height alarm: watch this unit's own position.
 async function updateBuses(){
-  if(!map) return;
+  if(!currentBus) return;
   try{
     const data=await j(`/v1/routes/${currentRoute}/vehicles_raw`);
-    const active=new Set();
     let nearBridge=false, nearOther=false;
     (data.vehicles||[]).forEach(v=>{
-      const id=v.id;
-      const pos=[v.lat,v.lon];
-      const isMoving = v.ground_mps > 0;
-      const heading = v.heading || 0;
-      const busName = v.name;
-      active.add(id);
-        if(busName===currentBus){
-          for(const c of lowClearances){
-            const dist=L.latLng(pos).distanceTo([c.lat,c.lon]);
-            if(dist<=LOW_CLEARANCE_RADIUS){ nearOther=true; break; }
-          }
-          const distBridge=L.latLng(pos).distanceTo([BRIDGE_LAT,BRIDGE_LON]);
-          if(distBridge<=BRIDGE_RADIUS){ nearBridge=true; }
-        }
-        const color = routeColor;
-        const contrast = getContrastColor(color);
-        const svgIcon = `<svg width="40" height="80" viewBox="0 0 40 80" xmlns="http://www.w3.org/2000/svg"><g><circle cx="20" cy="20" r="15" fill="${color}" stroke="white" stroke-width="3" />${isMoving ? `<line x1="20" y1="10" x2="20" y2="22" stroke="${contrast}" stroke-width="4" stroke-linecap="round" style="transform: rotate(${heading + 180}deg); transform-origin: 20px 20px" /><polygon points="15,22 25,22 20,30" fill="${contrast}" style="transform: rotate(${heading + 180}deg); transform-origin: 20px 20px" />` : `<rect x="14" y="14" width="12" height="12" fill="${contrast}" />`}</g></svg>`;
-        const busIcon = L.divIcon({html: svgIcon, className:'', iconSize:[40,40], iconAnchor:[20,20]});
-        if(markers[id]){ animateMarkerTo(markers[id], pos); markers[id].setIcon(busIcon); }
-        else { markers[id]=L.marker(pos,{icon:busIcon}).addTo(map); }
-        const bubbleWidth = Math.max(40, busName.length * 10);
-        const nameBubble = `<svg width="${bubbleWidth}" height="30" viewBox="0 0 ${bubbleWidth} 30" xmlns="http://www.w3.org/2000/svg"><g><rect x="0" y="5" width="${bubbleWidth}" height="20" rx="10" ry="10" fill="${color}" stroke="white" stroke-width="3" /><text x="${bubbleWidth/2}" y="20" font-size="14" font-weight="bold" text-anchor="middle" fill="${contrast}" font-family="FGDC">${busName}</text></g></svg>`;
-        const nameIcon = L.divIcon({html:nameBubble, className:'', iconSize:[bubbleWidth,30], iconAnchor:[bubbleWidth/2,40]});
-        if(nameMarkers[id]){ animateMarkerTo(nameMarkers[id], pos); nameMarkers[id].setIcon(nameIcon); }
-        else { nameMarkers[id]=L.marker(pos,{icon:nameIcon,interactive:false}).addTo(map); }
+      if(String(v.name)!==String(currentBus)) return;
+      for(const c of lowClearances){
+        if(distM(v.lat,v.lon,c.lat,c.lon)<=LOW_CLEARANCE_RADIUS){ nearOther=true; break; }
+      }
+      if(distM(v.lat,v.lon,BRIDGE_LAT,BRIDGE_LON)<=BRIDGE_RADIUS){ nearBridge=true; }
     });
     const overheight=OVERHEIGHT_BUSES.includes(String(currentBus));
     if(overheight && (nearBridge || nearOther)){ updateBridgeWarning(true, nearBridge); }
     else{ updateBridgeWarning(false); }
-    Object.keys(markers).forEach(id=>{
-      if(!active.has(Number(id))){
-        map.removeLayer(markers[id]); delete markers[id];
-        if(nameMarkers[id]){ map.removeLayer(nameMarkers[id]); delete nameMarkers[id]; }
-      }
-    });
   }catch(e){console.error('bus load',e);}
 }
 $('#go').onclick = ()=>{
@@ -434,6 +437,7 @@ $('#end').onclick = ()=>{
 $('#theme').onclick = ()=>{
   const light=document.body.classList.toggle('light');
   $('#theme').textContent=light?'Dark Mode':'Light Mode';
+  if(currentBus) $('#map').src=mapUrl();
 };
 document.addEventListener('DOMContentLoaded', async ()=>{
   try{
@@ -464,23 +468,6 @@ function getContrastColor(hexColor){
   return luminance > 0.565 ? 'black':'white';
 }
 
-function animateMarkerTo(marker, newPosition){
-  const startPos = marker.getLatLng();
-  const endPos = L.latLng(newPosition);
-  const duration = 1000;
-  const startTime = performance.now();
-  function animate(time){
-    const elapsed = time - startTime;
-    const t = Math.min(elapsed / duration, 1);
-    const currentPos = L.latLng(
-      startPos.lat + t * (endPos.lat - startPos.lat),
-      startPos.lng + t * (endPos.lng - startPos.lng)
-    );
-    marker.setLatLng(currentPos);
-    if(t < 1) requestAnimationFrame(animate);
-  }
-  requestAnimationFrame(animate);
-}
 </script>
 <script src="/scripts/push-notifications.js" defer></script>
 </body>
