@@ -52,8 +52,9 @@ Checked against the entries below on 2026-10-06. Everything not listed here is b
 - **Branch `claude/late-dwell`:** unmerged prototype (see §3). Keep or delete is the user's call.
 - **Orange weekday holds after the block fix (v2114, 10-19):** the first weekday health runs should show Orange no worse; the old data held a few-min-late daytime bus ~5 min for a 2023 slot (late side). Read Orange in Tue 10-20's runs.
 
-### 2026-11-02 · [home] · `/driver`: full screen on Start + Full Screen button (DEPLOYING)
+### 2026-11-02 · [home] · `/driver`: full screen on Start + Full Screen button (`f3d9d23`, DEPLOYED v2145)
 - User asked for full screen without installing the app. Fullscreen API (`requestFullscreen({navigationUI:'hide'})`, webkit-prefixed fallback for iPad Safari) entered from the Start tap (it needs a user gesture), left on End; a Full Screen / Exit Full Screen button next to Light Mode gets back in after a swipe/Esc. Hidden where unsupported (iPhone).
+- ↳ checked on prod in Chrome via the extension: button shows, Start still works and takes the wake lock, but full screen was refused both from Start and the button ("TypeError: not granted"; with no tap at all Chrome says "Permissions check failed" instead, so the click did count, and prod sends no Permissions-Policy header). Most likely the automated browser refusing it, not the page. NOT YET SEEN WORKING: try Start on a real tablet.
 
 ### 2026-11-02 · [home] · `/driver`: keeps the screen awake, no nav bar (`b469ee0`, DEPLOYED v2143; checked on prod: lock taken on Start, released on End)
 - User asked. Screen Wake Lock (`navigator.wakeLock.request('screen')`) taken on Start, released on End, re-taken on `visibilitychange` (the browser drops it whenever the page is hidden). Chrome/Edge, Safari 16.4+, https only; elsewhere nothing happens. `/nav-bar.js` no longer loaded on `/driver` (still in the sitemap and other pages' nav).
