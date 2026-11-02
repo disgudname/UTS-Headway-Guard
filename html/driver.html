@@ -10,7 +10,6 @@
 <meta charset="utf-8" />
 <title>Driver - UVATransit Operations Dashboard</title>
 <meta name="viewport" content="width=device-width, initial-scale=1" />
-<script defer src="/nav-bar.js"></script>
 <link rel="preload" href="FGDC.ttf" as="font" type="font/ttf" crossorigin />
 <style>
   @font-face{font-family:'FGDC';src:url('FGDC.ttf') format('truetype');font-weight:normal;font-style:normal;}
@@ -434,12 +433,28 @@ async function updateBuses(){
     else{ updateBridgeWarning(false); }
   }catch(e){console.error('bus load',e);}
 }
+// Keep the screen on while a session runs (Screen Wake Lock: Chrome, Edge,
+// Safari 16.4+, https only). The browser drops the lock whenever the page is
+// hidden, so take it again when the page comes back.
+let wakeLock=null;
+async function keepAwake(){
+  if(!currentBus || !('wakeLock' in navigator) || document.visibilityState!=='visible') return;
+  if(wakeLock && !wakeLock.released) return;
+  try{ wakeLock=await navigator.wakeLock.request('screen'); }
+  catch(e){ console.warn('wake lock', e); }
+}
+function letSleep(){
+  if(wakeLock){ wakeLock.release().catch(()=>{}); wakeLock=null; }
+}
+document.addEventListener('visibilitychange', keepAwake);
 $('#go').onclick = ()=>{
   currentBus = $('#bus').value;
+  keepAwake();
   showSession(currentBus);
 };
 $('#end').onclick = ()=>{
   currentBus=""; currentRoute=0;
+  letSleep();
   $('#instruction').className='';
   $('#instruction').textContent='';
   $('#details').innerHTML='';

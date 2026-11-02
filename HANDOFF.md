@@ -52,6 +52,9 @@ Checked against the entries below on 2026-10-06. Everything not listed here is b
 - **Branch `claude/late-dwell`:** unmerged prototype (see §3). Keep or delete is the user's call.
 - **Orange weekday holds after the block fix (v2114, 10-19):** the first weekday health runs should show Orange no worse; the old data held a few-min-late daytime bus ~5 min for a 2023 slot (late side). Read Orange in Tue 10-20's runs.
 
+### 2026-11-02 · [home] · `/driver`: keeps the screen awake, no nav bar (DEPLOYING)
+- User asked. Screen Wake Lock (`navigator.wakeLock.request('screen')`) taken on Start, released on End, re-taken on `visibilitychange` (the browser drops it whenever the page is hidden). Chrome/Edge, Safari 16.4+, https only; elsewhere nothing happens. `/nav-bar.js` no longer loaded on `/driver` (still in the sitemap and other pages' nav).
+
 ### 2026-11-02 · [home] · `/driver`: route comes from the bus, map shows only that route (`458ae1e` v2141, gesture fix `bad55eb` v2142, DEPLOYED)
 - User: TransLoc gives no anti-bunching guidance to a bus it hasn't put on a route, so drop the route picker and use the bus's route; and the map is too cluttered, show only the bus's route.
 - `/driver` setup is unit-only. Every 4 s it reads `/v1/testmap/transloc/vehicles` (every bus incl. route 0) for this unit's RouteID; a change updates the pill, the anti-bunching lookup and the map (`dispatcher:showRoutes`, re-fit if Whole route is on). Route 0 / not in the feed = "Not on a route" and a plain message instead of guidance. The over-height alarm now runs off that feed too, so it also fires off route (it used to read only the selected route's `vehicles_raw`).
