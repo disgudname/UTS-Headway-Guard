@@ -43,7 +43,7 @@
   #overheight{background:var(--bad);color:#000;text-align:center;padding:8px;font-weight:700;display:none;font-size:20px;}
   #info{padding:12px;flex:1;display:flex;flex-direction:column;align-items:center;text-align:center;}
   #info .out{margin-top:0;border-top:none;padding-top:0;flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;width:100%;}
-  #instruction{width:100%;height:120px;border-radius:12px;display:flex;align-items:center;justify-content:center;font-size:48px;font-weight:700;margin-bottom:12px;background:var(--panel);border:1px solid var(--line);}
+  #instruction{width:100%;height:120px;border-radius:12px;display:flex;flex-direction:column;align-items:center;justify-content:center;line-height:1.1;text-align:center;font-size:48px;font-weight:700;margin-bottom:12px;background:var(--panel);border:1px solid var(--line);}
   #instruction.green{background:var(--ok);color:#000;}
   #instruction.yellow{background:var(--warn);color:#000;}
   #instruction.red{background:var(--bad);color:#000;}
@@ -299,9 +299,9 @@ async function tick(){
     const severityLabel=severity==='red'?'HOLD':(severity==='yellow'?'Slow Down':'OK');
     box.className=cls;
     if(adjustment!=null && adjustment>0){
-      box.innerHTML=`HOLD<br><span style="font-size:32px">${fmt(adjustment)}</span>`;
+      box.innerHTML=`HOLD<span style="font-size:32px">${fmt(adjustment)}</span>`;
     }else if(adjustment!=null && adjustment<0){
-      box.innerHTML=`Proceed<br><span style="font-size:32px">${fmt(adjustment)}</span>`;
+      box.innerHTML=`Proceed<span style="font-size:32px">${fmt(adjustment)}</span>`;
     }else{
       box.textContent=severityLabel;
     }

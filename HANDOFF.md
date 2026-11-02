@@ -54,6 +54,7 @@ Checked against the entries below on 2026-10-06. Everything not listed here is b
 
 ### 2026-11-02 · [home] · `/driver`: keeps the screen awake, no nav bar (`b469ee0`, DEPLOYED v2143; checked on prod: lock taken on Start, released on End)
 - User asked. Screen Wake Lock (`navigator.wakeLock.request('screen')`) taken on Start, released on End, re-taken on `visibilitychange` (the browser drops it whenever the page is hidden). Chrome/Edge, Safari 16.4+, https only; elsewhere nothing happens. `/nav-bar.js` no longer loaded on `/driver` (still in the sitemap and other pages' nav).
+- ↳ also fixed an old layout bug: the guidance box showed "HOLD03:36" on one line (`#instruction` is a flex row, so its `<br>` did nothing). Now a flex column: HOLD / Proceed above the time.
 
 ### 2026-11-02 · [home] · `/driver`: route comes from the bus, map shows only that route (`458ae1e` v2141, gesture fix `bad55eb` v2142, DEPLOYED)
 - User: TransLoc gives no anti-bunching guidance to a bus it hasn't put on a route, so drop the route picker and use the bus's route; and the map is too cluttered, show only the bus's route.
