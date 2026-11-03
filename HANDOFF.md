@@ -52,6 +52,11 @@ Checked against the entries below on 2026-10-06. Everything not listed here is b
 - **Branch `claude/late-dwell`:** unmerged prototype (see §3). Keep or delete is the user's call.
 - **Orange weekday holds after the block fix (v2114, 10-19):** the first weekday health runs should show Orange no worse; the old data held a few-min-late daytime bus ~5 min for a 2023 slot (late side). Read Orange in Tue 10-20's runs.
 
+### 2026-11-03 · [home] · 01:30 Night Pilot run (Mon night): median -111 s = one slow driver, not the engine
+- User: "look into the 0200 run, something seems very off". Only [03] (bus 14232, vehicle 24) ran. Late >2 min 0.2%, so riders were never shown a bus that had already gone; the bus came ~2-5 min AFTER our far-out ETAs, close-in (<2 min) fine. TransLoc was 56% >2 min late in the same run.
+- The bus drove the lap ~2.5 min slower than the night before (742->743 156 s vs 115, 743->Shannon 105 vs 60, 732->733 120 vs 84, 733->734 145 vs 101), got to Shannon 01:42:52 for its 01:40 LIB slot, so no hold soaked the slack up. 11-02 night's bus reached Shannon 01:33, held to 01:40, and scored -30 s.
+- Not new: 10-09 -134, 10-10 -158, 10-14 -139, 10-16 -107, 10-17 -96 s, across different buses, so it is the driver's pace night to night. No code changed.
+
 ### 2026-11-02 · [home] · `/driver`: full screen on Start + Full Screen button (`f3d9d23`, DEPLOYED v2145)
 - User asked for full screen without installing the app. Fullscreen API (`requestFullscreen({navigationUI:'hide'})`, webkit-prefixed fallback for iPad Safari) entered from the Start tap (it needs a user gesture), left on End; a Full Screen / Exit Full Screen button next to Light Mode gets back in after a swipe/Esc. Hidden where unsupported (iPhone).
 - ↳ checked on prod in Chrome via the extension: button shows, Start still works and takes the wake lock, but full screen was refused both from Start and the button ("TypeError: not granted"; with no tap at all Chrome says "Permissions check failed" instead, so the click did count, and prod sends no Permissions-Policy header). Most likely the automated browser refusing it, not the page. NOT YET SEEN WORKING: try Start on a real tablet.
