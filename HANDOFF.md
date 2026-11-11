@@ -52,6 +52,9 @@ Checked against the entries below on 2026-10-06. Everything not listed here is b
 - **Branch `claude/late-dwell`:** unmerged prototype (see §3). Keep or delete is the user's call.
 - **Orange weekday holds after the block fix (v2114, 10-19):** the first weekday health runs should show Orange no worse; the old data held a few-min-late daytime bus ~5 min for a 2023 slot (late side). Read Orange in Tue 10-20's runs.
 
+### 2026-11-11 · [home] · W2W renamed the OnDemand positions: "Ride Driver", "Ride EB", "Ride Dispatch"
+- User reported the rename. `w2w_schedule.canonical_position()` (`POSITION_ALIASES`) folds the new names back onto "OnDemand Driver" / "OnDemand EB" / "OnDemand Dispatch", so every consumer that keys on the old names (block-drivers / vehicle-drivers, `/v1/uts/on_duty` dispatchers, `/busdispatch` duty roster, vandispatch2, `/ob` board) keeps working. Applied in `_extract_block_from_position_name`, the on_duty position match and `OB_SIDES`; `/ob` got labels for the raw new names (it shows raw positions). Old names still work (logs from before the rename). FlexRide positions unchanged. Tests added; not yet checked against a live W2W pull with the new names.
+
 ### 2026-11-03 · [home] · 01:30 Night Pilot run (Mon night): median -111 s = one slow driver, not the engine
 - User: "look into the 0200 run, something seems very off". Only [03] (bus 14232, vehicle 24) ran. Late >2 min 0.2%, so riders were never shown a bus that had already gone; the bus came ~2-5 min AFTER our far-out ETAs, close-in (<2 min) fine. TransLoc was 56% >2 min late in the same run.
 - The bus drove the lap ~2.5 min slower than the night before (742->743 156 s vs 115, 743->Shannon 105 vs 60, 732->733 120 vs 84, 733->734 145 vs 101), got to Shannon 01:42:52 for its 01:40 LIB slot, so no hold soaked the slack up. 11-02 night's bus reached Shannon 01:33, held to 01:40, and scored -30 s.

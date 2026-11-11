@@ -603,3 +603,11 @@ def test_an_untrusted_export_day_keeps_its_open_shifts_instead_of_logging_deleti
     assert log.apply_shifts([], [], DAYS, {"2026-09-03", "2026-09-05"}, now=POLL) == 0
     # ... and when the export is right again and the shift really is gone, it is logged
     assert log.apply_shifts([], [], DAYS, set(DAYS), now=POLL) == 1 and log.history()[0]["changes"] == ["Shift Deleted"]
+
+
+def test_ride_renamed_positions_count_as_ondemand_on_the_ob_board():
+    from w2w_schedule import OB_SIDES, canonical_position
+    groups = dict(OB_SIDES[1][2])
+    assert groups["driver"]("Ride Driver") and groups["driver"]("Ride EB") and groups["driver"]("OnDemand Driver")
+    assert groups["staff"]("Ride Dispatch") and not groups["staff"]("Ride Driver")
+    assert canonical_position("FlexRide Driver") == "FlexRide Driver"

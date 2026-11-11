@@ -53,7 +53,18 @@ MIN_KEEP_FRACTION = 0.5
 COMPARED_FIELDS = ("employee", "position", "start", "end", "note")
 _BUS_BLOCK_RE = re.compile(r"\d{2}")
 _BRACKETED_RE = re.compile(r"\[([^\]]+)\]")
-# /ob board: (side, service-day rollover, [(group, position matcher)]). Positions are W2W's exact names.
+# W2W renamed the OnDemand positions in 2026-11 ("Ride Driver", "Ride EB", "Ride Dispatch"). Everything downstream keys on the
+# old names, so new names map onto them; logs from before the rename keep the old ones, which still work unchanged.
+POSITION_ALIASES = {"Ride Driver": "OnDemand Driver", "Ride EB": "OnDemand EB", "Ride Dispatch": "OnDemand Dispatch"}
+
+
+def canonical_position(name: str) -> str:
+    """A W2W position name with the 2026-11 OnDemand renames folded back to the old names."""
+    name = (name or "").strip()
+    return POSITION_ALIASES.get(name, name)
+
+
+# /ob board: (side, service-day rollover, [(group, position matcher)]). Positions are W2W's exact names (canonical_position).
 OB_SIDES = (
     ("bus", time(2, 30), [
         ("block", lambda p: bool(_BUS_BLOCK_RE.fullmatch(p))),
@@ -61,8 +72,8 @@ OB_SIDES = (
         ("staff", lambda p: p in ("Sup", "FlexRide Dispatch")),
     ]),
     ("ondemand", time(5, 30), [
-        ("driver", lambda p: p in ("OnDemand Driver", "OnDemand EB", "FlexRide Driver", "FlexRide EB")),
-        ("staff", lambda p: p == "OnDemand Dispatch"),
+        ("driver", lambda p: canonical_position(p) in ("OnDemand Driver", "OnDemand EB", "FlexRide Driver", "FlexRide EB")),
+        ("staff", lambda p: canonical_position(p) == "OnDemand Dispatch"),
     ]),
 )
 _BS_N = "\\" + "n"

@@ -500,6 +500,13 @@ class TestExtractBlockFromPositionName(unittest.TestCase):
         self.assertEqual(block, "OnDemand EB")
         self.assertEqual(period, "any")
 
+    def test_ride_renamed_positions(self):
+        """W2W's 2026-11 names map onto the OnDemand keys; FlexRide is untouched."""
+        self.assertEqual(_extract_block_from_position_name("Ride Driver"), ("OnDemand Driver", "any"))
+        self.assertEqual(_extract_block_from_position_name("Ride EB"), ("OnDemand EB", "any"))
+        self.assertEqual(_extract_block_from_position_name("Ride Dispatch")[0], "OnDemand Dispatch")
+        self.assertEqual(_extract_block_from_position_name("FlexRide Driver")[0], "FlexRide Driver")
+
     def test_ondemand_case_insensitive(self):
         """Test that OnDemand matching is case-insensitive."""
         block, period = _extract_block_from_position_name("ondemand driver")

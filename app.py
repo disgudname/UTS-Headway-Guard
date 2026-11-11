@@ -39,7 +39,7 @@ from Crypto.Cipher import AES
 from Crypto.Util.Padding import unpad
 from headway_storage import HeadwayStorage, parse_iso8601_utc, _isoformat as _headway_isoformat
 from fullbus_storage import FullBusStorage
-from w2w_schedule import W2WScheduleLog
+from w2w_schedule import W2WScheduleLog, canonical_position
 from slides_mirror import SlidesMirror
 from service_schedule import ServiceSchedule, fetch_tables as fetch_service_schedule_tables
 import service_levels
@@ -7855,7 +7855,8 @@ def _normalize_plain_block_name(text: str) -> Optional[str]:
 def _extract_block_from_position_name(value: Any) -> Tuple[Optional[str], str]:
     if value is None:
         return None, ""
-    text = str(value)
+    # "Ride Driver" / "Ride EB" / "Ride Dispatch" (W2W's names since 2026-11) -> the OnDemand keys everything uses
+    text = canonical_position(str(value))
 
     # Check for OnDemand positions
     text_lower = text.lower().strip()
@@ -13712,7 +13713,7 @@ async def _fetch_on_duty_personnel() -> Dict[str, Any]:
         for shift in list(shifts) + open_rows:
             if not isinstance(shift, dict):
                 continue
-            position_name = shift.get("POSITION_NAME", "")
+            position_name = canonical_position(shift.get("POSITION_NAME", ""))
             if not position_name:
                 continue
 
