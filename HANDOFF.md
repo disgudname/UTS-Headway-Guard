@@ -52,7 +52,7 @@ Checked against the entries below on 2026-10-06. Everything not listed here is b
 - **Branch `claude/late-dwell`:** unmerged prototype (see §3). Keep or delete is the user's call.
 - **Orange weekday holds after the block fix (v2114, 10-19):** the first weekday health runs should show Orange no worse; the old data held a few-min-late daytime bus ~5 min for a 2023 slot (late side). Read Orange in Tue 10-20's runs.
 
-### 2026-11-11 · [home] · W2W renamed the OnDemand positions: "Ride Driver", "Ride EB", "Ride Dispatch"
+### 2026-11-11 · [home] · W2W renamed the OnDemand positions: "Ride Driver", "Ride EB", "Ride Dispatch" (`641b96e`, DEPLOYED v2146)
 - User reported the rename. `w2w_schedule.canonical_position()` (`POSITION_ALIASES`) folds the new names back onto "OnDemand Driver" / "OnDemand EB" / "OnDemand Dispatch", so every consumer that keys on the old names (block-drivers / vehicle-drivers, `/v1/uts/on_duty` dispatchers, `/busdispatch` duty roster, vandispatch2, `/ob` board) keeps working. Applied in `_extract_block_from_position_name`, the on_duty position match and `OB_SIDES`; `/ob` got labels for the raw new names (it shows raw positions). Old names still work (logs from before the rename). FlexRide positions unchanged. Tests added; not yet checked against a live W2W pull with the new names.
 
 ### 2026-11-03 · [home] · 01:30 Night Pilot run (Mon night): median -111 s = one slow driver, not the engine
