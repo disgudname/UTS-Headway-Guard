@@ -54,7 +54,7 @@ def lines_from(log):
     return out
 
 
-def replay(polls, lines, ec_lines, drive, dwell, use_release):
+def replay(polls, lines, ec_lines, drive, dwell, use_release, use_gap=False, gap_rules=None):
     tracks = {}
     for p in polls:
         for veh, route, lat, lon, _ in p["veh"]:
@@ -63,6 +63,7 @@ def replay(polls, lines, ec_lines, drive, dwell, use_release):
     unwrapped = ec.build_unwrapped(tracks, ec_lines)
     ema, zones, out = {}, {}, []
     released = set()
+    gap_state = {}
     for p in polls:
         now = p["t"]
         buses = []
@@ -86,21 +87,25 @@ def replay(polls, lines, ec_lines, drive, dwell, use_release):
                 zones[(veh, route)] = (at, since, now)
             base_dwell = bus_eta.elapsed_dwell_fn(dwell.lookup, at, now - since, now)
 
-            def eta(stop, release, _l=line, _s=s_pos, _e=e, _lat=lat, _lon=lon, _d=base_dwell):
+            def eta(stop, release, gap=None, _l=line, _s=s_pos, _e=e, _lat=lat, _lon=lon, _d=base_dwell):
                 d = _d if release is None else bus_eta.release_dwell_fn(_d, release[0], release[1], now)
+                if gap is not None:
+                    d = bus_eta.held_until_dwell_fn(d, gap[0], gap[1], now)
                 r = bus_eta.estimate_stop_eta_s(_l, _s, _e, stop, drive.lookup, now, dwell_fn=d,
                                                 vehicle_lat=_lat, vehicle_lon=_lon, vehicle_dir_sign=1)
                 return None if r is None else r.seconds
 
             buses.append((route, purple_release.Bus(vid=veh, stops=line.stops, at_stop_id=at, since=since, eta=eta)))
         releases = purple_release.release_epochs([b for _, b in buses], now) if use_release else {}
-        released |= {(now, vid) for vid in releases}
+        gaps = purple_release.gap_holds([b for _, b in buses], now, rules=gap_rules, releases=releases,
+                                        state=gap_state) if use_gap else {}
+        released |= {(now, vid) for vid in set(releases) | set(gaps)}
         rows = []
         for route, bus in buses:
             for stop in lines[route].stops:
                 if stop.arc_pos is None:
                     continue
-                sec = bus.eta(stop, releases.get(bus.vid))
+                sec = bus.eta(stop, releases.get(bus.vid), gaps.get(bus.vid))
                 if sec is not None:
                     rows.append([route, stop.id, bus.vid, round(sec, 1), "replay"])
         out.append({"t": now, "veh": p["veh"], "ours": rows, "tl": p["tl"]})
@@ -123,11 +128,18 @@ def main():
         purple_release._rules_cache = [purple_release.Rule(r.stage, r.trigger, r.first_hour, r.last_hour, r.offset_s + shift)
                                        for r in purple_release.load_rules()]
         print(f"rule lags shifted {shift:+.0f} s", flush=True)
+    gap_rules = None  # config/purple_release.json's gap_rules, or one Fontaine rule from the environment (tuning)
+    if os.environ.get("PURPLE_GAP_S"):
+        gap_rules = [purple_release.GapRule("Fontaine", 0, 23, float(os.environ["PURPLE_GAP_S"]),
+                                            float(os.environ.get("PURPLE_GAP_MIN_S", "60")),
+                                            int(os.environ.get("PURPLE_GAP_CAPACITY", "2")))]
+        print(f"gap rule {gap_rules[0]}", flush=True)
     cutoff = datetime.fromisoformat(cutoff_s).replace(tzinfo=NY)
     print(f"building history from events before {cutoff} ...", flush=True)
     drive, dwell = build_models(headway_dir, cutoff)
-    scored = {"live": [], "base": [], "release": []}
-    touched = {"live": [], "base": [], "release": []}
+    scored = {"live": [], "base": [], "release": [], "gap": []}
+    touched = {"live": [], "base": [], "release": [], "gap": []}
+    gap_touched = {"live": [], "base": [], "release": [], "gap": []}
     for path in logs:
         polls = [json.loads(line) for line in open(path, encoding="utf-8") if line.strip()]
         lines = lines_from(path)
@@ -137,21 +149,26 @@ def main():
         ec_stops = {k: v for k, v in _ec_stops.items() if k[0] in lines}
         base, _ = replay(polls, lines, ec_lines, drive, dwell, False)
         rel, n_rel = replay(polls, lines, ec_lines, drive, dwell, True)
+        gap, n_gap = replay(polls, lines, ec_lines, drive, dwell, True, True, gap_rules)
+        n_gap = n_gap - n_rel
         per = {
             "live": {(r["t"], r["key"]): r for r in ec.score_rows(polls, ec_stops, ec_lines)},
             "base": {(r["t"], r["key"]): r for r in ec.score_rows(base, ec_stops, ec_lines)},
             "release": {(r["t"], r["key"]): r for r in ec.score_rows(rel, ec_stops, ec_lines)},
+            "gap": {(r["t"], r["key"]): r for r in ec.score_rows(gap, ec_stops, ec_lines)},
         }
         kept = 0
         for k, row in per["base"].items():
-            if k in per["release"] and k in per["live"] and row["ours"] is not None and per["release"][k]["ours"] is not None \
-                    and per["live"][k]["ours"] is not None:
+            if all(k in per[n] and per[n][k]["ours"] is not None for n in per):
                 kept += 1
                 for n in scored:
                     scored[n].append(dict(per[n][k], log=Path(path).name, remaining=row["remaining"]))
                 if (k[0], k[1][2]) in n_rel:
                     for n in touched:
                         touched[n].append(dict(per[n][k], log=Path(path).name, remaining=row["remaining"]))
+                if (k[0], k[1][2]) in n_gap:
+                    for n in gap_touched:
+                        gap_touched[n].append(dict(per[n][k], log=Path(path).name, remaining=row["remaining"]))
         print(f"  {Path(path).name}: {kept} rows, {len(n_rel)} bus-polls released", flush=True)
 
     def block(title, by):
@@ -161,6 +178,7 @@ def main():
 
     block("all Purple predictions", scored)
     block("predictions from a bus the rule released (staged at Lower JPA / Lane)", touched)
+    block("predictions from a bus the Fontaine spacing rule held (sitting there or on its way)", gap_touched)
     for lo, hi, label in ec.BUCKETS:
         block(f"released, {label}", {n: [r for r in rows if lo <= r["remaining"] < hi] for n, rows in touched.items()})
     for lo, hi, label in ec.BUCKETS:

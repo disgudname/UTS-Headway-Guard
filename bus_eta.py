@@ -570,6 +570,21 @@ def release_dwell_fn(
     return fn
 
 
+def held_until_dwell_fn(
+    dwell_fn: Callable[[str, str, float], float], stop_id: str, leave_epoch: float, now: float,
+    horizon_s: float = 15 * 60.0,
+) -> Callable[[str, str, float], float]:
+    """dwell_fn, but a bus reaching `stop_id` within horizon_s (or sitting there) leaves at leave_epoch
+    (Purple's Fontaine spacing hold, purple_release.gap_holds), never sooner than a normal stop's
+    dwell after it arrives. A visit beyond horizon_s (a lap later) gets its normal dwell."""
+    def fn(route_id: str, s_id: str, when: float) -> float:
+        if str(s_id) == stop_id and when - now <= horizon_s:
+            return max(TYPICAL_DWELL_S, leave_epoch - when)
+        return dwell_fn(route_id, s_id, when)
+
+    return fn
+
+
 def estimate_stop_eta_s(
     line: Line,
     vehicle_s_pos: float,

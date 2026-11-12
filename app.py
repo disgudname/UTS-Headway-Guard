@@ -17465,7 +17465,8 @@ BUS_ETA_DWELL_MODE_ROUTE_PREFIXES = tuple(
 _bus_eta_stop_zone: Dict[str, Tuple[str, float, float]] = {}
 _BUS_ETA_STOP_ZONE_MAX_GAP_S = 90.0
 # Purple anti-bunching release (purple_release.py): a bus staged at Lower JPA / Lane leaves when the bus ahead
-# reaches Fontaine / Lee St. PURPLE_RELEASE=0 turns it off (back to the dwell history alone).
+# reaches Fontaine / Lee St, and a bus at or heading to Fontaine leaves a set gap behind the bus ahead
+# (purple_release.gap_holds). PURPLE_RELEASE=0 turns both off (back to the dwell history alone).
 PURPLE_RELEASE_ENABLED = os.getenv("PURPLE_RELEASE", "1").strip().lower() not in ("0", "false", "no", "off")
 
 
@@ -17586,6 +17587,17 @@ async def _compute_bus_eta_arrivals() -> Dict[str, Any]:
                     hop, dwell = dwell_mode_ctx[(route_id, b.vid)]
                     stop_id, release_epoch = releases[b.vid]
                     dwell_mode_ctx[(route_id, b.vid)] = (hop, bus_eta.release_dwell_fn(dwell, stop_id, release_epoch, when_ts))
+            # Fontaine spacing hold: a bus there, or on its way, leaves a set gap after the bus ahead left.
+            try:
+                gaps = purple_release.gap_holds([b for _, b in release_buses], when_ts, releases=releases)
+            except Exception as exc:
+                print(f"[bus-eta] purple gap hold skipped: {exc}")
+                gaps = {}
+            for route_id, b in release_buses:
+                if b.vid in gaps:
+                    hop, dwell = dwell_mode_ctx[(route_id, b.vid)]
+                    stop_id, leave_epoch = gaps[b.vid]
+                    dwell_mode_ctx[(route_id, b.vid)] = (hop, bus_eta.held_until_dwell_fn(dwell, stop_id, leave_epoch, when_ts))
 
     # "{route_id}|{stop_id}" -> {"RouteId", "RouteStopId", "StopDescription", "Times": [...]}
     out: Dict[str, Dict[str, Any]] = {}
