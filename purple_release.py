@@ -21,19 +21,22 @@ Fontaine PM triggers (only fit 12-14 min ahead, too far to predict the bus ahead
 
 Fontaine (Ray C. Hunt Dr @ 400 Fontaine Bldg) is a spacing hold, not a trigger-stop one (`gap_rules`,
 `gap_holds`): a bus leaves there at the later of arrival + min_dwell_s and gap_s after the bus ahead
-left, and since only two buses fit, the first goes about cap_lag_s after a third pulls in. Measured
+left, and since only two buses fit, the first goes about -cap_lag_s before a third pulls in. Measured
 over seven weekday prod logs 11-04..11-11 (168 visits): a bus arriving with the bus ahead still there
 sat a median 5.8 min, one arriving 3+ min after it left about 1 min (correlation -0.66); held buses
 left a median 270 s behind the bus ahead (240 s 14-16h, 345-375 s mornings). The history's flat
 ~3 min was off a median 117 s; the rule 55-60 s. This applies to buses on their way to Fontaine
 too (within GAP_HORIZON_S), not only to the one sitting there, because most of Purple's misses were
 predictions through the Fontaine hold from a bus still driving toward it. Two buses fill the stop
-(user, 2026-11-12); a third pulling in pushed the first out ~30 s later on all 3 occasions logged.
+(user, 2026-11-12): the first usually goes a minute or two BEFORE a third pulls in. In the logs,
+with a second bus already there, the first left a median 73-86 s before the next one arrived (43
+cases, middle half 19 s-3.5 min before); it was still there when the third arrived only 3 times.
 Replay (scripts/eta_replay_purple.py, history before 10-01), gap_s 210 / min_dwell_s 60: tuned on
 the November logs, Purple >2 min late 12.0 -> 10.8%, median |error| 105 -> 103 s; held out on the
 20 weekday 08:30/12:30/15:00/17:00 logs 10-19..10-23, 10.8 -> 9.8% (on predictions the rule
 touched 10.7 -> 8.6%), median |error| about the same. Larger gaps (240-300 s) cut the |error| more
-in November but put more buses ahead of their ETA.
+in November but put more buses ahead of their ETA. The two-bus cap first had the first bus go 30 s
+AFTER the third arrived; at -75 s (before) the held-out week read 9.5% instead of 9.8%.
 
 The bus ahead is found from our own ETAs: of the other buses that will reach the trigger before
 they next reach the staging stop (they have left it and are on their way), the one furthest from
@@ -69,7 +72,7 @@ class GapRule:
     gap_s: float
     min_dwell_s: float
     capacity: int = 2
-    cap_lag_s: float = 30.0
+    cap_lag_s: float = -75.0
 
 
 @dataclass
@@ -102,7 +105,7 @@ def load_gap_rules(path: Path = CONFIG_PATH) -> List[GapRule]:
         except (OSError, json.JSONDecodeError):
             raw = []
         rules = [GapRule(r["stage"], int(r["hours"][0]), int(r["hours"][1]), float(r["gap_s"]), float(r["min_dwell_s"]),
-                         int(r.get("capacity", 2)), float(r.get("cap_lag_s", 30.0))) for r in raw]
+                         int(r.get("capacity", 2)), float(r.get("cap_lag_s", -75.0))) for r in raw]
         if path != CONFIG_PATH:
             return rules
         _gap_rules_cache = rules
@@ -225,9 +228,10 @@ def gap_holds(buses: List[Bus], now: float, rules: Optional[List[GapRule]] = Non
             continue  # the bus ahead's departure is not known (startup, or a long gap): keep the history
         for k, (arr, bus, stop, sitting) in enumerate(queue):
             dep = max(arr + rule.min_dwell_s, prev + rule.gap_s)
-            # Only `capacity` buses fit: the first one goes once the one `capacity` places behind pulls in.
+            # Only `capacity` buses fit: the first one goes as the one `capacity` places behind comes in
+            # (cap_lag_s < 0: that long before it pulls in).
             j = k + rule.capacity
-            if j < len(queue) and queue[j][0] < dep:
+            if j < len(queue) and queue[j][0] + rule.cap_lag_s < dep:
                 dep = max(arr + 20.0, queue[j][0] + rule.cap_lag_s)
             if sitting:
                 dep = max(dep, now)

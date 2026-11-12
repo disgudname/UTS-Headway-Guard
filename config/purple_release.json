@@ -10,8 +10,8 @@
     {"stage": "West Complex", "trigger": "Fontaine", "hours": [13, 13], "offset_s": 42},
     {"stage": "Lane Rd", "trigger": "Lee St", "hours": [14, 17], "offset_s": 55}
   ],
-  "_gap_comment": "Fontaine spacing hold (purple_release.gap_holds): a bus at or heading to Fontaine leaves at the later of arrival + min_dwell_s and gap_s after the bus ahead left; with `capacity` buses there, the first goes cap_lag_s after the next pulls in. gap_s = the measured 240 s afternoon median minus 30 s (prod logs 11-04..11-11; 180-300 s tried in replay, 210 the only one better on both error and buses-came-early).",
+  "_gap_comment": "Fontaine spacing hold (purple_release.gap_holds): a bus at or heading to Fontaine leaves at the later of arrival + min_dwell_s and gap_s after the bus ahead left; with `capacity` buses there, the first goes -cap_lag_s before the next pulls in (measured median 73-86 s before; user: usually a minute or two). gap_s = the measured 240 s afternoon median minus 30 s (prod logs 11-04..11-11; 180-300 s tried in replay, 210 the only one better on both error and buses-came-early).",
   "gap_rules": [
-    {"stage": "Fontaine", "hours": [6, 19], "gap_s": 210, "min_dwell_s": 60, "capacity": 2, "cap_lag_s": 30}
+    {"stage": "Fontaine", "hours": [6, 19], "gap_s": 210, "min_dwell_s": 60, "capacity": 2, "cap_lag_s": -75}
   ]
 }

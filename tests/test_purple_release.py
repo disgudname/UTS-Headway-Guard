@@ -87,7 +87,7 @@ def test_release_dwell_fn_holds_only_the_current_visit():
 
 
 # --- Fontaine spacing hold (gap_holds) ---
-GAP = [pr.GapRule("Fontaine", 9, 9, 270.0, 60.0, 2, 30.0)]
+GAP = [pr.GapRule("Fontaine", 9, 9, 270.0, 60.0, 2, -75.0)]
 
 
 def fbus(vid, to_fontaine, at=None, since=NOW):
@@ -120,10 +120,17 @@ def test_queue_chains_and_third_bus_pushes_the_first_out():
     seen_leaving(state)
     buses = [fbus("A", 0.0, at="983", since=NOW - 30), fbus("B", 60.0), fbus("C", 120.0), fbus("L", 900.0)]
     out = pr.gap_holds(buses, NOW, GAP, state=state)
-    # A would go at +170, but C pulls in at +120 with A and B there: A goes 30 s later.
-    assert out["A"][1] == NOW + 150.0
-    assert out["B"][1] == NOW + 420.0  # 270 s behind A
-    assert out["C"][1] == NOW + 690.0
+    # A would go at +170, but C is due at +120 with A and B there: A goes 75 s before C pulls in.
+    assert out["A"][1] == NOW + 45.0
+    assert out["B"][1] == NOW + 315.0  # 270 s behind A
+    assert out["C"][1] == NOW + 585.0
+
+
+def test_third_bus_due_after_the_gap_changes_nothing():
+    state = {}
+    seen_leaving(state)
+    buses = [fbus("A", 0.0, at="983", since=NOW - 30), fbus("B", 60.0), fbus("C", 400.0), fbus("L", 900.0)]
+    assert pr.gap_holds(buses, NOW, GAP, state=state)["A"][1] == NOW + 170.0
 
 
 def test_no_hold_until_a_departure_has_been_seen():

@@ -132,7 +132,8 @@ def main():
     if os.environ.get("PURPLE_GAP_S"):
         gap_rules = [purple_release.GapRule("Fontaine", 0, 23, float(os.environ["PURPLE_GAP_S"]),
                                             float(os.environ.get("PURPLE_GAP_MIN_S", "60")),
-                                            int(os.environ.get("PURPLE_GAP_CAPACITY", "2")))]
+                                            int(os.environ.get("PURPLE_GAP_CAPACITY", "2")),
+                                            float(os.environ.get("PURPLE_GAP_CAP_LAG_S", "-75")))]
         print(f"gap rule {gap_rules[0]}", flush=True)
     cutoff = datetime.fromisoformat(cutoff_s).replace(tzinfo=NY)
     print(f"building history from events before {cutoff} ...", flush=True)
